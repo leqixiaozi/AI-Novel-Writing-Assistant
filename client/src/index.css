@@ -995,4 +995,14 @@ body {
   .mobile-chapter-editor-shell > div > .flex > .grid > :nth-child(3) {
     order: 3;
   }
+
+  .mobile-route-book-arrangement .book-arrangement-page {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .mobile-route-book-arrangement .book-arrangement-scroll {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+  }
 }

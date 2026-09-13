@@ -1,0 +1,35 @@
+.book-arrangement-page { width:100%; min-width:0; max-width:100%; padding:24px; }
+.book-arrangement-page h1,.book-arrangement-page h2,.book-arrangement-page h3 { font-weight:400; }
+.ba-layout { display:grid; grid-template-columns:minmax(0,1fr) 310px; gap:24px; align-items:start; }
+.ba-inspector { min-width:0; background:hsl(var(--muted)/.2); padding:16px; }
+.ba-input { display:block; width:100%; min-width:0; border:1px solid hsl(var(--input)); border-radius:6px; background:hsl(var(--background)); padding:7px 9px; font-size:13px; }
+.ba-inline { display:inline-block; width:auto; max-width:100%; }
+.book-arrangement-scroll { width:100%; max-width:100%; min-width:0; overflow-x:auto; overscroll-behavior-x:contain; }
+.ba-matrix { display:grid; grid-template-columns:136px repeat(var(--ba-count),minmax(88px,1fr)); min-width:calc(136px + var(--ba-count)*88px); font-size:12px; }
+.ba-cell,.ba-label { border-bottom:1px solid hsl(var(--border)/.5); min-width:0; padding:10px 7px; overflow-wrap:anywhere; }
+.ba-cell { border-left:1px solid hsl(var(--border)/.3); text-align:center; display:flex; flex-direction:column; justify-content:center; gap:6px; }
+.ba-cell:hover,.ba-curve-cell:hover { background:hsl(var(--muted)/.5); }
+.ba-label { display:flex; align-items:center; gap:6px; background:hsl(var(--muted)/.25); }
+.ba-label small,.ba-cell small { display:block; color:hsl(var(--muted-foreground)); font-size:10px; }
+.ba-head { background:hsl(var(--muted)/.4); min-height:64px; }
+.ba-matrix .is-selected { background:hsl(var(--primary)/.09); box-shadow:inset 1px 0 hsl(var(--primary)/.45),inset -1px 0 hsl(var(--primary)/.45); }
+.ba-group { grid-column:1/-1; text-align:left; padding:8px; background:hsl(var(--muted)/.32); border-bottom:1px solid hsl(var(--border)/.4); }
+.ba-group span { margin-left:12px; color:hsl(var(--muted-foreground)); font-size:11px; }
+.ba-event { display:block; padding:2px 0; }.ba-event i { display:inline-block; width:6px; height:6px; border-radius:50%; background:#3b82f6; margin-right:4px; }
+.ba-scene { background:#ed915d18; color:hsl(var(--foreground)); border-radius:3px; padding:3px; }
+.ba-person-dot { background:hsl(var(--primary)/.1); width:24px; height:24px; display:inline-flex; justify-content:center; align-items:center; border-radius:50%; flex:none; }
+.ba-person-cell { padding-left:0; padding-right:0; min-height:48px; }
+.ba-span { font-size:10px; padding:7px 3px; border-radius:6px; margin:0 3px; }
+.ba-span-must { background:#3b82f62b; color:#2563b0; }.ba-span-suggested { background:#c084fc26; color:#8c4cbd; }.ba-span-indirect { background:#14b8a626; color:#117b70; }.ba-span-forbidden { background:#ef444418; color:#c33b3b; }
+.ba-span-joined-left { margin-left:0; border-top-left-radius:0; border-bottom-left-radius:0; }.ba-span-joined-right { margin-right:0; border-top-right-radius:0; border-bottom-right-radius:0; }
+.ba-track-dot { width:7px; height:7px; border-radius:50%; flex:none; }
+.ba-curve { grid-column:2/-1; display:grid; grid-template-columns:repeat(var(--ba-count),minmax(0,1fr)); position:relative; height:78px; }
+.ba-curve svg { position:absolute; inset:0; width:100%; height:60px; pointer-events:none; }
+.ba-curve-cell { border-left:1px solid hsl(var(--border)/.3); border-bottom:1px solid hsl(var(--border)/.5); padding-top:56px; font-size:10px; min-width:0; }
+.ba-empty-row { grid-column:1/-1; padding:12px; color:hsl(var(--muted-foreground)); }
+.ba-overview { display:flex; width:100%; min-width:0; gap:2px; height:29px; }
+.ba-overview button { min-width:0; flex:1 1 0; background:hsl(var(--muted)); border-radius:2px; }
+.ba-overview button.in-window { background:hsl(var(--primary)/.3); }.ba-overview button.is-selected { background:hsl(var(--primary)); }
+.ba-overview button:focus-visible { outline:2px solid hsl(var(--primary)); outline-offset:2px; }
+@media(max-width:960px) { .ba-layout { grid-template-columns:minmax(0,1fr); }.ba-inspector { display:block; } }
+@media(max-width:640px) { .book-arrangement-page { padding:16px 12px; }.ba-layout { gap:16px; }.ba-inspector { padding:12px; } }

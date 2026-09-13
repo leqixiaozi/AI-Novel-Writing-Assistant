@@ -9,17 +9,20 @@ import { chapterRevision, conflict, CONTROL_DEFINITIONS, controlsSchema, DEFINIT
 
 export class WritingSettingsService {
   constructor(readonly store: AdjustmentStore) {}
-  async get(novelId: string, chapterId?: string): Promise<WritingSettingsResponse> {
+  async get(novelId: string, chapterId?: string, arrangementOverride?: WritingSettingsPayload): Promise<WritingSettingsResponse> {
     await this.store.novel(novelId);
     if (chapterId) await this.store.chapter(novelId, chapterId);
     const scopeKey = chapterId ? `chapter:${chapterId}` : "novel";
-    const rows = await this.store.db.writingSetting.findMany({ where: { novelId, scopeKey: { in: ["novel", scopeKey] } } });
+    const arrangementKey = chapterId ? `arrangement:chapter:${chapterId}` : null;
+    const rows = await this.store.db.writingSetting.findMany({ where: { novelId, scopeKey: { in: ["novel", scopeKey, ...(arrangementKey ? [arrangementKey] : [])] } } });
     const book = parseJson<WritingSettingsPayload>(rows.find(r => r.scopeKey === "novel")?.payloadJson, EMPTY_SETTINGS);
     const ownRow = rows.find(r => r.scopeKey === scopeKey);
     const own = parseJson<WritingSettingsPayload>(ownRow?.payloadJson, EMPTY_SETTINGS);
-    const merged = mergeControls([{ source: "本书", controls: book.enabled ? book.controls : {} }, ...(chapterId ? [{ source: "本章", controls: own.enabled ? own.controls : {} }] : [])]);
+    const arrangement = chapterId ? arrangementOverride ?? parseJson<WritingSettingsPayload>(rows.find(r => r.scopeKey === arrangementKey)?.payloadJson, EMPTY_SETTINGS) : EMPTY_SETTINGS;
+    const layers = [book, arrangement, ...(chapterId ? [own] : [])];
+    const merged = mergeControls([{ source: "本书", controls: book.enabled ? book.controls : {} }, { source: "全书编排", controls: arrangement.enabled ? arrangement.controls : {} }, ...(chapterId ? [{ source: "本章", controls: own.enabled ? own.controls : {} }] : [])]);
     const presets = await this.store.db.writingPreset.findMany({ where: { novelId }, orderBy: { updatedAt: "desc" }, take: 100 });
-    return { revision: ownRow?.revision ?? 0, scopeKey, settings: own, effective: { enabled: book.enabled || own.enabled, controls: merged.controls, preserve: [...new Set([...(book.enabled ? book.preserve : []), ...(own.enabled ? own.preserve : [])])] }, sources: merged.sources, definitions: CONTROL_DEFINITIONS, presets: presets.map(r => ({ id: r.id, name: r.name, revision: r.revision, settings: parseJson(r.payloadJson, EMPTY_SETTINGS) })) };
+    return { revision: ownRow?.revision ?? 0, scopeKey, settings: own, effective: { enabled: layers.some(layer => layer.enabled), controls: merged.controls, preserve: [...new Set(layers.flatMap(layer => layer.enabled ? layer.preserve : []))] }, sources: merged.sources, definitions: CONTROL_DEFINITIONS, presets: presets.map(r => ({ id: r.id, name: r.name, revision: r.revision, settings: parseJson(r.payloadJson, EMPTY_SETTINGS) })) };
   }
   async save(novelId: string, input: { scope: WritingAdjustmentScope; expectedRevision: number; settings: WritingSettingsPayload }) {
     if (!["novel", "chapter"].includes(input.scope.kind)) throw new AppError("默认设置请选择本书或本章。", 400);

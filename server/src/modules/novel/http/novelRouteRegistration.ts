@@ -1,5 +1,6 @@
 import type { Router } from "express";
 import { registerWritingAdjustmentRoutes } from "../adjustments/http/writingAdjustmentRoutes";
+import { registerBookArrangementRoutes } from "../adjustments/http/bookArrangementRoutes";
 import { AppError } from "../../../middleware/errorHandler";
 import { registerNovelBaseRoutes } from "../setup/http/novelBaseRoutes";
 import { registerNovelChapterEditorRoutes } from "../production/http/novelChapterEditorRoutes";
@@ -82,6 +83,7 @@ function forwardBusinessError(error: unknown, next: (err?: unknown) => void): bo
 export function registerNovelHttpRoutes(router: Router, services: NovelHttpServices): void {
   const { novelService, novelDraftOptimizeService } = services;
   registerWritingAdjustmentRoutes(router);
+  registerBookArrangementRoutes(router);
 
   registerNovelBaseRoutes({
     router,

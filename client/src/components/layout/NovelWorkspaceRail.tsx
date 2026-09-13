@@ -493,6 +493,17 @@ export default function NovelWorkspaceRail(props: NovelWorkspaceRailProps) {
           </Button>
         )}
 
+        <Button
+          type="button"
+          variant="ghost"
+          className={collapsed ? "mx-auto h-9 w-9 p-0" : "justify-start"}
+          title="全书编排"
+          aria-label="全书编排"
+          onClick={() => navigate(`/book-arrangement?novelId=${encodeURIComponent(novelId)}`)}
+        >
+          {collapsed ? <BookOpenText className="h-4 w-4" /> : "全书编排"}
+        </Button>
+
         {!collapsed ? (
           <div className="rounded-2xl bg-background/75 px-3 py-2 text-xs text-muted-foreground">
             <div className="flex items-center justify-between gap-2">

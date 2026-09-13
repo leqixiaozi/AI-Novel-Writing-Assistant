@@ -23,6 +23,7 @@ export const MOBILE_ROUTE_PATTERNS: MobileRoutePattern[] = [
   { key: "home", pattern: /^\/$/, title: "首页", group: "home" },
   { key: "help", pattern: /^\/help\/?$/, title: "创作向导", group: "more" },
   { key: "novels", pattern: /^\/novels\/?$/, title: "小说", group: "novels" },
+  { key: "book-arrangement", pattern: /^\/book-arrangement\/?$/, title: "全书编排", group: "creation" },
   { key: "novel-create", pattern: /^\/novels\/create\/?$/, title: "创建小说", group: "novels" },
   { key: "novel-preview", pattern: /^\/novels\/[^/]+\/preview\/?$/, title: "小说预览", group: "novels" },
   { key: "novel-edit", pattern: /^\/novels\/[^/]+\/edit\/?$/, title: "小说工作区", group: "novels" },
@@ -65,6 +66,7 @@ const moreNavGroups: MobileNavGroup[] = [
   {
     title: "创作辅助",
     items: [
+      { key: "book-arrangement", label: "全书编排", to: "/book-arrangement", group: "creation" },
       { key: "help", label: "创作向导", to: "/help", group: "more" },
       { key: "drama", label: "短剧工作台", to: "/drama", group: "creation" },
       { key: "book-analysis", label: "拆书", to: "/book-analysis", group: "creation" },

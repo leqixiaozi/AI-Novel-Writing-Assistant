@@ -13,6 +13,7 @@ const routedPaths = [
   "/",
   "/help",
   "/novels",
+  "/book-arrangement",
   "/novels/create",
   "/novels/demo/preview",
   "/novels/demo/edit",
@@ -70,6 +71,7 @@ test("mobile more menu contains all non-primary registered pages", () => {
   assert.deepEqual(
     morePaths,
     [
+      "/book-arrangement",
       "/help",
       "/drama",
       "/book-analysis",
