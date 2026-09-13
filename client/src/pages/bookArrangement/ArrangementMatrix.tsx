@@ -25,6 +25,7 @@ export type ChapterMenuAction = "chapter" | "scenes" | "add-scene" | "add-event"
 
 const auditHeatLabels = { empty: "暂无结果", handled: "已处理", low: "轻微", medium: "需留意", high: "高风险", critical: "严重" } as const;
 const handledCheckStatuses = new Set(["resolved", "ignored", "closed"]);
+const collapsibleGroups = ["volumes", "events", "people", "relationships", "threads", "controls", "reviews"] as const;
 
 /** Pointer position chooses the shared chapter column; keyboard retains the visible selection. */
 function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string[], selectedId: string): string {
@@ -43,6 +44,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   const [expandedCells, setExpandedCells] = useState<Record<string, boolean>>({});
   const [chapterMenu, setChapterMenu] = useState<{ chapterId: string; x: number; y: number } | null>(null);
   const chapterMenuRef = useRef<HTMLDivElement>(null);
+  const allGroupsCollapsed = collapsibleGroups.every(key => groups[key]);
   const visibleTracks = draft.pinnedTracks.length || workspace.draft.revision > 0 ? draft.pinnedTracks : ["pace", "tension"];
   const toggle = (key: string) => setGroups({ ...groups, [key]: !groups[key] });
   const presence = characterPresenceEntries(workspace, draft).filter(entry => (!personFilter || entry.characterId === personFilter) && (!characterSearch.trim() || entry.name.toLocaleLowerCase().includes(characterSearch.trim().toLocaleLowerCase())));
@@ -95,8 +97,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   return <><section aria-label="章节对齐编排矩阵" className="ba-matrix-section">
     <div className="ba-matrix-toolbar">
       <label>人物筛选 <select aria-label="人物筛选" className="ba-input ba-inline" value={personFilter} onChange={event => { setPersonFilter(event.target.value); setAllPresence(false); if (event.target.value) onCharacter?.(event.target.value); }}><option value="">全部人物</option>{workspace.characters.map(person => <option key={person.id} value={person.id}>{person.name}{person.role ? ` · ${person.role}` : ""}</option>)}</select></label>
-      <Button size="sm" variant="ghost" onClick={() => setGroups({})}>全部展开</Button>
-      <Button size="sm" variant="ghost" onClick={() => setGroups({ volumes: true, events: true, people: true, relationships: true, threads: true, controls: true, reviews: true })}>全部折叠</Button>
+      <Button size="sm" variant="ghost" aria-label={allGroupsCollapsed ? "展开全部编排轨道" : "折叠全部编排轨道"} onClick={() => setGroups(allGroupsCollapsed ? {} : Object.fromEntries(collapsibleGroups.map(key => [key, true])))}>{allGroupsCollapsed ? "全部展开" : "全部折叠"}</Button>
     </div>
     <div className="book-arrangement-scroll" tabIndex={0} aria-label="章节矩阵，可横向滚动">
       <div className="ba-matrix ba-compact-matrix" style={{ "--ba-count": chapters.length } as CSSProperties}>
