@@ -49,6 +49,169 @@ async function fixture(t) {
 }
 const settings = controls => ({ enabled: true, controls, preserve: [] });
 const isConflict = error => error.statusCode === 409;
+function volumeService(f) {
+  const load = (file, imports) => loadRuntimeSource(path.join(serverRoot, "src", file), imports);
+  const root = "services/novel/volume/";
+  const utils = load(`${root}volumePlanUtils.ts`, { "node:crypto": require("node:crypto"), zod: require("zod"), "./volumePlanChangeDetection": {} });
+  const documents = load(`${root}volumeWorkspaceDocument.ts`, { "./volumePlanUtils": utils, "@ai-novel/shared/types/volumeBeatSlots": require("@ai-novel/shared/types/volumeBeatSlots") });
+  const models = load(`${root}volumeModels.ts`, { "../../../db/prisma": { prisma: f.db } });
+  const persistence = load(`${root}volumeWorkspacePersistence.ts`, { "../../../db/prisma": { prisma: f.db }, "../../../db/sqliteRetry": { withSqliteRetry: () => { throw new Error("legacy outer transaction must not run"); } }, "./volumePlanUtils": utils, "./volumeModels": models, "./volumeWorkspaceDocument": documents });
+  const adapter = load(`${root}ArrangementVolumeAdapter.ts`, { "node:crypto": require("node:crypto"), "./volumeModels": models, "./volumePlanUtils": utils, "./volumeWorkspaceDocument": documents, "./volumeWorkspacePersistence": persistence });
+  const service = load("modules/novel/adjustments/application/BookArrangementVolumeService.ts", { "node:crypto": require("node:crypto"), zod: require("zod"), "../../../../events": { novelEventBus: { emit: async event => { assert.equal(event.type, "novel:updated"); } } }, "../../../../middleware/errorHandler": f.errors, "../domain/contracts": f.contracts, "../infrastructure/AdjustmentStore": { AdjustmentStore: f.Store }, "./BookArrangementService": f.arrangementModule, "../../../../services/novel/volume/ArrangementVolumeAdapter": adapter });
+  return new service.BookArrangementVolumeService(f.store);
+}
+async function volumeFixture(t) {
+  const f = await fixture(t);
+  const first = await f.db.volumePlan.create({ data: { novelId: f.novelId, sortOrder: 1, title: "第一卷", mainPromise: "查信", openPayoffsJson: '["身份"]' } });
+  const second = await f.db.volumePlan.create({ data: { novelId: f.novelId, sortOrder: 2, title: "第二卷", summary: "结盟" } });
+  const links = [];
+  for (const [index, chapter] of f.chapters.entries()) links.push(await f.db.volumeChapterPlan.create({ data: { volumeId: index < 2 ? first.id : second.id, chapterId: chapter.id, chapterOrder: chapter.order, title: chapter.title, summary: chapter.expectation, taskSheet: "保留任务", payoffRefsJson: '["身份"]' } }));
+  const edit = volume => ({ volumeId: volume.id, title: volume.title, summary: volume.summary ?? "", mainPromise: volume.mainPromise ?? "", protagonistChange: "", climax: "", nextVolumeHook: "", chapterIds: links.filter(link => link.volumeId === volume.id).map(link => link.chapterId) });
+  f.payload.baseRevision = await f.store.dependencies(f.novelId);
+  return { ...f, first, second, links, edits: [edit(first), edit(second)], volumes: volumeService(f) };
+}
+async function volumePreview(f, edits = f.edits, volumeIds = edits.map(edit => edit.volumeId)) {
+  const payload = { ...f.payload, volumeEdits: edits };
+  const saved = await f.service.saveDraft(f.novelId, { expectedRevision: 0, payload });
+  return f.volumes.preview(f.novelId, { draftRevision: saved.revision, volumeIds });
+}
+
+test("volume arrangement: preview does not activate versions and rejects implicit chapter stealing", async t => {
+  const f = await volumeFixture(t), original = await f.db.chapter.findMany();
+  const preview = await volumePreview(f, [{ ...f.edits[0], chapterIds: f.chapters.map(chapter => chapter.id) }]);
+  assert.equal(preview.canApply, false);
+  assert.ok(preview.conflicts.some(item => item.code === "VOLUME_OVERLAP"));
+  assert.ok(preview.neighboringVolumeIds.includes(f.second.id));
+  assert.equal(await f.db.volumePlanVersion.count(), 0);
+  assert.equal(await f.db.chapterEditVersion.count({ where: { kind: "arrangement_volume" } }), 1);
+  await assert.rejects(f.volumes.apply(f.novelId, preview.id), isConflict);
+  assert.deepEqual(await f.db.chapter.findMany(), original);
+});
+
+test("volume arrangement: explicit transfer keeps plan identity, prose, chapter order and original resources", async t => {
+  const f = await volumeFixture(t), original = await f.db.chapter.findMany();
+  const assignment = await f.db.characterVolumeAssignment.create({ data: { novelId: f.novelId, volumeId: f.first.id, characterId: f.character.id, roleLabel: "调查", responsibility: "保存原职责", appearanceExpectation: "原计划" } });
+  f.edits[0] = { ...f.edits[0], title: "修订卷名", chapterIds: [f.chapters[0].id] };
+  f.edits[1] = { ...f.edits[1], chapterIds: [f.chapters[1].id, f.chapters[2].id] };
+  const preview = await volumePreview(f);
+  assert.equal(preview.canApply, true);
+  assert.deepEqual(preview.writtenChapterIds, f.chapters.map(chapter => chapter.id));
+  assert.ok(preview.references.some(ref => ref.sourceId === assignment.id));
+  const receipt = await f.volumes.apply(f.novelId, preview.id);
+  assert.equal(receipt.status, "applied");
+  assert.deepEqual(await f.volumes.apply(f.novelId, preview.id), receipt);
+  const moved = await f.db.volumeChapterPlan.findUniqueOrThrow({ where: { id: f.links[1].id } });
+  assert.equal(moved.volumeId, f.second.id);
+  assert.equal(moved.taskSheet, f.links[1].taskSheet);
+  assert.equal(moved.payoffRefsJson, f.links[1].payoffRefsJson);
+  assert.deepEqual(await f.db.chapter.findMany(), original);
+  assert.deepEqual(await f.db.characterVolumeAssignment.findUnique({ where: { id: assignment.id } }), assignment);
+  assert.equal(await f.db.volumePlanVersion.count({ where: { status: "active" } }), 1);
+  assert.equal(await f.db.volumePlanVersion.count(), 2);
+  assert.deepEqual((await f.service.workspace(f.novelId)).draft.payload.volumeEdits, []);
+  assert.equal((await f.service.workspace(f.novelId)).draft.payload.baseRevision, await f.store.dependencies(f.novelId));
+  assert.equal(await f.db.storyPlan.count({ where: { level: "arc" } }), 2);
+  assert.equal(await f.db.novelSideEffectJob.count(), 0, "no implicit global AI character rebuild");
+});
+
+test("volume arrangement: partial application preserves unrelated volumes, arc plans and pending draft edits", async t => {
+  const f = await volumeFixture(t);
+  const outsideArc = await f.db.storyPlan.create({ data: { novelId: f.novelId, level: "arc", externalRef: "volume:2", title: "原第二卷", objective: "保持原目标", rawPlanJson: '{"customResource":"keep"}' } });
+  const outsideVolume = await f.db.volumePlan.findUnique({ where: { id: f.second.id }, include: { chapters: true } });
+  f.payload.baseRevision = await f.store.dependencies(f.novelId);
+  f.payload.chapterEdits[0].note = "保留待编辑备注";
+  f.edits[0].title = "新第一卷";
+  f.edits[1].title = "尚未应用第二卷";
+  const preview = await volumePreview(f, f.edits, [f.first.id]);
+  await f.volumes.apply(f.novelId, preview.id);
+  assert.deepEqual(await f.db.volumePlan.findUnique({ where: { id: f.second.id }, include: { chapters: true } }), outsideVolume);
+  assert.deepEqual(await f.db.storyPlan.findUnique({ where: { id: outsideArc.id } }), outsideArc);
+  const workspace = await f.service.workspace(f.novelId);
+  assert.deepEqual(workspace.draft.payload.volumeEdits, [f.edits[1]]);
+  assert.equal(workspace.draft.payload.chapterEdits[0].note, "保留待编辑备注");
+  assert.equal(workspace.draft.revision, 2);
+});
+
+test("volume arrangement: transaction failure rolls back membership, versions, derived outlines and guards", async t => {
+  const f = await volumeFixture(t);
+  f.edits[0].chapterIds = [f.chapters[0].id];
+  f.edits[1].chapterIds = [f.chapters[1].id, f.chapters[2].id];
+  const preview = await volumePreview(f);
+  const before = { novel: await f.db.novel.findUnique({ where: { id: f.novelId } }), volumes: await f.db.volumePlan.findMany({ include: { chapters: true } }), draft: await f.db.writingSetting.findMany() };
+  f.store.recordResult = async () => { throw new Error("simulated receipt storage failure"); };
+  await assert.rejects(f.volumes.apply(f.novelId, preview.id), /receipt storage failure/);
+  assert.deepEqual(await f.db.novel.findUnique({ where: { id: f.novelId } }), before.novel);
+  assert.deepEqual(await f.db.volumePlan.findMany({ include: { chapters: true } }), before.volumes);
+  assert.deepEqual(await f.db.writingSetting.findMany(), before.draft);
+  assert.equal(await f.db.volumePlanVersion.count(), 0);
+  assert.equal(await f.db.storyPlan.count(), 0);
+  assert.equal(await f.db.chapterAdjustmentGuard.count(), 0);
+});
+
+test("volume arrangement: persisted HTTP receipt replays after response loss without applying twice", async t => {
+  const f = await volumeFixture(t);
+  f.edits[0].title = "一次应用";
+  const preview = await volumePreview(f, [f.edits[0]]);
+  const result = await f.store.once(f.novelId, "apply-volumes", "request", {}, async () => {
+    await f.volumes.apply(f.novelId, preview.id);
+    throw new Error("response disconnected after commit");
+  });
+  assert.equal(result.id, preview.id);
+  assert.deepEqual(await f.store.once(f.novelId, "apply-volumes", "request", {}, async () => { throw new Error("must not execute"); }), result);
+  assert.equal(await f.db.volumePlanVersion.count(), 2);
+  assert.equal((await f.db.chapterAdjustmentGuard.findUnique({ where: { chapterId: f.chapters[0].id } })).epoch, 1);
+});
+
+test("volume arrangement: old candidate rejects changed volume rows, active leases and pending synchronization", async t => {
+  for (const change of ["volume", "guard", "sync"]) {
+    const f = await volumeFixture(t);
+    const preview = await volumePreview(f, [{ ...f.edits[0], title: "新卷名" }]);
+    if (change === "volume") await f.db.volumePlan.update({ where: { id: f.first.id }, data: { summary: "另一窗口已修改" } });
+    if (change === "guard") await f.db.chapterAdjustmentGuard.create({ data: { chapterId: f.chapters[0].id, novelId: f.novelId, epoch: 1, manualSessionId: "active-manual" } });
+    if (change === "sync") await f.db.writingAcceptance.create({ data: { id: "pending", novelId: f.novelId, chapterId: f.chapters[0].id, editVersionId: "edited", requestKey: "sync-pending", status: "pending", payloadJson: "{}" } });
+    await assert.rejects(f.volumes.apply(f.novelId, preview.id), isConflict);
+    assert.equal(await f.db.volumePlanVersion.count(), 0);
+  }
+});
+
+test("volume arrangement: foreign ranges, disconnected intervals and locked chapters never apply", async t => {
+  const f = await volumeFixture(t);
+  await assert.rejects(f.service.saveDraft(f.novelId, { expectedRevision: 0, payload: { ...f.payload, volumeEdits: [{ ...f.edits[0], volumeId: "foreign-volume" }] } }), error => error.statusCode === 400);
+  await assert.rejects(f.service.saveDraft(f.novelId, { expectedRevision: 0, payload: { ...f.payload, volumeEdits: [{ ...f.edits[0], chapterIds: ["foreign-chapter"] }] } }), error => error.statusCode === 400);
+  f.payload.chapterEdits[0].locked = true;
+  const preview = await volumePreview(f, [{ ...f.edits[0], chapterIds: [f.chapters[0].id, f.chapters[2].id] }]);
+  assert.ok(preview.conflicts.some(item => item.code === "VOLUME_GAP"));
+  assert.ok(preview.conflicts.some(item => item.code === "VOLUME_LOCKED"));
+  await assert.rejects(f.volumes.apply(f.novelId, preview.id), isConflict);
+  assert.equal(await f.db.volumePlanVersion.count(), 0);
+});
+
+test("volume arrangement: partial edit keeps prior document-only resources and old strategic review", async t => {
+  const f = await volumeFixture(t);
+  const initial = await volumePreview(f, [{ ...f.edits[0], title: "初始预览" }]);
+  const candidate = await f.db.chapterEditVersion.findUniqueOrThrow({ where: { id: initial.id } });
+  const document = JSON.parse(candidate.metadataJson).before;
+  document.volumes[0].openingHook = "开场抓手保留";
+  document.volumes[0].chapters[0].exclusiveEvent = "独占事件保留";
+  document.beatSheets = [{ volumeId: f.first.id, volumeSortOrder: 1, status: "generated", beats: [] }, { volumeId: f.second.id, volumeSortOrder: 2, status: "generated", beats: [] }];
+  document.rebalanceDecisions = [{ anchorVolumeId: f.second.id, affectedVolumeId: f.second.id, direction: "hold", severity: "low", summary: "未选卷保留", actions: [] }];
+  document.critiqueReport = { overallRisk: "low", needsReplan: false, summary: "原战略审核", issues: [], recommendedActions: [] };
+  const active = await f.db.volumePlanVersion.create({ data: { novelId: f.novelId, version: 1, status: "active", contentJson: JSON.stringify(document) } });
+  const payload = { ...f.payload, baseRevision: await f.store.dependencies(f.novelId), volumeEdits: [{ ...f.edits[0], title: "只改第一卷" }] };
+  await f.service.saveDraft(f.novelId, { expectedRevision: 1, payload });
+  const preview = await f.volumes.preview(f.novelId, { draftRevision: 2, volumeIds: [f.first.id] });
+  assert.ok(preview.references.some(ref => ref.sourceEntity === "VolumePlanVersion" && ref.sourceId === active.id));
+  const receipt = await f.volumes.apply(f.novelId, preview.id);
+  const applied = JSON.parse((await f.db.volumePlanVersion.findUniqueOrThrow({ where: { id: receipt.volumeVersionId } })).contentJson);
+  assert.equal(applied.volumes[0].openingHook, document.volumes[0].openingHook);
+  assert.equal(applied.volumes[0].chapters[0].exclusiveEvent, document.volumes[0].chapters[0].exclusiveEvent);
+  assert.deepEqual(applied.beatSheets, [document.beatSheets[1]]);
+  assert.deepEqual(applied.rebalanceDecisions, document.rebalanceDecisions);
+  assert.deepEqual(applied.critiqueReport, document.critiqueReport);
+  const frozen = await f.db.volumePlanVersion.findUniqueOrThrow({ where: { id: active.id } });
+  assert.equal(frozen.status, "frozen");
+  assert.equal(JSON.parse(frozen.contentJson).volumes[0].title, f.first.title);
+});
 async function savedPreview(f, ids = f.chapters.map(chapter => chapter.id)) {
   const draft = await f.service.saveDraft(f.novelId, { expectedRevision: 0, payload: f.payload });
   return f.service.preview(f.novelId, { draftRevision: draft.revision, chapterIds: ids });

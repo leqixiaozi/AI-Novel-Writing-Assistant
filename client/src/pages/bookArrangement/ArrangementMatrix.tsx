@@ -1,14 +1,16 @@
 import { useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, Diamond, LockKeyhole, SlidersHorizontal, TriangleAlert } from "lucide-react";
-import type { BookArrangementDraftPayload, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
+import type { BookArrangementDraftPayload, BookArrangementVolumeEdit, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { Button } from "@/components/ui/button";
 import { arrangementTracks, chapterEdit, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
+import { ArrangementVolumeTrack } from "./volume/ArrangementVolumeTrack";
 
 interface Props {
   workspace: BookArrangementWorkspace; draft: BookArrangementDraftPayload; chapters: BookArrangementWorkspace["chapters"];
   selectedId: string; scope: string[]; onSelect: (id: string) => void; onScope: (ids: string[]) => void;
   onSpan: (id: string, chapterId?: string) => void; onDraft: (draft: BookArrangementDraftPayload) => void;
   characterSearch?: string; onCharacter?: (characterId: string, chapterId?: string) => void; onHistory?: (chapterId: string, characterId?: string) => void;
+  selectedVolumeId?: string; onVolume?: (id: string) => void; onVolumeEdit?: (edit: BookArrangementVolumeEdit) => void; windowStart?: number; onWindowStart?: (index: number) => void;
 }
 
 const handledCheckLabels: Record<string, string> = { resolved: "已解决", ignored: "已忽略", closed: "已关闭" };
@@ -21,7 +23,7 @@ function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string
   return chapterIds[index];
 }
 
-export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory }: Props) {
+export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart }: Props) {
   const [groups, setGroups] = useState<Record<string, boolean>>({});
   const [personFilter, setPersonFilter] = useState("");
   const [manager, setManager] = useState(false);
@@ -35,7 +37,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   const packedPresence = packChapterLanes(chapters, presence);
   const visiblePresence = allPresence ? packedPresence : packedPresence.filter(segment => segment.lane < 3);
   const hiddenPresence = packedPresence.length - visiblePresence.length;
-  const volumes = packChapterLanes(chapters, workspace.volumes);
+  const volumes = packChapterLanes(chapters, workspace.volumes.map(volume => ({ ...volume, chapterIds: draft.volumeEdits?.find(edit => edit.volumeId === volume.id)?.chapterIds ?? volume.chapterIds })));
   const packedRelations = packChapterLanes(chapters, workspace.relations ?? []);
   const packedClues = packChapterLanes(chapters, workspace.clues ?? []);
   const relations = allRelations ? packedRelations : packedRelations.filter(segment => segment.lane < 3);
@@ -62,13 +64,12 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
       <div className="ba-matrix ba-compact-matrix" style={{ "--ba-count": chapters.length } as CSSProperties}>
         <div className="ba-label ba-head">章节</div>
         {chapters.map(chapter => <div key={chapter.id} data-chapter-id={chapter.id} className={`ba-cell ba-head ${selectedId === chapter.id ? "is-selected" : ""}`}>
-          <button type="button" className="ba-chapter-heading" aria-label={`选择第${chapter.order}章`} title={chapter.title} onClick={() => onSelect(chapter.id)}>第 {chapter.order} 章{chapterEdit(draft, chapter.id).locked && <LockKeyhole size={12} aria-label="已锁定编排" />}</button>
-          <span className="ba-chapter-title" title={chapter.title}>{chapter.title}</span>
+          <button type="button" className="ba-chapter-heading" aria-label={`选择第${chapter.order}章 · ${chapter.title}`} title={`第${chapter.order}章 · ${chapter.title}`} onClick={() => onSelect(chapter.id)}><span className="ba-chapter-number">{chapter.order} ·</span><span className="ba-chapter-title">{chapter.title}</span>{chapterEdit(draft, chapter.id).locked && <LockKeyhole size={12} aria-label="已锁定编排" />}</button>
           <label className={`ba-chapter-state ${chapter.hasContent ? "is-written" : "is-pending"}`}><input type="checkbox" aria-label={`调整范围第${chapter.order}章`} checked={scope.includes(chapter.id)} onChange={event => onScope(event.target.checked ? [...scope, chapter.id] : scope.filter(id => id !== chapter.id))} />{chapter.hasContent ? "已写" : "待写"}</label>
         </div>)}
 
         {label("volumes", "卷段", `${new Set(volumes.map(segment => segment.source.id)).size} 卷`)}
-        <div className="ba-track-content">{!groups.volumes && (volumes.length ? <div className="ba-packed-plot ba-volume-plot" style={plotStyle(volumes)}>{guides()}{volumes.map(segment => <button key={segment.segmentId} type="button" className="ba-volume-block" style={segmentStyle(segment, workspace.volumes.findIndex(volume => volume.id === segment.source.id) % 2 ? "#f47936" : "#3b82f6")} title={segment.source.title} onClick={event => onSelect(clickedChapter(event, segment.chapterIds, selectedId))}><Circle size={8} fill="currentColor" /><span>{segment.source.title}</span><Circle size={8} fill="currentColor" /></button>)}</div> : empty("当前章节尚未分卷"))}</div>
+        <div className="ba-track-content">{!groups.volumes && <ArrangementVolumeTrack workspace={workspace} draft={draft} chapters={chapters} selectedChapterId={selectedId} selectedVolumeId={selectedVolumeId} onVolume={onVolume} onVolumeEdit={onVolumeEdit} windowStart={windowStart} onWindowStart={onWindowStart} />}</div>
 
         {label("events", "事件 / 场景", `${workspace.scenes.filter(scene => chapters.some(chapter => chapter.id === scene.chapterId)).length} 个场景`)}
         {groups.events ? <div className="ba-track-content" /> : chapters.map(chapter => { const events = workspace.events.filter(event => event.chapterId === chapter.id); const scenes = workspace.scenes.filter(scene => scene.chapterId === chapter.id).sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)); return cell(chapter.id, <>

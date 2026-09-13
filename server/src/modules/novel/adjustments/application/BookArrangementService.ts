@@ -13,11 +13,13 @@ const DRAFT_SCOPE = "book-arrangement:draft";
 const chapterScope = (id: string) => `arrangement:chapter:${id}`;
 const id = z.string().trim().min(1).max(200);
 export const arrangementChapterIdsSchema = z.array(id).min(1).max(2000).refine(ids => new Set(ids).size === ids.length, "章节不能重复。");
+export const arrangementVolumeEditSchema = z.object({ volumeId: id, title: z.string().trim().min(1).max(300), summary: z.string().max(10000), mainPromise: z.string().max(10000), protagonistChange: z.string().max(10000), climax: z.string().max(10000), nextVolumeHook: z.string().max(10000), chapterIds: arrangementChapterIdsSchema }).strict();
 export const arrangementDraftSchema = z.object({
   baseRevision: z.string().trim().min(1).max(200),
   chapterEdits: z.array(z.object({ chapterId: id, note: z.string().max(2000), controls: controlsSchema, locked: z.boolean() }).strict()).max(2000),
   characterSpans: z.array(z.object({ id, characterId: id, chapterIds: arrangementChapterIdsSchema, mode: z.enum(["must", "suggested", "indirect", "forbidden"]), weight: z.number().min(0).max(100).nullable(), note: z.string().max(2000) }).strict()).max(500),
   pinnedTracks: z.array(id).max(100).refine(ids => new Set(ids).size === ids.length, "固定轨道不能重复。"),
+  volumeEdits: z.array(arrangementVolumeEditSchema).max(200).optional(),
 }).strict();
 interface ArrangementCandidate {
   preview: Omit<Preview, "id">;
@@ -40,7 +42,10 @@ export class BookArrangementService {
     const parsed = arrangementDraftSchema.parse(payload);
     if (new Set(parsed.chapterEdits.map(edit => edit.chapterId)).size !== parsed.chapterEdits.length) throw new AppError("同一章节只能有一份编排设置。", 400);
     if (new Set(parsed.characterSpans.map(span => span.id)).size !== parsed.characterSpans.length) throw new AppError("人物参与段标识不能重复。", 400);
-    const allIds = [...new Set([...parsed.chapterEdits.map(edit => edit.chapterId), ...parsed.characterSpans.flatMap(span => span.chapterIds)])];
+    const volumeEdits = parsed.volumeEdits ?? [];
+    if (new Set(volumeEdits.map(edit => edit.volumeId)).size !== volumeEdits.length) throw new AppError("同一卷只能有一份编排设置。", 400);
+    if (volumeEdits.length && await this.store.db.volumePlan.count({ where: { novelId, id: { in: volumeEdits.map(edit => edit.volumeId) } } }) !== volumeEdits.length) throw new AppError("卷段不属于当前作品。", 400);
+    const allIds = [...new Set([...parsed.chapterEdits.map(edit => edit.chapterId), ...parsed.characterSpans.flatMap(span => span.chapterIds), ...volumeEdits.flatMap(edit => edit.chapterIds)])];
     if (allIds.length) await this.store.chapters(novelId, { kind: "chapters", chapterIds: allIds });
     else await this.store.novel(novelId);
     const characters = await this.store.db.character.findMany({ where: { novelId }, select: { id: true, name: true } });
@@ -79,7 +84,7 @@ export class BookArrangementService {
       this.store.db.volumePlan.findMany({ where: { novelId }, include: { chapters: { select: { chapterId: true }, orderBy: { chapterOrder: "asc" } } }, orderBy: { sortOrder: "asc" } }),
       this.store.db.writingSetting.findMany({ where: { novelId, scopeKey: { startsWith: "arrangement:chapter:" } } }),
       this.store.db.writingSetting.findUnique({ where: { novelId_scopeKey: { novelId, scopeKey: DRAFT_SCOPE } } }),
-      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: "arrangement" }, orderBy: { createdAt: "desc" }, take: 50 }),
+      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume"] } }, orderBy: { createdAt: "desc" }, take: 50 }),
       this.store.db.characterRelationStage.findMany({ where: { novelId, sourceCharacter: { novelId }, targetCharacter: { novelId } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
       this.store.db.timelineHook.findMany({ where: { novelId }, orderBy: [{ createdInChapterIndex: "asc" }, { id: "asc" }] }),
       this.store.db.storyStateSnapshot.findFirst({ where: { novelId }, include: { foreshadowStates: { orderBy: { id: "asc" } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
@@ -128,11 +133,12 @@ export class BookArrangementService {
       volumes: volumes.map(volume => {
         const ids = volume.chapters.flatMap(chapter => chapter.chapterId && chapterIds.has(chapter.chapterId) ? [chapter.chapterId] : []);
         const orders = chapters.filter(chapter => ids.includes(chapter.id)).map(chapter => chapter.order);
-        return { id: volume.id, title: volume.title, order: volume.sortOrder, chapterIds: ids, startChapterOrder: orders.length ? Math.min(...orders) : null, endChapterOrder: orders.length ? Math.max(...orders) : null };
+        return { id: volume.id, title: volume.title, order: volume.sortOrder, chapterIds: ids, startChapterOrder: orders.length ? Math.min(...orders) : null, endChapterOrder: orders.length ? Math.max(...orders) : null, summary: volume.summary ?? "", mainPromise: volume.mainPromise ?? "", protagonistChange: volume.protagonistChange ?? "", climax: volume.climax ?? "", nextVolumeHook: volume.nextVolumeHook ?? "", revision: digest(volume) };
       }),
       appliedSettings: Object.fromEntries(settings.flatMap(row => { const chapterId = row.scopeKey.slice("arrangement:chapter:".length); return chapterIds.has(chapterId) ? [[chapterId, { revision: row.revision, settings: parseJson<WritingSettingsPayload>(row.payloadJson, EMPTY_SETTINGS) }]] : []; })),
       draft: this.draftRecord(draft, baseRevision),
-      previews: candidates.flatMap(row => { const candidate = parseJson<ArrangementCandidate>(row.metadataJson, null!); return candidate?.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
+      previews: candidates.filter(row => row.kind === "arrangement").flatMap(row => { const candidate = parseJson<ArrangementCandidate>(row.metadataJson, null!); return candidate?.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
+      volumePreviews: candidates.filter(row => row.kind === "arrangement_volume").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementVolumePreview }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
     };
   }
 

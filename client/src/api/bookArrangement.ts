@@ -1,6 +1,7 @@
 import type { ApiResponse } from "@ai-novel/shared/types/api";
 import type { BookArrangementApplyReceipt, BookArrangementApplyRequest, BookArrangementDraftRecord, BookArrangementPreview, BookArrangementPreviewRequest, BookArrangementSaveDraftRequest, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { apiClient } from "./client";
+import type { BookArrangementVolumePreview, BookArrangementVolumePreviewRequest, BookArrangementVolumeApplyReceipt } from "@ai-novel/shared/types/bookArrangement";
 
 export function createBookArrangementApi(novelId: string) {
   const base = `/novels/${encodeURIComponent(novelId)}/book-arrangement`;
@@ -18,5 +19,7 @@ export function createBookArrangementApi(novelId: string) {
     saveDraft: (input: BookArrangementSaveDraftRequest, key: string) => write<BookArrangementDraftRecord>("put", "/draft", input, key),
     preview: (input: BookArrangementPreviewRequest, key: string) => write<BookArrangementPreview>("post", "/preview", input, key),
     apply: (id: string, input: BookArrangementApplyRequest, key: string) => write<BookArrangementApplyReceipt>("post", `/${encodeURIComponent(id)}/apply`, input, key),
+    previewVolumes: (input: BookArrangementVolumePreviewRequest, key: string) => write<BookArrangementVolumePreview>("post", "/volumes/preview", input, key),
+    applyVolumes: (id: string, key: string) => write<BookArrangementVolumeApplyReceipt>("post", `/volumes/${encodeURIComponent(id)}/apply`, {}, key),
   };
 }

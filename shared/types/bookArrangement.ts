@@ -20,7 +20,38 @@ export interface DraftPayload {
   chapterEdits: BookArrangementChapterEdit[];
   characterSpans: BookArrangementCharacterSpan[];
   pinnedTracks: string[];
+  volumeEdits?: BookArrangementVolumeEdit[];
 }
+export interface BookArrangementVolumeEdit {
+  volumeId: string;
+  title: string;
+  summary: string;
+  mainPromise: string;
+  protagonistChange: string;
+  climax: string;
+  nextVolumeHook: string;
+  chapterIds: string[];
+}
+export interface BookArrangementVolume {
+  id: string; title: string; order: number; chapterIds: string[];
+  startChapterOrder: number | null; endChapterOrder: number | null;
+  summary?: string; mainPromise?: string; protagonistChange?: string; climax?: string; nextVolumeHook?: string;
+  revision?: string;
+}
+export interface BookArrangementVolumePreview {
+  id: string; baseRevision: string; draftRevision: number; volumeIds: string[];
+  changes: Array<{ volumeId: string; before: BookArrangementVolumeEdit; after: BookArrangementVolumeEdit; addedChapterIds: string[]; removedChapterIds: string[] }>;
+  affectedChapterIds: string[]; writtenChapterIds: string[];
+  neighboringVolumeIds: string[];
+  conflicts: Array<{ code: string; message: string; volumeIds: string[]; chapterIds: string[] }>;
+  references: Array<{ sourceEntity: string; sourceId: string; chapterIds: string[]; volumeId: string | null; label: string }>;
+  impact: string[]; unchecked: string[];
+  canApply: boolean;
+}
+export interface BookArrangementVolumeApplyReceipt {
+  id: string; status: "applied"; volumeVersionId: string; volumeIds: string[]; affectedChapterIds: string[];
+}
+export interface BookArrangementVolumePreviewRequest { draftRevision: number; volumeIds: string[] }
 export interface DraftRecord {
   revision: number;
   payload: DraftPayload;
@@ -101,7 +132,7 @@ export interface BookArrangementWorkspace {
   characters: Array<{ id: string; name: string; role: string | null }>;
   events: BookArrangementEvent[];
   scenes: Array<{ id: string; chapterId: string; title: string; objective: string | null; sortOrder: number }>;
-  volumes: Array<{ id: string; title: string; order: number; chapterIds: string[]; startChapterOrder: number | null; endChapterOrder: number | null }>;
+  volumes: BookArrangementVolume[];
   appliedSettings: Record<string, { revision: number; settings: WritingSettingsPayload }>;
   draft: DraftRecord;
   previews: Preview[];
@@ -110,6 +141,7 @@ export interface BookArrangementWorkspace {
   checks?: BookArrangementCheck[];
   coverUrl?: string | null;
   genre?: { id: string; name: string } | null;
+  volumePreviews?: BookArrangementVolumePreview[];
 }
 export interface BookArrangementSaveDraftRequest { expectedRevision: number; payload: DraftPayload }
 export interface BookArrangementPreviewRequest { draftRevision: number; chapterIds: string[] }

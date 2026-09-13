@@ -60,9 +60,10 @@ async function syncArcCompatibility(
   tx: Prisma.TransactionClient,
   novelId: string,
   volumes: VolumePlan[],
+  affectedVolumeIds?: ReadonlySet<string>,
 ): Promise<void> {
   const externalRefs = volumes.map((volume) => `volume:${volume.sortOrder}`);
-  await tx.storyPlan.deleteMany({
+  if (!affectedVolumeIds) await tx.storyPlan.deleteMany({
     where: {
       novelId,
       level: "arc",
@@ -74,6 +75,7 @@ async function syncArcCompatibility(
   });
 
   for (const volume of volumes) {
+    if (affectedVolumeIds && !affectedVolumeIds.has(volume.id)) continue;
     const externalRef = `volume:${volume.sortOrder}`;
     const existing = await tx.storyPlan.findFirst({
       where: { novelId, level: "arc", externalRef },
@@ -399,7 +401,9 @@ export async function persistActiveVolumeWorkspace(
   novelId: string,
   document: VolumePlanDocument,
   sourceVersionId: string | null,
+  options: { affectedVolumeIds?: string[] } = {},
 ): Promise<void> {
+  const affectedVolumeIds = options.affectedVolumeIds ? new Set(options.affectedVolumeIds) : undefined;
   const existingVolumes = await tx.volumePlan.findMany({
     where: { novelId },
     select: {
@@ -438,9 +442,11 @@ export async function persistActiveVolumeWorkspace(
     },
     orderBy: { sortOrder: "asc" },
   });
-  const shouldParkOrders = requiresOrderParking(existingVolumes, document);
+  const writableExistingVolumes = affectedVolumeIds ? existingVolumes.filter(volume => affectedVolumeIds.has(volume.id)) : existingVolumes;
+  const writableDocument = affectedVolumeIds ? { ...document, volumes: document.volumes.filter(volume => affectedVolumeIds.has(volume.id)) } : document;
+  const shouldParkOrders = requiresOrderParking(writableExistingVolumes, writableDocument);
   if (shouldParkOrders) {
-    await parkExistingVolumeWorkspaceRows(tx, existingVolumes);
+    await parkExistingVolumeWorkspaceRows(tx, writableExistingVolumes);
   }
 
   const nextVolumeIds = new Set(document.volumes.map((volume) => volume.id));
@@ -451,6 +457,7 @@ export async function persistActiveVolumeWorkspace(
   );
 
   for (const volume of document.volumes) {
+    if (affectedVolumeIds && !affectedVolumeIds.has(volume.id)) continue;
     const existingVolume = existingVolumeById.get(volume.id);
     if (!existingVolume) {
       await tx.volumePlan.create({
@@ -478,7 +485,7 @@ export async function persistActiveVolumeWorkspace(
     }
   }
 
-  const staleChapterIds = existingVolumes
+  const staleChapterIds = writableExistingVolumes
     .flatMap((volume) => volume.chapters.map((chapter) => chapter.id))
     .filter((chapterId) => !nextChapterIds.has(chapterId));
   if (staleChapterIds.length > 0) {
@@ -487,7 +494,7 @@ export async function persistActiveVolumeWorkspace(
     });
   }
 
-  const staleVolumeIds = existingVolumes
+  const staleVolumeIds = writableExistingVolumes
     .map((volume) => volume.id)
     .filter((volumeId) => !nextVolumeIds.has(volumeId));
   if (staleVolumeIds.length > 0) {
@@ -505,7 +512,7 @@ export async function persistActiveVolumeWorkspace(
       outlineStatus: document.volumes.length > 0 ? "in_progress" : undefined,
     },
   });
-  await syncArcCompatibility(tx, novelId, document.volumes);
+  await syncArcCompatibility(tx, novelId, document.volumes, affectedVolumeIds);
 }
 
 export async function ensureVolumeWorkspaceDocument(params: {

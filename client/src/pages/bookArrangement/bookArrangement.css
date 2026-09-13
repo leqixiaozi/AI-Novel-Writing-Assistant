@@ -40,4 +40,33 @@
 .ba-sidebar nav a{font-size:16px}.ba-workbench>.ba-page-heading{padding:10px 0 12px}.ba-page-heading h1{font-size:30px}.ba-page-heading p{font-size:15px}.ba-breadcrumb{font-size:13px}.ba-save-state{right:0}.ba-section-label{font-size:15px}.ba-section-label small{font-size:12px;color:#6076a2}.ba-head button{font-size:14px}.ba-chapter-title{font-size:11px;color:#667da5}.ba-chapter-state{font-size:12px}.ba-volume-block,.ba-presence-block{font-size:14px}.ba-evidence-block{font-size:12px}.ba-evidence-block small{font-size:10px;color:#60749a}.ba-presence-legend{font-size:11px}.ba-track-caption,.ba-track-empty,.ba-unset{color:#667da5}.ba-navigation-heading h2,.ba-navigation-heading>span{font-size:14px}.ba-inspector{padding-top:26px}.ba-inspector-heading h2{font-size:21px}.ba-inspector-heading p{font-size:14px}.ba-inspector-tabs button,.ba-card-heading{font-size:15px}.ba-field,.ba-inspector-card label{font-size:14px}.ba-inspector-card .ba-input{font-size:14px}.ba-chapter-chips button{font-size:12px}.ba-card-content{gap:15px}.ba-help,.ba-evidence-link{font-size:12px}.ba-inspector summary{font-size:13px}
 @media(max-width:1000px){.ba-sidebar nav a{font-size:13px}}
 @media(max-width:760px){.ba-page-heading h1{font-size:23px}.ba-page-heading p{font-size:13px}.ba-section-label{font-size:13px}.ba-inspector{padding-top:16px}}
-.ba-chapter-title{display:none}.ba-volume-block,.ba-presence-block{color:var(--ba-color);background:color-mix(in srgb,var(--ba-color) 22%,white)}.ba-presence-block[data-kind=plan]{background:color-mix(in srgb,var(--ba-color) 14%,white);border-color:color-mix(in srgb,var(--ba-color) 60%,white)}.ba-evidence-link,.ba-evidence-item a{display:inline-flex;align-items:center;gap:3px}.ba-requirements-preview{padding:16px 18px;border-top:1px solid #deebfb}.ba-matrix-toolbar{justify-content:flex-end}.ba-matrix-toolbar>label{margin-right:auto}.ba-check-result.is-handled{color:#168774}.ba-check-status{font-size:10px}
+.ba-chapter-title{display:block;width:100%;font-size:12px;line-height:1.5}.ba-volume-block,.ba-presence-block{color:var(--ba-color);background:color-mix(in srgb,var(--ba-color) 22%,white)}.ba-presence-block[data-kind=plan]{background:color-mix(in srgb,var(--ba-color) 14%,white);border-color:color-mix(in srgb,var(--ba-color) 60%,white)}.ba-evidence-link,.ba-evidence-item a{display:inline-flex;align-items:center;gap:3px}.ba-requirements-preview{padding:16px 18px;border-top:1px solid #deebfb}.ba-matrix-toolbar{justify-content:flex-end}.ba-matrix-toolbar>label{margin-right:auto}.ba-check-result.is-handled{color:#168774}.ba-check-status{font-size:10px}
+/* Volume interaction keeps the established blue/orange identity. */
+.ba-chapter-heading{width:100%;min-width:0}.ba-chapter-heading .ba-chapter-number,.ba-chapter-heading>svg{flex:none}.ba-chapter-heading .ba-chapter-title{flex:0 1 auto;width:auto;min-width:0;font-size:13px;color:inherit}
+.ba-volume-drag-block{position:relative;z-index:2;gap:0;padding:0;overflow:visible;user-select:none;touch-action:none}
+.ba-volume-drag-block.is-selected{outline:2px solid var(--ba-color);outline-offset:1px}
+.ba-volume-drag-block.is-drag-preview{opacity:.9;border:1px dashed var(--ba-color)}
+.ba-volume-move{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:4px;padding:5px 2px;cursor:grab;overflow:hidden}
+.ba-volume-move>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ba-volume-handle{flex:none;display:grid;place-items:center;width:22px;align-self:stretch;cursor:ew-resize;border-radius:9px;position:relative}
+.ba-volume-handle::before{content:"";width:8px;height:8px;background:var(--ba-color);border-radius:50%}
+.ba-volume-handle svg{position:absolute;opacity:0}.ba-volume-handle:hover::before{opacity:0}.ba-volume-handle:hover svg{opacity:1}
+.ba-volume-editable.is-dragging,.ba-volume-editable.is-dragging button{cursor:grabbing}
+.ba-volume-ghost{pointer-events:none;z-index:1;opacity:.4;border:1px dashed var(--ba-color);background:transparent;font-size:10px}
+.ba-volume-range-hint{padding:4px 10px;color:#637ba7;font-size:11px;min-height:24px}
+.ba-volume-inspector-jump{display:none}
+.ba-volume-undo{display:flex;align-items:center;gap:5px;padding:4px 10px;color:#176ae2;font-size:11px}
+.ba-volume-inspector .ba-inspector-body{margin-top:18px;min-width:0}
+.ba-volume-inspector .ba-field{grid-template-columns:1fr;gap:5px;align-items:start}
+.ba-volume-range{display:grid;gap:12px}.ba-volume-lock-notice{color:#a65b29}
+.ba-volume-inspector .ba-inspector-footer>button{width:100%;margin-top:10px}
+.ba-volume-preview{font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.ba-volume-preview-heading{margin-bottom:18px}.ba-volume-preview h2{font-size:18px}.ba-volume-preview h3{font-size:15px;margin-bottom:8px}
+.ba-volume-change,.ba-volume-impact,.ba-volume-conflicts,.ba-volume-references,.ba-volume-unchecked{padding:14px 0;border-bottom:1px solid #e4edfa}
+.ba-volume-snapshot{padding:12px;background:#f5f9ff;border-radius:6px;min-width:0}.ba-volume-snapshot:last-child{background:#ecf7f2}
+.ba-volume-snapshot h4{color:#4b679b;margin-bottom:10px}.ba-volume-fields{display:grid;gap:8px}.ba-volume-fields>div{display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px}
+.ba-volume-fields dt{color:#6e83a7}.ba-volume-fields dd{min-width:0;margin:0}
+.ba-volume-movement{padding-top:10px;color:#5773a1}.ba-volume-conflicts .ba-evidence-item p:first-child{color:#a95d29}.ba-volume-conflicts svg{display:inline;vertical-align:middle;margin-right:5px}
+.ba-volume-preview-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding-top:16px}
+@media(max-width:1100px){.ba-layout{grid-template-columns:minmax(0,1fr)}.ba-inspector{position:static;max-height:none;border-left:0;border-top:1px solid #dce9fc}.ba-volume-inspector .ba-card-content{grid-template-columns:repeat(2,minmax(0,1fr))}.ba-volume-inspector .ba-card-content>p,.ba-volume-range{grid-column:1/-1}.ba-volume-range{grid-template-columns:repeat(2,minmax(0,1fr))}.ba-volume-inspector-jump{display:flex;max-width:100%;height:auto;white-space:normal;margin-bottom:6px}}
+@media(max-width:480px){.ba-volume-inspector .ba-card-content,.ba-volume-range{grid-template-columns:1fr}.ba-volume-fields>div{grid-template-columns:64px minmax(0,1fr)}}

@@ -29,5 +29,7 @@ export function registerBookArrangementRoutes(router: Router) {
   router.get(base, endpoint(req => service.arrangementWorkspace(novelId(req))));
   router.put(`${base}/draft`, mutation("draft", req => service.saveArrangementDraft(novelId(req), z.object({ expectedRevision: z.number().int().min(0), payload: arrangementDraftSchema }).strict().parse(req.body))));
   router.post(`${base}/preview`, mutation("preview", req => service.previewArrangement(novelId(req), z.object({ draftRevision: z.number().int().min(1), chapterIds: arrangementChapterIdsSchema }).strict().parse(req.body))));
+  router.post(`${base}/volumes/preview`, mutation("volume-preview", req => service.previewArrangementVolumes(novelId(req), z.object({ draftRevision: z.number().int().min(1), volumeIds: arrangementChapterIdsSchema }).strict().parse(req.body))));
+  router.post(`${base}/volumes/:candidateId/apply`, mutation("volume-apply", req => { z.object({}).strict().parse(req.body); return service.applyArrangementVolumes(novelId(req), id.parse(req.params.candidateId)); }));
   router.post(`${base}/:candidateId/apply`, mutation("apply", req => service.applyArrangement(novelId(req), id.parse(req.params.candidateId), z.object({ chapterIds: arrangementChapterIdsSchema }).strict().parse(req.body))));
 }
