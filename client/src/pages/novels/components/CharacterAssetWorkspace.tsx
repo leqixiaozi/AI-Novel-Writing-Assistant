@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { Activity, Brain, Clock3, Eye, Network, Package, ScrollText, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ const WORKSPACE_TABS: Array<{ value: string; label: string; icon: LucideIcon }> 
 ];
 
 export default function CharacterAssetWorkspace(props: CharacterAssetWorkspaceProps) {
+  const [searchParams] = useSearchParams();
   const {
     novelId,
     llmProvider,
@@ -122,7 +124,7 @@ export default function CharacterAssetWorkspace(props: CharacterAssetWorkspacePr
               lastAppearanceChapter={lastAppearanceChapter}
             />
 
-            <Tabs defaultValue="overview" className="min-w-0">
+            <Tabs defaultValue={searchParams.get("characterView") === "relations" ? "relations" : "overview"} className="min-w-0">
               <div className="overflow-x-auto pb-1">
                 <TabsList className="h-auto min-w-max justify-start gap-1 rounded-2xl border border-border/70 bg-background/85 p-1.5 shadow-sm">
                   {WORKSPACE_TABS.map((tab) => {
