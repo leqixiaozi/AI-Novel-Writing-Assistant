@@ -1,4 +1,5 @@
 import { prisma } from "../../../db/prisma";
+import { assertAdjustmentWrite } from "../../../modules/novel/adjustments";
 import { ChapterArtifactContentVersionError } from "../runtime/artifactSync/ChapterArtifactSyncResult";
 
 export type NovelFactCategory = "completed" | "revealed" | "state_changed";
@@ -37,7 +38,7 @@ export class NovelFactService {
     novelId: string,
     chapterOrder: number,
     items: NovelFactWriteItem[],
-    integrity?: { chapterId: string; expectedChapterContent: string },
+    integrity?: { chapterId: string; expectedChapterContent?: string },
   ): Promise<void> {
     if (items.length === 0) {
       return;
@@ -66,6 +67,7 @@ export class NovelFactService {
       return;
     }
     await prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(novelId, integrity.chapterId, tx);
       const chapter = await tx.chapter.findFirst({
         where: {
           id: integrity.chapterId,

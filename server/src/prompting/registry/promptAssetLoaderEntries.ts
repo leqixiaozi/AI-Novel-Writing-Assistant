@@ -10,6 +10,30 @@ export interface PromptAssetLoaderEntry {
 
 export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
   {
+    key: "novel.writing_adjustment.evidence@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentEvidencePrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.writing_adjustment.scene_location@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentSceneLocationPrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.writing_adjustment.generate@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentGeneratePrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.writing_adjustment.review@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentReviewPrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.writing_adjustment.plan@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentPlanPrompt as UnknownPromptAsset,
+  },
+  {
+    key: "novel.writing_adjustment.query@v1",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentQueryPrompt as UnknownPromptAsset,
+  },
+  {
     key: "director.issue.assessment@v1",
     load: () => require("../prompts/director/directorIssueAssessment.prompts").directorIssueAssessmentPrompt as UnknownPromptAsset,
   },

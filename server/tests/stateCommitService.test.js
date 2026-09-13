@@ -7,6 +7,7 @@ const {
 const { prisma } = require("../dist/db/prisma.js");
 const { canonicalStateService } = require("../dist/services/novel/state/CanonicalStateService.js");
 const { stateVersionLog } = require("../dist/services/novel/state/StateVersionLog.js");
+const { installChapterTransactionDouble } = require("./helpers/chapterTransactionDouble.js");
 
 function makeResourceProposal(overrides = {}) {
   const { payload: payloadOverrides = {}, ...proposalOverrides } = overrides;
@@ -319,7 +320,7 @@ test("StateCommitService conflict check routes holder mismatch into pending revi
   }
 });
 
-test("StateCommitService commitExistingProposals applies ledger update and writes committed version", async () => {
+test("StateCommitService commitExistingProposals applies ledger update and writes committed version", async (t) => {
   const service = new StateCommitService();
   const now = new Date();
   const proposalRow = {
@@ -348,7 +349,6 @@ test("StateCommitService commitExistingProposals applies ledger update and write
   };
   const originals = {
     proposalFindMany: prisma.stateChangeProposal.findMany,
-    transaction: prisma.$transaction,
     proposalUpdateMany: prisma.stateChangeProposal.updateMany,
     getSnapshot: canonicalStateService.getSnapshot,
     createVersion: stateVersionLog.createVersion,
@@ -356,7 +356,7 @@ test("StateCommitService commitExistingProposals applies ledger update and write
 
   try {
     prisma.stateChangeProposal.findMany = async () => [proposalRow];
-    prisma.$transaction = async (callback) => callback({
+    installChapterTransactionDouble(t, prisma, {
       characterResourceLedgerItem: {
         findUnique: async () => null,
         upsert: async () => {
@@ -408,7 +408,6 @@ test("StateCommitService commitExistingProposals applies ledger update and write
     });
   } finally {
     prisma.stateChangeProposal.findMany = originals.proposalFindMany;
-    prisma.$transaction = originals.transaction;
     prisma.stateChangeProposal.updateMany = originals.proposalUpdateMany;
     canonicalStateService.getSnapshot = originals.getSnapshot;
     stateVersionLog.createVersion = originals.createVersion;

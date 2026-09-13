@@ -8,6 +8,8 @@ import type {
   TimelineIssue,
 } from "@ai-novel/shared/types/timeline";
 import { prisma } from "../../db/prisma";
+import type { Prisma } from "@prisma/client";
+import { assertAdjustmentWrite } from "../novel/adjustments";
 
 function parseJsonArray(value: string | null | undefined): string[] {
   if (!value) {
@@ -335,7 +337,7 @@ export class PrismaTimelineRepository implements TimelineRepository {
       nextHookIdsJson: stringifyJson(input.nextHookIds),
       forbiddenEventIdsJson: stringifyJson(input.forbiddenEventIds),
     };
-    const row = await prisma.chapterTimeAnchor.upsert({
+    const row = await this.withChapterGuard(input.novelId, input.chapterId, (tx) => tx.chapterTimeAnchor.upsert({
       where: { novelId_chapterId: { novelId: input.novelId, chapterId: input.chapterId } },
       create: {
         novelId: input.novelId,
@@ -343,14 +345,14 @@ export class PrismaTimelineRepository implements TimelineRepository {
         ...data,
       },
       update: data,
-    });
+    }));
     return mapAnchor(row);
   }
 
   async saveExtractedEvents(events: Array<Omit<StoryTimelineEvent, "id" | "createdAt" | "updatedAt">>): Promise<StoryTimelineEvent[]> {
     const created: StoryTimelineEvent[] = [];
     for (const event of events) {
-      const row = await prisma.storyTimelineEvent.create({
+      const row = await this.withChapterGuard(event.novelId, event.chapterId, (tx) => tx.storyTimelineEvent.create({
         data: {
           novelId: event.novelId,
           chapterId: event.chapterId ?? null,
@@ -373,7 +375,7 @@ export class PrismaTimelineRepository implements TimelineRepository {
           eventKey: event.eventKey ?? null,
           confidence: event.confidence,
         },
-      });
+      }));
       created.push(mapTimelineEvent(row));
     }
     return created;
@@ -395,7 +397,9 @@ export class PrismaTimelineRepository implements TimelineRepository {
     if (hooks.length === 0) {
       return;
     }
-    await prisma.timelineHook.createMany({
+    await prisma.$transaction(async (tx) => {
+      for (const hook of hooks) await assertAdjustmentWrite(hook.novelId, hook.createdInChapterId, tx);
+      return tx.timelineHook.createMany({
       data: hooks.map((hook) => ({
         novelId: hook.novelId,
         createdInChapterId: hook.createdInChapterId,
@@ -413,6 +417,7 @@ export class PrismaTimelineRepository implements TimelineRepository {
         relatedEventIdsJson: stringifyJson(hook.relatedEventIds ?? []),
         participantIdsJson: stringifyJson(hook.participantIds ?? []),
       })),
+      });
     });
   }
 
@@ -420,18 +425,18 @@ export class PrismaTimelineRepository implements TimelineRepository {
     if (input.hookIds.length === 0) {
       return;
     }
-    await prisma.timelineHook.updateMany({
+    await this.withChapterGuard(undefined, input.chapterId, (tx) => tx.timelineHook.updateMany({
       where: { id: { in: input.hookIds } },
       data: {
         status: input.resolved ? "resolved" : "addressed",
         resolvedInChapterId: input.chapterId,
         resolvedInChapterIndex: input.chapterIndex,
       },
-    });
+    }));
   }
 
   async expireOverdueImmediateHooks(input: { novelId: string; chapterId: string; chapterIndex: number }): Promise<void> {
-    await prisma.timelineHook.updateMany({
+    await this.withChapterGuard(input.novelId, input.chapterId, (tx) => tx.timelineHook.updateMany({
       where: {
         novelId: input.novelId,
         status: { in: ["open", "addressed"] },
@@ -448,11 +453,11 @@ export class PrismaTimelineRepository implements TimelineRepository {
         resolvedInChapterId: input.chapterId,
         resolvedInChapterIndex: input.chapterIndex,
       },
-    });
+    }));
   }
 
   async saveCheckReport(report: Omit<TimelineCheckReport, "id" | "createdAt">): Promise<TimelineCheckReport> {
-    const row = await prisma.timelineCheckReport.create({
+    const row = await this.withChapterGuard(report.novelId, report.chapterId, (tx) => tx.timelineCheckReport.create({
       data: {
         novelId: report.novelId,
         chapterId: report.chapterId,
@@ -461,8 +466,18 @@ export class PrismaTimelineRepository implements TimelineRepository {
         score: report.score,
         issuesJson: stringifyJson(report.issues),
       },
-    });
+    }));
     return mapReport(row);
+  }
+
+  private withChapterGuard<T>(novelId: string | undefined, chapterId: string | null | undefined, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return prisma.$transaction(async (tx) => {
+      if (chapterId) {
+        const owner = novelId ?? (await tx.chapter.findUnique({ where: { id: chapterId }, select: { novelId: true } }))?.novelId;
+        if (owner) await assertAdjustmentWrite(owner, chapterId, tx);
+      }
+      return write(tx);
+    });
   }
 }
 

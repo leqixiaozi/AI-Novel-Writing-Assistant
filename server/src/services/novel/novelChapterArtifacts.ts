@@ -1,4 +1,5 @@
 import { prisma } from "../../db/prisma";
+import { assertAdjustmentWrite } from "../../modules/novel/adjustments";
 import { withSqliteRetry } from "../../db/sqliteRetry";
 import { briefSummary, extractCharacterEventLines, extractFacts } from "./novelCoreShared";
 import { queueRagUpsert } from "./novelCoreSupport";
@@ -47,6 +48,7 @@ export async function syncCharacterTimelineForChapter(novelId: string, chapterId
 
   await withSqliteRetry(
     () => prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(novelId, chapterId, tx);
       await tx.characterTimeline.deleteMany({
         where: {
           novelId,
@@ -81,6 +83,7 @@ export async function syncChapterArtifacts(novelId: string, chapterId: string, c
 
   await withSqliteRetry(
     () => prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(novelId, chapterId, tx);
       await tx.chapterSummary.upsert({
         where: { chapterId },
         update: {

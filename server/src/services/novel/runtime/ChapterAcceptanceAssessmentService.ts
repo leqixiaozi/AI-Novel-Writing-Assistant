@@ -17,6 +17,8 @@ import { openConflictService } from "../../state/OpenConflictService";
 import { normalizeScore, ruleScore } from "../novelP0Utils";
 import { detectProseQuality } from "./proseQuality/ProseQualityDetector";
 import { buildAcceptanceCacheIdentity } from "./acceptance";
+import { createHash } from "node:crypto";
+import { currentWritingAdjustmentText } from "./adjustments/WritingAdjustmentRuntime";
 
 export interface ChapterAcceptanceAssessmentInput {
   novelId: string;
@@ -242,7 +244,9 @@ function buildFallbackAssessment(content: string): ChapterAcceptanceAssessmentOu
 
 export class ChapterAcceptanceAssessmentService {
   async getCacheIdentity(input: ChapterAcceptanceAssessmentInput): Promise<string> {
-    return buildAcceptanceCacheIdentity(input);
+    const identity = await buildAcceptanceCacheIdentity(input);
+    const requirements = currentWritingAdjustmentText();
+    return requirements ? createHash("sha256").update(`${identity}\n${requirements}`).digest("hex") : identity;
   }
 
   async assess(input: ChapterAcceptanceAssessmentInput): Promise<ChapterAcceptanceAssessmentResult> {
@@ -326,6 +330,7 @@ export class ChapterAcceptanceAssessmentService {
         chapterTitle: input.chapterTitle,
         targetWordCount: input.targetWordCount ?? null,
         content: input.content,
+        ...(currentWritingAdjustmentText() ? { writingAdjustmentText: currentWritingAdjustmentText() } : {}),
       },
       contextBlocks: resolvedContext.blocks,
       options: {

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { llmProviderSchema } from "../../../llm/providerSchema";
 
+export const optionalWritingAdjustmentSchema = z.object({
+  contractVersion: z.literal(2),
+  requirementsId: z.string().trim().min(1),
+  outputMode: z.enum(["candidate", "original"]),
+}).strict();
+
 const chapterRuntimeControlPolicySchema = z.object({
   kickoffMode: z.enum(["manual_start", "director_start", "takeover_start"]),
   advanceMode: z.enum(["manual", "stage_review", "auto_to_ready", "auto_to_execution", "full_book_autopilot"]),
@@ -14,6 +20,7 @@ const chapterRuntimeControlPolicySchema = z.object({
 });
 
 export const chapterRuntimeRequestSchema = z.object({
+  adjustment: optionalWritingAdjustmentSchema.optional(),
   workflowTaskId: z.string().trim().optional(),
   provider: llmProviderSchema.optional(),
   model: z.string().trim().optional(),

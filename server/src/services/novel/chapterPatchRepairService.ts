@@ -9,6 +9,7 @@ import {
 import { runStructuredPrompt } from "../../prompting/core/promptRunner";
 import { buildChapterRepairContextBlocks } from "../../prompting/prompts/novel/chapterLayeredContext";
 import { chapterPatchRepairPrompt } from "../../prompting/prompts/novel/chapterPatchRepair.prompts";
+import { currentWritingAdjustmentText } from "./runtime/adjustments/WritingAdjustmentRuntime";
 
 export type PatchRepairMode =
   | "detect_only"
@@ -78,6 +79,7 @@ export class ChapterPatchRepairService {
           chapterContent: input.content,
           issuesJson: input.issuesJson ?? JSON.stringify(input.issues, null, 2),
           modeHint: input.modeHint,
+          ...(currentWritingAdjustmentText() ? { writingAdjustmentText: currentWritingAdjustmentText() } : {}),
         },
         contextBlocks,
         options: {

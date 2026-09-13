@@ -1,6 +1,7 @@
 import { serializeCommercialTagsJson } from "@ai-novel/shared/types/novelFraming";
 import type { NovelAutoDirectorTaskSummary } from "@ai-novel/shared/types/novel";
 import { prisma } from "../../db/prisma";
+import { assertAdjustmentWrite, runWithAdjustmentFence } from "../../modules/novel/adjustments";
 import { AppError } from "../../middleware/errorHandler";
 import { mapNovelAutoDirectorTaskSummary } from "../task/novelWorkflowTaskSummary";
 import { getArchivedTaskIdSet } from "../task/taskArchive";
@@ -677,12 +678,18 @@ export class NovelCoreCrudService {
   }
 
   async updateChapter(novelId: string, chapterId: string, input: Partial<ChapterInput>) {
+    return runWithAdjustmentFence(novelId, [chapterId], () => this.updateChapterWithinFence(novelId, chapterId, input));
+  }
+
+  private async updateChapterWithinFence(novelId: string, chapterId: string, input: Partial<ChapterInput>) {
     const exists = await prisma.chapter.findFirst({ where: { id: chapterId, novelId }, select: { id: true } });
     if (!exists) {
       throw new Error("章节不存在");
     }
 
-    const chapter = await prisma.chapter.update({
+    const chapter = await prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(novelId, chapterId, tx);
+      return tx.chapter.update({
       where: { id: chapterId },
       data: {
         title: input.title,
@@ -703,6 +710,7 @@ export class NovelCoreCrudService {
         pacingScore: input.pacingScore,
         riskFlags: input.riskFlags,
       },
+      });
     });
 
     if (typeof input.content === "string") {

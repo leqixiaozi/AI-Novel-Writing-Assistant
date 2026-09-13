@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AppError } from "../../../../middleware/errorHandler";
 import { validate } from "../../../../middleware/validate";
 import type { NovelApplicationServices } from "../../../../services/novel/application/NovelApplicationContracts";
+import { adjustmentService } from "../../adjustments";
 
 interface RegisterNovelChapterEditorRoutesInput {
   router: Router;
@@ -59,7 +60,12 @@ export function registerNovelChapterEditorRoutes(input: RegisterNovelChapterEdit
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.previewChapterAiRevision(id, chapterId, req.body as any);
+        const data = req.body.adjustment
+          ? await adjustmentService.generate(id, chapterId, {
+            requirementsId: req.body.adjustment.requirementsId,
+            operation: "rewrite", content: req.body.contentSnapshot, instruction: req.body.instruction,
+          })
+          : await novelService.previewChapterAiRevision(id, chapterId, req.body as any);
         res.status(200).json({
           success: true,
           data,
@@ -98,7 +104,12 @@ export function registerNovelChapterEditorRoutes(input: RegisterNovelChapterEdit
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.previewChapterRewrite(id, chapterId, req.body as any);
+        const data = req.body.adjustment
+          ? await adjustmentService.generate(id, chapterId, {
+            requirementsId: req.body.adjustment.requirementsId,
+            operation: "rewrite", content: req.body.contentSnapshot, instruction: req.body.customInstruction,
+          })
+          : await novelService.previewChapterRewrite(id, chapterId, req.body as any);
         res.status(200).json({
           success: true,
           data,

@@ -21,6 +21,7 @@ export interface ChapterReviewPromptInput {
 }
 
 export interface ChapterRepairPromptInput {
+  writingAdjustmentText?: string;
   novelTitle: string;
   bibleContent: string;
   chapterTitle: string;
@@ -206,6 +207,7 @@ export const chapterRepairPrompt: PromptAsset<ChapterRepairPromptInput, string, 
   render: (input, context) => [
     new SystemMessage([
       "你是资深网络小说修文编辑。",
+      ...(input.writingAdjustmentText ? ["【本次作者调整要求】", input.writingAdjustmentText] : []),
       "你的任务是根据问题清单与分层上下文，对当前章节进行最小必要修复，使其更符合任务要求、结构要求与阅读体验。",
       "",
       "【任务边界】",

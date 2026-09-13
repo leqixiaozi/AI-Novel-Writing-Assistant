@@ -394,10 +394,11 @@ export class DirectorCommandService {
     });
   }
 
-  async enqueueAcceptManualChangesAndContinueCommand(taskId: string): Promise<DirectorCommandAcceptedResponse> {
+  async enqueueAcceptManualChangesAndContinueCommand(taskId: string, manualSessionId?: string): Promise<DirectorCommandAcceptedResponse> {
     return this.enqueueExecutionCommand({
       taskId,
       commandType: "accept_manual_changes_and_continue",
+      ...(manualSessionId ? { idempotencyKey: `manual-continue:${manualSessionId}` } : {}),
       payload: {
         acceptManualChanges: true,
         continuationMode: "resume",
@@ -659,7 +660,12 @@ export class DirectorCommandService {
     payload: DirectorCommandPayload;
     allowTerminalReuse?: boolean;
     preserveLastError?: boolean;
+    idempotencyKey?: string;
   }): Promise<DirectorCommandAcceptedResponse> {
+    if (input.idempotencyKey) {
+      const existing = await prisma.directorRunCommand.findFirst({ where: { taskId: input.taskId, commandType: input.commandType, idempotencyKey: input.idempotencyKey } });
+      if (existing) return toAcceptedResponse(existing, null);
+    }
     let row = await this.workflowService.getTaskById(input.taskId);
     if (!row) {
       throw new AppError("Task not found.", 404);
@@ -682,14 +688,14 @@ export class DirectorCommandService {
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     });
-    if (reusableCommand) {
+    if (reusableCommand && !input.idempotencyKey) {
       return toAcceptedResponse(reusableCommand, null);
     }
 
     const normalizedPayload = Object.fromEntries(
       Object.entries(input.payload).filter(([, value]) => value !== undefined),
     );
-    const idempotencyKey = `${input.commandType}:${row.updatedAt.getTime()}:${hashPayload(normalizedPayload)}`;
+    const idempotencyKey = input.idempotencyKey ?? `${input.commandType}:${row.updatedAt.getTime()}:${hashPayload(normalizedPayload)}`;
     const payloadJson = stableJson(normalizedPayload);
     const createCommand = () => prisma.directorRunCommand.create({
       data: {

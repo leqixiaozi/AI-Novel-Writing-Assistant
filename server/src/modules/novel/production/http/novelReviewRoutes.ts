@@ -3,6 +3,7 @@ import type { ApiResponse } from "@ai-novel/shared/types/api";
 import { z } from "zod";
 import { streamToSSE } from "../../../../llm/streaming";
 import { validate } from "../../../../middleware/validate";
+import { adjustmentService } from "../../adjustments";
 import type { NovelApplicationServices } from "../../../../services/novel/application/NovelApplicationContracts";
 import type { ChapterRuntimeCoordinator } from "../../../../services/novel/runtime/ChapterRuntimeCoordinator";
 import { stepModuleRunner } from "../../../../services/novel/director/workflowStepRuntime/StepModuleRunner";
@@ -43,7 +44,9 @@ export function registerNovelReviewRoutes(input: RegisterNovelReviewRoutesInput)
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.reviewChapter(id, chapterId, req.body as any);
+        const data = req.body.targetRef
+          ? await adjustmentService.review(id, chapterId, { editVersionId: req.body.targetRef.editVersionId })
+          : await novelService.reviewChapter(id, chapterId, req.body as any);
         res.status(200).json({
           success: true,
           data,
@@ -61,7 +64,9 @@ export function registerNovelReviewRoutes(input: RegisterNovelReviewRoutesInput)
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.auditChapter(id, chapterId, "continuity", req.body as any);
+        const data = req.body.targetRef
+          ? await adjustmentService.review(id, chapterId, { editVersionId: req.body.targetRef.editVersionId })
+          : await novelService.auditChapter(id, chapterId, "continuity", req.body as any);
         res.status(200).json({
           success: true,
           data,
@@ -79,7 +84,9 @@ export function registerNovelReviewRoutes(input: RegisterNovelReviewRoutesInput)
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.auditChapter(id, chapterId, "character", req.body as any);
+        const data = req.body.targetRef
+          ? await adjustmentService.review(id, chapterId, { editVersionId: req.body.targetRef.editVersionId })
+          : await novelService.auditChapter(id, chapterId, "character", req.body as any);
         res.status(200).json({
           success: true,
           data,
@@ -97,7 +104,9 @@ export function registerNovelReviewRoutes(input: RegisterNovelReviewRoutesInput)
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.auditChapter(id, chapterId, "plot", req.body as any);
+        const data = req.body.targetRef
+          ? await adjustmentService.review(id, chapterId, { editVersionId: req.body.targetRef.editVersionId })
+          : await novelService.auditChapter(id, chapterId, "plot", req.body as any);
         res.status(200).json({
           success: true,
           data,
@@ -115,7 +124,9 @@ export function registerNovelReviewRoutes(input: RegisterNovelReviewRoutesInput)
     async (req, res, next) => {
       try {
         const { id, chapterId } = req.params as z.infer<typeof chapterParamsSchema>;
-        const data = await novelService.auditChapter(id, chapterId, "full", req.body as any);
+        const data = req.body.targetRef
+          ? await adjustmentService.review(id, chapterId, { editVersionId: req.body.targetRef.editVersionId })
+          : await novelService.auditChapter(id, chapterId, "full", req.body as any);
         res.status(200).json({
           success: true,
           data,

@@ -3,6 +3,7 @@ import type {
   StateChangeProposal,
 } from "@ai-novel/shared/types/canonicalState";
 import { prisma } from "../../../db/prisma";
+import { assertAdjustmentWrite } from "../../../modules/novel/adjustments";
 import { runStructuredPrompt } from "../../../prompting/core/promptRunner";
 import {
   chapterArtifactDeltaPrompt,
@@ -633,6 +634,7 @@ export class ChapterArtifactDeltaService {
     chapterOrder: number;
   }): Promise<number> {
     return prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(input.novelId, input.chapterId, tx);
       if (input.expectedChapterContent !== undefined) {
         await this.assertExpectedChapterContentInTransaction(tx, input as {
           novelId: string;
@@ -710,6 +712,7 @@ export class ChapterArtifactDeltaService {
 
     const resolvedAt = new Date();
     const results = await prisma.$transaction(async (tx) => {
+      await assertAdjustmentWrite(input.novelId, input.chapterId, tx);
       if (input.expectedChapterContent !== undefined) {
         await this.assertExpectedChapterContentInTransaction(tx, input as {
           novelId: string;
@@ -769,12 +772,14 @@ export class ChapterArtifactDeltaService {
     );
     await prisma.$transaction(async (tx) => {
       const current = await tx.chapter.findFirst({
+        // The fence is checked before the first write below.
         where: { id: input.chapterId, novelId: input.novelId },
         select: { content: true },
       });
       if (!current || buildContentHash(current.content ?? "") !== input.expectedContentHash) {
         throw new ChapterArtifactContentVersionError("章节正文版本已变化，已拒绝写入过期摘要与事实。");
       }
+      await assertAdjustmentWrite(input.novelId, input.chapterId, tx);
       await tx.chapter.update({
         where: { id: input.chapterId },
         data: { expectation: summary },
@@ -1269,6 +1274,7 @@ export class ChapterArtifactDeltaService {
     tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
     input: { novelId: string; chapterId: string; expectedChapterContent: string },
   ): Promise<void> {
+    await assertAdjustmentWrite(input.novelId, input.chapterId, tx);
     const current = await tx.chapter.findFirst({
       where: {
         id: input.chapterId,

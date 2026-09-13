@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { MAX_VOLUME_COUNT } from "@ai-novel/shared/types/volumePlanning";
 import { llmProviderSchema } from "../../../llm/providerSchema";
-import { chapterRuntimeRequestSchema } from "../../../services/novel/runtime/chapterRuntimeSchema";
+import { chapterRuntimeRequestSchema, optionalWritingAdjustmentSchema } from "../../../services/novel/runtime/chapterRuntimeSchema";
 
 export const idParamsSchema = z.object({
   id: z.string().trim().min(1),
@@ -426,6 +426,7 @@ const reviewIssueSchema = z.object({
 
 export const reviewSchema = llmGenerateSchema.extend({
   content: z.string().optional(),
+  targetRef: z.object({ contractVersion: z.literal(2), editVersionId: z.string().trim().min(1) }).strict().optional(),
 });
 
 export const repairSchema = llmGenerateSchema.extend({
@@ -458,6 +459,7 @@ export const draftOptimizeSchema = llmGenerateSchema.extend({
 });
 
 export const rewritePreviewSchema = z.object({
+  adjustment: optionalWritingAdjustmentSchema.extend({ outputMode: z.literal("candidate") }).optional(),
   operation: z.enum(["polish", "expand", "compress", "emotion", "conflict", "custom"]),
   customInstruction: z.string().trim().max(400).optional(),
   contentSnapshot: z.string(),
@@ -492,6 +494,7 @@ export const rewritePreviewSchema = z.object({
 });
 
 export const aiRevisionPreviewSchema = z.object({
+  adjustment: optionalWritingAdjustmentSchema.extend({ outputMode: z.literal("candidate") }).optional(),
   source: z.enum(["preset", "freeform"]),
   scope: z.enum(["selection", "chapter"]),
   presetOperation: z.enum(["polish", "expand", "compress", "emotion", "conflict", "custom"]).optional(),

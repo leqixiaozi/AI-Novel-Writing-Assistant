@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { prisma } = require("../dist/db/prisma.js");
+const { installChapterTransactionDouble } = require("./helpers/chapterTransactionDouble.js");
 const { novelEventBus } = require("../dist/events/index.js");
 const {
   ChapterContentPersistenceError,
@@ -11,11 +12,14 @@ const {
   NovelPipelineExecutor,
 } = require("../dist/services/novel/production/NovelPipelineExecutor.js");
 
-test("saveWorkingContent exposes uncertain正文 persistence as a safety error", async () => {
+test("saveWorkingContent exposes uncertain正文 persistence as a safety error", async (t) => {
   const originalUpdate = prisma.chapter.update;
   prisma.chapter.update = async () => {
     throw new Error("database write unavailable");
   };
+  installChapterTransactionDouble(t, prisma, {
+    chapter: { update: (...args) => prisma.chapter.update(...args) },
+  });
 
   try {
     const service = new ChapterLifecycleService();
@@ -30,6 +34,7 @@ test("saveWorkingContent exposes uncertain正文 persistence as a safety error",
         assert.equal(error instanceof ChapterContentPersistenceError, true);
         assert.equal(error.chapterId, "chapter-1");
         assert.match(error.message, /正文保存失败/);
+        assert.match(error.message, /database write unavailable/);
         return true;
       },
     );

@@ -1,4 +1,5 @@
 import type { NovelSideEffectJob } from "@prisma/client";
+import { z } from "zod";
 import { getSharedNovelServices } from "../../services/novel/application/sharedNovelServices";
 import { characterDynamicsService } from "../../services/novel/dynamics/CharacterDynamicsService";
 import { payoffLedgerSyncService } from "../../services/payoff/PayoffLedgerSyncService";
@@ -9,7 +10,14 @@ import {
   type CharacterPostDraftEnrichmentPayload,
   type CharacterVolumeRebuildPayload,
   type PipelineSnapshotPayload,
+  type WritingAdjustmentSyncPayload,
 } from "./NovelSideEffectJobTypes";
+
+const writingAdjustmentSyncPayloadSchema = z.object({
+  novelId: z.string().min(1), chapterId: z.string().min(1), acceptanceId: z.string().min(1),
+  contentHash: z.string().min(1), epochs: z.record(z.string(), z.number().int().nonnegative()),
+  manualSessionId: z.string().min(1).nullable().optional(),
+}).refine((value) => Object.hasOwn(value.epochs, value.chapterId), "同步任务缺少章节写入许可。");
 
 export class UnsupportedNovelSideEffectPayloadError extends Error {
   constructor(message: string) {
@@ -35,11 +43,22 @@ export class NovelSideEffectJobHandlers {
   constructor(
     private readonly dependencies: {
       syncPayoffLedger?: (novelId: string) => Promise<unknown>;
+      syncWritingAdjustment?: (payload: WritingAdjustmentSyncPayload) => Promise<unknown>;
     } = {},
   ) {}
 
   async execute(job: NovelSideEffectJob): Promise<void> {
     switch (job.jobType) {
+      case "writing.adjustmentSync": {
+        const payload = writingAdjustmentSyncPayloadSchema.parse(parsePayload<WritingAdjustmentSyncPayload>(job));
+        if (job.novelId !== payload.novelId) throw new UnsupportedNovelSideEffectPayloadError("同步任务的作品归属不一致。");
+        const synchronize = this.dependencies.syncWritingAdjustment ?? (async (input: WritingAdjustmentSyncPayload) => {
+          const { adjustmentService } = await import("../../modules/novel/adjustments");
+          return adjustmentService.synchronize(input);
+        });
+        await synchronize(payload);
+        return;
+      }
       case "character.volumeRebuild": {
         const payload = parsePayload<CharacterVolumeRebuildPayload>(job);
         await characterDynamicsService.rebuildDynamics(payload.novelId, {

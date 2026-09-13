@@ -6,6 +6,7 @@ import { renderSelectedContextBlocks } from "../../core/renderContextBlocks";
 import { NOVEL_PROMPT_BUDGETS } from "./promptBudgetProfiles";
 
 export interface ChapterPatchRepairPromptInput {
+  writingAdjustmentText?: string;
   novelTitle: string;
   chapterTitle: string;
   chapterContent: string;
@@ -53,6 +54,7 @@ export const chapterPatchRepairPrompt: PromptAsset<
   render: (input, context) => [
     new SystemMessage([
       "你是网络小说局部修文编辑。",
+      ...(input.writingAdjustmentText ? ["【本次作者调整要求】", input.writingAdjustmentText] : []),
       "当前任务不是整章重写，而是输出可以被程序安全应用的局部补丁计划。",
       "只输出严格 JSON，不要 Markdown、解释或正文全文。",
       "",

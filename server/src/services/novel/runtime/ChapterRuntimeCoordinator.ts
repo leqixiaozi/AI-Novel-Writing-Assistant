@@ -1,4 +1,5 @@
 import type { BaseMessageChunk } from "@langchain/core/messages";
+import { adjustedChapterStream, adjustedPipeline, fencedRepairStream } from "./adjustments/ChapterAdjustmentExecution";
 import type { StreamDoneHelpers, StreamDonePayload } from "../../../llm/streaming";
 import { prisma } from "../../../db/prisma";
 import { auditService } from "../../audit/AuditService";
@@ -131,7 +132,7 @@ export class ChapterRuntimeCoordinator {
     stream: AsyncIterable<BaseMessageChunk>;
     onDone: (fullContent: string, helpers: StreamDoneHelpers) => Promise<void | StreamDonePayload>;
   }> {
-    return this.streamOrchestrator.createChapterStream(novelId, chapterId, options, config);
+    return adjustedChapterStream(novelId, chapterId, options, () => this.streamOrchestrator.createChapterStream(novelId, chapterId, options, config));
   }
 
   async createRepairStream(
@@ -142,7 +143,7 @@ export class ChapterRuntimeCoordinator {
     stream: AsyncIterable<BaseMessageChunk>;
     onDone: (fullContent: string, helpers: StreamDoneHelpers) => Promise<void>;
   }> {
-    return this.repairStreamRuntime.createRepairStream(novelId, chapterId, options);
+    return fencedRepairStream(novelId, chapterId, () => this.repairStreamRuntime.createRepairStream(novelId, chapterId, options));
   }
 
   async runPipelineChapter(
@@ -151,7 +152,7 @@ export class ChapterRuntimeCoordinator {
     options: PipelineRuntimeInput = {},
     hooks: PipelineRuntimeHooks = {},
   ): Promise<PipelineRuntimeResult> {
-    return this.pipelineAdapter.runPipelineChapter(novelId, chapterId, options, hooks);
+    return adjustedPipeline(novelId, chapterId, options, () => this.pipelineAdapter.runPipelineChapter(novelId, chapterId, options, hooks));
   }
 
   private getAgentRuntime(agentRuntime?: ChapterRuntimeAgentPort): ChapterRuntimeAgentPort {

@@ -7,6 +7,7 @@ import type {
 import { characterResourceUpdatePayloadSchema } from "@ai-novel/shared/types/characterResource";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../../db/prisma";
+import { assertAdjustmentWrite, runWithAdjustmentFence } from "../../../modules/novel/adjustments";
 import { ChapterArtifactContentVersionError } from "../runtime/artifactSync/ChapterArtifactSyncResult";
 import { characterResourceLedgerService } from "../characterResource/CharacterResourceLedgerService";
 import { compactText as compactResourceText, normalizeResourceKey } from "../characterResource/characterResourceShared";
@@ -101,6 +102,10 @@ interface PersistedProposalRow {
 
 export class StateCommitService {
   async proposeAndCommit(input: StateCommitServiceInput): Promise<StateCommitResult> {
+    return runWithAdjustmentFence(input.novelId, input.chapterId ? [input.chapterId] : [], () => this.proposeAndCommitWithinFence(input));
+  }
+
+  private async proposeAndCommitWithinFence(input: StateCommitServiceInput): Promise<StateCommitResult> {
     const extractedProposals = input.skipFactExtraction ? [] : await chapterFactExtractor.extract(input);
     const rawProposals = input.proposals
       ? extractedProposals.concat(input.proposals)
@@ -194,6 +199,7 @@ export class StateCommitService {
 
     await prisma.$transaction(async (tx) => {
       for (const proposal of committed) {
+        if (proposal.chapterId) await assertAdjustmentWrite(input.novelId, proposal.chapterId, tx);
         await this.applyCommittedProposal(tx, proposal);
         if (!proposal.id) {
           continue;
@@ -350,6 +356,7 @@ export class StateCommitService {
     const rejectedRows: PersistedProposalRow[] = [];
 
     await prisma.$transaction(async (tx) => {
+      if (integrity.chapterId) await assertAdjustmentWrite(integrity.novelId, integrity.chapterId, tx);
       if (integrity.expectedChapterContent !== undefined && integrity.chapterId) {
         const chapter = await tx.chapter.findFirst({
           where: {

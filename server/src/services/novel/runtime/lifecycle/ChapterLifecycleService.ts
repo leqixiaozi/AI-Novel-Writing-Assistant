@@ -7,6 +7,7 @@ import {
   type PipelineGenerationState,
 } from "../../chapterLifecycleState";
 import { assertChapterContentNotEmpty } from "../chapterEmptyContentError";
+import { assertAdjustmentWrite } from "../../../../modules/novel/adjustments";
 
 export class ChapterContentPersistenceError extends Error {
   constructor(
@@ -32,13 +33,16 @@ export class ChapterLifecycleService {
     });
     try {
       await withSqliteRetry(
-        () => prisma.chapter.update({
-          where: { id: input.chapterId },
-          data: {
-            content,
-            generationState: input.generationState,
-            chapterStatus: "generating",
-          },
+        () => prisma.$transaction(async (tx) => {
+          await assertAdjustmentWrite(input.novelId, input.chapterId, tx);
+          return tx.chapter.update({
+            where: { id: input.chapterId },
+            data: {
+              content,
+              generationState: input.generationState,
+              chapterStatus: "generating",
+            },
+          });
         }),
         { label: "chapterLifecycle.saveWorkingContent" },
       );
@@ -51,20 +55,20 @@ export class ChapterLifecycleService {
 
   async markChapterStatus(chapterId: string, chapterStatus: OperationalChapterStatus): Promise<void> {
     await withSqliteRetry(
-      () => prisma.chapter.update({
+      () => this.withChapterWrite(chapterId, (tx) => tx.chapter.update({
         where: { id: chapterId },
         data: { chapterStatus },
-      }),
+      })),
       { label: "chapterLifecycle.markChapterStatus" },
     );
   }
 
   async markGenerationState(chapterId: string, generationState: PipelineGenerationState): Promise<void> {
     await withSqliteRetry(
-      () => prisma.chapter.update({
+      () => this.withChapterWrite(chapterId, (tx) => tx.chapter.update({
         where: { id: chapterId },
         data: mergeChapterPatchForGenerationStateBump({}, generationState),
-      }),
+      })),
       { label: "chapterLifecycle.markGenerationState" },
     );
   }
@@ -74,12 +78,20 @@ export class ChapterLifecycleService {
     data: Pick<Prisma.ChapterUpdateInput, "riskFlags" | "repairHistory" | "chapterStatus" | "generationState">;
   }): Promise<void> {
     await withSqliteRetry(
-      () => prisma.chapter.update({
+      () => this.withChapterWrite(input.chapterId, (tx) => tx.chapter.update({
         where: { id: input.chapterId },
         data: input.data,
-      }),
+      })),
       { label: "chapterLifecycle.applyQualityAssessmentState" },
     );
+  }
+
+  private async withChapterWrite<T>(chapterId: string, write: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return prisma.$transaction(async (tx) => {
+      const chapter = await tx.chapter.findUnique({ where: { id: chapterId }, select: { novelId: true } });
+      if (chapter) await assertAdjustmentWrite(chapter.novelId, chapterId, tx);
+      return write(tx);
+    });
   }
 }
 

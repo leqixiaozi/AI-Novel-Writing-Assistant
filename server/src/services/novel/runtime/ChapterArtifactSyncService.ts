@@ -1,4 +1,6 @@
 import type { RagOwnerType } from "../../rag/types";
+import type { Prisma } from "@prisma/client";
+import { assertAdjustmentWrite } from "../../../modules/novel/adjustments";
 import { prisma } from "../../../db/prisma";
 import { withSqliteRetry } from "../../../db/sqliteRetry";
 import { ragServices } from "../../rag";
@@ -17,6 +19,8 @@ import {
   type ChapterLifecycleService,
 } from "./lifecycle";
 
+export type ChapterArtifactLocalStage = "legacy_summary_and_facts" | "character_timeline";
+
 export interface ChapterArtifactSyncOptions {
   scheduleBackgroundSync?: boolean;
   artifactSyncMode?: ArtifactSyncMode;
@@ -27,6 +31,10 @@ export interface ChapterArtifactSyncOptions {
   model?: string;
   temperature?: number;
   contentProvenance?: ContentProvenance;
+  /** Optional outbox retry checkpoints, valid only for this exact content hash. */
+  completedLocalStages?: ChapterArtifactLocalStage[];
+  /** Persist the stage marker in the SAME transaction as its artifact writes. */
+  onLocalStageCompleted?: (stage: ChapterArtifactLocalStage, tx: Prisma.TransactionClient) => Promise<void>;
 }
 
 export class ChapterArtifactSyncService {
@@ -61,12 +69,13 @@ export class ChapterArtifactSyncService {
   ): Promise<ChapterArtifactSyncResult> {
     const contentHash = buildContentHash(content);
     const completedArtifacts: string[] = [];
-    if (!options.skipLegacySummaryAndFacts) {
+    if (!options.skipLegacySummaryAndFacts && !options.completedLocalStages?.includes("legacy_summary_and_facts")) {
       const facts = extractFacts(content);
       const summary = briefSummary(content, facts);
 
       await withSqliteRetry(
         () => prisma.$transaction(async (tx) => {
+          await assertAdjustmentWrite(novelId, chapterId, tx);
           const current = await tx.chapter.findFirst({
             where: { id: chapterId, novelId },
             select: { content: true },
@@ -102,13 +111,18 @@ export class ChapterArtifactSyncService {
               })),
             });
           }
+          await options.onLocalStageCompleted?.("legacy_summary_and_facts", tx);
         }),
         { label: "chapterArtifactSync.summaryAndFacts" },
       );
       completedArtifacts.push("legacy_summary_and_facts");
+    } else if (options.completedLocalStages?.includes("legacy_summary_and_facts")) {
+      completedArtifacts.push("legacy_summary_and_facts");
     }
 
-    await this.syncCharacterTimelineForChapter(novelId, chapterId, content);
+    if (!options.completedLocalStages?.includes("character_timeline")) {
+      await this.syncCharacterTimelineForChapter(novelId, chapterId, content, options.onLocalStageCompleted);
+    }
     completedArtifacts.push("character_timeline");
     let deltaResult: ChapterArtifactSyncResult | null = null;
     if (options.scheduleBackgroundSync !== false) {
@@ -159,7 +173,12 @@ export class ChapterArtifactSyncService {
       : localResult;
   }
 
-  private async syncCharacterTimelineForChapter(novelId: string, chapterId: string, content: string): Promise<void> {
+  private async syncCharacterTimelineForChapter(
+    novelId: string,
+    chapterId: string,
+    content: string,
+    onStageCompleted?: ChapterArtifactSyncOptions["onLocalStageCompleted"],
+  ): Promise<void> {
     const [chapter, characters] = await Promise.all([
       prisma.chapter.findFirst({
         where: { id: chapterId, novelId },
@@ -171,9 +190,11 @@ export class ChapterArtifactSyncService {
       }),
     ]);
 
-    if (!chapter || characters.length === 0) {
+    if (!chapter) {
+      if (onStageCompleted) throw new ChapterArtifactContentVersionError("章节不存在，无法完成角色时间线同步。");
       return;
     }
+    if (characters.length === 0 && !onStageCompleted) return;
 
     const events: Array<{
       novelId: string;
@@ -206,6 +227,7 @@ export class ChapterArtifactSyncService {
 
     await withSqliteRetry(
       () => prisma.$transaction(async (tx) => {
+        await assertAdjustmentWrite(novelId, chapterId, tx);
         const current = await tx.chapter.findFirst({
           where: { id: chapterId, novelId },
           select: { content: true },
@@ -223,6 +245,7 @@ export class ChapterArtifactSyncService {
         if (events.length > 0) {
           await tx.characterTimeline.createMany({ data: events });
         }
+        await onStageCompleted?.("character_timeline", tx);
       }),
       { label: "chapterArtifactSync.characterTimeline" },
     );

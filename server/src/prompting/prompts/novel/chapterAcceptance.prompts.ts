@@ -222,6 +222,7 @@ export const chapterAcceptanceAssessmentSchema = z.object({
 export type ChapterAcceptanceAssessmentOutput = z.infer<typeof chapterAcceptanceAssessmentSchema>;
 
 export interface ChapterAcceptancePromptInput {
+  writingAdjustmentText?: string;
   novelTitle: string;
   chapterOrder: number;
   chapterTitle: string;
@@ -323,6 +324,7 @@ export const chapterAcceptanceAssessmentPrompt: PromptAsset<
   render: (input, context) => [
     new SystemMessage([
       "你是中文长篇小说正文接收闸门。",
+      ...(input.writingAdjustmentText ? ["【本次作者调整要求】", input.writingAdjustmentText] : []),
       "你的任务是一次性判断当前章节正文是否可以保存并继续推进，是否只需要局部轻修，是否需要暂停人工确认，以及后续资产同步是否需要高优先级处理。",
       "",
       "只输出合法 JSON 对象，不要输出 Markdown、解释、注释或额外文本。",

@@ -42,6 +42,7 @@ import { validate } from "../../../../middleware/validate";
 import { llmProviderSchema } from "../../../../llm/providerSchema";
 import { DirectorBookAutomationProjectionService } from "../projections/DirectorBookAutomationProjectionService";
 import { DirectorCommandService } from "../commands/DirectorCommandService";
+import { beginDirectorManualWriting, completeDirectorManualWriting, withDirectorManualOperation } from "../commands/ManualWritingHandoffService";
 import { DirectorTaskSnapshotService } from "../projections/DirectorTaskSnapshotService";
 import { NovelDirectorService } from "../NovelDirectorService";
 import { novelDirectorIdeaInspirationService } from "../NovelDirectorIdeaInspirationService";
@@ -297,7 +298,8 @@ const appendCommandSchema = z.discriminatedUnion("commandType", [
     instruction: z.string().trim().max(4000).optional().nullable(),
     targetId: z.string().trim().optional().nullable(),
   }) }),
-  z.object({ commandType: z.literal("accept_manual_changes_and_continue"), payload: z.object({}).optional() }),
+  z.object({ commandType: z.literal("begin_manual_edit"), payload: z.object({ chapterIds: z.array(z.string().trim().min(1)).min(1).max(200) }) }),
+  z.object({ commandType: z.literal("accept_manual_changes_and_continue"), payload: z.object({ sessionId: z.string().trim().min(1).optional() }).optional() }),
   z.object({ commandType: z.literal("continue"), payload: z.object({
     continuationMode: z.enum(["resume", "auto_execute_range", "skip_quality_repair"]).optional(),
     batchAlreadyStartedCount: z.number().int().min(0).optional(),
@@ -393,6 +395,11 @@ router.post("/tasks/:taskId/commands", validate({ params: taskParamsSchema, body
     const body = req.body as z.infer<typeof appendCommandSchema>;
     let data: DirectorCommandAcceptedResponse;
     switch (body.commandType) {
+      case "begin_manual_edit": {
+          const session = await withDirectorManualOperation(taskId, req.get("Idempotency-Key"), body.commandType, body.payload, () => beginDirectorManualWriting(taskId, body.payload.chapterIds));
+        res.status(200).json({ success: true, data: session, message: "选定章节已进入人工调整。" });
+        return;
+      }
       case "refine_candidates":
         data = await commandService.enqueueRefineCandidatesCommand({
           ...body.payload,
@@ -420,8 +427,14 @@ router.post("/tasks/:taskId/commands", validate({ params: taskParamsSchema, body
       case "calibrate_step":
         data = await commandService.enqueueCalibrateStepCommand(taskId, body.payload);
         break;
-      case "accept_manual_changes_and_continue":
-        data = await commandService.enqueueAcceptManualChangesAndContinueCommand(taskId);
+        case "accept_manual_changes_and_continue":
+          if (body.payload?.sessionId) {
+            const sessionId = body.payload.sessionId;
+            data = await withDirectorManualOperation(taskId, req.get("Idempotency-Key"), body.commandType, body.payload, async () => {
+              await completeDirectorManualWriting(taskId, sessionId);
+              return commandService.enqueueAcceptManualChangesAndContinueCommand(taskId, sessionId);
+            });
+          } else data = await commandService.enqueueAcceptManualChangesAndContinueCommand(taskId);
         break;
       case "continue":
         data = await commandService.enqueueContinueCommand(taskId, body.payload ?? {});

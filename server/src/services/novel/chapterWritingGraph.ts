@@ -17,6 +17,7 @@ import { chapterWriterPrompt } from "../../prompting/prompts/novel/chapterWriter
 import { NovelContinuationService } from "./NovelContinuationService";
 import { assertChapterContentNotEmpty } from "./runtime/chapterEmptyContentError";
 import { prisma } from "../../db/prisma";
+import { currentWritingAdjustmentText } from "./runtime/adjustments/WritingAdjustmentRuntime";
 import type { WritingPlatformSnapshot } from "@ai-novel/shared/types/writingPlatform";
 
 async function loadWritingPlatformBlock(novelId: string) {
@@ -238,6 +239,7 @@ export class ChapterWritingGraph {
         minWordCount: lengthGoal.minWordCount,
         maxWordCount: lengthGoal.maxWordCount,
         missingWordGap,
+        ...(currentWritingAdjustmentText() ? { writingAdjustmentText: currentWritingAdjustmentText() } : {}),
       },
       contextBlocks: resolvedContext.blocks,
       options: {
@@ -318,6 +320,7 @@ export class ChapterWritingGraph {
         targetWordCount: chapterWriteContext.chapterMission.targetWordCount ?? null,
         minWordCount: targetRange.minWordCount,
         maxWordCount: targetRange.maxWordCount,
+        ...(currentWritingAdjustmentText() ? { writingAdjustmentText: currentWritingAdjustmentText() } : {}),
       },
       contextBlocks: resolvedContext.blocks,
       options: {

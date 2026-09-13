@@ -2,12 +2,31 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const ts = require("typescript");
 
 const repoRoot = path.resolve(__dirname, "..");
 const srcRoot = path.join(repoRoot, "src");
 
 function readSource(...segments) {
   return fs.readFileSync(path.join(repoRoot, "src", ...segments), "utf8");
+}
+
+function chapterMutationCalls(source) {
+  const calls = [];
+  const ast = ts.createSourceFile("boundary.ts", source, ts.ScriptTarget.Latest, true);
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression;
+      const model = method.expression;
+      if (ts.isPropertyAccessExpression(model) && model.name.text === "chapter"
+        && ["update", "updateMany", "upsert"].includes(method.name.text)) {
+        calls.push(node.getText(ast));
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  return calls;
 }
 
 function walkTsFiles(dir) {
@@ -232,9 +251,9 @@ test("chapter runtime keeps lifecycle persistence behind one service", () => {
     readSource("services", "novel", "runtime", "repair", "ChapterRepairStreamRuntime.ts"),
   ];
 
-  assert.equal(lifecycleSource.includes("prisma.chapter.update"), true);
+  assert.ok(chapterMutationCalls(lifecycleSource).length > 0, "lifecycle owns chapter writes through its Prisma transaction client");
   for (const source of runtimeWriters) {
-    assert.equal(source.includes("prisma.chapter.update"), false);
+    assert.deepEqual(chapterMutationCalls(source), [], "runtime writers must delegate lifecycle writes even inside transactions");
   }
 });
 

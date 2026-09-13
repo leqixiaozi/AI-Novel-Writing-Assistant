@@ -10,6 +10,7 @@ const { NovelCoreReviewService } = require("../dist/services/novel/novelCoreRevi
 const { directorAutomationLedgerEventService } = require("../dist/services/novel/director/runtime/DirectorAutomationLedgerEventService.js");
 const novelCoreShared = require("../dist/services/novel/novelCoreShared.js");
 const { ragServices } = require("../dist/services/rag/index.js");
+const { installChapterTransactionDouble } = require("./helpers/chapterTransactionDouble.js");
 
 function createAssembledContextPackage() {
   return {
@@ -230,7 +231,7 @@ function createAssembledContextPackage() {
   };
 }
 
-test("manual review and manual audit pass assembled chapter review context into audit service", async () => {
+test("manual review and manual audit pass assembled chapter review context into audit service", async (t) => {
   const originalChapterFindFirst = prisma.chapter.findFirst;
   const originalChapterUpdate = prisma.chapter.update;
   const originalQualityReportCreate = prisma.qualityReport.create;
@@ -241,6 +242,12 @@ test("manual review and manual audit pass assembled chapter review context into 
 
   const auditCalls = [];
   const chapterUpdateCalls = [];
+  installChapterTransactionDouble(t, prisma, {
+    chapter: {
+      findUnique: async () => ({ novelId: "novel-1" }),
+      update: (...args) => prisma.chapter.update(...args),
+    },
+  });
   let replanCallCount = 0;
   prisma.chapter.findFirst = async () => ({
     id: "chapter-1",
@@ -312,7 +319,7 @@ test("manual review and manual audit pass assembled chapter review context into 
   }
 });
 
-test("manual recheck keeps local quality findings as continuable debt", async () => {
+test("manual recheck keeps local quality findings as continuable debt", async (t) => {
   const originalChapterFindFirst = prisma.chapter.findFirst;
   const originalChapterUpdate = prisma.chapter.update;
   const originalQualityReportCreate = prisma.qualityReport.create;
@@ -320,6 +327,12 @@ test("manual recheck keeps local quality findings as continuable debt", async ()
   const originalAuditChapter = auditService.auditChapter;
   const originalAssemble = GenerationContextAssembler.prototype.assemble;
   const originalRecordQualityLoopAssessment = directorAutomationLedgerEventService.recordQualityLoopAssessment;
+  installChapterTransactionDouble(t, prisma, {
+    chapter: {
+      findUnique: async () => ({ novelId: "novel-1" }),
+      update: (...args) => prisma.chapter.update(...args),
+    },
+  });
 
   const chapterUpdateCalls = [];
   prisma.chapter.findFirst = async () => ({

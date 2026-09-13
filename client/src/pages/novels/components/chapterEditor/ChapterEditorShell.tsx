@@ -21,6 +21,7 @@ import ChapterEditorDirectorPanel from "./ChapterEditorDirectorPanel";
 import ChapterEditorSidebar from "./ChapterEditorSidebar";
 import ChapterTextEditor from "./ChapterTextEditor";
 import SelectionAIFloatingToolbar from "./SelectionAIFloatingToolbar";
+import { WritingAdjustmentPanel } from "../writingAdjustments/WritingAdjustmentPanel";
 import type {
   ChapterEditorSelectionRange,
   ChapterEditorSessionState,
@@ -461,6 +462,7 @@ export default function ChapterEditorShell(props: ChapterEditorShellProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <WritingAdjustmentPanel novelId={novelId} chapterId={chapter.id} currentContent={contentDraft} selection={selection} onAccepted={invalidateChapterQueries} />
       {qualityDebtDetails ? (
         <div className="flex shrink-0 flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">

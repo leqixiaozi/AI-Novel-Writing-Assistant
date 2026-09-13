@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { WritingAdjustmentPanel } from "./writingAdjustments/WritingAdjustmentPanel";
 import { Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { useIsMobileViewport } from "@/components/layout/mobile/useIsMobileViewport";
 import { Badge } from "@/components/ui/badge";
@@ -378,6 +379,7 @@ function DesktopNovelEditView(props: NovelEditViewProps) {
       ) : null}
 
       <div className="space-y-4 pt-1">
+        {["basic", "story_macro", "world", "character", "outline", "structured"].includes(activeTab) && <WritingAdjustmentPanel novelId={id} />}
         {takeover ? (
           <AITakeoverContainer
             mode={takeover.mode}

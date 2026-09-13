@@ -312,7 +312,7 @@ export class ChapterContentFinalizationService {
     if (filtered.accepted.length === 0) {
       return;
     }
-    await novelFactService.writeFacts(novelId, chapterOrder, filtered.accepted);
+    await novelFactService.writeFacts(novelId, chapterOrder, filtered.accepted, { chapterId });
   }
 
   private async recordExcludedFactItems(input: {

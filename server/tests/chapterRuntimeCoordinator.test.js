@@ -7,6 +7,7 @@ const { mergeKnowledgeBoundaryState } = require("../dist/services/novel/runtime/
 const { directorAutomationLedgerEventService } = require("../dist/services/novel/director/runtime/DirectorAutomationLedgerEventService.js");
 const { PostGenerationStyleReviewRunner } = require("../dist/services/novel/runtime/PostGenerationStyleReviewRunner.js");
 const { openConflictService } = require("../dist/services/state/OpenConflictService.js");
+const { installChapterTransactionDouble } = require("./helpers/chapterTransactionDouble.js");
 
 function createEmptyStream() {
   return {
@@ -614,7 +615,7 @@ test("finalizeChapterContent syncs accepted artifacts only after chapter reaches
   }
 });
 
-test("finalizeChapterContent writes only acceptance-covered mustHitNow facts before unified artifact sync", async () => {
+test("finalizeChapterContent writes only acceptance-covered mustHitNow facts before unified artifact sync", async (t) => {
   const calls = [];
   const eventCalls = [];
   const createdFacts = [];
@@ -712,6 +713,17 @@ test("finalizeChapterContent writes only acceptance-covered mustHitNow facts bef
   directorAutomationLedgerEventService.recordEvent = async (input) => {
     eventCalls.push(input);
   };
+  installChapterTransactionDouble(t, prisma, {
+    chapter: {
+      findUnique: async () => ({ novelId: "novel-1" }),
+      findFirst: async () => ({ id: "chapter-1" }),
+      update: (...args) => prisma.chapter.update(...args),
+    },
+    novelFactEntry: {
+      findMany: (...args) => prisma.novelFactEntry.findMany(...args),
+      createMany: (...args) => prisma.novelFactEntry.createMany(...args),
+    },
+  });
 
   try {
     await coordinator.contentFinalizationService.finalizeChapterContent({

@@ -157,6 +157,9 @@ function createHarness(task = createTask(), pipelineJob = null) {
     if (where?.taskId) {
       rows = rows.filter((row) => row.taskId === where.taskId);
     }
+    if (where?.idempotencyKey) {
+      rows = rows.filter((row) => row.idempotencyKey === where.idempotencyKey);
+    }
     if (where?.commandType) {
       if (typeof where.commandType === "string") {
         rows = rows.filter((row) => row.commandType === where.commandType);
@@ -334,6 +337,43 @@ test("director command service reuses active continue commands", async () => {
     assert.equal(first.commandId, second.commandId);
     assert.equal(harness.commands.length, 1);
     assert.equal(first.status, "queued");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("manual-session continuation creates a fresh command and replays it after task timestamps change", async () => {
+  const harness = createHarness();
+  try {
+    const old = await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1");
+    harness.commands[0].status = "running";
+    const fresh = await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1", "manual-session-1");
+    assert.notEqual(fresh.commandId, old.commandId);
+    assert.equal(harness.commands.length, 2);
+    assert.equal(harness.commands[1].idempotencyKey, "manual-continue:manual-session-1");
+    harness.task.updatedAt = new Date(harness.task.updatedAt.getTime() + 10_000);
+    const replay = await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1", "manual-session-1");
+    assert.equal(replay.commandId, fresh.commandId);
+    assert.equal(harness.commands.length, 2);
+    harness.commands[1].status = "succeeded";
+    harness.task.updatedAt = new Date(harness.task.updatedAt.getTime() + 10_000);
+    assert.equal((await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1", "manual-session-1")).commandId, fresh.commandId);
+    assert.equal(harness.commands.length, 2);
+    const otherSession = await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1", "manual-session-2");
+    assert.notEqual(otherSession.commandId, fresh.commandId);
+    assert.equal(harness.commands.length, 3);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("manual continuation without a session preserves active-command reuse", async () => {
+  const harness = createHarness();
+  try {
+    const existing = await harness.service.enqueueContinueCommand("task-1");
+    const continued = await harness.service.enqueueAcceptManualChangesAndContinueCommand("task-1");
+    assert.equal(continued.commandId, existing.commandId);
+    assert.equal(harness.commands.length, 1);
   } finally {
     harness.restore();
   }

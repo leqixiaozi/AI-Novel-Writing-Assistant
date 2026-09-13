@@ -643,11 +643,123 @@ model CreativeDecision {
   expiresAt   Int?
   sourceType  String?
   sourceRefId String?
+  adjustmentJson String?
   novel       Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([novelId, createdAt])
+}
+
+// Optional adjustment records are independent of the legacy chapter save path.
+model WritingSetting {
+  id          String   @id
+  novelId     String
+  scopeKey    String
+  revision    Int      @default(1)
+  payloadJson String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([novelId, scopeKey])
+}
+
+model WritingPreset {
+  id          String   @id
+  novelId     String
+  name        String
+  revision    Int      @default(1)
+  payloadJson String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([novelId, updatedAt])
+}
+
+model WritingRequirement {
+  id          String   @id
+  novelId     String
+  chapterId   String?
+  payloadJson String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([novelId, chapterId, createdAt])
+  @@index([expiresAt])
+}
+
+model ChapterEditVersion {
+  id             String   @id
+  novelId        String
+  chapterId      String
+  sessionId      String
+  kind           String
+  baseRevision   String
+  content        String
+  contentHash    String
+  requirementsId String?
+  metadataJson   String
+  createdAt      DateTime @default(now())
+
+  @@index([novelId, chapterId, createdAt])
+  @@index([sessionId, createdAt])
+}
+
+model ManualEditSession {
+  id          String   @id
+  novelId     String
+  taskId      String?
+  runtimeId   String?
+  scopeJson   String
+  status      String
+  payloadJson String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([novelId, status, updatedAt])
+  @@index([taskId])
+  @@index([runtimeId])
+}
+
+model ChapterAdjustmentGuard {
+  chapterId       String   @id
+  novelId         String
+  epoch           Int      @default(0)
+  manualSessionId String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([novelId])
+  @@index([manualSessionId])
+}
+
+model WritingAcceptance {
+  id            String   @id
+  novelId       String
+  chapterId     String
+  editVersionId String
+  requestKey    String   @unique
+  status        String
+  payloadJson   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([novelId, chapterId, createdAt])
+  @@index([editVersionId])
+  @@index([status, updatedAt])
+}
+
+model WritingAdjustmentOperation {
+  id          String   @id
+  novelId     String
+  requestKey  String   @unique
+  requestHash String
+  status      String
+  resultJson  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([novelId, createdAt])
+  @@index([status, updatedAt])
 }
 
 model NovelSnapshot {

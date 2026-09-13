@@ -4,6 +4,7 @@ import type { ReviewIssue } from "@ai-novel/shared/types/novel";
 import { runTextPrompt } from "../../../../prompting/core/promptRunner";
 import { buildChapterRepairContextBlocks } from "../../../../prompting/prompts/novel/chapterLayeredContext";
 import { chapterRepairPrompt } from "../../../../prompting/prompts/novel/review.prompts";
+import { currentWritingAdjustmentText } from "../adjustments/WritingAdjustmentRuntime";
 import {
   ChapterPatchRepairService,
   type PatchRepairMode,
@@ -31,6 +32,7 @@ export interface PrepareChapterRepairExecutionInput {
 
 export interface ChapterHeavyRepairPromptRequest {
   promptInput: {
+    writingAdjustmentText?: string;
     novelTitle: string;
     bibleContent: string;
     chapterTitle: string;
@@ -233,6 +235,7 @@ export async function prepareChapterRepairExecution(
         issuesJson: buildRepairIssuesPayload(issues, input.runtimePackage),
         ragContext: buildRepairRagContext(input),
         modeHint,
+        ...(currentWritingAdjustmentText() ? { writingAdjustmentText: currentWritingAdjustmentText() } : {}),
       },
       contextBlocks: resolveRepairContext(input)
         ? buildChapterRepairContextBlocks(resolveRepairContext(input) as ChapterRepairContext)
