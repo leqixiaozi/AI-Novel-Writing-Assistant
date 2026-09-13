@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildArrangementPlanInput, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, updateChapterEdit } from "./arrangementState.ts";
+import { buildArrangementPlanInput, chapterOverviewSegments, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, resizeChapterWindow, updateChapterEdit } from "./arrangementState.ts";
 
 const chapters = Array.from({ length: 23 }, (_, index) => ({ id: `id-${index}`, order: index * 3 + 2, title: `章${index}` }));
 const emptyDraft = () => ({ baseRevision: "base1", chapterEdits: [], characterSpans: [], pinnedTracks: [] });
@@ -11,6 +11,22 @@ test("the same stable chapter window supports gaps, 23 chapter tail, short and e
   assert.equal(chapterWindow(chapters, -5).start, 0);
   assert.deepEqual(chapterWindow(chapters.slice(0, 3), 10).chapters, chapters.slice(0, 3));
   assert.deepEqual(chapterWindow([], 20), { start: 0, chapters: [] });
+});
+
+test("chapter window edges resize directly while keeping a useful four to sixteen chapter range", () => {
+  assert.deepEqual(resizeChapterWindow(23, 5, 8, "end", 15), { start: 5, size: 10 });
+  assert.deepEqual(resizeChapterWindow(23, 5, 10, "start", 2), { start: 2, size: 13 });
+  assert.deepEqual(resizeChapterWindow(23, 5, 8, "end", 6), { start: 5, size: 4 });
+  assert.deepEqual(resizeChapterWindow(23, 5, 8, "end", 23), { start: 5, size: 16 });
+  assert.deepEqual(resizeChapterWindow(3, 0, 3, "end", 1), { start: 0, size: 3 });
+});
+
+test("volume overview splits gaps and keeps positions on the complete chapter axis", () => {
+  const segments = chapterOverviewSegments(chapters.slice(0, 10), [
+    { id: "v1", title: "第一卷", chapterIds: ["id-0", "id-1", "id-2", "id-5"] },
+    { id: "v2", title: "第二卷", chapterIds: ["id-6", "id-7"] },
+  ]);
+  assert.deepEqual(segments.map(item => [item.id, item.start, item.end]), [["v1:0", 0, 2], ["v1:5", 5, 5], ["v2:6", 6, 7]]);
 });
 
 test("packed lanes preserve chapter gaps, clip to the visible window and never overlap", () => {

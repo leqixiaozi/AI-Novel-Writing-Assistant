@@ -17,6 +17,38 @@ export function chapterWindow<T>(chapters: T[], requestedStart: number, size = 8
   return { start, chapters: chapters.slice(start, start + size) };
 }
 
+export type ChapterWindowEdge = "start" | "end";
+
+/** Boundary is an exclusive chapter-array index, matching a range selection frame. */
+export function resizeChapterWindow(total: number, start: number, size: number, edge: ChapterWindowEdge, boundary: number) {
+  if (total <= 0) return { start: 0, size: 0 };
+  const minimum = Math.min(4, total), maximum = Math.min(16, total);
+  const safeStart = Math.max(0, Math.min(Math.floor(start), total - minimum));
+  const safeSize = Math.max(minimum, Math.min(maximum, Math.floor(size), total - safeStart));
+  if (edge === "start") {
+    const end = safeStart + safeSize;
+    const nextStart = Math.max(0, Math.min(Math.round(boundary), end - minimum));
+    const boundedStart = Math.max(end - maximum, nextStart);
+    return { start: boundedStart, size: end - boundedStart };
+  }
+  const end = Math.max(safeStart + minimum, Math.min(Math.round(boundary), safeStart + maximum, total));
+  return { start: safeStart, size: end - safeStart };
+}
+
+export function chapterOverviewSegments<T extends { id: string; title: string; chapterIds: string[] }>(chapters: Array<{ id: string }>, volumes: T[]) {
+  const positions = new Map(chapters.map((chapter, index) => [chapter.id, index]));
+  return volumes.flatMap(volume => {
+    const included = new Set(volume.chapterIds.flatMap(id => positions.has(id) ? [positions.get(id)!] : []));
+    const segments: Array<{ id: string; volume: T; start: number; end: number }> = [];
+    let start = -1;
+    for (let index = 0; index <= chapters.length; index++) {
+      if (included.has(index)) { if (start < 0) start = index; continue; }
+      if (start >= 0) { segments.push({ id: `${volume.id}:${start}`, volume, start, end: index - 1 }); start = -1; }
+    }
+    return segments;
+  });
+}
+
 export interface ChapterLaneSegment<T> {
   source: T;
   segmentId: string;
