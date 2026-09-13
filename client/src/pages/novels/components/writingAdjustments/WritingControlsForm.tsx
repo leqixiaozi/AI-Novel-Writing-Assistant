@@ -10,14 +10,15 @@ const defaults: WritingControlDefinition[] = [
 ];
 const objectLabels: Record<string, string> = { subjectId: "怀疑者", objectId: "被怀疑者", speakerId: "说话者", listenerId: "听话者", characterId: "人物", matter: "涉及事项" };
 
-export function WritingControlsForm({ controls, onChange, characters, definitions }: {
+export function WritingControlsForm({ controls, onChange, characters, definitions, onlyKeys }: {
   controls: WritingControls;
   onChange: (value: WritingControls) => void;
   characters: Array<{ id: string; name: string }>;
   definitions: WritingControlDefinition[];
+  onlyKeys?: Array<WritingControlDefinition["key"]>;
 }) {
   const available = defaults.map((fallback) => definitions.find((item) => item.key === fallback.key) ?? fallback);
-  return <div className="space-y-4">{available.map((definition) => {
+  return <div className="space-y-4">{available.filter(definition => !onlyKeys || onlyKeys.includes(definition.key)).map((definition) => {
     const value = controls[definition.key] ?? { mode: "inherit" };
     const update = (patch: Partial<WritingControlValue>) => onChange({ ...controls, [definition.key]: { ...value, ...patch } });
     const objects = defaults.find((item) => item.key === definition.key)?.objects ?? [];

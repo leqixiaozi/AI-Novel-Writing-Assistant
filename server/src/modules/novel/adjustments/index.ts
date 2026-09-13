@@ -6,6 +6,7 @@ import { WritingPlanningService } from "./application/WritingPlanningService";
 import { WritingLineService } from "./application/WritingLineService";
 import { BookArrangementService } from "./application/BookArrangementService";
 import { BookArrangementVolumeService } from "./application/BookArrangementVolumeService";
+import { BookArrangementObjectService } from "./application/BookArrangementObjectService";
 
 const store = new AdjustmentStore();
 const settings = new WritingSettingsService(store);
@@ -15,6 +16,7 @@ const planning = new WritingPlanningService(store, settings);
 const lines = new WritingLineService(store);
 const arrangement = new BookArrangementService(store, settings);
 const arrangementVolumes = new BookArrangementVolumeService(store);
+const arrangementObjects = new BookArrangementObjectService(store);
 
 /** Optional facade: legacy callers never resolve requirements unless their request opts in. */
 export const adjustmentService = {
@@ -48,6 +50,9 @@ export const adjustmentService = {
   applyArrangement: arrangement.apply.bind(arrangement),
   previewArrangementVolumes: arrangementVolumes.preview.bind(arrangementVolumes),
   applyArrangementVolumes: arrangementVolumes.apply.bind(arrangementVolumes),
+  arrangementObject: arrangementObjects.detail.bind(arrangementObjects),
+  previewArrangementObject: arrangementObjects.preview.bind(arrangementObjects),
+  applyArrangementObject: arrangementObjects.apply.bind(arrangementObjects),
 };
 
 export async function getRequirementsForRuntime(novelId: string, chapterId: string, requirementsId: string) {

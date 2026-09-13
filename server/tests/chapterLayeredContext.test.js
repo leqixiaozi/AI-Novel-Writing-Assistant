@@ -698,6 +698,25 @@ function assertNonEmptyBlock(blocks, id) {
   return block;
 }
 
+test("planned hook guidance stays separate from facts and absent guidance preserves writer block bytes", () => {
+  const contextPackage = createContextPackage();
+  const build = value => buildChapterWriteContext({ bookContract: value.bookContract, macroConstraints: value.macroConstraints, volumeWindow: value.volumeWindow, contextPackage: value });
+  const original = build(contextPackage);
+  const originalBlocks = buildChapterWriterContextBlocks(original);
+  assert.deepEqual(buildChapterWriterContextBlocks(build({ ...contextPackage, plannedHookGuidance: "" })), originalBlocks);
+  const guidance = "本章线索铺设／预计回收目标（尚未实现）\n未铺设的来信";
+  const planned = build({ ...contextPackage, plannedHookGuidance: guidance });
+  assert.equal(planned.plannedHookGuidance, guidance);
+  assert.deepEqual(planned.timelineContext, original.timelineContext);
+  assert.deepEqual(planned.characterHardFacts, original.characterHardFacts);
+  assert.deepEqual(planned.ledgerPendingItems, original.ledgerPendingItems);
+  for (const mode of ["full", "incremental", "review", "repair"]) {
+    const blocks = buildChapterWriterContextBlocks(planned, { mode });
+    assert.equal(blocks.find(block => block.id === "planned_hook_guidance").content, guidance);
+    assert.deepEqual(blocks.filter(block => block.id !== "planned_hook_guidance"), buildChapterWriterContextBlocks(original, { mode }));
+  }
+});
+
 test("chapter layered contexts carry volume mission, character duties and repair guardrails", () => {
   const contextPackage = createContextPackage();
   const writeContext = buildChapterWriteContext({

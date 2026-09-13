@@ -84,7 +84,7 @@ export class BookArrangementService {
       this.store.db.volumePlan.findMany({ where: { novelId }, include: { chapters: { select: { chapterId: true }, orderBy: { chapterOrder: "asc" } } }, orderBy: { sortOrder: "asc" } }),
       this.store.db.writingSetting.findMany({ where: { novelId, scopeKey: { startsWith: "arrangement:chapter:" } } }),
       this.store.db.writingSetting.findUnique({ where: { novelId_scopeKey: { novelId, scopeKey: DRAFT_SCOPE } } }),
-      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume"] } }, orderBy: { createdAt: "desc" }, take: 50 }),
+      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume", "arrangement_object"] } }, orderBy: { createdAt: "desc" }, take: 50 }),
       this.store.db.characterRelationStage.findMany({ where: { novelId, sourceCharacter: { novelId }, targetCharacter: { novelId } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
       this.store.db.timelineHook.findMany({ where: { novelId }, orderBy: [{ createdInChapterIndex: "asc" }, { id: "asc" }] }),
       this.store.db.storyStateSnapshot.findFirst({ where: { novelId }, include: { foreshadowStates: { orderBy: { id: "asc" } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
@@ -96,7 +96,7 @@ export class BookArrangementService {
     const chapterIds = new Set(chapters.map(chapter => chapter.id));
     const validChapter = (chapterId: string | null): string | null => chapterId && chapterIds.has(chapterId) ? chapterId : null;
     const chapterRefs = (ids: Array<string | null>): string[] => [...new Set(ids.flatMap(chapterId => validChapter(chapterId) ? [chapterId!] : []))];
-    const projectionSources = new Set(["volume_projection", "cast_option_projection", "rebuild_projection"]);
+    const projectionSources = new Set(["volume_projection", "cast_option_projection", "rebuild_projection", "arrangement_plan"]);
     const relations: BookArrangementRelation[] = relationStages.map(stage => {
       const basis = projectionSources.has(stage.sourceType) ? "plan" : stage.sourceType === "chapter_draft_extract" ? "record" : stage.sourceType === "manual_override" ? "setting" : "unknown";
       const chapterId = validChapter(stage.chapterId);
@@ -139,6 +139,7 @@ export class BookArrangementService {
       draft: this.draftRecord(draft, baseRevision),
       previews: candidates.filter(row => row.kind === "arrangement").flatMap(row => { const candidate = parseJson<ArrangementCandidate>(row.metadataJson, null!); return candidate?.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
       volumePreviews: candidates.filter(row => row.kind === "arrangement_volume").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementVolumePreview }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
+      objectPreviews: candidates.filter(row => row.kind === "arrangement_object").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectPreview; applied?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectApplyReceipt }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id, ...(candidate.applied ? { applied: candidate.applied } : {}) }] : []; }),
     };
   }
 

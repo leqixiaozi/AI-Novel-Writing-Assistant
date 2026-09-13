@@ -74,7 +74,6 @@ export function ArrangementVolumeTrack({ workspace, draft, chapters, selectedCha
   const begin = (event: PointerEvent<HTMLButtonElement>, edit: BookArrangementVolumeEdit, action: VolumeRangeAction, lane: number) => {
     if (event.button !== 0 || !event.isPrimary || event.currentTarget.matches(":disabled")) return;
     event.stopPropagation();
-    onVolume?.(edit.volumeId);
     if (!onVolumeEdit || !trackRef.current || !edit.chapterIds.length) return;
     const box = trackRef.current.getBoundingClientRect();
     if (!box.width || !chapters.length) return;
@@ -100,13 +99,13 @@ export function ArrangementVolumeTrack({ workspace, draft, chapters, selectedCha
     if (!finalSession) return;
     endCapture(finalSession);
     if (finalSession.dragging) commit(finalSession.original, finalSession.chapterIds);
+    else latest.current.onVolume?.(finalSession.original.volumeId);
   };
   const keyboard = (event: KeyboardEvent<HTMLButtonElement>, edit: BookArrangementVolumeEdit, action: VolumeRangeAction) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     if (!onVolumeEdit || event.currentTarget.matches(":disabled")) return;
     event.preventDefault(); event.stopPropagation();
     const delta = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 5 : 1);
-    onVolume?.(edit.volumeId);
     const ids = changeVolumeRange(workspace.chapters, edit.chapterIds, action, delta);
     commit(edit, ids);
     const firstIndex = workspace.chapters.findIndex(chapter => chapter.id === ids[0]);

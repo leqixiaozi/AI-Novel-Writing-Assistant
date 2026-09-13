@@ -180,6 +180,7 @@ export function buildPlannerCharacterDynamicsContext(overview: PlannerCharacterD
   summary: string;
   volumeAssignments: string;
   relationStages: string;
+  plannedRelationStages?: string;
   candidateGuards: string;
 } {
   if (!overview) {
@@ -208,6 +209,7 @@ export function buildPlannerCharacterDynamicsContext(overview: PlannerCharacterD
       ].filter(Boolean).join(" | ")
     ));
   const relationStages = overview.relations
+    .filter(item => item.sourceType !== "arrangement_plan")
     .slice(0, 8)
     .map((item) => (
       `${item.sourceCharacterName} -> ${item.targetCharacterName}: ${item.stageLabel} | ${item.stageSummary}${item.nextTurnPoint ? ` | 下一步=${item.nextTurnPoint}` : ""}`
@@ -217,6 +219,10 @@ export function buildPlannerCharacterDynamicsContext(overview: PlannerCharacterD
     .map((item) => (
       `${item.proposedName}${item.proposedRole ? `(${item.proposedRole})` : ""} | ${item.summary ?? "待确认候选"} | 来源章节=${item.sourceChapterOrder ?? "未知"} | 只读约束，未确认前禁止写入正式执行链`
     ));
+  const plannedRelationStages = (overview.plannedRelations ?? [])
+    .filter(item => item.sourceType === "arrangement_plan" && item.isCurrent)
+    .slice(0, 8)
+    .map(item => `${item.sourceCharacterName} -> ${item.targetCharacterName}: ${item.stageLabel} | ${item.stageSummary}${item.nextTurnPoint ? ` | 计划转折=${item.nextTurnPoint}` : ""}`);
 
   return {
     summary: [
@@ -228,6 +234,7 @@ export function buildPlannerCharacterDynamicsContext(overview: PlannerCharacterD
     ].join("\n"),
     volumeAssignments: coreCharacters.join("\n") || "无",
     relationStages: relationStages.join("\n") || "无",
+    ...(plannedRelationStages.length ? { plannedRelationStages: plannedRelationStages.join("\n") } : {}),
     candidateGuards: candidateGuards.join("\n") || "无",
   };
 }

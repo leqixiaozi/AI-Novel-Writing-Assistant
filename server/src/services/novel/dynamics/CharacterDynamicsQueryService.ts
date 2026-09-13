@@ -15,6 +15,13 @@ import {
   toCharacterVolumeAssignment,
 } from "./characterDynamicsUtils";
 
+/** Arrangement plans are targets at a stable chapter or volume, never current relationship facts. */
+export function arrangementRelationInScope(row: { sourceType: string; isCurrent: boolean; chapterId: string | null; volumeId: string | null }, chapterId: string | null, volumeId: string | null): boolean {
+  if (row.sourceType !== "arrangement_plan") return true;
+  if (!row.isCurrent) return false;
+  return row.chapterId ? row.chapterId === chapterId : Boolean(row.volumeId && row.volumeId === volumeId);
+}
+
 export class CharacterDynamicsQueryService {
   async getOverview(
     novelId: string,
@@ -114,7 +121,8 @@ export class CharacterDynamicsQueryService {
           novelId,
           isCurrent: true,
           OR: [
-            { sourceType: { notIn: PROJECTION_SOURCE_TYPES } },
+            { sourceType: { notIn: [...PROJECTION_SOURCE_TYPES, "arrangement_plan"] } },
+            { sourceType: "arrangement_plan" },
             ...(currentVolume?.id
               ? [{ sourceType: { in: PROJECTION_SOURCE_TYPES }, volumeId: currentVolume.id }]
               : []),
@@ -144,7 +152,13 @@ export class CharacterDynamicsQueryService {
     const candidates = candidateRows.map((row) => toCharacterCandidate(row));
     const assignments = assignmentRows.map((row) => toCharacterVolumeAssignment(row));
     const factionTracks = factionRows.map((row) => toCharacterFactionTrack(row));
-    const relations = relationStageRows.map((row) => toCharacterRelationStage(row));
+    const currentChapterId = novel.chapters.find(chapter => chapter.order === currentChapterOrder)?.id ?? null;
+    const relations = relationStageRows
+      .filter(row => row.sourceType !== "arrangement_plan")
+      .map((row) => toCharacterRelationStage(row));
+    const plannedRelations = relationStageRows
+      .filter(row => row.sourceType === "arrangement_plan" && arrangementRelationInScope(row, currentChapterId, currentVolume?.id ?? null))
+      .map((row) => toCharacterRelationStage(row));
 
     const assignmentByCharacterId = new Map(assignments.map((assignment) => [assignment.characterId, assignment]));
     const appearanceOrdersByCharacterId = new Map<string, number[]>();
@@ -203,6 +217,7 @@ export class CharacterDynamicsQueryService {
       pendingCandidateCount: candidates.length,
       characters,
       relations,
+      ...(plannedRelations.length ? { plannedRelations } : {}),
       candidates,
       factionTracks,
       assignments,
@@ -228,8 +243,11 @@ export class CharacterDynamicsQueryService {
         item.absenceRisk !== "none" ? `缺席风险=${item.absenceRisk}(跨度=${item.absenceSpan})` : "",
       ].filter(Boolean).join(" | ")
     ));
-    const relationLines = overview.relations.slice(0, 8).map((item) => (
+    const relationLines = overview.relations.filter(item => item.sourceType !== "arrangement_plan").slice(0, 8).map((item) => (
       `${item.sourceCharacterName} -> ${item.targetCharacterName}: ${item.stageLabel} | ${item.stageSummary}${item.nextTurnPoint ? ` | 下一步=${item.nextTurnPoint}` : ""}`
+    ));
+    const arrangementPlans = (overview.plannedRelations ?? []).filter(item => item.sourceType === "arrangement_plan" && item.isCurrent).slice(0, 8).map(item => (
+      `${item.sourceCharacterName} -> ${item.targetCharacterName}: ${item.stageLabel} | ${item.stageSummary}${item.nextTurnPoint ? ` | 计划转折=${item.nextTurnPoint}` : ""}`
     ));
     return [
       `Dynamic character system summary: ${overview.summary}`,
@@ -238,6 +256,7 @@ export class CharacterDynamicsQueryService {
         : "Current volume: unavailable",
       `Volume assignments and risks:\n${characterLines.join("\n") || "none"}`,
       `Current relationship stages:\n${relationLines.join("\n") || "none"}`,
+      ...(arrangementPlans.length ? [`Author relationship plans for this chapter/volume (targets, not established facts; do not assume already achieved):\n${arrangementPlans.join("\n")}`] : []),
       `Pending character candidates: ${overview.pendingCandidateCount} (do not inject into generation until confirmed)`,
     ].join("\n\n");
   }

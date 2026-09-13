@@ -25,7 +25,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { matchPath, NavLink, useLocation } from "react-router-dom";
 import { listKnowledgeDocuments } from "@/api/knowledge";
 import { queryKeys } from "@/api/queryKeys";
 import { getAutoDirectorFollowUpOverview } from "@/api/autoDirectorFollowUps";
@@ -94,6 +94,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  const location = useLocation();
+  const novelRoute = matchPath("/novels/:id/*", location.pathname);
+  const contextNovelId = novelRoute?.params.id ?? (location.pathname === "/book-arrangement" ? new URLSearchParams(location.search).get("novelId") : null);
   const [badgeQueriesEnabled, setBadgeQueriesEnabled] = useState(false);
   const [visualAssetLibraryOpen, setVisualAssetLibraryOpen] = useState(false);
 
@@ -274,7 +277,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               }
 
               return (
-                <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined}>
+                <NavLink key={item.to} to={item.to === "/book-arrangement" && contextNovelId && contextNovelId !== "create" ? `${item.to}?novelId=${encodeURIComponent(contextNovelId)}` : item.to} title={collapsed ? item.label : undefined}>
                   {({ isActive }) => (
                     <div
                       className={cn(

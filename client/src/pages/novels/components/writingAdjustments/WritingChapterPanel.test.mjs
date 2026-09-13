@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { recoverVersionReview, reviewMatchesDraft } from "./adjustmentState.ts";
 
 const require = createRequire(import.meta.url);
-function renderReceipts(receipts) {
+function renderReceipts(receipts, options = {}) {
   const source = readFileSync(new URL("./WritingChapterPanel.tsx", import.meta.url), "utf8");
   const module = { exports: {} };
   const dependencies = {
@@ -21,11 +21,11 @@ function renderReceipts(receipts) {
     "./adjustmentState": { recoverVersionReview, reviewMatchesDraft },
   };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText, {
-    module, exports: module.exports,
+    module, exports: module.exports, sessionStorage: options.storage,
     require(id) { if (!(id in dependencies)) throw new Error(`Unexpected dependency: ${id}`); return dependencies[id]; },
   });
   return renderToStaticMarkup(React.createElement(module.exports.WritingChapterPanel, {
-    novelId: "n1", chapterId: "c1", currentContent: "原正文", requirements: null, api: {}, busy: false,
+    novelId: "n1", chapterId: "c1", currentContent: "原正文", requirements: null, api: {}, busy: false, draftRecoveryKey: options.recoveryKey,
     run: async () => { throw new Error("Rendering must not mutate"); }, reload: async () => {},
     workspace: { chapters: [{ id: "c1", order: 1, title: "第一章", content: "原正文", revision: "r1" }], versions: [], manualSessions: [], acceptances: receipts },
   }));
@@ -44,4 +44,20 @@ test("the latest receipt controls the displayed sync state instead of an older f
   ]);
   assert.match(html, /同步完成|可以继续下一章创作/u);
   assert.doesNotMatch(html, /重试剩余同步|old failure/u);
+});
+
+test("legacy chapter panel without a recovery key never reads optional object-panel local drafts", () => {
+  const html = renderReceipts([], { storage: { getItem() { throw new Error("Legacy render must not read recovery storage"); } } });
+  assert.doesNotMatch(html, /恢复未保存修复稿/);
+  assert.match(html, /原正文/);
+});
+
+test("opted-in local recovery offers an explicit restore without replacing the saved chapter on mount", () => {
+  const keys = [];
+  const html = renderReceipts([], { recoveryKey: "book-arrangement-check-draft:n1:c1", storage: { getItem(key) { keys.push(key); return JSON.stringify({ content: "未保存的秘密编辑", baseline: "old-r", versionId: null }); } } });
+  assert.deepEqual(keys, ["book-arrangement-check-draft:n1:c1"]);
+  assert.match(html, /恢复未保存修复稿/);
+  assert.match(html, /使用已保存正文/);
+  assert.doesNotMatch(html, /未保存的秘密编辑/);
+  assert.match(html, /原正文/);
 });

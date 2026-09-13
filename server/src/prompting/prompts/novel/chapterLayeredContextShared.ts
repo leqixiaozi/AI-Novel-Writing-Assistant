@@ -410,15 +410,16 @@ export function buildCharacterGuidanceText(writeContext: ChapterWriteContext): s
 }
 
 export function buildRelationStageText(writeContext: ChapterWriteContext): string {
-  if (writeContext.activeRelationStages.length === 0) {
-    return "活跃关系阶段：无";
-  }
-  return [
+  const current = writeContext.activeRelationStages.length === 0 ? "活跃关系阶段：无" : [
     "活跃关系阶段：",
     ...writeContext.activeRelationStages.map((relation) => (
       `- ${relation.sourceCharacterName} -> ${relation.targetCharacterName}：${relation.stageLabel} | ${relation.stageSummary}${relation.nextTurnPoint ? ` | 下一转折：${relation.nextTurnPoint}` : ""}`
     )),
   ].join("\n");
+  if (!writeContext.plannedRelationStages?.length) return current;
+  return [current, "作者关系目标，尚未发生：\n以下是作者希望在授权范围内推进的目标，不能作为人物当前已经达成的关系或已知事实。", ...writeContext.plannedRelationStages.map(relation => (
+    `- ${relation.sourceCharacterName} -> ${relation.targetCharacterName}：${relation.stageLabel} | ${relation.stageSummary}${relation.nextTurnPoint ? ` | 计划转折：${relation.nextTurnPoint}` : ""}`
+  ))].join("\n");
 }
 
 export function buildPendingCandidateGuardText(writeContext: ChapterWriteContext): string {

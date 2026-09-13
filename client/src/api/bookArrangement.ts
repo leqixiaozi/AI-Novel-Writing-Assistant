@@ -2,6 +2,7 @@ import type { ApiResponse } from "@ai-novel/shared/types/api";
 import type { BookArrangementApplyReceipt, BookArrangementApplyRequest, BookArrangementDraftRecord, BookArrangementPreview, BookArrangementPreviewRequest, BookArrangementSaveDraftRequest, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { apiClient } from "./client";
 import type { BookArrangementVolumePreview, BookArrangementVolumePreviewRequest, BookArrangementVolumeApplyReceipt } from "@ai-novel/shared/types/bookArrangement";
+import type { BookArrangementObjectApplyReceipt, BookArrangementObjectDetail, BookArrangementObjectKind, BookArrangementObjectPreview, BookArrangementObjectPreviewRequest } from "@ai-novel/shared/types/bookArrangement";
 
 export function createBookArrangementApi(novelId: string) {
   const base = `/novels/${encodeURIComponent(novelId)}/book-arrangement`;
@@ -21,5 +22,12 @@ export function createBookArrangementApi(novelId: string) {
     apply: (id: string, input: BookArrangementApplyRequest, key: string) => write<BookArrangementApplyReceipt>("post", `/${encodeURIComponent(id)}/apply`, input, key),
     previewVolumes: (input: BookArrangementVolumePreviewRequest, key: string) => write<BookArrangementVolumePreview>("post", "/volumes/preview", input, key),
     applyVolumes: (id: string, key: string) => write<BookArrangementVolumeApplyReceipt>("post", `/volumes/${encodeURIComponent(id)}/apply`, {}, key),
+    async object(kind: BookArrangementObjectKind, objectId: string, chapterId?: string): Promise<BookArrangementObjectDetail> {
+      const { data } = await apiClient.get<ApiResponse<BookArrangementObjectDetail>>(`${base}/objects/${encodeURIComponent(kind)}/${encodeURIComponent(objectId || "new")}`, { params: chapterId ? { chapterId } : undefined });
+      if (!data.data) throw new Error(data.message || "未能读取对象资料。");
+      return data.data;
+    },
+    previewObject: (input: BookArrangementObjectPreviewRequest, key: string) => write<BookArrangementObjectPreview>("post", "/objects/preview", input, key),
+    applyObject: (candidateId: string, key: string) => write<BookArrangementObjectApplyReceipt>("post", `/objects/${encodeURIComponent(candidateId)}/apply`, {}, key),
   };
 }

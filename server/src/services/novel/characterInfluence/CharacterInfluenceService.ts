@@ -356,7 +356,7 @@ export class CharacterInfluenceService {
         },
       }),
       prisma.characterRelationStage.findMany({
-        where: { novelId, isCurrent: true, OR: [{ sourceCharacterId: characterId }, { targetCharacterId: characterId }] },
+        where: { novelId, isCurrent: true, sourceType: { not: "arrangement_plan" }, OR: [{ sourceCharacterId: characterId }, { targetCharacterId: characterId }] },
         orderBy: { updatedAt: "desc" },
         take: 10,
         include: { sourceCharacter: { select: { name: true } }, targetCharacter: { select: { name: true } } },

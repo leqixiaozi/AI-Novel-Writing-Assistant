@@ -142,6 +142,7 @@ export interface BookArrangementWorkspace {
   coverUrl?: string | null;
   genre?: { id: string; name: string } | null;
   volumePreviews?: BookArrangementVolumePreview[];
+  objectPreviews?: BookArrangementObjectPreview[];
 }
 export interface BookArrangementSaveDraftRequest { expectedRevision: number; payload: DraftPayload }
 export interface BookArrangementPreviewRequest { draftRevision: number; chapterIds: string[] }
@@ -149,3 +150,36 @@ export interface BookArrangementApplyRequest { chapterIds: string[] }
 export type BookArrangementDraftPayload = DraftPayload;
 export type BookArrangementDraftRecord = DraftRecord;
 export type BookArrangementPreview = Preview;
+
+export type BookArrangementObjectKind = "event" | "scene" | "relation" | "hook" | "foreshadow";
+export type BookArrangementObjectValue = string | number | boolean | null | string[];
+export interface BookArrangementObjectField {
+  key: string; label: string;
+  type: "text" | "textarea" | "number" | "boolean" | "chapter" | "character" | "characters" | "volume" | "events" | "select";
+  required?: boolean; readOnly?: boolean; options?: Array<{ value: string; label: string }>;
+}
+export interface BookArrangementObjectDetail {
+  kind: BookArrangementObjectKind; id: string; sourceEntity: string; revision: string;
+  title: string; chapterIds: string[]; basis: "plan" | "record" | "setting" | "unknown";
+  fields: Record<string, BookArrangementObjectValue>; fieldDefinitions: BookArrangementObjectField[];
+  editable: boolean; deletable: boolean; evidenceLabel: string;
+  /** Complete original entity, read-only; original status and evidence are retained. */
+  record: Record<string, unknown>;
+}
+export interface BookArrangementObjectPreviewRequest {
+  kind: BookArrangementObjectKind; action: "create" | "update" | "delete";
+  objectId?: string; expectedRevision?: string;
+  patch: Record<string, BookArrangementObjectValue>;
+}
+export interface BookArrangementObjectPreview {
+  applied?: BookArrangementObjectApplyReceipt;
+  id: string; kind: BookArrangementObjectKind; action: "create" | "update" | "delete"; objectId: string;
+  before: BookArrangementObjectDetail | null; after: BookArrangementObjectDetail | null;
+  affectedChapterIds: string[]; writtenChapterIds: string[];
+  references: Array<{ sourceEntity: string; sourceId: string; chapterIds: string[]; label: string }>;
+  impact: string[]; unchecked: string[]; baseRevision: string;
+  conflicts: Array<{ code: string; message: string; chapterIds: string[] }>; canApply: boolean;
+}
+export interface BookArrangementObjectApplyReceipt {
+  id: string; status: "applied"; kind: BookArrangementObjectKind; objectId: string; affectedChapterIds: string[];
+}

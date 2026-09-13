@@ -8,10 +8,16 @@ import type { AdjustmentRun } from "./WritingEvidencePanel";
 import { recoverVersionReview, reviewMatchesDraft } from "./adjustmentState";
 
 const syncLabels = { pending: "等待同步", running: "同步中", succeeded: "同步完成", failed: "同步待重试", superseded: "已由更新稿替代，无需同步此版本" };
+interface LocalWritingDraft { content: string; baseline: string; versionId: string | null }
+function readLocalWritingDraft(key?: string): LocalWritingDraft | null {
+  if (!key || typeof sessionStorage === "undefined") return null;
+  try { const value = JSON.parse(sessionStorage.getItem(key) ?? "null") as LocalWritingDraft | null; return value && typeof value.content === "string" && typeof value.baseline === "string" && (value.versionId === null || typeof value.versionId === "string") ? value : null; } catch { return null; }
+}
 
-export function WritingChapterPanel({ novelId, chapterId, directorTaskId, currentContent, workspace, requirements, api, run, busy, reload, onAccepted }: {
+export function WritingChapterPanel({ novelId, chapterId, directorTaskId, currentContent, workspace, requirements, api, run, busy, reload, onAccepted, onDirtyChange, draftRecoveryKey }: {
   novelId: string; chapterId: string; directorTaskId?: string; currentContent?: string; workspace: WritingAdjustmentWorkspace; requirements: ResolvedWritingRequirements | null;
   api: WritingAdjustmentApi; run: AdjustmentRun; busy: boolean; reload: () => Promise<void>; onAccepted?: () => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void; draftRecoveryKey?: string;
 }) {
   const chapter = workspace.chapters.find((item) => item.id === chapterId);
   const [content, setContent] = useState(currentContent ?? chapter?.content ?? "");
@@ -24,6 +30,7 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [receipt, setReceipt] = useState<WritingAcceptanceReceipt | null>(() => workspace.acceptances.find((item) => item.chapterId === chapterId) ?? null);
   const [directorResumeSent, setDirectorResumeSent] = useState(false);
+  const [localRecovery, setLocalRecovery] = useState(() => readLocalWritingDraft(draftRecoveryKey));
   const dirty = content !== (version?.content ?? currentContent ?? chapter?.content ?? "");
   const checked = reviewMatchesDraft(review, version, content);
   const sourceChanged = currentContent !== sourceContent;
@@ -32,6 +39,14 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
   const activeSession = workspace.manualSessions.find((item) => item.status === "active" && item.chapterIds.includes(chapterId));
   const matchingDirectorSession = Boolean(directorTaskId && activeSession?.taskId === directorTaskId);
   const history = workspace.versions.filter((item) => item.chapterId === chapterId);
+  useEffect(() => { onDirtyChange?.(dirty || Boolean(localRecovery)); return () => onDirtyChange?.(false); }, [dirty, localRecovery, onDirtyChange]);
+  useEffect(() => {
+    if (!draftRecoveryKey || localRecovery || typeof sessionStorage === "undefined") return;
+    try {
+      if (dirty) sessionStorage.setItem(draftRecoveryKey, JSON.stringify({ content, baseline, versionId: version?.id ?? null } satisfies LocalWritingDraft));
+      else sessionStorage.removeItem(draftRecoveryKey);
+    } catch { /* Local recovery never changes the chapter persistence contract. */ }
+  }, [draftRecoveryKey, localRecovery, dirty, content, baseline, version?.id]);
   useEffect(() => {
     setReceipt(workspace.acceptances.find(item => item.chapterId === chapterId) ?? null);
   }, [workspace.acceptances, chapterId]);
@@ -61,6 +76,10 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
     if (result) { setReceipt(result); await reload(); await onAccepted?.(); }
   };
   return <section className="space-y-4">
+    {localRecovery && <div role="status" className="space-y-2 rounded-md bg-muted p-3 text-sm"><p>找到本章尚未保存的修复编辑，可以恢复后继续核对。</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={busy} onClick={() => {
+      const recoveredVersion = history.find(item => item.id === localRecovery.versionId) ?? null;
+      setContent(localRecovery.content); setBaseline(localRecovery.baseline); setVersion(recoveredVersion); setReview(recoveredVersion ? recoverVersionReview(recoveredVersion, workspace.reviews) : null); setLocalRecovery(null);
+    }}>恢复未保存修复稿</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => { setLocalRecovery(null); if (draftRecoveryKey) { try { sessionStorage.removeItem(draftRecoveryKey); } catch { /* Optional storage. */ } } }}>使用已保存正文</Button></div></div>}
     <div className="flex flex-wrap items-center gap-2">
       <h4 className="text-sm">本章调整稿</h4>
       {activeSession ? <><span className="text-xs text-amber-700">人工接管中</span><Button type="button" size="sm" variant="secondary" disabled={busy || Boolean(activeSession.taskId && !matchingDirectorSession)} onClick={() => void (async () => {

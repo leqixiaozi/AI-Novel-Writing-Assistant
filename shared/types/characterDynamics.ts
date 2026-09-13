@@ -108,6 +108,8 @@ export interface DynamicCharacterOverview {
   pendingCandidateCount: number;
   characters: DynamicCharacterOverviewItem[];
   relations: CharacterRelationStage[];
+  /** Active author targets, scoped to the requested chapter/volume; never established relationship facts. */
+  plannedRelations?: CharacterRelationStage[];
   candidates: CharacterCandidate[];
   factionTracks: CharacterFactionTrack[];
   assignments: CharacterVolumeAssignment[];

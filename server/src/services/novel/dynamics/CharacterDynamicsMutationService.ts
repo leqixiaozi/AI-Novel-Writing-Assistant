@@ -376,6 +376,7 @@ export class CharacterDynamicsMutationService {
           sourceCharacterId: relation.sourceCharacterId,
           targetCharacterId: relation.targetCharacterId,
           isCurrent: true,
+          sourceType: { not: "arrangement_plan" },
         },
         data: {
           isCurrent: false,
@@ -523,7 +524,7 @@ export class CharacterDynamicsMutationService {
         where: {
           novelId,
           isCurrent: true,
-          sourceType: { notIn: PROJECTION_SOURCE_TYPES },
+          sourceType: { notIn: [...PROJECTION_SOURCE_TYPES, "arrangement_plan"] },
         },
         select: {
           sourceCharacterId: true,
@@ -815,6 +816,7 @@ export class CharacterDynamicsMutationService {
             sourceCharacterId: sourceCharacter.id,
             targetCharacterId: targetCharacter.id,
             isCurrent: true,
+            sourceType: { not: "arrangement_plan" },
           },
           data: {
             isCurrent: false,

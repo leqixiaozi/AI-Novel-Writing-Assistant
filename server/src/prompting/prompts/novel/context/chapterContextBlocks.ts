@@ -235,6 +235,7 @@ export function buildChapterWriterContextBlocks(
   const includeContinuationConstraints = mode === "full" && writeContext.continuationConstraints.length > 0;
   const wordRange = resolveTargetWordRange(writeContext.chapterMission.targetWordCount);
   const blocks: Array<PromptContextBlock | null> = [
+    ...(writeContext.plannedHookGuidance ? [createContextBlock({ id: "planned_hook_guidance", group: "planned_hook_guidance", priority: 99, required: true, content: writeContext.plannedHookGuidance })] : []),
     writeContext.productionFoundationPrompt
       ? createContextBlock({
         id: "production_foundation",

@@ -338,6 +338,7 @@ export class CharacterMindService {
         where: {
           novelId,
           isCurrent: true,
+          sourceType: { not: "arrangement_plan" },
           OR: [
             { sourceCharacterId: { in: characterIds } },
             { targetCharacterId: { in: characterIds } },

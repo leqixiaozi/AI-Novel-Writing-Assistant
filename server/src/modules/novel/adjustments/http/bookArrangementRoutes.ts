@@ -3,6 +3,7 @@ import { z } from "zod";
 import { adjustmentService as service } from "..";
 import { AppError } from "../../../../middleware/errorHandler";
 import { arrangementChapterIdsSchema, arrangementDraftSchema } from "../application/BookArrangementService";
+import { arrangementObjectPreviewSchema } from "../domain/arrangementObjects";
 
 const id = z.string().trim().min(1).max(200);
 const novelId = (req: Request) => id.parse(req.params.id);
@@ -27,6 +28,9 @@ function mutation(operation: string, run: (req: Request) => Promise<unknown>): R
 export function registerBookArrangementRoutes(router: Router) {
   const base = "/:id/book-arrangement";
   router.get(base, endpoint(req => service.arrangementWorkspace(novelId(req))));
+  router.get(`${base}/objects/:kind/:objectId`, endpoint(req => service.arrangementObject(novelId(req), id.parse(req.params.kind), id.parse(req.params.objectId), z.string().optional().parse(req.query.chapterId))));
+  router.post(`${base}/objects/preview`, mutation("object-preview", req => service.previewArrangementObject(novelId(req), arrangementObjectPreviewSchema.parse(req.body) as import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectPreviewRequest)));
+  router.post(`${base}/objects/:candidateId/apply`, mutation("object-apply", req => { z.object({}).strict().parse(req.body); return service.applyArrangementObject(novelId(req), id.parse(req.params.candidateId)); }));
   router.put(`${base}/draft`, mutation("draft", req => service.saveArrangementDraft(novelId(req), z.object({ expectedRevision: z.number().int().min(0), payload: arrangementDraftSchema }).strict().parse(req.body))));
   router.post(`${base}/preview`, mutation("preview", req => service.previewArrangement(novelId(req), z.object({ draftRevision: z.number().int().min(1), chapterIds: arrangementChapterIdsSchema }).strict().parse(req.body))));
   router.post(`${base}/volumes/preview`, mutation("volume-preview", req => service.previewArrangementVolumes(novelId(req), z.object({ draftRevision: z.number().int().min(1), volumeIds: arrangementChapterIdsSchema }).strict().parse(req.body))));

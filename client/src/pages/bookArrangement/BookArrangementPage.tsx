@@ -5,7 +5,12 @@ import type { BookArrangementDraftPayload, BookArrangementDraftRecord, BookArran
 import { createBookArrangementApi } from "@/api/bookArrangement";
 import { getNovelList } from "@/api/novel";
 import { Button } from "@/components/ui/button";
-import { ArrangementToolbar, useArrangementShell } from "@/components/layout/BookArrangementShell";
+import { Dialog, AppDialogContent } from "@/components/ui/dialog";
+import type { WritingControlKey } from "@ai-novel/shared/types/writingAdjustments";
+import { ArrangementControlsPanel } from "./panels/ArrangementControlsPanel";
+import { ArrangementObjectPanel, type ArrangementObjectSelection } from "./objects/ArrangementObjectPanel";
+import { characterSpanError } from "./panels/characterEditing";
+import { refreshArrangementDraft } from "./panels/draftRecovery";
 import { AdjustmentOperationKeys, validateWritingControls } from "@/pages/novels/components/writingAdjustments/adjustmentState";
 import { ArrangementInspector } from "./ArrangementInspector";
 import { ArrangementMatrix } from "./ArrangementMatrix";
@@ -16,7 +21,7 @@ import { chapterRange, chapterWindow, draftDirty, editableChapterIds } from "./a
 import type { BookArrangementVolumeEdit, BookArrangementVolumePreview } from "@ai-novel/shared/types/bookArrangement";
 import { ArrangementVolumeInspector } from "./volume/ArrangementVolumeInspector";
 import { ArrangementVolumePreview } from "./volume/ArrangementVolumePreview";
-import "./bookArrangement.css";
+import "./panels/arrangement.css";
 
 function errorMessage(error: unknown): string {
   const failure = error as { response?: { data?: { message?: string } }; message?: string };
@@ -39,8 +44,6 @@ export default function BookArrangementPage() {
   const [loadError, setLoadError] = useState("");
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
-  const setBook = useArrangementShell();
-  useEffect(() => { setBook(workspace ? { title: workspace.title, chapters: workspace.chapters.length, written: workspace.chapters.filter(chapter => chapter.hasContent).length, coverUrl: workspace.coverUrl, genre: workspace.genre?.name } : null); return () => setBook(null); }, [workspace, setBook]);
   useEffect(() => {
     let active = true;
     void getNovelList({ page: listPage, limit: 100 }).then(response => {
@@ -71,7 +74,7 @@ export default function BookArrangementPage() {
         const next = new URLSearchParams(params); if (event.target.value) next.set("novelId", event.target.value); else next.delete("novelId"); setParams(next);
       }}><option value="">请选择作品</option>{novelId && !novels.some(novel => novel.id === novelId) && <option value={novelId}>{workspace?.title || "当前作品"}</option>}{novels.map(novel => <option key={novel.id} value={novel.id}>{novel.title}</option>)}</select></label>;
   return <main className="book-arrangement-page">
-    {!workspace && <ArrangementToolbar><header className="ba-toolbar">{novelPicker}<span>全书编排台</span></header></ArrangementToolbar>}
+    {!workspace && <header className="ba-toolbar">{novelPicker}<span>全书编排</span></header>}
     {hasMore && <Button size="sm" variant="ghost" onClick={() => setListPage(page => page + 1)}>加载更多作品</Button>}
     {listError && <div role="alert" className="text-sm text-destructive">{listError}<Button size="sm" variant="ghost" onClick={() => setRetry(value => value + 1)}>重试读取作品</Button></div>}
     {!novelId && <div className="space-y-2 bg-muted/20 px-4 py-12 text-center"><h2 className="text-lg">选择一本作品开始编排</h2><p className="text-sm text-muted-foreground">作品中的章节、人物、事件和场景会按同一章节轴展示。</p></div>}
@@ -95,12 +98,18 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const [selectedVolumeId, setSelectedVolumeId] = useState("");
   const [volumePreview, setVolumePreview] = useState<BookArrangementVolumePreview | null>(null);
   const [volumeApplied, setVolumeApplied] = useState(false);
+  const [volumeSelection, setVolumeSelection] = useState<string[] | null>(null);
   const [characterSearch, setCharacterSearch] = useState("");
   const [characterId, setCharacterId] = useState("");
   const [historySelection, setHistorySelection] = useState(0);
   const [spanSelection, setSpanSelection] = useState(0);
+  const [panel, setPanel] = useState<"chapter" | "volume" | "controls" | "planning" | "requirements" | "volume-preview" | "object" | null>(null);
+  const [controlKey, setControlKey] = useState<WritingControlKey>();
+  const [selectedObject, setSelectedObject] = useState<ArrangementObjectSelection | null>(null);
+  const [objectDirty, setObjectDirty] = useState(false);
   const selectSpan = (id: string, clickedChapterId?: string) => {
     setSpanId(id);
+    setHistorySelection(0);
     const span = draft.characterSpans.find(item => item.id === id);
     if (span) {
       setCharacterId(span.characterId);
@@ -108,11 +117,11 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       if (targetChapterId) selectChapter(targetChapterId);
     }
     setSpanSelection(value => value + 1);
+    setPanel("chapter");
   };
   const [preview, setPreview] = useState<BookArrangementPreview | null>(null);
   const [previewSelected, setPreviewSelected] = useState<string[]>([]);
   const [applied, setApplied] = useState(false);
-  const [planningOpen, setPlanningOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -120,6 +129,12 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const inFlight = useRef(false);
   const api = useMemo(() => createBookArrangementApi(workspace.novelId), [workspace.novelId]);
   const dirty = draftDirty(draft, saved.payload);
+  const latestDraft = useRef({ draft, saved });
+  latestDraft.current = { draft, saved };
+  const closePanel = () => {
+    if (busy) return;
+    setPanel(null); setObjectDirty(false);
+  };
   const localKey = `book-arrangement:${workspace.novelId}`;
   const window = chapterWindow(workspace.chapters, windowStart, 8);
   const allowed = editableChapterIds(draft, scope);
@@ -128,11 +143,11 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
     const selectedSpan = draft.characterSpans.find(item => item.id === spanId);
     if (selectedSpan && !selectedSpan.chapterIds.includes(selectedId)) setSpanId(draft.characterSpans.find(item => item.characterId === selectedSpan.characterId && item.chapterIds.includes(selectedId))?.id ?? "");
   }, [selectedId, spanId, draft.characterSpans]);
-  useEffect(() => { onDirty(dirty || Boolean(localDraft)); }, [dirty, localDraft, onDirty]);
+  useEffect(() => { onDirty(dirty || Boolean(localDraft) || objectDirty); }, [dirty, localDraft, objectDirty, onDirty]);
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty) { if (!localDraft) { try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } } return; }
     try { sessionStorage.setItem(localKey, JSON.stringify({ revision: saved.revision, payload: draft })); } catch { /* beforeunload remains active when session storage is unavailable */ }
-  }, [draft, dirty, saved.revision, localKey]);
+  }, [draft, dirty, saved.revision, localKey, localDraft]);
   const updateDraft = (value: BookArrangementDraftPayload) => { setDraft(value); setPreview(null); setVolumePreview(null); setApplied(false); setNotice(""); };
   const updateVolume = (edit: BookArrangementVolumeEdit) => {
     setSelectedVolumeId(edit.volumeId);
@@ -146,15 +161,21 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
     catch (failure) { setError(`${errorMessage(failure)} 输入内容已保留。`); return undefined; }
     finally { inFlight.current = false; setBusy(""); }
   }, []);
-  const reload = async () => {
+  const reload = async (discardDraft = false) => {
     const next = await api.workspace();
-    setWorkspace(next); setSaved(next.draft); setDraft({ ...next.draft.payload, baseRevision: next.baseRevision }); setPreview(null); setVolumePreview(null); setApplied(false); setLocalDraft(null);
-    try { sessionStorage.removeItem(localKey); } catch { /* no persistent local recovery available */ }
-    if (next.draft.payload.baseRevision !== next.baseRevision) setNotice("资料已刷新，请保存草稿以使用最新章节资料。");
+    const refreshed = refreshArrangementDraft(latestDraft.current, next, discardDraft);
+    const { keep, conflict: draftConflict } = refreshed;
+    setWorkspace(next);
+    setSaved(refreshed.saved); setDraft(refreshed.draft); setPreview(null); setVolumePreview(null); setApplied(false);
+    if (!keep && (!localDraft || discardDraft)) { setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* no persistent local recovery available */ } }
+    if (draftConflict) setError("另一个窗口已更新编排草稿。本地编辑与原保存版本已保留；请先比较，或明确放弃本地编辑后重载，避免覆盖他人修改。");
+    else if (next.draft.payload.baseRevision !== next.baseRevision) setNotice("资料已刷新，请保存草稿以使用最新章节资料。");
   };
   const save = async () => {
     for (const edit of draft.chapterEdits) { const validation = validateWritingControls(edit.controls); if (validation) { setError(validation); return; } }
     if (draft.characterSpans.some(span => !span.chapterIds.length || (span.weight !== null && (!Number.isFinite(span.weight) || span.weight < 0 || span.weight > 100)))) { setError("人物区段需包含章节，权重请留空或填写 0 至 100。"); return; }
+    const occupied = new Set<string>();
+    for (const span of draft.characterSpans) for (const id of span.chapterIds) { const identity = `${span.characterId}:${id}`; if (occupied.has(identity)) { setError("同一人物的参与区段不能重叠，请合并或调整范围。"); return; } occupied.add(identity); }
     const input = { expectedRevision: saved.revision, payload: draft };
     const result = await run("保存草稿", input, key => api.saveDraft(input, key));
     if (result) { setSaved(result); setDraft(result.payload); setLocalDraft(null); setPreview(null); setVolumePreview(null); setNotice("编排草稿已保存，刷新后可继续编辑。"); try { sessionStorage.removeItem(localKey); } catch { /* server draft is durable */ } }
@@ -163,11 +184,11 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const previewVolumes = async (saveFirst = false) => {
     const record = saveFirst ? await save() : saved;
     if (!record) return;
-    const volumeIds = (record.payload.volumeEdits ?? []).map(edit => edit.volumeId);
-    if (!volumeIds.length) { setNotice("请先调整卷段名称、目标或章节范围。"); return; }
+    const volumeIds = (record.payload.volumeEdits ?? []).map(edit => edit.volumeId).filter(id => volumeSelection === null || volumeSelection.includes(id));
+    if (!volumeIds.length) { setNotice("请调整卷段后，至少勾选一个待改卷段进行预览。"); setPanel("volume-preview"); return; }
     const input = { draftRevision: record.revision, volumeIds };
     const result = await run("预览卷段调整", input, key => api.previewVolumes(input, key));
-    if (result) { setVolumePreview(result); setVolumeApplied(false); }
+    if (result) { setVolumePreview(result); setVolumeApplied(false); setPanel("volume-preview"); }
   };
   const selectChapter = (id: string) => {
     const index = workspace.chapters.findIndex(chapter => chapter.id === id);
@@ -176,26 +197,32 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
     setSelectedVolumeId("");
     if (!window.chapters.some(chapter => chapter.id === id)) setWindowStart(Math.floor(index / 8) * 8);
   };
+  const openChapter = (id: string) => { selectChapter(id); setSpanId(""); setCharacterId(""); setHistorySelection(0); setPanel("chapter"); };
   const addAppearance = () => {
     setSelectedVolumeId("");
+    setHistorySelection(0);
     const person = workspace.characters.find(item => item.id === characterId) ?? workspace.characters.find(item => item.name.includes(characterSearch.trim())) ?? workspace.characters[0];
     if (!person || !selectedId) return;
     const chapterIds = editableChapterIds(draft, scope.length ? scope : [selectedId]);
     if (!chapterIds.length) { setNotice("所选章节已锁定，请调整范围后添加出场。"); return; }
     const id = crypto.randomUUID();
-    updateDraft({ ...draft, characterSpans: [...draft.characterSpans, { id, characterId: person.id, chapterIds, mode: "suggested", weight: null, note: "" }] });
+    const span = { id, characterId: person.id, chapterIds, mode: "suggested" as const, weight: null, note: "" };
+    const invalid = characterSpanError(draft, span);
+    if (invalid) { setError(invalid); return; }
+    updateDraft({ ...draft, characterSpans: [...draft.characterSpans, span] });
     if (!chapterIds.includes(selectedId)) selectChapter(chapterIds[0]);
     setCharacterId(person.id); setSpanId(id); setSpanSelection(value => value + 1);
+    setPanel("chapter");
   };
   const previewRequirements = async () => {
     const input = { draftRevision: saved.revision, chapterIds: scope };
     const result = await run("预览后续要求", input, key => api.preview(input, key));
-    if (result) { setPreview(result); setPreviewSelected(result.chapterIds); setApplied(false); }
+    if (result) { setPreview(result); setPreviewSelected(result.chapterIds); setApplied(false); setPanel("requirements"); }
   };
   const previewDisabled = Boolean(busy) || dirty || saved.revision === 0 || !allowed.length;
   if (!workspace.chapters.length) return <p className="bg-muted/20 p-6 text-sm">这部作品还没有章节。请先在作品的大纲与章节页面准备章节。</p>;
   return <div className="ba-editor">
-    <ArrangementToolbar><header className="ba-toolbar">{novelPicker}<label className="ba-character-search"><Search size={16} aria-hidden="true" /><input aria-label="搜索人物，定位出场" placeholder="搜索人物，定位出场" value={characterSearch} onChange={event => setCharacterSearch(event.target.value)} onKeyDown={event => {
+    <header className="ba-toolbar">{novelPicker}<label className="ba-character-search"><Search size={16} aria-hidden="true" /><input aria-label="搜索人物，定位出场" placeholder="搜索人物，定位出场" value={characterSearch} onChange={event => setCharacterSearch(event.target.value)} onKeyDown={event => {
       if (event.key !== "Enter" || !characterSearch.trim()) return;
       const person = workspace.characters.find(item => item.name.includes(characterSearch.trim()));
       if (!person) return;
@@ -205,35 +232,46 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       else { const record = workspace.events.find(item => item.participantIds.includes(person.id) && item.chapterId); if (record?.chapterId) selectChapter(record.chapterId); setSpanId(""); setHistorySelection(value => value + 1); }
     }} /></label><select aria-label="章节窗口" className="ba-input ba-window-picker" value={window.start} onChange={event => setWindowStart(Number(event.target.value))}>{Array.from({ length: Math.max(1, workspace.chapters.length - 7) }, (_, start) => <option value={start} key={start}>第{workspace.chapters[start].order}—{workspace.chapters[Math.min(start + 7, workspace.chapters.length - 1)].order}章</option>)}</select><Button size="sm" disabled={Boolean(busy) || !workspace.characters.length} onClick={addAppearance}><Plus size={16} aria-hidden="true" />添加出场</Button>
       <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => {
-      if (dirty && !globalThis.confirm("刷新资料会丢弃当前未保存编辑，是否继续？")) return;
       void run("刷新资料", {}, async () => { await reload(); return true; });
-    }}>刷新资料</Button><Button size="sm" variant="secondary" disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存草稿</Button></header></ArrangementToolbar>
+    }}>刷新资料</Button><Button size="sm" variant="secondary" disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存草稿</Button><Button size="sm" variant="outline" onClick={() => setPanel("planning")}>AI 重编排</Button><Button size="sm" variant="outline" onClick={() => setPanel("requirements")}>后续要求</Button><select className="ba-input ba-inline" aria-label="新增编排对象" value="" onChange={event => { if (event.target.value) { setSelectedObject({ kind: event.target.value as ArrangementObjectSelection["kind"], id: "new", chapterId: selectedId }); setPanel("object"); } }}><option value="">新增安排…</option><option value="event">事件</option><option value="scene">场景</option><option value="relation">关系阶段</option><option value="hook">伏笔</option></select></header>
     {localDraft && <div className="space-y-2 bg-amber-500/10 p-3 text-sm" role="status"><p>找到本作品尚未保存的本地编辑。可以恢复后检查，也可以继续服务端草稿。</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; updateDraft(localDraft.payload); setSaved(current => ({ ...current, revision: localDraft.revision })); setLocalDraft(null); setNotice("本地编辑已恢复，请核对后保存；其他窗口已修改时会提示版本冲突。"); }}>恢复未保存编辑</Button><Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } }}>使用服务端草稿</Button></div></div>}
     {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {(busy || notice) && <p role="status" className="text-sm text-muted-foreground">{busy ? `${busy}…` : notice}</p>}
     <fieldset disabled={Boolean(busy)} className="ba-layout">
       <div className="ba-workbench">
-      <div className="ba-page-heading"><nav aria-label="面包屑" className="ba-breadcrumb"><Link to="/novels">作品</Link><span>/</span><Link to={`/novels/${encodeURIComponent(workspace.novelId)}/edit`}>{workspace.title}</Link><span>/</span><span>全书编排台</span></nav><h1>全书编排台</h1><p>按章节查看故事安排，点击出场调整人物参与。</p><span className="ba-save-state">{dirty ? "有未保存编辑" : saved.revision === 0 ? "尚未保存编排" : "草稿已保存"}</span></div>
+      <div className="ba-page-heading"><nav aria-label="面包屑" className="ba-breadcrumb"><Link to="/novels">作品</Link><span>/</span><Link to={`/novels/${encodeURIComponent(workspace.novelId)}/edit`}>{workspace.title}</Link><span>/</span><span>全书编排</span></nav><h1>全书编排</h1><p>按章节查看故事安排，点击出场调整人物参与。</p><span className="ba-save-state">{dirty ? "有未保存编辑" : saved.revision === 0 ? "尚未保存编排" : "草稿已保存"}</span></div>
       <section aria-label="全书概览" className="ba-chapter-navigation"><div className="ba-navigation-heading"><h2>章节导航</h2><span>第 {window.chapters[0].order}—{window.chapters.at(-1)!.order} 章</span><Button size="sm" variant="ghost" aria-label="上一窗口" disabled={window.start === 0} onClick={() => setWindowStart(Math.max(0, window.start - 8))}><ChevronLeft size={16} aria-hidden="true" /></Button><Button size="sm" variant="ghost" aria-label="下一窗口" disabled={window.start + window.chapters.length >= workspace.chapters.length} onClick={() => setWindowStart(window.start + 8)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
         <ArrangementChapterNavigator chapters={workspace.chapters} start={window.start} visibleCount={window.chapters.length} selectedId={selectedId} onStart={setWindowStart} onSelect={selectChapter} disabled={Boolean(busy)} />
       </section>
-      {selectedVolumeId && <Button size="sm" variant="ghost" className="ba-volume-inspector-jump" onClick={() => document.querySelector<HTMLElement>(".ba-volume-inspector")?.scrollIntoView({ block: "start" })}>编辑所选卷段 · {draft.volumeEdits?.find(edit => edit.volumeId === selectedVolumeId)?.title ?? workspace.volumes.find(volume => volume.id === selectedVolumeId)?.title}</Button>}
+      <div className="flex flex-wrap gap-2"><Button size="sm" variant="ghost" onClick={() => openChapter(selectedId)}>编辑所选章节</Button><Button size="sm" variant="ghost" onClick={() => { setControlKey(undefined); setPanel("controls"); }}>批量表达参数</Button><Button size="sm" variant="ghost" onClick={() => setPanel("volume-preview")}>卷段预览</Button>{dirty && <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (globalThis.confirm("放弃尚未保存的编排编辑，并载入服务端草稿？")) void run("重载服务端草稿", {}, async () => { await reload(true); return true; }); }}>放弃本地编排并重载</Button>}</div>
       <details className="ba-scope-picker"><summary>调整范围 · 已选 {scope.length} 章</summary><div className="ba-scope-controls"><label className="flex items-center gap-1"><input type="checkbox" aria-label="勾选当前窗口" checked={window.chapters.every(chapter => scope.includes(chapter.id))} onChange={event => { setScope(event.target.checked ? [...new Set([...scope, ...window.chapters.map(chapter => chapter.id)])] : scope.filter(id => !window.chapters.some(chapter => chapter.id === id))); setPreview(null); }} />当前窗口</label>
         <select aria-label="范围起始章节" className="ba-input ba-inline" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>第 {chapter.order} 章</option>)}</select><span>至</span><select aria-label="范围结束章节" className="ba-input ba-inline" value={rangeTo} onChange={event => setRangeTo(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>第 {chapter.order} 章</option>)}</select><Button size="sm" variant="ghost" onClick={() => { setScope(chapterRange(workspace.chapters, rangeFrom, rangeTo)); setPreview(null); }}>勾选区间</Button><Button size="sm" variant="ghost" onClick={() => { setScope([]); setPreview(null); }}>清空范围</Button>
       </div></details>
-      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} scope={scope} onSelect={selectChapter} onScope={ids => { setScope(ids); setPreview(null); }} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} /></div></div>
-      {selectedVolumeId ? <ArrangementVolumeInspector workspace={{ ...workspace, draft: { ...saved, payload: draft } }} volumeId={selectedVolumeId} edit={draft.volumeEdits?.find(edit => edit.volumeId === selectedVolumeId)} busy={Boolean(busy)} dirty={dirty} onChange={updateVolume} onRevert={() => updateDraft({ ...draft, volumeEdits: (draft.volumeEdits ?? []).filter(edit => edit.volumeId !== selectedVolumeId) })} onPreview={() => void previewVolumes()} onSaveAndPreview={() => void previewVolumes(true)} previewDisabled={!draft.volumeEdits?.length} onClose={() => setSelectedVolumeId("")} /> : <ArrangementInspector workspace={workspace} draft={draft} selectedId={selectedId} scope={scope} spanId={spanId} spanSelection={spanSelection} onSpan={selectSpan} onDraft={updateDraft} busy={Boolean(busy)} characterId={characterId} historySelection={historySelection} onSelectChapter={selectChapter} onAddAppearance={addAppearance} onScope={ids => { setScope(ids); setPreview(null); }} onPreview={() => void previewRequirements()} previewDisabled={previewDisabled} dirty={dirty} />}
+      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} scope={scope} onSelect={openChapter} onScope={ids => { setScope(ids); setPreview(null); }} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); setPanel("chapter"); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); setPanel("volume"); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} onControl={(id, key) => { selectChapter(id); setControlKey(key); setPanel("controls"); }} onObject={object => { if (object.chapterId) selectChapter(object.chapterId); setSelectedObject(object); setPanel("object"); }} /></div></div>
     </fieldset>
+    <Dialog open={panel !== null} onOpenChange={open => { if (!open) closePanel(); }}><AppDialogContent title={panel === "volume" ? "卷段编排" : panel === "volume-preview" ? "卷段调整预览" : panel === "planning" ? "AI 重编排大纲" : panel === "requirements" ? "后续写作要求" : panel === "controls" ? "表达参数" : panel === "object" ? "故事资料与调整" : "章节与人物编排"} description="查看资料、调整草稿，再预览和应用。关闭面板保留编排草稿。" className="ba-side-dialog" bodyClassName="ba-side-body" onInteractOutside={event => { if (busy) event.preventDefault(); }} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} footer={<><span className="text-xs text-muted-foreground mr-auto">{panel === "object" ? objectDirty ? "此项编辑已暂存本地，尚未应用" : "对象调整在本面板预览与应用" : dirty ? "有未保存的编排" : saved.revision ? "编排草稿已保存" : "尚未保存编排"}</span><Button variant="outline" disabled={Boolean(busy)} onClick={closePanel}>关闭</Button>{panel !== "object" && <Button disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存编排草稿</Button>}</>}>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}{(busy || notice) && <p role="status" className="text-sm text-muted-foreground">{busy || notice}</p>}
+      <fieldset disabled={Boolean(busy)} className="min-w-0 space-y-4">
+      {(panel === "planning" || panel === "controls" || panel === "requirements") && <section className="space-y-2"><p className="text-sm">调整范围 · 已选 {scope.length} 章，未锁定 {allowed.length} 章</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { setScope([selectedId]); setPreview(null); }}>仅当前章</Button><Button size="sm" variant="outline" onClick={() => { setScope(window.chapters.map(chapter => chapter.id)); setPreview(null); }}>当前窗口</Button><Button size="sm" variant="ghost" onClick={() => { setScope([]); setPreview(null); }}>清空</Button></div><details><summary className="text-sm cursor-pointer">选择章节区间</summary><div className="flex flex-wrap items-center gap-2 py-2"><select className="ba-input ba-inline" aria-label="面板范围起始章节" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><span>至</span><select className="ba-input ba-inline" aria-label="面板范围结束章节" value={rangeTo} onChange={event => setRangeTo(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><Button size="sm" variant="outline" onClick={() => { setScope(chapterRange(workspace.chapters, rangeFrom, rangeTo)); setPreview(null); }}>使用这个区间</Button></div></details></section>}
+      {panel === "chapter" && <ArrangementInspector workspace={workspace} draft={draft} selectedId={selectedId} scope={scope} spanId={spanId} spanSelection={spanSelection} onSpan={selectSpan} onDraft={updateDraft} busy={Boolean(busy)} characterId={characterId} historySelection={historySelection} onSelectChapter={selectChapter} onAddAppearance={addAppearance} onScope={ids => { setScope(ids); setPreview(null); }} onPreview={() => void previewRequirements()} previewDisabled={previewDisabled} dirty={dirty} onObject={object => { setSelectedObject(object); setPanel("object"); }} />}
+      {panel === "controls" && <ArrangementControlsPanel key={`${selectedId}:${controlKey ?? "all"}`} workspace={workspace} draft={draft} chapterId={selectedId} controlKey={controlKey} scope={scope} onDraft={updateDraft} />}
+      {panel === "object" && selectedObject && <ArrangementObjectPanel key={`${workspace.novelId}:${selectedObject.kind}:${selectedObject.id}:${selectedObject.chapterId ?? ""}`} selectedObject={selectedObject} workspace={workspace} run={run} busy={Boolean(busy)} reload={reload} onClose={closePanel} onDirtyChange={setObjectDirty} />}
+      {panel === "volume" && selectedVolumeId && <ArrangementVolumeInspector workspace={{ ...workspace, draft: { ...saved, payload: draft } }} volumeId={selectedVolumeId} edit={draft.volumeEdits?.find(edit => edit.volumeId === selectedVolumeId)} busy={Boolean(busy)} dirty={dirty} onChange={updateVolume} onRevert={() => updateDraft({ ...draft, volumeEdits: (draft.volumeEdits ?? []).filter(edit => edit.volumeId !== selectedVolumeId) })} onPreview={() => void previewVolumes()} onSaveAndPreview={() => void previewVolumes(true)} previewDisabled={!draft.volumeEdits?.length} onClose={() => setPanel("chapter")} />}
+      {panel === "volume-preview" && <><fieldset className="space-y-2"><legend className="text-sm">选择要预览的待改卷段</legend>{(draft.volumeEdits ?? []).map(edit => <label className="flex items-center gap-2 text-sm" key={edit.volumeId}><input type="checkbox" aria-label={`预览卷段${edit.title}`} checked={volumeSelection === null || volumeSelection.includes(edit.volumeId)} onChange={event => { const current = volumeSelection ?? (draft.volumeEdits ?? []).map(item => item.volumeId); setVolumeSelection(event.target.checked ? [...current, edit.volumeId] : current.filter(id => id !== edit.volumeId)); setVolumePreview(null); }} />{edit.title}<Button size="sm" variant="ghost" onClick={() => { setSelectedVolumeId(edit.volumeId); setPanel("volume"); }}>继续调整</Button></label>)}</fieldset>
     {(workspace.volumePreviews?.length ?? 0) > 0 && <select aria-label="恢复卷段调整预览" className="ba-input" value="" disabled={Boolean(busy) || dirty} onChange={event => { const item = workspace.volumePreviews?.find(entry => entry.id === event.target.value); if (item) { setVolumePreview(item); setVolumeApplied(false); } }}><option value="">恢复已保存的卷段调整预览</option>{workspace.volumePreviews?.map(item => <option key={item.id} value={item.id}>{item.changes.map(change => change.after.title).join("、")} · 草稿 {item.draftRevision}</option>)}</select>}
-    {volumePreview && <ArrangementVolumePreview workspace={workspace} currentDraftRevision={saved.revision} preview={volumePreview} busy={Boolean(busy)} disabled={dirty} applied={volumeApplied} onApply={() => void (async () => {
+    {volumePreview && <ArrangementVolumePreview workspace={workspace} currentDraftRevision={saved.revision} preview={volumePreview} onVolume={id => { setSelectedVolumeId(id); setPanel("volume"); }} onChapter={openChapter} busy={Boolean(busy)} disabled={dirty} applied={volumeApplied} onApply={() => void (async () => {
       const result = await run("应用卷段调整", { id: volumePreview.id }, key => api.applyVolumes(volumePreview.id, key));
       if (result) {
         setVolumeApplied(true); setNotice("卷段规划已应用，正在刷新资料。");
         await run("刷新卷段资料", { id: result.id }, async () => { await reload(); setNotice("卷段规划已应用，已有正文与阅读顺序保持原样。"); return true; });
       }
     })()} />}
+    {!volumePreview && <p>调整卷段并保存草稿后，预览影响范围。</p>}<Button variant="outline" disabled={Boolean(busy) || !draft.volumeEdits?.length || (volumeSelection !== null && !draft.volumeEdits.some(edit => volumeSelection.includes(edit.volumeId)))} onClick={() => void previewVolumes(dirty)}>保存并预览卷段</Button></>}
+    {panel === "requirements" && <><p className="text-sm text-muted-foreground">应用的要求会在章节的人工调整中生成时沿用，历史正文保持原样。已选 {scope.length} 章。</p><Button disabled={previewDisabled} onClick={() => void previewRequirements()}>预览后续要求</Button>{dirty && <p>请先保存编排草稿。</p>}
     {workspace.previews.length > 0 && <select aria-label="恢复后续要求预览" className="ba-input" value="" disabled={Boolean(busy) || dirty} onChange={event => { const item = workspace.previews.find(entry => entry.id === event.target.value); if (item) { setPreview(item); setPreviewSelected(item.chapterIds); setApplied(false); } }}><option value="">恢复已保存的后续要求预览</option>{workspace.previews.map(item => <option key={item.id} value={item.id}>{item.chapterIds.map(id => workspace.chapters.find(chapter => chapter.id === id)?.title ?? id).join("、")}</option>)}</select>}
     {preview && <ArrangementPreview preview={preview} workspace={workspace} selected={previewSelected} onSelected={setPreviewSelected} disabled={Boolean(busy) || dirty || preview.baseRevision !== workspace.baseRevision} applied={applied} onApply={() => void (async () => { const input = { chapterIds: previewSelected }; const result = await run("应用所选章节要求", { id: preview.id, ...input }, key => api.apply(preview.id, input, key)); if (result) { setApplied(true); setWorkspace(current => ({ ...current, appliedSettings: { ...current.appliedSettings, ...result.appliedSettings } })); setNotice("所选章节的后续要求已应用，历史正文保持原样。"); } })()} />}
-    <details className="ba-planning-panel" onToggle={event => { if (event.currentTarget.open) setPlanningOpen(true); }}><summary>AI 重编排所选大纲</summary>{planningOpen && <fieldset disabled={Boolean(busy)}><ArrangementPlanning workspace={workspace} draft={draft} scope={scope} dirty={dirty || saved.revision === 0} busy={Boolean(busy)} run={run} reload={reload} /></fieldset>}</details>
+    </>}
+    {panel === "planning" && <ArrangementPlanning workspace={workspace} draft={draft} scope={scope} dirty={dirty || saved.revision === 0} busy={Boolean(busy)} run={run} reload={reload} />}
+    </fieldset></AppDialogContent></Dialog>
   </div>;
 }

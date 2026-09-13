@@ -3,6 +3,7 @@ import type { LLMProvider } from "@ai-novel/shared/types/llm";
 import type { AuditReport, ReplanResult } from "@ai-novel/shared/types/novel";
 import type { PayoffLedgerSummary } from "@ai-novel/shared/types/payoffLedger";
 import { prisma } from "../../db/prisma";
+import { timelineHookPlanService } from "../../modules/timeline";
 import { characterDynamicsQueryService } from "../novel/dynamics/CharacterDynamicsQueryService";
 import { contextAssemblyService } from "../novel/production/ContextAssemblyService";
 import { buildStateContextBlockFromCanonical } from "../novel/state/CanonicalStateService";
@@ -390,6 +391,7 @@ export class PlannerService {
       chapterOrder: chapter.order,
     }).catch(() => null);
     const characterDynamicsContext = buildPlannerCharacterDynamicsContext(characterDynamicsOverview);
+    const plannedHookGuidance = await timelineHookPlanService.buildForChapter({ novelId, chapterId });
     const mappedVolumes = volumePlans.map((volume) => ({
       id: volume.id,
       novelId,
@@ -544,8 +546,10 @@ export class PlannerService {
       openAuditIssues: openAuditIssues.join("\n") || "无",
       recentDecisions: recentDecisions.map((item) => `${item.category}/${item.importance}: ${item.content}`).join("\n") || "无",
       characterDynamicsSummary: characterDynamicsContext.summary,
+      ...(plannedHookGuidance ? { plannedHookGuidance } : {}),
       characterVolumeAssignments: characterDynamicsContext.volumeAssignments,
       characterRelationStages: characterDynamicsContext.relationStages,
+      ...(characterDynamicsContext.plannedRelationStages ? { characterPlannedRelationStages: characterDynamicsContext.plannedRelationStages } : {}),
       characterCandidateGuards: characterDynamicsContext.candidateGuards,
       stateDrivenDirective: buildPlannerStateDrivenDirective({
         nextAction: resolvedStateDrivenContext.nextAction,

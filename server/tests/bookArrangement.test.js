@@ -22,9 +22,15 @@ function loadModules(db) {
   common["../infrastructure/AdjustmentStore"] = storage;
   const settingsModule = load(`${base}application/WritingSettingsService.ts`, { ...common, "../../../../prompting/prompts/novel/chapterNarrativeControls": load("prompting/prompts/novel/chapterNarrativeControls.ts", {}) });
   const arrangement = load(`${base}application/BookArrangementService.ts`, { ...common, "./WritingSettingsService": settingsModule, "../../../../prompting/prompts/novel/bookArrangementControls": load("prompting/prompts/novel/bookArrangementControls.ts", {}) });
+  const objectContracts = load(`${base}domain/arrangementObjects.ts`, { zod: require("zod"), "./contracts": contracts });
+  const metadata = load("services/planner/plannerPlanMetadata.ts", { "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract") });
+  const persistence = load("services/planner/plannerPersistence.ts", { "node:crypto": require("node:crypto"), "../../db/prisma": { prisma: db }, "./plannerPlanMetadata": metadata, "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
+  const sceneCards = load(`${base}infrastructure/ArrangementSceneCards.ts`, { "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
+  const objectRepository = load(`${base}infrastructure/ArrangementObjectRepository.ts`, { "../../../../services/planner/plannerPersistence": persistence, "./ArrangementSceneCards": sceneCards });
+  const objectModule = load(`${base}application/BookArrangementObjectService.ts`, { ...common, "../../../../events": { novelEventBus: { emit: async () => {} } }, "../domain/arrangementObjects": objectContracts, "../infrastructure/ArrangementObjectRepository": objectRepository, "../infrastructure/ArrangementSceneCards": sceneCards });
   const store = new storage.AdjustmentStore(db);
   const settings = new settingsModule.WritingSettingsService(store);
-  return { store, settings, service: new arrangement.BookArrangementService(store, settings), Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
+  return { store, settings, service: new arrangement.BookArrangementService(store, settings), objects: new objectModule.BookArrangementObjectService(store), objectContracts, Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
 }
 async function fixture(t) {
   const temporaryRoot = process.platform === "win32" && fs.existsSync("D:/cache") ? "D:/cache" : os.tmpdir();
@@ -49,6 +55,245 @@ async function fixture(t) {
 }
 const settings = controls => ({ enabled: true, controls, preserve: [] });
 const isConflict = error => error.statusCode === 409;
+
+test("planned hook guidance: only setup and payoff chapters receive author plans, never historical hooks", async t => {
+  const f = await fixture(t);
+  const renderer = loadRuntimeSource(path.join(serverRoot, "src/prompting/prompts/novel/plannedHookGuidance.ts"), {});
+  const { TimelineHookPlanService } = loadRuntimeSource(path.join(serverRoot, "src/modules/timeline/timeline-hook-plan.service.ts"), { "../../db/prisma": { prisma: f.db }, "../../prompting/prompts/novel/plannedHookGuidance": renderer });
+  const service = new TimelineHookPlanService(f.db);
+  const input = chapter => ({ novelId: f.novelId, chapterId: chapter.id });
+  assert.equal(await service.buildForChapter(input(f.chapters[0])), "");
+  const hook = await f.db.timelineHook.create({ data: { novelId: f.novelId, title: "未铺设的来信", description: "计划说明", priority: "medium", createdInChapterId: f.chapters[0].id, createdInChapterIndex: 4, expectedResolveByChapterIndex: 8, status: "planned" } });
+  await f.db.timelineHook.create({ data: { novelId: f.novelId, title: "历史钩子不混入计划", description: "历史记录", priority: "medium", createdInChapterId: f.chapters[0].id, createdInChapterIndex: 4, status: "open" } });
+  assert.match(await service.buildForChapter(input(f.chapters[0])), /本章铺设：未铺设的来信/);
+  assert.equal(await service.buildForChapter(input(f.chapters[1])), "");
+  assert.match(await service.buildForChapter(input(f.chapters[2])), /本章预计回收：未铺设的来信/);
+  assert.doesNotMatch(await service.buildForChapter(input(f.chapters[0])), /历史钩子不混入计划/);
+  await f.db.chapter.update({ where: { id: f.chapters[0].id }, data: { order: 6 } });
+  assert.match(await service.buildForChapter(input(f.chapters[0])), /本章铺设/);
+  await f.db.timelineHook.update({ where: { id: hook.id }, data: { status: "dropped" } });
+  assert.equal(await service.buildForChapter(input(f.chapters[0])), "");
+  assert.equal(await service.buildForChapter({ novelId: "foreign", chapterId: f.chapters[2].id }), "");
+});
+
+test("arrangement objects: scene card synchronization preserves sibling detail, budgets and move/delete order", async t => {
+  const f = await fixture(t);
+  const { normalizeChapterScenePlan, serializeChapterScenePlan, parseChapterScenePlan } = require("@ai-novel/shared/types/chapterLengthControl");
+  const plans = [], allScenes = [], cardsByChapter = [];
+  for (const [chapterIndex, count] of [4, 3].entries()) {
+    const chapter = f.chapters[chapterIndex];
+    const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: chapter.id, level: "chapter", title: chapter.title, objective: chapter.expectation } });
+    plans.push(plan);
+    const scenes = [];
+    for (let i = 0; i < count; i++) scenes.push(await f.db.chapterPlanScene.create({ data: { planId: plan.id, title: `${chapterIndex}场${i}`, sortOrder: i + 1, objective: `目标${i}`, reveal: `揭示${i}` } }));
+    allScenes.push(scenes);
+    const cards = normalizeChapterScenePlan(scenes.map((scene, i) => ({ key: `plan_scene_${i + 1}`, title: scene.title, purpose: `细化目的${i}`, mustAdvance: [scene.reveal, "保留作者约束"], mustPreserve: ["人物身份"], entryState: "特定进入状态", exitState: scene.reveal, forbiddenExpansion: ["不要新增旁支"], targetWordCount: 1000, resistance: `细化阻力${i}`, turn: `细化转折${i}`, emotionalShift: "隐忍", readerValue: "悬念" })), 4000);
+    cardsByChapter.push(cards);
+    await f.db.chapter.update({ where: { id: chapter.id }, data: { sceneCards: serializeChapterScenePlan(cards) } });
+  }
+  const beforeProse = f.chapters.map(chapter => chapter.content);
+  const moving = await f.objects.detail(f.novelId, "scene", allScenes[0][0].id);
+  const preview = await f.objects.preview(f.novelId, { kind: "scene", action: "update", objectId: moving.id, expectedRevision: moving.revision, patch: { chapterId: f.chapters[1].id, sortOrder: 2, reveal: "新的揭示" } });
+  const saved = JSON.parse((await f.db.chapterEditVersion.findUnique({ where: { id: preview.id } })).metadataJson);
+  assert.equal(saved.previousChapterSceneCards.length, 2);
+  assert.ok(saved.previousScenePlans.length >= 7);
+  await f.objects.apply(f.novelId, preview.id);
+  const source = parseChapterScenePlan((await f.db.chapter.findUnique({ where: { id: f.chapters[0].id } })).sceneCards);
+  const target = parseChapterScenePlan((await f.db.chapter.findUnique({ where: { id: f.chapters[1].id } })).sceneCards);
+  assert.deepEqual(source.scenes.map(card => card.key), allScenes[0].slice(1).map(scene => scene.id));
+  assert.deepEqual(target.scenes.map(card => card.key), [allScenes[1][0].id, moving.id, ...allScenes[1].slice(1).map(scene => scene.id)]);
+  assert.deepEqual(source.scenes[0], { ...cardsByChapter[0].scenes[1], key: allScenes[0][1].id });
+  assert.deepEqual(target.scenes[0], { ...cardsByChapter[1].scenes[0], key: allScenes[1][0].id });
+  assert.equal(target.scenes[1].targetWordCount, cardsByChapter[0].scenes[0].targetWordCount);
+  assert.equal(target.scenes[1].exitState, "新的揭示");
+  assert.ok(target.scenes[1].mustAdvance.includes("保留作者约束"));
+  assert.ok(!target.scenes[1].mustAdvance.includes("揭示0"));
+  const current = await f.objects.detail(f.novelId, "scene", moving.id);
+  await f.objects.apply(f.novelId, (await f.objects.preview(f.novelId, { kind: "scene", action: "delete", objectId: current.id, expectedRevision: current.revision, patch: {} })).id);
+  const afterDelete = parseChapterScenePlan((await f.db.chapter.findUnique({ where: { id: f.chapters[1].id } })).sceneCards);
+  assert.deepEqual(afterDelete.scenes.map(card => card.key), allScenes[1].map(scene => scene.id));
+  assert.ok(!JSON.stringify(afterDelete).includes("新的揭示"));
+  const first = await f.objects.detail(f.novelId, "scene", allScenes[1][0].id);
+  await assert.rejects(f.objects.preview(f.novelId, { kind: "scene", action: "delete", objectId: first.id, expectedRevision: first.revision, patch: {} }), /3 至 8/);
+  assert.deepEqual((await f.db.chapter.findMany({ orderBy: { order: "asc" } })).map(chapter => chapter.content), beforeProse);
+  const mismatched = { ...afterDelete, scenes: afterDelete.scenes.map((card, index) => ({ ...card, key: `independent_${index}`, title: `另行编辑的场景${index}` })) };
+  await f.db.chapter.update({ where: { id: f.chapters[1].id }, data: { sceneCards: serializeChapterScenePlan(mismatched) } });
+  await assert.rejects(f.objects.preview(f.novelId, { kind: "scene", action: "update", objectId: first.id, expectedRevision: first.revision, patch: { objective: "新目标" } }), /无法逐项对应/);
+  assert.deepEqual(parseChapterScenePlan((await f.db.chapter.findUnique({ where: { id: f.chapters[1].id } })).sceneCards), mismatched);
+});
+
+test("arrangement objects: timeline constraints protect referenced chapters and invalidate frozen candidates", async t => {
+  const f = await fixture(t);
+  const created = await f.objects.apply(f.novelId, (await f.objects.preview(f.novelId, { kind: "event", action: "create", patch: { title: "关联事件", chapterId: f.chapters[0].id } })).id);
+  const detail = await f.objects.detail(f.novelId, "event", created.objectId);
+  const input = { kind: "event", action: "update", objectId: detail.id, expectedRevision: detail.revision, patch: { summary: "调整资料" } };
+  const old = await f.objects.preview(f.novelId, input);
+  const constraint = await f.db.timelineConstraint.create({ data: { novelId: f.novelId, chapterIndex: 5, type: "causal", severity: "hard", description: "第5章依赖该事件", relatedEventIdsJson: JSON.stringify([detail.id]) } });
+  await assert.rejects(f.objects.apply(f.novelId, old.id), isConflict);
+  await f.db.writingSetting.create({ data: { id: "constraint-lock", novelId: f.novelId, scopeKey: "book-arrangement:draft", payloadJson: JSON.stringify({ chapterEdits: [{ chapterId: f.chapters[1].id, locked: true }] }) } });
+  const preview = await f.objects.preview(f.novelId, input);
+  assert.ok(preview.references.some(ref => ref.sourceEntity === "TimelineConstraint" && ref.sourceId === constraint.id));
+  assert.equal(preview.canApply, false);
+  assert.ok(preview.affectedChapterIds.includes(f.chapters[1].id));
+  await f.db.timelineConstraint.update({ where: { id: constraint.id }, data: { chapterIndex: null } });
+  assert.deepEqual((await f.objects.preview(f.novelId, input)).affectedChapterIds, f.chapters.map(chapter => chapter.id));
+});
+
+test("arrangement objects: accepted scenes survive original planner reuse and changed chapter contracts still replan", async t => {
+  const f = await fixture(t), chapter = f.chapters[0];
+  const load = (name, imports) => loadRuntimeSource(path.join(serverRoot, "src/services/planner", name), imports);
+  const metadata = load("plannerPlanMetadata.ts", { "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract") });
+  const persistence = load("plannerPersistence.ts", { "node:crypto": require("node:crypto"), "../../db/prisma": { prisma: f.db }, "./plannerPlanMetadata": metadata, "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
+  const query = load("query/PlannerPlanQueryService.ts", { "../../../db/prisma": { prisma: f.db }, "../../novel/novelP0Utils": {}, "../plannerPlanMetadata": metadata });
+  const unused = Object.fromEntries(["../novel/dynamics/CharacterDynamicsQueryService", "../novel/production/ContextAssemblyService", "../novel/state/CanonicalStateService", "../payoff/PayoffLedgerSyncService", "../novel/storyMacro/storyMacroPlanPersistence", "../../modules/timeline", "./plannerLlm", "./plannerContextBlocks", "./replanDecision", "./plannerContextHelpers", "./plannerParticipantResolution", "./replan", "./plannerStateDirectives", "./plannerOutputNormalization"].map(name => [name, {}]));
+  const { PlannerService } = load("PlannerService.ts", { ...unused, "../../db/prisma": { prisma: f.db }, "../styleEngine/StyleBindingService": { StyleBindingService: class {} }, "./plannerPlanMetadata": metadata, "./plannerPersistence": persistence, "./query": { plannerPlanQueryService: new query.PlannerPlanQueryService() } });
+  const planner = new PlannerService();
+  let regenerated = 0;
+  planner.generateChapterPlan = async () => { regenerated++; return "regenerated"; };
+  const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: chapter.id, level: "chapter", title: "原章计划", objective: "计划目标", rawPlanJson: JSON.stringify({ provenance: { source: "original" }, scenes: [{ title: "历史模型输出" }] }) } });
+  const scene = await f.db.chapterPlanScene.create({ data: { planId: plan.id, title: "旧场景", sortOrder: 1 } });
+  assert.equal(await planner.ensureChapterPlan(f.novelId, chapter.id), "regenerated");
+  const detail = await f.objects.detail(f.novelId, "scene", scene.id);
+  const candidate = await f.objects.preview(f.novelId, { kind: "scene", action: "update", objectId: scene.id, expectedRevision: detail.revision, patch: { title: "作者接受的场景", objective: "试探口风" } });
+  await f.objects.apply(f.novelId, candidate.id);
+  const reused = await planner.ensureChapterPlan(f.novelId, chapter.id);
+  assert.equal(reused.id, plan.id);
+  assert.equal(reused.scenes[0].title, "作者接受的场景");
+  assert.equal(regenerated, 1);
+  assert.equal(JSON.parse((await f.db.chapter.findUnique({ where: { id: chapter.id } })).sceneCards).scenes[0].title, "作者接受的场景");
+  const onlyScene = await f.objects.detail(f.novelId, "scene", scene.id);
+  for (const [action, patch] of [["delete", {}], ["update", { chapterId: f.chapters[1].id }]]) await assert.rejects(f.objects.preview(f.novelId, { kind: "scene", action, objectId: scene.id, expectedRevision: onlyScene.revision, patch }), /最后一个场景/);
+  assert.deepEqual(JSON.parse(reused.rawPlanJson).provenance, { source: "original" });
+  assert.equal((await f.db.chapter.findUnique({ where: { id: chapter.id } })).content, chapter.content);
+  await f.db.chapter.update({ where: { id: chapter.id }, data: { expectation: "作者另改章节执行目标" } });
+  assert.equal(await planner.ensureChapterPlan(f.novelId, chapter.id), "regenerated");
+  assert.equal(regenerated, 2);
+  await f.db.storyPlan.update({ where: { id: plan.id }, data: { status: "stale" } });
+  assert.equal((await f.objects.detail(f.novelId, "scene", scene.id)).editable, false);
+});
+
+test("arrangement objects: event candidate create, move, cancellation and replay leave prose untouched", async t => {
+  const f = await fixture(t), [first, second] = f.chapters;
+  const original = await f.db.chapter.findMany();
+  const template = await f.objects.detail(f.novelId, "event", "new", first.id);
+  assert.equal(await f.db.storyTimelineEvent.count(), 0);
+  const candidate = await f.objects.preview(f.novelId, { kind: "event", action: "create", patch: { ...template.fields, title: "计划问询", participantIds: [f.character.id], storyDayIndex: 0 } });
+  assert.equal(candidate.canApply, true);
+  assert.equal(await f.db.storyTimelineEvent.count(), 0);
+  const created = await f.objects.apply(f.novelId, candidate.id);
+  assert.deepEqual((await f.service.workspace(f.novelId)).objectPreviews.find(item => item.id === candidate.id).applied, created);
+  const detail = await f.objects.detail(f.novelId, "event", created.objectId);
+  assert.equal(detail.record.status, "planned");
+  assert.equal(detail.fields.storyDayIndex, 0);
+  assert.equal((await f.objects.detail(f.novelId, "event", "new", first.id)).fields.eventOrder, 2);
+  const moved = await f.objects.preview(f.novelId, { kind: "event", action: "update", objectId: detail.id, expectedRevision: detail.revision, patch: { chapterId: second.id } });
+  assert.deepEqual(moved.affectedChapterIds, [first.id, second.id]);
+  await f.objects.apply(f.novelId, moved.id);
+  const current = await f.objects.detail(f.novelId, "event", detail.id);
+  assert.equal(current.record.chapterIndex, second.order);
+  const deleted = await f.objects.preview(f.novelId, { kind: "event", action: "delete", objectId: current.id, expectedRevision: current.revision, patch: {} });
+  const receipt = await f.objects.apply(f.novelId, deleted.id);
+  assert.deepEqual(await f.objects.apply(f.novelId, deleted.id), receipt);
+  assert.equal((await f.db.storyTimelineEvent.findUnique({ where: { id: current.id } })).status, "cancelled");
+  assert.deepEqual(await f.db.chapter.findMany(), original);
+});
+
+test("arrangement objects: moving a scene reorders only source and destination while retaining original IDs", async t => {
+  const f = await fixture(t);
+  const plans = [];
+  for (const chapter of f.chapters) plans.push(await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: chapter.id, level: "chapter", title: chapter.title, objective: "原目标" } }));
+  const scenes = [];
+  for (const [index, plan] of plans.entries()) for (const position of [1, 2]) scenes.push(await f.db.chapterPlanScene.create({ data: { planId: plan.id, sortOrder: position, title: `${index}-${position}` } }));
+  const untouched = await f.db.storyPlan.findUnique({ where: { id: plans[2].id }, include: { scenes: true } });
+  const detail = await f.objects.detail(f.novelId, "scene", scenes[0].id);
+  const preview = await f.objects.preview(f.novelId, { kind: "scene", action: "update", objectId: detail.id, expectedRevision: detail.revision, patch: { chapterId: f.chapters[1].id, sortOrder: 2, objective: "新的目标" } });
+  assert.deepEqual(preview.affectedChapterIds, [f.chapters[0].id, f.chapters[1].id]);
+  assert.equal((await f.db.chapterPlanScene.findUnique({ where: { id: scenes[0].id } })).planId, plans[0].id);
+  await f.objects.apply(f.novelId, preview.id);
+  assert.deepEqual((await f.db.chapterPlanScene.findMany({ where: { planId: plans[1].id }, orderBy: { sortOrder: "asc" } })).map(scene => scene.id), [scenes[2].id, scenes[0].id, scenes[3].id]);
+  assert.equal((await f.db.chapterPlanScene.findUnique({ where: { id: scenes[1].id } })).sortOrder, 1);
+  assert.deepEqual(await f.db.storyPlan.findUnique({ where: { id: plans[2].id }, include: { scenes: true } }), untouched);
+});
+
+test("arrangement objects: historical source and causal-reference changes invalidate old candidates", async t => {
+  const f = await fixture(t);
+  const event = await f.db.storyTimelineEvent.create({ data: { novelId: f.novelId, chapterId: f.chapters[0].id, chapterIndex: 4, eventOrder: 1, title: "既有事件", summary: "既有摘要", type: "plot", status: "occurred", visibility: "reader_known", source: "chapter_extraction" } });
+  const detail = await f.objects.detail(f.novelId, "event", event.id);
+  assert.equal(detail.basis, "record");
+  const preview = await f.objects.preview(f.novelId, { kind: "event", action: "update", objectId: event.id, expectedRevision: detail.revision, patch: { summary: "拟修订的描述" } });
+  assert.deepEqual(preview.writtenChapterIds, [f.chapters[0].id]);
+  await f.db.chapterTimeAnchor.create({ data: { novelId: f.novelId, chapterId: f.chapters[1].id, chapterIndex: 5, timeLabel: "之后", startsAfterIdsJson: JSON.stringify([event.id]) } });
+  await assert.rejects(f.objects.apply(f.novelId, preview.id), isConflict);
+  assert.equal((await f.db.storyTimelineEvent.findUnique({ where: { id: event.id } })).summary, event.summary);
+  const fresh = await f.objects.preview(f.novelId, { kind: "event", action: "update", objectId: event.id, expectedRevision: detail.revision, patch: { summary: "拟修订的描述" } });
+  assert.ok(fresh.affectedChapterIds.includes(f.chapters[1].id));
+  await f.db.storyTimelineEvent.update({ where: { id: event.id }, data: { summary: "另一窗口的修改" } });
+  await assert.rejects(f.objects.apply(f.novelId, fresh.id), isConflict);
+});
+
+test("arrangement objects: cross-book references and fields that invent completed facts are rejected", async t => {
+  const f = await fixture(t);
+  const foreign = await f.db.novel.create({ data: { title: "其他作品" } });
+  const character = await f.db.character.create({ data: { novelId: foreign.id, name: "外部人物", role: "配角" } });
+  const event = await f.db.storyTimelineEvent.create({ data: { novelId: foreign.id, eventOrder: 1, title: "外部事件", summary: "", type: "plot", status: "planned", visibility: "hidden_truth", source: "manual" } });
+  for (const patch of [{ title: "不合法", participantIds: [character.id] }, { title: "不合法", prerequisiteIds: [event.id] }, { title: "不合法", chapterId: "missing" }, { title: "不合法", status: "occurred" }]) await assert.rejects(f.objects.preview(f.novelId, { kind: "event", action: "create", patch }));
+  await assert.rejects(f.objects.detail(f.novelId, "event", event.id), error => error.statusCode === 404);
+  await assert.rejects(f.objects.preview(f.novelId, { kind: "hook", action: "create", patch: { title: "不能捏造回收", chapterId: f.chapters[0].id, resolvedInChapterId: f.chapters[2].id } }));
+  assert.equal(await f.db.chapterEditVersion.count(), 0);
+});
+
+test("arrangement objects: relation settings and hook plans preserve historical snapshot facts", async t => {
+  const f = await fixture(t);
+  const person = await f.db.character.create({ data: { novelId: f.novelId, name: "许岚", role: "配角" } });
+  const relation = await f.objects.preview(f.novelId, { kind: "relation", action: "create", patch: { sourceCharacterId: f.character.id, targetCharacterId: person.id, chapterId: f.chapters[0].id, stageLabel: "逐渐信任", stageSummary: "未来安排" } });
+  const receipt = await f.objects.apply(f.novelId, relation.id);
+  assert.equal((await f.db.characterRelationStage.findUnique({ where: { id: receipt.objectId } })).sourceType, "arrangement_plan");
+  const hook = await f.objects.preview(f.novelId, { kind: "hook", action: "create", patch: { title: "来信", description: "计划第8章揭示", chapterId: f.chapters[0].id, expectedResolveByChapterIndex: 8 } });
+  const applied = await f.objects.apply(f.novelId, hook.id);
+  const row = await f.db.timelineHook.findUnique({ where: { id: applied.objectId } });
+  assert.equal(row.expectedResolveByChapterIndex, 8);
+  assert.equal(row.resolvedInChapterId, null);
+  assert.equal(row.status, "planned");
+  const snapshot = await f.db.storyStateSnapshot.create({ data: { novelId: f.novelId, sourceChapterId: f.chapters[0].id } });
+  const fact = await f.db.foreshadowState.create({ data: { snapshotId: snapshot.id, title: "原文中的伏笔", status: "open", setupChapterId: f.chapters[0].id } });
+  assert.equal((await f.objects.detail(f.novelId, "foreshadow", fact.id)).editable, false);
+  await assert.rejects(f.objects.preview(f.novelId, { kind: "foreshadow", action: "update", objectId: fact.id, expectedRevision: "any", patch: { title: "改事实" } }), error => error.statusCode === 400);
+  assert.deepEqual(await f.db.foreshadowState.findUnique({ where: { id: fact.id } }), fact);
+});
+
+test("arrangement objects: locks, takeover, sync and active runtime leases block application", async t => {
+  for (const block of ["lock", "manual", "sync", "runtime"]) {
+    const f = await fixture(t), chapterId = f.chapters[0].id;
+    if (block === "lock") await f.db.writingSetting.create({ data: { id: "draft", novelId: f.novelId, scopeKey: "book-arrangement:draft", payloadJson: JSON.stringify({ chapterEdits: [{ chapterId, locked: true }] }) } });
+    if (block === "manual") await f.db.chapterAdjustmentGuard.create({ data: { chapterId, novelId: f.novelId, epoch: 1, manualSessionId: "session" } });
+    if (block === "sync") await f.db.writingAcceptance.create({ data: { id: "pending", novelId: f.novelId, chapterId, editVersionId: "edit", requestKey: "pending", status: "pending", payloadJson: "{}" } });
+    if (block === "runtime") {
+      const runtime = await f.db.directorRuntimeInstance.create({ data: { novelId: f.novelId, currentChapterId: chapterId } });
+      await f.db.directorRuntimeExecution.create({ data: { novelId: f.novelId, runtimeId: runtime.id, stepType: "chapter_generation", status: "running", leaseExpiresAt: new Date(Date.now() + 60000) } });
+    }
+    const preview = await f.objects.preview(f.novelId, { kind: "event", action: "create", patch: { title: "未来事件", chapterId } });
+    assert.equal(preview.canApply, false, block);
+    await assert.rejects(f.objects.apply(f.novelId, preview.id), isConflict);
+    assert.equal(await f.db.storyTimelineEvent.count(), 0);
+  }
+});
+
+test("arrangement objects: failed receipt rolls back scene creation and lost response replays exact receipt", async t => {
+  const f = await fixture(t), chapterId = f.chapters[0].id;
+  const preview = await f.objects.preview(f.novelId, { kind: "scene", action: "create", patch: { title: "新场景", chapterId } });
+  assert.equal(await f.db.storyPlan.count(), 0);
+  const recordResult = f.store.recordResult;
+  f.store.recordResult = async () => { throw new Error("receipt failure"); };
+  await assert.rejects(f.objects.apply(f.novelId, preview.id), /receipt failure/);
+  assert.equal(await f.db.storyPlan.count(), 0);
+  assert.equal(await f.db.chapterPlanScene.count(), 0);
+  assert.equal(await f.db.chapterAdjustmentGuard.count(), 0);
+  f.store.recordResult = recordResult;
+  const receipt = await f.store.once(f.novelId, "object-apply", "once", {}, async () => { await f.objects.apply(f.novelId, preview.id); throw new Error("response lost"); });
+  assert.equal(receipt.id, preview.id);
+  assert.deepEqual(await f.store.once(f.novelId, "object-apply", "once", {}, async () => { throw new Error("must replay"); }), receipt);
+  assert.equal(await f.db.chapterPlanScene.count(), 1);
+});
 function volumeService(f) {
   const load = (file, imports) => loadRuntimeSource(path.join(serverRoot, "src", file), imports);
   const root = "services/novel/volume/";
@@ -446,7 +691,7 @@ test("book arrangement: GET avoids operation creation and every write requires a
   const f = await fixture(t);
   const handlers = new Map();
   const service = { store: f.store, arrangementWorkspace: f.service.workspace.bind(f.service), saveArrangementDraft: f.service.saveDraft.bind(f.service), previewArrangement: f.service.preview.bind(f.service), applyArrangement: f.service.apply.bind(f.service) };
-  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule });
+  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../domain/arrangementObjects": f.objectContracts });
   routes.registerBookArrangementRoutes(Object.fromEntries(["get", "put", "post"].map(method => [method, (route, handler) => handlers.set(`${method}:${route}`, handler)])));
   const req = { params: { id: f.novelId, candidateId: "candidate" }, body: {}, path: "/test", get: () => undefined };
   let response;

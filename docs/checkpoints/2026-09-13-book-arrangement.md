@@ -77,3 +77,47 @@
 - 运行中服务只读检查：前端 HTTP 200，工作区 GET 成功返回 53 章、3 卷及新卷预览字段。未对真实作品保存、预览或应用。
 - 按本次 `AGENTS.md` 的 UI 验证规则，没有运行浏览器、截图或交互验收；界面验收由用户进行。此前章节中的截图证据不覆盖本次卷段交互。
 - 本次未做 PostgreSQL 实例执行和真实模型效果测评，没有增加表或迁移。
+
+## 底座统一与对象交互实施（2026-09-13，当前批次）
+
+用户明确要求在正在运行的底座改造全书编排，并授权修改开发环境《净宅人翻旧账》用于验收。本批直接修改应用路由所用组件、原侧栏与模块接口；不创建独立交互原型。`AppLayout` 统一承载编排页，侧栏“全书编排”从小说工作台进入时携带当前作品 ID。
+
+### 开发作品数据准备
+
+- 作品：`cmtvm8yxq005578y2lcp4fhs6`，53 章、5 人物；补充范围为第 1—8 章及第 46—53 章。
+- 实际 SQLite 文件：`D:/project/AI-Novel-Writing-Assistant/server/dev.db`。
+- 一致性备份：`D:/infra/backups/ai-novel/arrangement-demo-v1-1789299543373/before.sqlite`，24,055,808 字节，`integrity_check` 为 `ok`；同目录 `before.json` 和 `receipt.json` 保存原草稿及写入清单。
+- 脚本：`server/scripts/seed-book-arrangement-demo.cjs`。默认只预览，必须指定作品、备份目录及 `--apply` 才写入；先备份，再事务补缺，重复执行不生成副本。
+- 成功补充 68 个对象，重复执行新增 0 个；两次均确认全部 Chapter 行摘要不变。首轮发现 WritingSetting 需要显式 ID，事务已回滚；修正后完成上述写入和验证。
+- 工作区 GET 返回 53 章、3 卷、25 事件、36 个有效场景、4 个关系阶段、19 条线索及 264 个原核对／冲突投影。数量描述资料可读取，不表示其已经通过文学核对。
+- 新增资料以演示计划标记，包含人物参与、五维档位、0／继承／停用与锁章样例；不新增正式事实、正文或审核通过记录。已写章节保留原稿。
+
+> 🏠 白话比喻：在指定练习本补题，先复印原本，再给新题贴标签。对应实现：指定作品、备份、计划来源、原行摘要和幂等写入清单。
+> 🧠 速记：先备份，只补缺，原文不变，有据可查。
+
+### 验证记录
+
+- 数据准备状态测试 `server/tests/bookArrangementDemo.test.js`：2/2 通过，覆盖原输入不变、重跑幂等、0／继承／停用／锁定及稳定人物 ID。
+- 为避免计划进入事实消费，4 条本批演示关系改用 `arrangement_plan`；备份与回执在 `D:/infra/backups/ai-novel/arrangement-demo-v1-1789301092783/`。
+- 为保证演示场景可实际修改，11 个本批演示计划对齐原章节已有场景卡，更新自身演示场景 22 行、补充 39 行；没有修改原 Chapter 行。备份与回执在 `D:/infra/backups/ai-novel/arrangement-demo-v1-1789301325937/`。最终有效场景 75 个，15 个演示计划中无法对应原场景卡的数量为 0。
+- 最后重跑新增 0、升级 0，Chapter 摘要仍一致；回执 `D:/infra/backups/ai-novel/arrangement-demo-v1-1789301338363/receipt.json`。各次备份均通过 SQLite 完整性检查。
+- 客户端全量测试 251 项：245 通过，仍为前述 6 项既有失败，没有修改其断言。日志 `D:/cache/book-arrangement-foundation-client-tests.log`。
+- 客户端生产构建及其中的 TypeScript 检查通过，日志 `D:/cache/book-arrangement-foundation-client-build.log`；保留原大包体积提示，未将提示当作构建失败。
+- 对象候选与原修复稿面板最新定向测试 10/10，包含合法 0／false、只读字段、同名人物 ID、缺失引用移除、丢失响应后的回执恢复、旧组件默认不加载新草稿缓存。
+- 原编排及新对象 SQLite 测试 30/30，`D:/cache/book-arrangement-object-full.log`；最后边界修正后的对象专项 10/10，`D:/cache/book-arrangement-object-final-focused.log`；原规划与持久化回归 38/38，`D:/cache/book-arrangement-object-planner-regression.log`。
+- 最终合并回归 115/115，覆盖编排、数据准备、关系计划隔离、规划上下文、分层写作、原场景持久化及人工调整合同／服务／交接／路由／场景：`D:/cache/book-arrangement-foundation-server-regression.log`。
+- 最终 shared 构建、server 构建和 client 类型检查均通过，日志分别为 `D:/cache/book-arrangement-foundation-shared-build.log`、`D:/cache/book-arrangement-foundation-server-build.log`、`D:/cache/book-arrangement-foundation-client-typecheck.log`。时间线模块对外统一由现有 `index.ts` 暴露新计划能力，调整导入后原场景复用专项再次通过。
+- 文档清单检查通过：35 篇公共文档、17 个导演进度键。运行服务只读确认前端路由 HTTP 200，工作区返回 53 章、25 事件、75 有效场景、4 条计划关系和 19 条线索。
+- 线索计划进入实际规划与四种正文模式；上下文回归 50/50，`D:/cache/planned-hooks-context-regression.log`，隔离 SQLite 专项 2/2，`D:/cache/planned-hooks-sqlite-tests.log`。其中一部分与最终合并回归重合，不将数量相加当作独立覆盖。
+
+### 本批交互与兼容结果
+
+底座侧栏保留“全书编排”入口与当前作品参数。页面使用原主题、原表单及右侧 `AppDialogContent`，彩色人物／卷轨道与连续章节导航保留；章节点击直接显示章设置。人物区段支持拖拉、复制、拆分和合并，参数支持曲线拖点与批量范围，卷候选支持选择待改卷和冲突定位。
+
+事件、场景、关系、线索以原 ID 预览和应用；历史快照只读。核对从章节或原问题发起，复用原修复候选、手改、审核、采纳与同步重试。安全刷新保留本地编辑和原 CAS，另一窗口变更不能被“刷新”自动授权覆盖。结果不明确的对象采纳必须先恢复同一候选回执，不能变成第二次新增。
+
+独立代码审查发现并修正了场景行／场景卡不同步、末场景重新生成、时间线约束遗漏、未来关系进入当前事实、采纳响应丢失后重复新增，以及删除场景无法恢复回执的问题；新线索的计划消费通道单独验证。
+
+最终独立复审确认关系和线索目标通过可选合同进入原规划／写作链，无匹配计划时不添加新提示片段，不增加模型调用。应用底座实际地址为 `http://127.0.0.1:5173/book-arrangement?novelId=cmtvm8yxq005578y2lcp4fhs6`；本批没有新增独立原型页面、数据库表或迁移。
+
+按当前项目规则，本批没有运行浏览器、截图或自动界面操作；前文旧阶段截图不能替代本批验收。用户可在左侧“全书编排”选择《净宅人翻旧账》，重点体验第 1—8、46—53 章：章节标题、彩色拖拉、右侧编辑与范围选择、预览应用、关闭重开和刷新恢复。真实模型文学效果与 PostgreSQL 实例执行没有在本批验证。

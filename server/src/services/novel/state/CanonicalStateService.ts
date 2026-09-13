@@ -146,7 +146,7 @@ export class CanonicalStateService {
         },
       }),
       prisma.characterRelationStage.findMany({
-        where: { novelId, isCurrent: true },
+        where: { novelId, isCurrent: true, sourceType: { not: "arrangement_plan" } },
         include: {
           sourceCharacter: { select: { name: true } },
           targetCharacter: { select: { name: true } },
@@ -233,7 +233,7 @@ export class CanonicalStateService {
     const characters = novel.characters.map((character) => {
       const state = snapshotCharacterStates.get(character.id);
       const relatedStages = relationStages.filter((item) => (
-        item.sourceCharacterId === character.id || item.targetCharacterId === character.id
+        item.sourceType !== "arrangement_plan" && (item.sourceCharacterId === character.id || item.targetCharacterId === character.id)
       ));
       const characterResources = characterResourceItems.filter((item) => (
         item.holderCharacterId === character.id || item.ownerCharacterId === character.id

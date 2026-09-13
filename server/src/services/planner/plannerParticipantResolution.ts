@@ -38,7 +38,7 @@ function buildPreferredDynamicParticipantNames(
 
   const relationCharacterIds = new Set<string>();
   for (const relation of overview.relations) {
-    if (!relation.isCurrent) {
+    if (!relation.isCurrent || relation.sourceType === "arrangement_plan") {
       continue;
     }
     relationCharacterIds.add(relation.sourceCharacterId);

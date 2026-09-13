@@ -254,6 +254,8 @@ export function buildChapterPlanContextBlocks(input: {
   characterDynamicsSummary: string;
   characterVolumeAssignments: string;
   characterRelationStages: string;
+  characterPlannedRelationStages?: string;
+  plannedHookGuidance?: string;
   characterCandidateGuards: string;
   defaultMetadata: string;
   stateDrivenDirective: string;
@@ -314,6 +316,7 @@ export function buildChapterPlanContextBlocks(input: {
         buildBlockContent("任务单", input.chapterTaskSheet ?? "无"),
         buildBlockContent("状态驱动决策", input.stateDrivenDirective),
         buildBlockContent("默认结构职责建议", input.defaultMetadata),
+        ...(input.plannedHookGuidance ? [input.plannedHookGuidance] : []),
       ].join("\n"),
     }),
     createContextBlock({
@@ -441,6 +444,12 @@ export function buildChapterPlanContextBlocks(input: {
       priority: 87,
       content: buildBlockContent("当前关系阶段", input.characterRelationStages),
     }),
+    ...(input.characterPlannedRelationStages ? [createContextBlock({
+      id: "author_relationship_targets",
+      group: "character_dynamics",
+      priority: 86,
+      content: buildBlockContent("作者关系目标，尚未发生；仅在授权章节规划推进，不能当作当前事实", input.characterPlannedRelationStages),
+    })] : []),
     createContextBlock({
       id: "character_candidate_guards",
       group: "character_dynamics",

@@ -10,6 +10,7 @@ import { parseJsonStringArray } from "../novelP0Utils";
 import { StyleBindingService } from "../../styleEngine/StyleBindingService";
 import { WorldContextGateway } from "../worldContext/WorldContextGateway";
 import { characterDynamicsQueryService } from "../dynamics/CharacterDynamicsQueryService";
+import { timelineHookPlanService } from "../../../modules/timeline";
 import { characterResourceLedgerService } from "../characterResource/CharacterResourceLedgerService";
 import { payoffLedgerSyncService } from "../../payoff/PayoffLedgerSyncService";
 import { buildSyntheticPayoffIssues } from "../../payoff/payoffLedgerShared";
@@ -271,6 +272,7 @@ export class GenerationContextAssembler {
     // Phase 2 缺陷5：timelineContext 在写作路径已不消费（PR-B 已移除），
     // 停止每章构建，将 timelineContext 置 null。ChapterQualityGateService
     // 对 null 有防御处理（直接跳过 timeline 检查）。
+    const plannedHookGuidance = await timelineHookPlanService.buildForChapter({ novelId, chapterId });
     const canonicalState = resolvedStateDrivenContext.snapshot;
 
     const canonicalLedger = buildRuntimeLedgerFromCanonical(canonicalState);
@@ -529,6 +531,7 @@ export class GenerationContextAssembler {
       ledgerSummary: canonicalLedger.ledgerSummary,
       // Phase 2 缺陷5：timelineContext 停止构建，写作路径已不消费
       timelineContext: null,
+      ...(plannedHookGuidance ? { plannedHookGuidance } : {}),
       characterResourceContext,
       contextGatingDecisions: [] as GenerationContextPackage["contextGatingDecisions"],
       chapterChangeFlags: {

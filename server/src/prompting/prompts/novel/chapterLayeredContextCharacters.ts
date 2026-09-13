@@ -28,7 +28,7 @@ function absenceRiskRank(risk: "none" | "info" | "warn" | "high"): number {
 
 export function buildDynamicCharacterGuidance(
   contextPackage: GenerationContextPackage,
-): Pick<ChapterWriteContext, "characterBehaviorGuides" | "activeRelationStages" | "pendingCandidateGuards"> {
+): Pick<ChapterWriteContext, "characterBehaviorGuides" | "activeRelationStages" | "plannedRelationStages" | "pendingCandidateGuards"> {
   const overview = contextPackage.characterDynamics;
   if (!overview) {
     return {
@@ -50,6 +50,7 @@ export function buildDynamicCharacterGuidance(
   );
 
   const activeRelationStages = overview.relations
+    .filter(relation => relation.sourceType !== "arrangement_plan")
     .slice(0, 8)
     .map((relation) => ({
       relationId: relation.relationId ?? null,
@@ -61,6 +62,22 @@ export function buildDynamicCharacterGuidance(
       stageSummary: compactText(relation.stageSummary),
       nextTurnPoint: compactText(relation.nextTurnPoint, "") || null,
       isCurrent: relation.isCurrent,
+    }));
+  const plannedRelationStages = (overview.plannedRelations ?? [])
+    .filter(relation => relation.sourceType === "arrangement_plan" && relation.isCurrent && (relation.chapterId
+      ? relation.chapterId === contextPackage.chapter.id
+      : Boolean(relation.volumeId && relation.volumeId === overview.currentVolume?.id)))
+    .slice(0, 8)
+    .map(relation => ({
+      relationId: relation.relationId ?? null,
+      sourceCharacterId: relation.sourceCharacterId,
+      sourceCharacterName: compactText(relation.sourceCharacterName, relation.sourceCharacterId),
+      targetCharacterId: relation.targetCharacterId,
+      targetCharacterName: compactText(relation.targetCharacterName, relation.targetCharacterId),
+      stageLabel: compactText(relation.stageLabel),
+      stageSummary: compactText(relation.stageSummary),
+      nextTurnPoint: compactText(relation.nextTurnPoint, "") || null,
+      isCurrent: false,
     }));
   const relationStageByCharacterId = new Map<string, typeof activeRelationStages>();
   for (const relation of activeRelationStages) {
@@ -171,6 +188,7 @@ export function buildDynamicCharacterGuidance(
   return {
     characterBehaviorGuides,
     activeRelationStages,
+    ...(plannedRelationStages.length ? { plannedRelationStages } : {}),
     pendingCandidateGuards: overview.candidates
       .slice(0, 4)
       .map((candidate) => ({

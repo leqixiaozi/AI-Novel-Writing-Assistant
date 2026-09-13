@@ -4,7 +4,6 @@ import AppRouteFallback from "./AppRouteFallback";
 import LLMSelectionBootstrap from "./LLMSelectionBootstrap";
 import Navbar from "./Navbar";
 import NovelWorkspaceRail from "./NovelWorkspaceRail";
-import BookArrangementShell from "./BookArrangementShell";
 import Sidebar from "./Sidebar";
 import LiveExecutionDialog from "@/components/liveExecution/LiveExecutionDialog";
 import MobileSiteShell from "./mobile/MobileSiteShell";
@@ -90,15 +89,6 @@ export default function AppLayout() {
         </TaskRecoveryProvider>
       </CreationSetupProvider>
     );
-  }
-
-  if (location.pathname === "/book-arrangement") {
-    return <CreationSetupProvider><TaskRecoveryProvider>
-      <AutoDirectorPauseNotificationWatcher />
-      <LLMSelectionBootstrap />
-      <BookArrangementShell><Suspense fallback={<AppRouteFallback />}><Outlet /></Suspense></BookArrangementShell>
-      <TaskRecoveryDialog />
-    </TaskRecoveryProvider></CreationSetupProvider>;
   }
 
   if (useMobileNovelWorkspaceLayout) {

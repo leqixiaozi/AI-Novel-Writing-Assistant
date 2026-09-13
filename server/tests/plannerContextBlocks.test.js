@@ -4,6 +4,16 @@ const {
   buildChapterPlanContextBlocks,
 } = require("../dist/services/planner/plannerContextBlocks.js");
 
+test("planner hook plans add only an explicit chapter target and absent guidance keeps old block bytes", () => {
+  const input = createInput();
+  const original = buildChapterPlanContextBlocks(input);
+  assert.deepEqual(buildChapterPlanContextBlocks({ ...input, plannedHookGuidance: "" }), original);
+  const guidance = "本章线索铺设／预计回收目标（尚未实现）\n未铺设的来信";
+  const planned = buildChapterPlanContextBlocks({ ...input, plannedHookGuidance: guidance });
+  assert.match(planned.find(block => block.id === "chapter_target").content, /未铺设的来信/);
+  assert.deepEqual(planned.filter(block => block.id !== "chapter_target"), original.filter(block => block.id !== "chapter_target"));
+});
+
 function createInput() {
   return {
     novelTitle: "测试小说",
@@ -110,4 +120,14 @@ test("chapter planner context prioritizes framing, story macro and current volum
   assert.ok(byId.get("book_framing").priority > byId.get("legacy_outline_source").priority);
   assert.ok(byId.get("current_volume_window").priority > byId.get("legacy_outline_source").priority);
   assert.ok(byId.get("character_dynamics_summary").priority > byId.get("legacy_outline_source").priority);
+});
+
+test("author relationship targets get their own block and cannot relabel current relationship facts", () => {
+  const original = buildChapterPlanContextBlocks(createInput());
+  const planned = buildChapterPlanContextBlocks({ ...createInput(), characterPlannedRelationStages: "甲 -> 乙：结盟目标" });
+  assert.deepEqual(planned.filter(block => block.id !== "author_relationship_targets"), original);
+  const target = planned.find(block => block.id === "author_relationship_targets");
+  assert.match(target.content, /作者关系目标，尚未发生/);
+  assert.match(target.content, /结盟目标/);
+  assert.doesNotMatch(planned.find(block => block.id === "character_relation_stages").content, /结盟目标/);
 });

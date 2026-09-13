@@ -110,6 +110,7 @@ export const runtimeDynamicCharacterOverviewSchema = z.object({
   pendingCandidateCount: z.number().int(),
   characters: z.array(runtimeDynamicCharacterOverviewItemSchema),
   relations: z.array(runtimeCharacterRelationStageSchema),
+  plannedRelations: z.array(runtimeCharacterRelationStageSchema).optional(),
   candidates: z.array(runtimeCharacterCandidateSchema),
   factionTracks: z.array(runtimeCharacterFactionTrackSchema),
   assignments: z.array(runtimeCharacterVolumeAssignmentSchema),
