@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, WritingSetting } from "@prisma/client";
 import { z } from "zod";
-import type { BookArrangementApplyReceipt, BookArrangementWorkspace, BookArrangementCheck, BookArrangementClue, BookArrangementRelation, DraftPayload, DraftRecord, Preview } from "@ai-novel/shared/types/bookArrangement";
+import type { BookArrangementApplyReceipt, BookArrangementWorkspace, BookArrangementCheck, BookArrangementClue, BookArrangementHookNode, BookArrangementRelation, DraftPayload, DraftRecord, Preview } from "@ai-novel/shared/types/bookArrangement";
 import type { WritingSettingsPayload } from "@ai-novel/shared/types/writingAdjustments";
 import { AppError } from "../../../../middleware/errorHandler";
 import { chapterRevision, conflict, controlsSchema, digest, EMPTY_SETTINGS, parseJson, validateControlObjects } from "../domain/contracts";
@@ -76,7 +76,7 @@ export class BookArrangementService {
 
   async workspace(novelId: string): Promise<BookArrangementWorkspace> {
     const novel = await this.store.novel(novelId);
-    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, latestSnapshot, auditReports, conflicts, cover, genre] = await Promise.all([
+    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, hookLifecycleNodes, latestSnapshot, auditReports, conflicts, cover, genre] = await Promise.all([
       this.store.dependencies(novelId),
       this.store.db.chapter.findMany({ where: { novelId }, orderBy: { order: "asc" } }),
       this.store.db.character.findMany({ where: { novelId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
@@ -88,6 +88,7 @@ export class BookArrangementService {
       this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume", "arrangement_object", "arrangement_scene"] } }, orderBy: { createdAt: "desc" }, take: 80 }),
       this.store.db.characterRelationStage.findMany({ where: { novelId, sourceCharacter: { novelId }, targetCharacter: { novelId } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
       this.store.db.timelineHook.findMany({ where: { novelId }, orderBy: [{ createdInChapterIndex: "asc" }, { id: "asc" }] }),
+      this.store.db.timelineHookLifecycleNode.findMany({ where: { novelId, active: true }, orderBy: [{ chapterIndex: "asc" }, { position: "asc" }, { id: "asc" }] }),
       this.store.db.storyStateSnapshot.findFirst({ where: { novelId }, include: { foreshadowStates: { orderBy: { id: "asc" } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
       this.store.db.auditReport.findMany({ where: { novelId }, include: { issues: { orderBy: { createdAt: "asc" } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
       this.store.db.openConflict.findMany({ where: { novelId }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }] }),
@@ -108,6 +109,14 @@ export class BookArrangementService {
       ...hooks.map((hook): BookArrangementClue => ({ id: `TimelineHook:${hook.id}`, sourceId: hook.id, sourceEntity: "TimelineHook", chapterIds: chapterRefs([hook.createdInChapterId, hook.resolvedInChapterId]), title: hook.title, summary: hook.description, status: hook.status, basis: hook.status === "planned" ? "plan" : "record", evidenceLabel: "已存线索记录；预计回收章是规划，不能据此视为已回收。", setupChapterId: validChapter(hook.createdInChapterId), payoffChapterId: validChapter(hook.resolvedInChapterId), expectedPayoffChapterOrder: hook.expectedResolveByChapterIndex, sourceSnapshotId: null })),
       ...(latestSnapshot?.foreshadowStates ?? []).map((state): BookArrangementClue => ({ id: `ForeshadowState:${state.id}`, sourceId: state.id, sourceEntity: "ForeshadowState", chapterIds: chapterRefs([state.setupChapterId, state.payoffChapterId]), title: state.title, summary: state.summary ?? "", status: state.status, basis: state.status === "planned" ? "plan" : "record", evidenceLabel: "最新故事状态快照中的伏笔记录；回收位置须对照正文核实。", setupChapterId: validChapter(state.setupChapterId), payoffChapterId: validChapter(state.payoffChapterId), expectedPayoffChapterOrder: null, sourceSnapshotId: latestSnapshot!.id })),
     ];
+    const chapterById = new Map(chapters.map(chapter => [chapter.id, chapter]));
+    const hookNodes: BookArrangementHookNode[] = hookLifecycleNodes.flatMap(node => {
+      const chapter = chapterById.get(node.chapterId);
+      if (!chapter || !hooks.some(hook => hook.id === node.hookId)) return [];
+      const evidence = node.evidence?.trim() || null;
+      const evidenceStatus: BookArrangementHookNode["evidenceStatus"] = node.basis === "plan" ? "planned" : !evidence ? "missing" : chapter.content?.includes(evidence) ? "matched" : "mismatch";
+      return [{ id: `TimelineHookLifecycleNode:${node.id}`, sourceId: node.id, sourceEntity: "TimelineHookLifecycleNode", chapterIds: [chapter.id], title: node.note || "未命名线索节点", summary: evidence ?? node.note, status: node.active ? "active" : "inactive", basis: node.basis === "record" ? "record" : "plan", evidenceLabel: node.basis === "plan" ? "作者计划节点，尚不代表正文已经发生。" : evidenceStatus === "matched" ? "证据原文可在该章正文精确定位。" : evidenceStatus === "missing" ? "正文记录缺少证据原文，需要补充。" : "证据原文未能在当前正文精确定位，需要复核。", hookId: node.hookId, chapterId: chapter.id, chapterOrder: chapter.order, stage: node.stage as BookArrangementHookNode["stage"], nodeBasis: node.basis === "record" ? "record" : "plan", note: node.note, evidence, evidenceStatus, relatedEventId: node.relatedEventId, relatedSceneId: node.relatedSceneId, position: node.position }];
+    });
     const reportsSeen = new Set<string>(), auditIssueIds = new Set<string>();
     const checks: BookArrangementCheck[] = [];
     for (const report of auditReports) {
@@ -142,7 +151,7 @@ export class BookArrangementService {
     });
     return {
       novelId, title: novel.title, baseRevision,
-      coverUrl: cover?.url ?? null, genre, relations, clues, checks,
+      coverUrl: cover?.url ?? null, genre, relations, clues, hookNodes, checks,
       chapters: chapters.map(chapter => ({ id: chapter.id, title: chapter.title, order: chapter.order, revision: chapterRevision(chapter), outline: chapter.expectation ?? "", hasContent: Boolean(chapter.content?.trim()), wordCount: Array.from((chapter.content ?? "").replace(/\s/g, "")).length, targetWordCount: chapter.targetWordCount })),
       characters,
       events: events.map(event => ({ id: event.id, title: event.title, summary: event.summary, revision: digest(event), chapterId: event.chapterId, chapterOrder: event.chapterIndex, storyDayIndex: event.storyDayIndex, storyTimeLabel: event.storyTimeLabel, participantIds: parseJson<string[]>(event.participantIdsJson, []), status: event.status, visibility: event.visibility })),

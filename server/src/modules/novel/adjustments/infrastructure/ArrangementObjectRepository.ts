@@ -9,6 +9,7 @@ export async function findArrangementObject(db: Prisma.TransactionClient, novelI
     case "scene": return db.chapterPlanScene.findFirst({ where: { id, plan: { novelId } }, include: { plan: true } });
     case "relation": return db.characterRelationStage.findFirst({ where: { id, novelId, sourceCharacter: { novelId }, targetCharacter: { novelId } } });
     case "hook": return db.timelineHook.findFirst({ where: { id, novelId } });
+    case "hookNode": return db.timelineHookLifecycleNode.findFirst({ where: { id, novelId, active: true } });
     case "foreshadow": return db.foreshadowState.findFirst({ where: { id, snapshot: { novelId } }, include: { snapshot: { select: { id: true, novelId: true, sourceChapterId: true, updatedAt: true } } } });
   }
 }
@@ -29,6 +30,10 @@ export async function writeArrangementObject(db: Prisma.TransactionClient, input
   } else if (kind === "hook") {
     if (action === "create") await db.timelineHook.create({ data: { ...row, id: objectId, novelId } as Prisma.TimelineHookUncheckedCreateInput });
     else await db.timelineHook.update({ where: { id: objectId }, data: row });
+  } else if (kind === "hookNode") {
+    if (action === "create") await db.timelineHookLifecycleNode.create({ data: { ...row, id: objectId, novelId } as Prisma.TimelineHookLifecycleNodeUncheckedCreateInput });
+    else if (action === "delete") await db.timelineHookLifecycleNode.update({ where: { id: objectId }, data: { active: false } });
+    else await db.timelineHookLifecycleNode.update({ where: { id: objectId }, data: row });
   } else if (kind === "scene") {
     if (input.targetPlan?.create) await db.storyPlan.create({ data: { id: input.targetPlan.id, novelId, level: "chapter", status: "draft", ...input.targetPlan.create } });
     const planId = input.targetPlan?.id ?? old!.planId;

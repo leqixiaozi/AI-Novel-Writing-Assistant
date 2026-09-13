@@ -8,6 +8,9 @@ function optionsFor(field: BookArrangementObjectField, workspace: BookArrangemen
   if (field.type === "chapter") return workspace.chapters.map(chapter => ({ value: chapter.id, label: `第${chapter.order}章 · ${chapter.title}` }));
   if (field.type === "character" || field.type === "characters") return workspace.characters.map(character => ({ value: character.id, label: `${character.name}${character.role ? ` · ${character.role}` : ""}` }));
   if (field.type === "volume") return workspace.volumes.map(volume => ({ value: volume.id, label: volume.title }));
+  if (field.type === "hook") return (workspace.clues ?? []).filter(clue => clue.sourceEntity === "TimelineHook").map(clue => ({ value: clue.sourceId, label: clue.title }));
+  if (field.type === "event") return workspace.events.map(event => ({ value: event.id, label: `${event.title}${event.chapterOrder != null ? ` · 第${event.chapterOrder}章` : ""}` }));
+  if (field.type === "scene") return workspace.scenes.map(scene => ({ value: scene.id, label: `${scene.title} · 第${workspace.chapters.find(chapter => chapter.id === scene.chapterId)?.order ?? "—"}章` }));
   if (field.type === "events") return workspace.events.map(event => ({ value: event.id, label: `${event.title}${event.chapterOrder != null ? ` · 第${event.chapterOrder}章` : ""}` }));
   return [];
 }
@@ -37,7 +40,7 @@ export function ArrangementObjectFields({ detail, fields, workspace, disabled, o
     }
     return <label key={field.key} className="block min-w-0 space-y-1 text-sm"><span>{field.label}{field.required ? " *" : ""}</span>{field.type === "textarea"
       ? <textarea aria-label={field.label} className={adjustmentInputClass} rows={3} disabled={disabled} value={typeof value === "string" ? value : ""} onChange={event => update(event.target.value)} />
-      : ["chapter", "character", "volume", "select"].includes(field.type)
+      : ["chapter", "character", "volume", "hook", "event", "scene", "select"].includes(field.type)
         ? <select aria-label={field.label} className={adjustmentInputClass} disabled={disabled} value={value == null ? "" : String(value)} onChange={event => update(event.target.value || null)}><option value="">{field.required ? "请选择" : "未设置"}</option>{value != null && value !== "" && !options.some(option => option.value === String(value)) && <option value={String(value)}>{String(value)}（当前值）</option>}{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
         : <input aria-label={field.label} className={adjustmentInputClass} type={field.type === "number" ? "number" : "text"} step={field.type === "number" ? "any" : undefined} disabled={disabled} value={value == null ? "" : String(value)} onChange={event => update(field.type === "number" ? event.target.value === "" ? null : Number(event.target.value) : event.target.value)} />}</label>;
   })}

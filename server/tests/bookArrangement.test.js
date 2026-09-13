@@ -296,6 +296,26 @@ test("arrangement objects: relation settings and hook plans preserve historical 
   assert.deepEqual(await f.db.foreshadowState.findUnique({ where: { id: fact.id } }), fact);
 });
 
+test("hook lifecycle nodes preview, apply, verify prose evidence and retain the canonical hook", async t => {
+  const f = await fixture(t);
+  const hook = await f.db.timelineHook.create({ data: { novelId: f.novelId, title: "旧钥匙", description: "门锁线索", priority: "high", createdInChapterId: f.chapters[0].id, createdInChapterIndex: 4, expectedResolveByChapterIndex: 8, status: "open" } });
+  const candidate = await f.objects.preview(f.novelId, { kind: "hookNode", action: "create", patch: { hookId: hook.id, chapterId: f.chapters[1].id, stage: "reinforce", basis: "record", note: "再次出现钥匙", evidence: "不存在的原文" } });
+  assert.ok(candidate.impact.some(item => item.includes("未在所选章节精确定位")));
+  const receipt = await f.objects.apply(f.novelId, candidate.id);
+  const workspace = await f.service.workspace(f.novelId);
+  const node = workspace.hookNodes.find(item => item.sourceId === receipt.objectId);
+  assert.equal(node.evidenceStatus, "mismatch");
+  assert.equal(node.stage, "reinforce");
+  assert.equal((await f.db.timelineHook.findUnique({ where: { id: hook.id } })).status, "open");
+  const detail = await f.objects.detail(f.novelId, "hookNode", receipt.objectId);
+  const update = await f.objects.preview(f.novelId, { kind: "hookNode", action: "update", objectId: receipt.objectId, expectedRevision: detail.revision, patch: { evidence: f.chapters[1].content } });
+  await f.objects.apply(f.novelId, update.id);
+  assert.equal((await f.service.workspace(f.novelId)).hookNodes.find(item => item.sourceId === receipt.objectId).evidenceStatus, "matched");
+  const current = await f.objects.detail(f.novelId, "hookNode", receipt.objectId);
+  await f.objects.apply(f.novelId, (await f.objects.preview(f.novelId, { kind: "hookNode", action: "delete", objectId: receipt.objectId, expectedRevision: current.revision, patch: {} })).id);
+  assert.equal((await f.db.timelineHookLifecycleNode.findUnique({ where: { id: receipt.objectId } })).active, false);
+});
+
 test("arrangement objects: locks, takeover, sync and active runtime leases block application", async t => {
   for (const block of ["lock", "manual", "sync", "runtime"]) {
     const f = await fixture(t), chapterId = f.chapters[0].id;

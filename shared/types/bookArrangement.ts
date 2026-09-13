@@ -113,6 +113,21 @@ export interface BookArrangementClue extends BookArrangementTrackRecord {
   expectedPayoffChapterOrder: number | null;
   sourceSnapshotId: string | null;
 }
+export type BookArrangementHookStage = "setup" | "reinforce" | "misdirect" | "reveal" | "payoff" | "aftermath";
+export interface BookArrangementHookNode extends BookArrangementTrackRecord {
+  sourceEntity: "TimelineHookLifecycleNode";
+  hookId: string;
+  chapterId: string;
+  chapterOrder: number;
+  stage: BookArrangementHookStage;
+  nodeBasis: "plan" | "record";
+  note: string;
+  evidence: string | null;
+  evidenceStatus: "planned" | "matched" | "mismatch" | "missing";
+  relatedEventId: string | null;
+  relatedSceneId: string | null;
+  position: number;
+}
 export interface BookArrangementCheck extends BookArrangementTrackRecord {
   sourceEntity: "AuditIssue" | "OpenConflict";
   chapterId: string | null;
@@ -138,6 +153,7 @@ export interface BookArrangementWorkspace {
   previews: Preview[];
   relations?: BookArrangementRelation[];
   clues?: BookArrangementClue[];
+  hookNodes?: BookArrangementHookNode[];
   checks?: BookArrangementCheck[];
   coverUrl?: string | null;
   genre?: { id: string; name: string } | null;
@@ -152,11 +168,11 @@ export type BookArrangementDraftPayload = DraftPayload;
 export type BookArrangementDraftRecord = DraftRecord;
 export type BookArrangementPreview = Preview;
 
-export type BookArrangementObjectKind = "event" | "scene" | "relation" | "hook" | "foreshadow";
+export type BookArrangementObjectKind = "event" | "scene" | "relation" | "hook" | "hookNode" | "foreshadow";
 export type BookArrangementObjectValue = string | number | boolean | null | string[];
 export interface BookArrangementObjectField {
   key: string; label: string;
-  type: "text" | "textarea" | "number" | "boolean" | "chapter" | "character" | "characters" | "volume" | "events" | "select";
+  type: "text" | "textarea" | "number" | "boolean" | "chapter" | "character" | "characters" | "volume" | "hook" | "event" | "scene" | "events" | "select";
   required?: boolean; readOnly?: boolean; options?: Array<{ value: string; label: string }>;
 }
 export interface BookArrangementObjectDetail {

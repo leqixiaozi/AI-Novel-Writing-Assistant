@@ -30,6 +30,7 @@ export class BookArrangementObjectService {
     const detail = objectDetail(kind, row, chapterId ?? null);
     if (!row && kind === "event") detail.fields.eventOrder = ((await this.store.db.storyTimelineEvent.aggregate({ where: { novelId }, _max: { eventOrder: true } }))._max.eventOrder ?? 0) + 1;
     if (!row && kind === "scene" && chapterId) detail.fields.sortOrder = ((await this.store.db.chapterPlanScene.aggregate({ where: { plan: { novelId, chapterId, status: { not: "stale" } } }, _max: { sortOrder: true } }))._max.sortOrder ?? 0) + 1;
+    if (!row && kind === "hookNode" && chapterId) detail.fields.position = ((await this.store.db.timelineHookLifecycleNode.aggregate({ where: { novelId, chapterId, active: true }, _max: { position: true } }))._max.position ?? 0) + 1;
     if (row && kind === "relation" && !detail.chapterIds.length && row.volumeId) {
       const links = await this.store.db.volumeChapterPlan.findMany({ where: { volume: { id: row.volumeId, novelId }, chapter: { novelId } }, select: { chapterId: true } });
       detail.chapterIds = links.flatMap(link => link.chapterId ? [link.chapterId] : []);
@@ -40,11 +41,12 @@ export class BookArrangementObjectService {
   }
 
   private async context(novelId: string) {
-    const [chapters, events, anchors, hooks, relations, volumes, scenes, draft, running, executions, constraints] = await Promise.all([
+    const [chapters, events, anchors, hooks, hookNodes, relations, volumes, scenes, draft, running, executions, constraints] = await Promise.all([
       this.store.db.chapter.findMany({ where: { novelId }, orderBy: { order: "asc" } }),
       this.store.db.storyTimelineEvent.findMany({ where: { novelId }, orderBy: { id: "asc" } }),
       this.store.db.chapterTimeAnchor.findMany({ where: { novelId }, orderBy: { id: "asc" } }),
       this.store.db.timelineHook.findMany({ where: { novelId }, orderBy: { id: "asc" } }),
+      this.store.db.timelineHookLifecycleNode.findMany({ where: { novelId, active: true }, orderBy: [{ chapterIndex: "asc" }, { position: "asc" }, { id: "asc" }] }),
       this.store.db.characterRelationStage.findMany({ where: { novelId }, orderBy: { id: "asc" } }),
       this.store.db.volumePlan.findMany({ where: { novelId }, include: { chapters: { orderBy: { id: "asc" } } }, orderBy: { id: "asc" } }),
       this.store.db.chapterPlanScene.findMany({ where: { plan: { novelId } }, include: { plan: true }, orderBy: { id: "asc" } }),
@@ -53,7 +55,7 @@ export class BookArrangementObjectService {
       this.store.db.directorRuntimeExecution.findMany({ where: { novelId, status: { in: ["leased", "running"] }, OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { gt: new Date() } }] }, include: { runtime: { select: { currentChapterId: true } } } }),
       this.store.db.timelineConstraint.findMany({ where: { novelId }, orderBy: { id: "asc" } }),
     ]);
-    return { chapters, events, anchors, hooks, relations, volumes, scenes, draft, running, executions, constraints, revision: digest({ events, anchors, hooks, relations, volumes, scenes, draft, constraints }) };
+    return { chapters, events, anchors, hooks, hookNodes, relations, volumes, scenes, draft, running, executions, constraints, revision: digest({ events, anchors, hooks, hookNodes, relations, volumes, scenes, draft, constraints }) };
   }
 
   async preview(novelId: string, rawInput: BookArrangementObjectPreviewRequest): Promise<BookArrangementObjectPreview> {
@@ -76,15 +78,26 @@ export class BookArrangementObjectService {
     const chapterId = typeof fields.chapterId === "string" && fields.chapterId ? fields.chapterId : null;
     const chapter = chapterId ? context.chapters.find(item => item.id === chapterId) : null;
     if (chapterId && !chapter) throw new AppError("所在章节不属于当前作品。", 400);
-    if ((input.kind === "scene" || input.kind === "hook") && !chapter) throw new AppError("请选择所在章节。", 400);
+    if ((input.kind === "scene" || input.kind === "hook" || input.kind === "hookNode") && !chapter) throw new AppError("请选择所在章节。", 400);
     const characterIds = [...new Set([...(Array.isArray(fields.participantIds) ? fields.participantIds : []), ...[fields.sourceCharacterId, fields.targetCharacterId].filter((id): id is string => typeof id === "string")])];
     if (characterIds.length && await this.store.db.character.count({ where: { novelId, id: { in: characterIds } } }) !== characterIds.length) throw new AppError("人物引用必须属于当前作品。", 400);
     if (input.kind === "relation" && (!fields.sourceCharacterId || !fields.targetCharacterId || fields.sourceCharacterId === fields.targetCharacterId)) throw new AppError("请选择两个不同的本书人物。", 400);
     if (input.kind === "relation" && (!old || old.sourceType === "arrangement_plan") && !fields.chapterId && !fields.volumeId) throw new AppError("请选择此关系计划所作用的章节或卷段。", 400);
     if (fields.volumeId && !context.volumes.some(volume => volume.id === fields.volumeId)) throw new AppError("所指卷段不属于当前作品。", 400);
-    const eventIds = [fields.prerequisiteIds, fields.consequenceIds, fields.relatedEventIds].flatMap(value => Array.isArray(value) ? value : []);
+    const eventIds = [fields.prerequisiteIds, fields.consequenceIds, fields.relatedEventIds].flatMap(value => Array.isArray(value) ? value : []).concat(typeof fields.relatedEventId === "string" && fields.relatedEventId ? [fields.relatedEventId] : []);
     if (eventIds.some(id => id === objectId || !context.events.some(event => event.id === id))) throw new AppError("关联事件必须属于本书，且不能引用自己。", 400);
-    if (input.action !== "delete" && !String(fields.title ?? fields.stageLabel ?? "").trim()) throw new AppError("请填写标题或关系阶段。", 400);
+    if (input.action !== "delete" && input.kind !== "hookNode" && !String(fields.title ?? fields.stageLabel ?? "").trim()) throw new AppError("请填写标题或关系阶段。", 400);
+    if (input.kind === "hookNode" && input.action !== "delete") {
+      if (!context.hooks.some(hook => hook.id === fields.hookId)) throw new AppError("所属线索必须是本书已有的线索安排。", 400);
+      if (!String(fields.note ?? "").trim()) throw new AppError("请填写此生命周期节点的具体安排。", 400);
+      if (fields.basis === "record" && !String(fields.evidence ?? "").trim()) throw new AppError("正文记录必须填写可在本章定位的原文证据。", 400);
+      if (fields.relatedSceneId) {
+        const scene = context.scenes.find(item => item.id === fields.relatedSceneId);
+        if (!scene || scene.plan.chapterId !== chapterId) throw new AppError("关联场景必须属于节点所在章节。", 400);
+      }
+      const event = fields.relatedEventId ? context.events.find(item => item.id === fields.relatedEventId) : null;
+      if (fields.relatedEventId && (!event || event.chapterId !== chapterId)) throw new AppError("关联事件必须属于节点所在章节。", 400);
+    }
     let row: Record<string, any> = {}, targetPlan: ObjectCandidate["targetPlan"];
     if (input.kind === "event") {
       const { participantIds, prerequisiteIds, consequenceIds, ...plain } = fields;
@@ -92,6 +105,8 @@ export class BookArrangementObjectService {
     } else if (input.kind === "hook") {
       const { chapterId: _chapterId, participantIds, relatedEventIds, ...plain } = fields;
       row = input.action === "delete" ? { status: "dropped" } : { ...plain, createdInChapterId: chapterId, createdInChapterIndex: chapter!.order, participantIdsJson: JSON.stringify(participantIds), relatedEventIdsJson: JSON.stringify(relatedEventIds), ...(!old ? { status: "planned" } : {}) };
+    } else if (input.kind === "hookNode") {
+      row = input.action === "delete" ? { active: false } : { ...fields, chapterIndex: chapter!.order, active: true };
     } else if (input.kind === "relation") {
       row = input.action === "delete" ? { isCurrent: false } : { ...fields, chapterOrder: chapter?.order ?? null, ...(!old ? { sourceType: "arrangement_plan", isCurrent: true } : {}) };
     } else if (input.kind === "scene") {
@@ -124,6 +139,13 @@ export class BookArrangementObjectService {
     for (const event of context.events) if (eventIds.includes(event.id) || [event.prerequisiteIdsJson, event.consequenceIdsJson].some(json => parseJson<string[]>(json, []).includes(objectId))) reference("StoryTimelineEvent", event.id, [event.chapterId], event.title);
     for (const anchor of context.anchors) if ([anchor.startsAfterIdsJson, anchor.plannedEventIdsJson, anchor.endedWithIdsJson, anchor.forbiddenEventIdsJson, anchor.previousHookIdsJson, anchor.nextHookIdsJson].some(json => parseJson<string[]>(json, []).includes(objectId))) reference("ChapterTimeAnchor", anchor.id, [anchor.chapterId], anchor.timeLabel);
     for (const hook of context.hooks) if (parseJson<string[]>(hook.relatedEventIdsJson, []).includes(objectId)) reference("TimelineHook", hook.id, [hook.createdInChapterId, hook.resolvedInChapterId], hook.title);
+    for (const node of context.hookNodes) if (node.id !== objectId && (node.hookId === fields.hookId || node.hookId === old?.hookId || [node.relatedEventId, node.relatedSceneId].includes(objectId))) reference("TimelineHookLifecycleNode", node.id, [node.chapterId], node.note);
+    if (input.kind === "hookNode") {
+      const hook = context.hooks.find(item => item.id === fields.hookId || item.id === old?.hookId);
+      if (hook) reference("TimelineHook", hook.id, [hook.createdInChapterId, hook.resolvedInChapterId], hook.title);
+      const scene = context.scenes.find(item => item.id === fields.relatedSceneId);
+      if (scene) reference("ChapterPlanScene", scene.id, [scene.plan.chapterId], scene.title);
+    }
     for (const constraint of context.constraints) if (constraint.active && [constraint.relatedEventIdsJson, constraint.relatedHookIdsJson].some(json => parseJson<string[]>(json, []).includes(objectId))) {
       const chapterIds = constraint.chapterId ? [constraint.chapterId] : constraint.chapterIndex != null ? context.chapters.filter(chapter => chapter.order === constraint.chapterIndex).map(chapter => chapter.id) : context.chapters.map(chapter => chapter.id);
       reference("TimelineConstraint", constraint.id, chapterIds, constraint.description);
@@ -133,7 +155,8 @@ export class BookArrangementObjectService {
     const guardedIds = affectedChapterIds.length ? affectedChapterIds : [context.chapters[0].id];
     const guards = await this.store.db.chapterAdjustmentGuard.findMany({ where: { novelId, chapterId: { in: guardedIds } } });
     const conflicts = await this.conflicts(novelId, context, guardedIds, guards);
-    const preview: BookArrangementObjectPreview = { id: "", kind: input.kind, action: input.action, objectId, before, after, affectedChapterIds, writtenChapterIds: context.chapters.filter(chapter => affected.has(chapter.id) && chapter.content?.trim()).map(chapter => chapter.id), references, baseRevision, conflicts, canApply: conflicts.length === 0, impact: ["仅应用所选原对象；正文、实际章序、人物事实与伏笔回收证据保持原样。", input.action === "delete" ? input.kind === "scene" ? "移除原场景并整理章内顺序；候选保留完整修改前记录。" : "停用原记录并保留其稳定标识与引用；不会删除历史正文。" : input.kind === "scene" ? "场景位置调整会整理源章与目标章场景顺序，保留已有场景标识。" : "所列来源需要复核；事件参与不等于人物知情，预计回收不等于已经回收。"], unchecked: ["尚未进行 AI 剧情合理性审核；历史正文差异请回原章节核对修复。", "旧模型规划及其审核不证明本次改动已通过；不会自动重写正文或重建全部人物资料。"] };
+    const evidenceMatched = input.kind === "hookNode" && fields.basis === "record" && Boolean(chapter?.content?.includes(String(fields.evidence ?? "")));
+    const preview: BookArrangementObjectPreview = { id: "", kind: input.kind, action: input.action, objectId, before, after, affectedChapterIds, writtenChapterIds: context.chapters.filter(chapter => affected.has(chapter.id) && chapter.content?.trim()).map(chapter => chapter.id), references, baseRevision, conflicts, canApply: conflicts.length === 0, impact: ["仅应用所选原对象；正文、实际章序、人物事实与伏笔回收证据保持原样。", input.kind === "hookNode" ? fields.basis === "record" ? evidenceMatched ? "证据原文可在所选章节定位；节点应用后会作为正文记录显示。" : "证据原文未在所选章节精确定位；可以保留候选，但应用后会持续显示复核风险。" : "计划节点会进入线索生命周期轨道，应用前不会改变正式编排。" : input.action === "delete" ? input.kind === "scene" ? "移除原场景并整理章内顺序；候选保留完整修改前记录。" : "停用原记录并保留其稳定标识与引用；不会删除历史正文。" : input.kind === "scene" ? "场景位置调整会整理源章与目标章场景顺序，保留已有场景标识。" : "所列来源需要复核；事件参与不等于人物知情，预计回收不等于已经回收。"], unchecked: ["尚未进行 AI 剧情合理性审核；历史正文差异请回原章节核对修复。", "旧模型规划及其审核不证明本次改动已通过；不会自动重写正文或重建全部人物资料。"] };
     if (context.revision !== (await this.context(novelId)).revision || baseRevision !== await this.store.dependencies(novelId)) conflict("对象依据在预览期间发生变化，请重试。");
     const anchor = context.chapters.find(chapter => chapter.id === guardedIds[0])!;
     const version = await this.store.createVersion({ novelId, chapterId: anchor.id, kind: "arrangement_object", baseRevision: chapterRevision(anchor), content: JSON.stringify(preview), metadata: { preview, input, old, row, targetPlan, previousScenePlans: input.kind === "scene" ? context.scenes.filter(scene => [old?.planId, targetPlan?.id].includes(scene.planId)) : [], previousChapterSceneCards: input.kind === "scene" ? context.chapters.filter(chapter => affected.has(chapter.id)).map(chapter => ({ chapterId: chapter.id, sceneCards: chapter.sceneCards })) : [], contextRevision: context.revision, guards: Object.fromEntries(guardedIds.map(chapterId => [chapterId, guards.find(guard => guard.chapterId === chapterId)?.epoch ?? 0])) }, operationResult: version => ({ ...preview, id: version.id }) });

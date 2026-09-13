@@ -3630,6 +3630,29 @@ model TimelineHook {
   @@index([novelId, expectedResolveByChapterIndex])
 }
 
+/// Author-planned or prose-evidenced lifecycle nodes for an existing hook.
+/// This references TimelineHook as the canonical clue record and does not duplicate story facts.
+model TimelineHookLifecycleNode {
+  id             String   @id @default(cuid())
+  novelId        String
+  hookId         String
+  chapterId      String
+  chapterIndex   Int
+  stage          String
+  basis          String   @default("plan")
+  note           String   @default("")
+  evidence       String?
+  relatedEventId String?
+  relatedSceneId String?
+  position       Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([novelId, hookId])
+  @@index([novelId, chapterIndex])
+}
+
 model TimelineConstraint {
   id                       String   @id @default(cuid())
   novelId                  String

@@ -9,7 +9,7 @@ import { ArrangementObjectFields } from "./ArrangementObjectFields";
 import { ArrangementObjectPreview } from "./ArrangementObjectPreview";
 import { definitivelyRejectedObjectApply, editableObjectPatch, objectKindLabels, objectPanelError, objectRemoval, recoverObjectCandidate, validateObjectFields } from "./objectPanelState";
 
-export interface ArrangementObjectSelection { kind: BookArrangementObjectKind | "check"; id: string; chapterId?: string }
+export interface ArrangementObjectSelection { kind: BookArrangementObjectKind | "check"; id: string; chapterId?: string; defaults?: Record<string, BookArrangementObjectValue> }
 export interface ArrangementObjectPanelProps {
   workspace: BookArrangementWorkspace; selectedObject: ArrangementObjectSelection; busy: boolean; run: ArrangementRun;
   reload: () => Promise<void>; onClose?: () => void; onDirtyChange?: (dirty: boolean) => void;
@@ -60,7 +60,8 @@ function ObjectPanelWorkspace({ workspace, selectedObject, busy, run, reload, on
     }
     const result = await panelRun("读取对象资料", selectedObject, () => api.object(selectedObject.kind as BookArrangementObjectKind, selectedObject.id || "new", selectedObject.chapterId));
     if (!result || !mounted.current) return;
-    setDetail(result); setFields(result.fields); setDraftRevision(result.revision);
+    const defaultedFields = selectedObject.defaults ? { ...result.fields, ...selectedObject.defaults } : result.fields;
+    setDetail(result); setFields(defaultedFields); setDraftRevision(result.revision);
     try {
       if (saved && typeof saved.revision === "string" && saved.fields && typeof saved.fields === "object") {
         const recovered = saved.preview ? recoverObjectCandidate(saved.preview, workspace.objectPreviews ?? []) : null;
