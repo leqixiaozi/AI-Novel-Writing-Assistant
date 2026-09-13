@@ -1,4 +1,4 @@
-import type { BookArrangementChapterEdit, BookArrangementDraftPayload, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
+import type { BookArrangementChapterEdit, BookArrangementCheck, BookArrangementDraftPayload, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import type { WritingControlKey, WritingControls } from "@ai-novel/shared/types/writingAdjustments";
 
 export const arrangementTracks: Array<{ key: WritingControlKey; label: string; color: string }> = [
@@ -10,6 +10,39 @@ export const arrangementTracks: Array<{ key: WritingControlKey; label: string; c
 ];
 export const presenceLabels = { must: "必须出场", suggested: "建议参与", indirect: "间接影响", forbidden: "禁止出场" };
 export const eventStatusLabels: Record<string, string> = { planned: "规划", occurred: "已发生", foreshadowed: "已铺垫", resolved: "已解决", cancelled: "已取消", superseded: "已替代" };
+
+export const auditDimensions = [
+  { key: "ai", label: "AI味" },
+  { key: "logic", label: "逻辑性" },
+  { key: "character", label: "人物一致性" },
+  { key: "pace", label: "节奏偏差" },
+] as const;
+export type AuditDimensionKey = typeof auditDimensions[number]["key"];
+export type AuditHeatState = "empty" | "handled" | "low" | "medium" | "high" | "critical";
+
+/** Convert backend audit categories into four stable labels that authors can scan. */
+export function auditDimension(check: Pick<BookArrangementCheck, "title" | "category">): AuditDimensionKey {
+  const title = check.title.toLocaleLowerCase();
+  const category = check.category.toLocaleLowerCase();
+  if (/(pace|rhythm|tension|ending_hook|info_drop|repetition|overshoot)/u.test(title)) return "pace";
+  if (/(logic|chain|continuity|causal|plot)/u.test(title)) return "logic";
+  if (/(character|persona|motivation|goal_shift)/u.test(title)) return "character";
+  if (category === "mode_fit" || category.includes("style") || category.includes("voice")) return "ai";
+  if (category.includes("character")) return "character";
+  return "logic";
+}
+
+/** A heat cell represents the highest unresolved severity; resolved-only cells remain visible. */
+export function auditHeatState(checks: Array<Pick<BookArrangementCheck, "status" | "severity">>): AuditHeatState {
+  if (!checks.length) return "empty";
+  const handled = new Set(["resolved", "ignored", "closed"]);
+  const open = checks.filter(check => !handled.has(check.status.toLocaleLowerCase()));
+  if (!open.length) return "handled";
+  const weights: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+  const states: AuditHeatState[] = ["empty", "low", "medium", "high", "critical"];
+  const highest = open.reduce((result, check) => Math.max(result, weights[check.severity.toLocaleLowerCase()] ?? weights.medium), 0);
+  return states[highest] ?? "medium";
+}
 
 /** Window coordinates are array indices, never chapter order numbers. */
 export function chapterWindow<T>(chapters: T[], requestedStart: number, size = 8) {

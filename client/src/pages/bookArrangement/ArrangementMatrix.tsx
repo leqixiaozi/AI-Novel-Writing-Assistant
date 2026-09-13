@@ -1,8 +1,9 @@
-import { useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Circle, Diamond, LockKeyhole, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { BookmarkPlus, CalendarPlus, ChevronDown, ChevronRight, Circle, Diamond, FilePenLine, LayoutList, LockKeyhole, Network, Plus } from "lucide-react";
 import type { BookArrangementDraftPayload, BookArrangementVolumeEdit, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { Button } from "@/components/ui/button";
-import { arrangementTracks, chapterEdit, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
+import { arrangementTracks, auditDimension, auditDimensions, auditHeatState, chapterEdit, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
 import { ArrangementVolumeTrack } from "./volume/ArrangementVolumeTrack";
 import type { WritingControlKey } from "@ai-novel/shared/types/writingAdjustments";
 import type { ArrangementObjectSelection } from "./objects/ArrangementObjectPanel";
@@ -17,9 +18,13 @@ interface Props {
   selectedVolumeId?: string; onVolume?: (id: string) => void; onVolumeEdit?: (edit: BookArrangementVolumeEdit) => void; windowStart?: number; onWindowStart?: (index: number) => void;
   onControl?: (chapterId: string, key: WritingControlKey) => void;
   onObject?: (object: ArrangementObjectSelection) => void;
+  onChapterMenuAction?: (action: ChapterMenuAction, chapterId: string) => void;
 }
 
-const handledCheckLabels: Record<string, string> = { resolved: "已解决", ignored: "已忽略", closed: "已关闭" };
+export type ChapterMenuAction = "chapter" | "scenes" | "add-scene" | "add-event" | "add-relation" | "add-hook";
+
+const auditHeatLabels = { empty: "暂无结果", handled: "已处理", low: "轻微", medium: "需留意", high: "高风险", critical: "严重" } as const;
+const handledCheckStatuses = new Set(["resolved", "ignored", "closed"]);
 
 /** Pointer position chooses the shared chapter column; keyboard retains the visible selection. */
 function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string[], selectedId: string): string {
@@ -29,16 +34,16 @@ function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string
   return chapterIds[index];
 }
 
-export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, onControl, onObject }: Props) {
+export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, onControl, onObject, onChapterMenuAction }: Props) {
   const [groups, setGroups] = useState<Record<string, boolean>>({});
   const [personFilter, setPersonFilter] = useState("");
-  const [manager, setManager] = useState(false);
   const [allPresence, setAllPresence] = useState(false);
   const [allRelations, setAllRelations] = useState(false);
   const [allClues, setAllClues] = useState(false);
   const [expandedCells, setExpandedCells] = useState<Record<string, boolean>>({});
-  const [showDefaultTracks, setShowDefaultTracks] = useState(workspace.draft.revision === 0 && draft.pinnedTracks.length === 0);
-  const visibleTracks = draft.pinnedTracks.length || !showDefaultTracks ? draft.pinnedTracks : ["pace", "tension"];
+  const [chapterMenu, setChapterMenu] = useState<{ chapterId: string; x: number; y: number } | null>(null);
+  const chapterMenuRef = useRef<HTMLDivElement>(null);
+  const visibleTracks = draft.pinnedTracks.length || workspace.draft.revision > 0 ? draft.pinnedTracks : ["pace", "tension"];
   const toggle = (key: string) => setGroups({ ...groups, [key]: !groups[key] });
   const presence = characterPresenceEntries(workspace, draft).filter(entry => (!personFilter || entry.characterId === personFilter) && (!characterSearch.trim() || entry.name.toLocaleLowerCase().includes(characterSearch.trim().toLocaleLowerCase())));
   const packedPresence = packChapterLanes(chapters, presence);
@@ -59,16 +64,40 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   const label = (key: string, title: string, detail?: string) => <button type="button" className="ba-label ba-section-label" aria-expanded={!groups[key]} onClick={() => toggle(key)}>{groups[key] ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>{title}{detail && <small>{detail}</small>}</span></button>;
   const guides = () => <div className="ba-plot-guides" aria-hidden="true">{chapters.map(chapter => <span key={chapter.id} data-chapter-id={chapter.id} className={chapter.id === selectedId ? "is-selected" : ""} />)}</div>;
   const empty = (text: string) => <p className="ba-track-empty">{text}</p>;
-  const cell = (chapterId: string, content: ReactNode, className = "") => <div key={chapterId} data-chapter-id={chapterId} className={`ba-cell ${className} ${chapterId === selectedId ? "is-selected" : ""}`}>{content}</div>;
+  const openChapterMenu = (chapterId: string, x: number, y: number) => setChapterMenu({ chapterId, x: Math.min(x, window.innerWidth - 232), y: Math.min(y, window.innerHeight - 330) });
+  const cell = (chapterId: string, content: ReactNode, className = "") => {
+    const menuCell = className.includes("ba-event-scene-cell");
+    return <div key={chapterId} data-chapter-id={chapterId} className={`ba-cell ${className} ${chapterId === selectedId ? "is-selected" : ""}`} tabIndex={menuCell ? 0 : undefined} onPointerDown={menuCell ? event => { if (event.button === 2) { event.preventDefault(); event.stopPropagation(); openChapterMenu(chapterId, event.clientX, event.clientY); } } : undefined} onContextMenu={menuCell ? event => { event.preventDefault(); event.stopPropagation(); openChapterMenu(chapterId, event.clientX, event.clientY); } : undefined} onKeyDown={menuCell ? event => {
+      if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+      event.preventDefault();
+      const box = event.currentTarget.getBoundingClientRect();
+      openChapterMenu(chapterId, box.left + Math.min(box.width / 2, 80), box.top + Math.min(box.height / 2, 80));
+    } : undefined}>{content}</div>;
+  };
+  useEffect(() => {
+    if (!chapterMenu) return;
+    const close = (event: PointerEvent) => { if (!chapterMenuRef.current?.contains(event.target as Node)) setChapterMenu(null); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setChapterMenu(null); };
+    const dismiss = () => setChapterMenu(null);
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
+    chapterMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); window.removeEventListener("resize", dismiss); window.removeEventListener("scroll", dismiss, true); };
+  }, [chapterMenu]);
+  const runChapterMenuAction = (action: ChapterMenuAction) => {
+    if (!chapterMenu) return;
+    onChapterMenuAction?.(action, chapterMenu.chapterId);
+    setChapterMenu(null);
+  };
 
-  return <section aria-label="章节对齐编排矩阵" className="ba-matrix-section">
+  return <><section aria-label="章节对齐编排矩阵" className="ba-matrix-section">
     <div className="ba-matrix-toolbar">
       <label>人物筛选 <select aria-label="人物筛选" className="ba-input ba-inline" value={personFilter} onChange={event => { setPersonFilter(event.target.value); setAllPresence(false); if (event.target.value) onCharacter?.(event.target.value); }}><option value="">全部人物</option>{workspace.characters.map(person => <option key={person.id} value={person.id}>{person.name}{person.role ? ` · ${person.role}` : ""}</option>)}</select></label>
       <Button size="sm" variant="ghost" onClick={() => setGroups({})}>全部展开</Button>
       <Button size="sm" variant="ghost" onClick={() => setGroups({ volumes: true, events: true, people: true, relationships: true, threads: true, controls: true, reviews: true })}>全部折叠</Button>
-      <Button size="sm" variant="ghost" aria-expanded={manager} onClick={() => setManager(!manager)}><SlidersHorizontal size={14} />管理表达轨道</Button>
     </div>
-    {manager && <fieldset className="ba-track-manager"><legend>显示的表达参数</legend>{arrangementTracks.map(track => <label key={track.key}><input type="checkbox" checked={visibleTracks.includes(track.key)} onChange={event => { setShowDefaultTracks(false); onDraft({ ...draft, pinnedTracks: event.target.checked ? [...visibleTracks, track.key] : visibleTracks.filter(key => key !== track.key) }); }} />{track.label}</label>)}</fieldset>}
     <div className="book-arrangement-scroll" tabIndex={0} aria-label="章节矩阵，可横向滚动">
       <div className="ba-matrix ba-compact-matrix" style={{ "--ba-count": chapters.length } as CSSProperties}>
         <div className="ba-label ba-head">章节</div>
@@ -110,7 +139,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
         {label("threads", "线索与伏笔", `${new Set(packedClues.map(segment => segment.source.id)).size} 项`)}
         <div className="ba-track-content">{!groups.threads && <>{clues.length ? <div className="ba-packed-plot ba-clue-plot" style={plotStyle(clues)}>{guides()}{clues.map(segment => <button type="button" key={segment.segmentId} className={`ba-evidence-block ${segment.source.basis === "plan" ? "is-plan" : "is-record"}`} data-source-id={segment.source.id} style={segmentStyle(segment, segment.source.payoffChapterId ? "#e45b59" : "#18a68a")} title={`${segment.source.title}\n${segment.source.evidenceLabel}\n${segment.source.summary}`} onClick={event => onObject?.({ kind: segment.source.sourceEntity === "TimelineHook" ? "hook" : "foreshadow", id: segment.source.sourceId, chapterId: clickedChapter(event, segment.chapterIds, selectedId) })}><Diamond size={14} fill={segment.source.basis === "plan" ? "none" : "currentColor"} /><span>{segment.source.title}<small>{segment.source.evidenceLabel}</small></span></button>)}</div> : empty("当前范围暂无可定位的线索与伏笔")}{packedClues.length > clues.length && <button type="button" className="ba-presence-more" onClick={() => setAllClues(true)}>另 {packedClues.length - clues.length} 个线索区段 <ChevronDown size={13} /></button>}{allClues && packedClues.some(segment => segment.lane >= 3) && <button type="button" className="ba-presence-more" onClick={() => setAllClues(false)}>收起更多线索</button>}</>}</div>
 
-        {label("controls", "叙事参数", `${visibleTracks.length} 种表达目标`)}
+        {label("controls", "表达轨道", `${visibleTracks.length} 种表达目标`)}
         <div className="ba-track-content ba-controls-content">{!groups.controls && arrangementTracks.filter(track => visibleTracks.includes(track.key)).map(track => {
           const values = chapters.map(chapter => controlValue(chapterEdit(draft, chapter.id).controls, track.key));
           return <div key={track.key} className="ba-control-track"><span className="ba-control-label">{track.label}</span><div className="ba-curve" style={{ "--ba-count": chapters.length } as CSSProperties}>
@@ -119,12 +148,27 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
           </div></div>;
         })}</div>
 
-        {label("reviews", "核对结果")}
-        {groups.reviews ? <div className="ba-track-content" /> : (workspace.checks ?? []).some(check => check.chapterIds.some(id => chapters.some(chapter => chapter.id === id))) ? chapters.map(chapter => { const checks = (workspace.checks ?? []).filter(check => check.chapterIds.includes(chapter.id)); return <div key={chapter.id} className={`ba-cell ba-check-cell ${chapter.id === selectedId ? "is-selected" : ""}`} data-chapter-id={chapter.id}>{checks.slice(0, 2).map(check => {
-          const handledLabel = handledCheckLabels[check.status];
-          return <button key={check.id} type="button" className={`ba-check-result ${handledLabel ? "is-handled" : "is-open"}`} data-status={check.status} title={`${handledLabel ?? "待处理"} · ${check.title}\n${check.evidenceLabel}\n${check.summary}`} onClick={() => onObject?.({ kind: "check", id: check.sourceId, chapterId: chapter.id })}>{handledLabel ? <CheckCircle2 size={14} /> : <TriangleAlert size={14} />}<span>{check.title}<small className="ba-check-status">{handledLabel ?? "待处理"}</small><small>{check.evidenceLabel}</small></span></button>;
-        })}{checks.length > 2 && <button type="button" onClick={() => history(chapter.id)}>另 {checks.length - 2} 项</button>}{!checks.length && <span className="ba-unset">暂无核对</span>}</div>; }) : <div className="ba-track-content">{empty("当前范围暂无核对结果")}</div>}
+        <button type="button" className="ba-label ba-section-label ba-audit-label" aria-expanded={!groups.reviews} onClick={() => toggle("reviews")}>
+          {groups.reviews ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>核对结果<small>4 项质量维度</small>{!groups.reviews && <span className="ba-audit-dimension-list">{auditDimensions.map(dimension => <i key={dimension.key}>{dimension.label}</i>)}</span>}</span>
+        </button>
+        {groups.reviews ? <div className="ba-track-content" /> : <div className="ba-track-content ba-audit-heatmap" style={{ "--ba-count": chapters.length } as CSSProperties}><div className="ba-audit-summary" aria-label="核对结果图例"><span className="is-handled">已处理</span><span className="is-low">轻微</span><span className="is-medium">留意</span><span className="is-high">高风险</span><span className="is-critical">严重</span></div>{auditDimensions.flatMap(dimension => chapters.map(chapter => {
+          const checks = (workspace.checks ?? []).filter(check => check.chapterIds.includes(chapter.id) && auditDimension(check) === dimension.key);
+          const state = auditHeatState(checks);
+          const openCount = checks.filter(check => !handledCheckStatuses.has(check.status.toLocaleLowerCase())).length;
+          const target = checks.find(check => !handledCheckStatuses.has(check.status.toLocaleLowerCase())) ?? checks[0];
+          const detail = checks.length ? `${checks.length} 项；${checks.slice(0, 3).map(check => check.title).join("、")}${checks.length > 3 ? "等" : ""}` : "尚无此类核对结果";
+          return <button key={`${dimension.key}:${chapter.id}`} type="button" className={`ba-audit-cell is-${state} ${chapter.id === selectedId ? "is-selected" : ""}`} data-state={state} disabled={!target} aria-label={`第${chapter.order}章 ${dimension.label}：${auditHeatLabels[state]}，${detail}`} title={`第${chapter.order}章 · ${dimension.label}\n${auditHeatLabels[state]} · ${detail}`} onClick={() => target && onObject?.({ kind: "check", id: target.sourceId, chapterId: chapter.id })}><span>{state === "handled" ? "✓" : openCount || "—"}</span></button>;
+        }))}</div>}
       </div>
     </div>
-  </section>;
+  </section>{chapterMenu && typeof document !== "undefined" && createPortal(<div ref={chapterMenuRef} role="menu" aria-label="章节快捷编辑" className="ba-chapter-context-menu" style={{ left: Math.max(8, chapterMenu.x), top: Math.max(8, chapterMenu.y) }}>
+    <header><small>快捷编辑</small><strong>第 {workspace.chapters.find(chapter => chapter.id === chapterMenu.chapterId)?.order} 章 · {workspace.chapters.find(chapter => chapter.id === chapterMenu.chapterId)?.title}</strong></header>
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("chapter"); }} onClick={() => runChapterMenuAction("chapter")}><FilePenLine size={16} /><span>章节设置<small>目标、人物与章节边界</small></span></button>
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("scenes"); }} onClick={() => runChapterMenuAction("scenes")}><LayoutList size={16} /><span>编排本章场景<small>顺序、篇幅与场景内容</small></span></button>
+    <div className="ba-chapter-context-separator" role="separator" />
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("add-scene"); }} onClick={() => runChapterMenuAction("add-scene")}><Plus size={16} /><span>新增场景</span></button>
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("add-event"); }} onClick={() => runChapterMenuAction("add-event")}><CalendarPlus size={16} /><span>新增事件</span></button>
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("add-relation"); }} onClick={() => runChapterMenuAction("add-relation")}><Network size={16} /><span>新增关系阶段</span></button>
+    <button type="button" role="menuitem" onPointerDown={event => { if (event.button === 0) runChapterMenuAction("add-hook"); }} onClick={() => runChapterMenuAction("add-hook")}><BookmarkPlus size={16} /><span>新增伏笔</span></button>
+  </div>, document.body)}</>;
 }

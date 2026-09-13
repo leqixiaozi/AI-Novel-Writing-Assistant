@@ -43,6 +43,9 @@ interface CharacterRelationshipGraphPanelProps {
   selectedCharacterId: string;
   onSelectedCharacterChange: (id: string) => void;
   isLoading?: boolean;
+  compact?: boolean;
+  renderNodeDetail?: (node: RelationshipGraphNode) => ReactNode;
+  renderEdgeActions?: (edge: RelationshipGraphEdge) => ReactNode;
 }
 
 interface RelationshipNodeData extends Record<string, unknown> {
@@ -82,7 +85,7 @@ const MODE_OPTIONS: Array<{
 ];
 
 export default function CharacterRelationshipGraphPanel(props: CharacterRelationshipGraphPanelProps) {
-  const { model, mode, onModeChange, selectedCharacterId, onSelectedCharacterChange, isLoading = false } = props;
+  const { model, mode, onModeChange, selectedCharacterId, onSelectedCharacterChange, isLoading = false, compact = false, renderNodeDetail, renderEdgeActions } = props;
   const [selection, setSelection] = useState<Selection | null>(null);
   const [interactiveNodes, setInteractiveNodes] = useState<RelationshipFlowNode[]>([]);
   const previousModeRef = useRef<RelationshipGraphMode>(mode);
@@ -208,10 +211,10 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
       })}
       toggleLabel="全屏查看"
       exitLabel="退出全屏"
-      bodyClassName="grid min-h-[560px] gap-0 xl:grid-cols-[minmax(0,1fr)_340px]"
+      bodyClassName={compact ? "ba-relationship-graph-compact grid min-h-[560px] grid-cols-[minmax(0,1fr)_320px] gap-0" : "grid min-h-[560px] gap-0 xl:grid-cols-[minmax(0,1fr)_340px]"}
       fullscreenBodyClassName="h-full min-h-0 grid-cols-[minmax(0,1fr)_360px]"
     >
-      <div className="h-full min-h-[520px] min-w-0 border-b border-border/60 bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.08),transparent_28%),linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.24)_100%)] xl:border-b-0 xl:border-r">
+      <div className={cn("h-full min-h-[520px] min-w-0 border-b border-border/60 bg-[radial-gradient(circle_at_20%_20%,rgba(14,165,233,0.08),transparent_28%),linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted)/0.24)_100%)] xl:border-b-0 xl:border-r", compact && "ba-relationship-graph-canvas border-b-0 border-r")}>
           {isLoading ? (
             <div className="flex h-full min-h-[520px] items-center justify-center text-sm text-muted-foreground">
               正在读取角色关系网...
@@ -263,6 +266,8 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
         selectedNode={selectedNode}
         selectedEdge={selectedEdge}
         selectedCharacterId={selectedCharacterId}
+        renderNodeDetail={renderNodeDetail}
+        renderEdgeActions={renderEdgeActions}
       />
     </FullscreenView>
   );
@@ -385,15 +390,17 @@ function RelationshipDetailPanel(props: {
   selectedNode: RelationshipGraphNode | null;
   selectedEdge: RelationshipGraphEdge | null;
   selectedCharacterId: string;
+  renderNodeDetail?: (node: RelationshipGraphNode) => ReactNode;
+  renderEdgeActions?: (edge: RelationshipGraphEdge) => ReactNode;
 }) {
   const { selectedNode, selectedEdge } = props;
 
   return (
     <aside className="h-full min-h-0 overflow-y-auto bg-background p-4">
       {selectedEdge ? (
-        <EdgeDetail edge={selectedEdge} />
+        <EdgeDetail edge={selectedEdge} actions={props.renderEdgeActions?.(selectedEdge)} />
       ) : selectedNode ? (
-        <NodeDetail node={selectedNode} />
+        props.renderNodeDetail?.(selectedNode) ?? <NodeDetail node={selectedNode} />
       ) : (
         <div className="flex h-full min-h-[320px] items-center justify-center rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
           点击角色或关系线查看详情。
@@ -432,7 +439,7 @@ function NodeDetail(props: { node: RelationshipGraphNode }) {
   );
 }
 
-function EdgeDetail(props: { edge: RelationshipGraphEdge }) {
+function EdgeDetail(props: { edge: RelationshipGraphEdge; actions?: ReactNode }) {
   const { edge } = props;
   const relation = edge.staticRelation;
   const currentStage = edge.dynamicStages.find((stage) => stage.isCurrent) ?? edge.dynamicStages[0] ?? null;
@@ -464,6 +471,7 @@ function EdgeDetail(props: { edge: RelationshipGraphEdge }) {
           最近推进：第 {currentStage.chapterOrder} 章
         </div>
       ) : null}
+      {props.actions}
     </div>
   );
 }

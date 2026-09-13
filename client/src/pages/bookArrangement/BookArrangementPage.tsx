@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BookOpen, ChevronLeft, ChevronRight, MoreHorizontal, Network, Search } from "lucide-react";
-import type { BookArrangementDraftPayload, BookArrangementDraftRecord, BookArrangementPreview, BookArrangementRelation, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
-import type { CharacterRelation } from "@ai-novel/shared/types/novel";
+import { BookOpen, ChevronLeft, ChevronRight, MoreHorizontal, Network, Search, SlidersHorizontal } from "lucide-react";
+import type { BookArrangementDraftPayload, BookArrangementDraftRecord, BookArrangementPreview, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
+import type { Character, CharacterRelation } from "@ai-novel/shared/types/novel";
+import type { CharacterRelationStage } from "@ai-novel/shared/types/characterDynamics";
 import { createBookArrangementApi } from "@/api/bookArrangement";
-import { getCharacterRelations, getNovelList } from "@/api/novel";
+import { getCharacterRelations, getNovelCharacters, getNovelList, updateNovelCharacter } from "@/api/novel";
+import { getCharacterDynamicsOverview } from "@/api/novelCharacterDynamics";
 import { Button } from "@/components/ui/button";
 import { Dialog, AppDialogContent } from "@/components/ui/dialog";
 import type { WritingControlKey } from "@ai-novel/shared/types/writingAdjustments";
@@ -18,11 +20,13 @@ import { ArrangementMatrix } from "./ArrangementMatrix";
 import { ArrangementPlanning, type ArrangementRun } from "./ArrangementPlanning";
 import { ArrangementPreview } from "./ArrangementPreview";
 import { ArrangementChapterNavigator } from "./ArrangementChapterNavigator";
-import { chapterRange, chapterWindow, draftDirty, editableChapterIds } from "./arrangementState";
+import { arrangementTracks, chapterRange, chapterWindow, draftDirty, editableChapterIds } from "./arrangementState";
 import type { BookArrangementVolumeEdit, BookArrangementVolumePreview } from "@ai-novel/shared/types/bookArrangement";
 import { ArrangementVolumeInspector } from "./volume/ArrangementVolumeInspector";
 import { ArrangementVolumePreview } from "./volume/ArrangementVolumePreview";
 import { ChapterSceneEditor } from "./scenes/ChapterSceneEditor";
+import CharacterRelationshipGraphPanel from "@/pages/novels/components/characterWorkspace/CharacterRelationshipGraphPanel";
+import { buildRelationshipGraphModel, type RelationshipGraphMode } from "@/pages/novels/components/characterWorkspace/characterRelationshipGraphModel";
 import "./panels/arrangement.css";
 
 function errorMessage(error: unknown): string {
@@ -34,44 +38,98 @@ function readLocalDraft(novelId: string): LocalDraft | null {
   try { const value = JSON.parse(sessionStorage.getItem(`book-arrangement:${novelId}`) || "null") as LocalDraft | null; return value && typeof value.revision === "number" && typeof value.payload?.baseRevision === "string" && Array.isArray(value.payload.chapterEdits) && Array.isArray(value.payload.characterSpans) && Array.isArray(value.payload.pinnedTracks) ? value : null; } catch { return null; }
 }
 
-function BookRelationshipPanel({ workspace, selectedId, onSelectChapter, onOpenRelation }: { workspace: BookArrangementWorkspace; selectedId: string; onSelectChapter: (chapterId: string) => void; onOpenRelation: (relation: BookArrangementRelation) => void }) {
+type CharacterQuickDraft = { name: string; role: string; storyFunction: string; relationToProtagonist: string; currentGoal: string; currentState: string };
+
+function quickDraft(character: Character): CharacterQuickDraft {
+  return { name: character.name, role: character.role, storyFunction: character.storyFunction ?? "", relationToProtagonist: character.relationToProtagonist ?? "", currentGoal: character.currentGoal ?? "", currentState: character.currentState ?? "" };
+}
+
+function CharacterQuickEditor({ novelId, character, onSaved }: { novelId: string; character: Character; onSaved: (character: Character) => void }) {
+  const [draft, setDraft] = useState(() => quickDraft(character));
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  useEffect(() => { setDraft(quickDraft(character)); setNotice(""); }, [character]);
+  const field = (key: keyof CharacterQuickDraft, label: string, multiline = false) => <label className="ba-character-quick-field"><span>{label}</span>{multiline ? <textarea className="ba-input" rows={3} value={draft[key] ?? ""} onChange={event => setDraft(current => ({ ...current, [key]: event.target.value }))} /> : <input className="ba-input" value={draft[key] ?? ""} onChange={event => setDraft(current => ({ ...current, [key]: event.target.value }))} />}</label>;
+  const save = async () => {
+    if (!draft.name.trim() || !draft.role.trim()) { setNotice("人物名称和角色定位不能为空。"); return; }
+    setSaving(true); setNotice("");
+    try {
+      const response = await updateNovelCharacter(novelId, character.id, draft);
+      if (!response.data) throw new Error(response.message || "人物资料保存失败。");
+      onSaved(response.data); setNotice("人物基础信息已保存。");
+    } catch (error) { setNotice(errorMessage(error)); } finally { setSaving(false); }
+  };
+  return <form className="ba-character-quick-editor" onSubmit={event => { event.preventDefault(); void save(); }}><header><div><h3>{character.name}</h3><p>修改会写回底座人物资料，并用于后续章节规划。</p></div></header>{field("name", "人物名称")}{field("role", "角色定位")}{field("storyFunction", "故事作用", true)}{field("relationToProtagonist", "与主角关系", true)}{field("currentGoal", "当前目标", true)}{field("currentState", "当前状态", true)}{notice && <p role="status" className="ba-help">{notice}</p>}<Button type="submit" disabled={saving}>{saving ? "正在保存…" : "保存人物信息"}</Button></form>;
+}
+
+function BookRelationshipPanel({ workspace, selectedId, onSelectChapter, onOpenRelation, onCharacterSaved }: { workspace: BookArrangementWorkspace; selectedId: string; onSelectChapter: (chapterId: string) => void; onOpenRelation: (relationId: string, chapterId?: string) => void; onCharacterSaved: (character: Character) => void }) {
   const [tab, setTab] = useState<"initial" | "chapter">("initial");
+  const [mode, setMode] = useState<RelationshipGraphMode>("all");
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [initialRelations, setInitialRelations] = useState<CharacterRelation[]>([]);
+  const [chapterRelations, setChapterRelations] = useState<CharacterRelationStage[]>([]);
+  const [selectedCharacterId, setSelectedCharacterId] = useState("");
   const [initialLoading, setInitialLoading] = useState(true);
+  const [chapterLoading, setChapterLoading] = useState(false);
   const [initialError, setInitialError] = useState("");
+  const [chapterError, setChapterError] = useState("");
   const [reload, setReload] = useState(0);
   const currentChapter = workspace.chapters.find(chapter => chapter.id === selectedId);
-  const chapterRelations = (workspace.relations ?? []).filter(relation => relation.chapterId === selectedId || relation.chapterIds.includes(selectedId));
   const relationEditorUrl = `/novels/${workspace.novelId}/edit?stage=character&characterView=relations`;
-  const characterName = (id: string) => workspace.characters.find(character => character.id === id)?.name || "未知角色";
 
   useEffect(() => {
     let active = true;
     setInitialLoading(true); setInitialError("");
-    void getCharacterRelations(workspace.novelId).then(response => {
+    void Promise.all([getNovelCharacters(workspace.novelId), getCharacterRelations(workspace.novelId)]).then(([characterResponse, relationResponse]) => {
       if (!active) return;
-      if (!response.data) throw new Error(response.message || "初始人物关系读取失败。");
-      setInitialRelations(response.data);
+      if (!characterResponse.data) throw new Error(characterResponse.message || "人物资料读取失败。");
+      if (!relationResponse.data) throw new Error(relationResponse.message || "初始人物关系读取失败。");
+      setCharacters(characterResponse.data); setInitialRelations(relationResponse.data);
+      setSelectedCharacterId(current => current && characterResponse.data!.some(character => character.id === current) ? current : characterResponse.data![0]?.id ?? "");
     }).catch(error => { if (active) setInitialError(errorMessage(error)); }).finally(() => { if (active) setInitialLoading(false); });
     return () => { active = false; };
   }, [workspace.novelId, reload]);
+
+  useEffect(() => {
+    if (tab !== "chapter" || !currentChapter) return;
+    let active = true;
+    setChapterLoading(true); setChapterError("");
+    void getCharacterDynamicsOverview(workspace.novelId, currentChapter.order).then(response => {
+      if (!active) return;
+      if (!response.data) throw new Error(response.message || "章节人物关系读取失败。");
+      const records = [...response.data.relations, ...(response.data.plannedRelations ?? [])];
+      setChapterRelations([...new Map(records.map(relation => [relation.id, relation])).values()]);
+    }).catch(error => { if (active) setChapterError(errorMessage(error)); }).finally(() => { if (active) setChapterLoading(false); });
+    return () => { active = false; };
+  }, [currentChapter, reload, tab, workspace.novelId]);
+
+  useEffect(() => { setMode("all"); }, [tab]);
+
+  const graphModel = useMemo(() => buildRelationshipGraphModel({ characters, staticRelations: tab === "initial" ? initialRelations : [], dynamicRelations: tab === "chapter" ? chapterRelations : [], selectedCharacterId, mode }), [chapterRelations, characters, initialRelations, mode, selectedCharacterId, tab]);
+  const saveCharacter = (updated: Character) => { setCharacters(current => current.map(character => character.id === updated.id ? updated : character)); onCharacterSaved(updated); };
 
   return <section className="ba-book-catalog ba-relation-panel">
     <div className="ba-inspector-tabs" role="tablist" aria-label="人物关系范围">
       <button type="button" role="tab" aria-selected={tab === "initial"} onClick={() => setTab("initial")}>初始关系</button>
       <button type="button" role="tab" aria-selected={tab === "chapter"} onClick={() => setTab("chapter")}>当前章节</button>
     </div>
-    {tab === "initial" ? <>
-      <header><div><h3>全书初始人物关系</h3><p>用于开书时确定人物之间的基础关系、隐藏张力和冲突来源。</p></div><Link target="_blank" rel="noreferrer" to={relationEditorUrl}>配置初始关系</Link></header>
-      {initialLoading && <p role="status" className="ba-empty-state">正在读取初始人物关系…</p>}
-      {initialError && <div role="alert" className="ba-relation-load-error"><span>{initialError}</span><Button size="sm" variant="outline" onClick={() => setReload(value => value + 1)}>重新读取</Button></div>}
-      {!initialLoading && !initialError && initialRelations.map(relation => <article className="ba-relation-catalog-item" key={relation.id}><span><strong>{characterName(relation.sourceCharacterId)} → {characterName(relation.targetCharacterId)}</strong><small>初始设定</small></span><b>{relation.surfaceRelation}</b><em>{relation.hiddenTension || relation.conflictSource || relation.secretAsymmetry || "尚未补充隐藏张力与冲突来源。"}</em><Link target="_blank" rel="noreferrer" to={relationEditorUrl}>查看与配置</Link></article>)}
-      {!initialLoading && !initialError && !initialRelations.length && <p className="ba-empty-state">本书尚未配置初始人物关系。可进入角色关系页建立。</p>}
-    </> : <>
-      <header><div><h3>{currentChapter ? `第 ${currentChapter.order} 章 · ${currentChapter.title}` : "当前章节"}</h3><p>这里只显示所选章节已经记录或计划发生的人物关系变化。</p></div><select className="ba-input ba-inline" aria-label="选择要查看人物关系的章节" value={selectedId} onChange={event => onSelectChapter(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select></header>
-      {chapterRelations.map(relation => <button type="button" className="ba-relation-catalog-item" key={relation.id} onClick={() => onOpenRelation(relation)}><span><strong>{characterName(relation.sourceCharacterId)} → {characterName(relation.targetCharacterId)}</strong><small>{relation.basis === "plan" ? "计划" : relation.basis === "record" ? "记录" : relation.basis === "setting" ? "设定" : "待核对"}</small></span><b>{relation.title}</b><em>{relation.summary || relation.evidenceLabel}</em></button>)}
-      {!chapterRelations.length && <p className="ba-empty-state">这一章还没有人物关系变化记录。可以从矩阵“关系阶段”轨道新增或调整。</p>}
-    </>}
+    <header><div><h3>{tab === "initial" ? "全书初始人物关系" : currentChapter ? `第 ${currentChapter.order} 章 · ${currentChapter.title}` : "当前章节"}</h3><p>{tab === "initial" ? "点击人物直接修改基础信息；点击连线查看初始关系。" : "查看所选章节的人物关系快照与计划变化。"}</p></div>{tab === "initial" ? <Link target="_blank" rel="noreferrer" to={relationEditorUrl}>完整关系配置</Link> : <select className="ba-input ba-inline" aria-label="选择要查看人物关系的章节" value={selectedId} onChange={event => onSelectChapter(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select>}</header>
+    {(initialError || chapterError) && <div role="alert" className="ba-relation-load-error"><span>{initialError || chapterError}</span><Button size="sm" variant="outline" onClick={() => setReload(value => value + 1)}>重新读取</Button></div>}
+    <CharacterRelationshipGraphPanel model={graphModel} mode={mode} onModeChange={setMode} selectedCharacterId={selectedCharacterId} onSelectedCharacterChange={setSelectedCharacterId} isLoading={initialLoading || (tab === "chapter" && chapterLoading)} compact renderNodeDetail={tab === "initial" ? node => <CharacterQuickEditor novelId={workspace.novelId} character={node.character} onSaved={saveCharacter} /> : undefined} renderEdgeActions={edge => tab === "initial" ? <Link target="_blank" rel="noreferrer" to={relationEditorUrl}>配置这组初始关系</Link> : (() => { const stage = edge.dynamicStages.find(relation => relation.chapterId === selectedId) ?? edge.dynamicStages.find(relation => relation.isCurrent) ?? edge.dynamicStages[0]; return stage ? <Button size="sm" variant="outline" onClick={() => onOpenRelation(stage.id, stage.chapterId ?? selectedId)}>调整这个关系阶段</Button> : null; })()} />
+  </section>;
+}
+
+function ExpressionTrackPanel({ draft, savedRevision, chapterLabel, onDraft, onConfigure }: { draft: BookArrangementDraftPayload; savedRevision: number; chapterLabel: string; onDraft: (draft: BookArrangementDraftPayload) => void; onConfigure: (key: WritingControlKey) => void }) {
+  const visible = (draft.pinnedTracks.length || savedRevision > 0 ? draft.pinnedTracks : ["pace", "tension"]) as WritingControlKey[];
+  const setVisible = (keys: WritingControlKey[]) => onDraft({ ...draft, pinnedTracks: [...new Set(keys)] });
+  return <section className="ba-expression-track-panel">
+    <header><div><h3>全书表达轨道</h3><p>选择要在章节矩阵中持续观察的表达参数，再进入当前章设置具体数值。</p></div><span>{visible.length} / {arrangementTracks.length} 条已显示</span></header>
+    <div className="ba-expression-track-actions"><Button size="sm" variant="outline" onClick={() => setVisible(arrangementTracks.map(track => track.key))}>全部添加</Button><Button size="sm" variant="ghost" onClick={() => setVisible(["pace", "tension"])}>恢复基础轨道</Button></div>
+    <div className="ba-expression-track-list">{arrangementTracks.map(track => { const checked = visible.includes(track.key); return <article key={track.key} style={{ "--ba-track-color": track.color } as CSSProperties}>
+      <label><input type="checkbox" checked={checked} disabled={checked && visible.length === 1} onChange={event => setVisible(event.target.checked ? [...visible, track.key] : visible.filter(key => key !== track.key))} /><i aria-hidden="true" /><span><strong>{track.label}</strong><small>{checked ? "已加入全书矩阵" : "尚未显示"}</small></span></label>
+      <Button size="sm" variant="outline" onClick={() => onConfigure(track.key)}>配置{chapterLabel}</Button>
+    </article>; })}</div>
+    <p className="ba-panel-note">轨道只决定全书矩阵显示哪些标准参数；具体参数仍按章节保存，并绑定底座现有写作提示词。为保证矩阵始终可读，至少保留一条轨道。</p>
   </section>;
 }
 
@@ -147,12 +205,12 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const [characterId, setCharacterId] = useState("");
   const [historySelection, setHistorySelection] = useState(0);
   const [spanSelection, setSpanSelection] = useState(0);
-  const [panel, setPanel] = useState<"book" | "relations" | "chapter" | "volume" | "controls" | "planning" | "requirements" | "volume-preview" | "object" | null>(null);
+  const [panel, setPanel] = useState<"book" | "relations" | "tracks" | "chapter" | "volume" | "controls" | "planning" | "requirements" | "volume-preview" | "object" | null>(null);
   const [controlKey, setControlKey] = useState<WritingControlKey>();
   const [selectedObject, setSelectedObject] = useState<ArrangementObjectSelection | null>(null);
   const [objectDirty, setObjectDirty] = useState(false);
   const [sceneDirtyIds, setSceneDirtyIds] = useState<Set<string>>(() => new Set());
-  const [sceneEditor, setSceneEditor] = useState<{ chapterId: string; sceneId?: string } | null>(null);
+  const [sceneEditor, setSceneEditor] = useState<{ chapterId: string; sceneId?: string; createNew?: boolean } | null>(null);
   const selectSpan = (id: string, clickedChapterId?: string) => {
     setSpanId(id);
     setHistorySelection(0);
@@ -278,7 +336,7 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const previewDisabled = Boolean(busy) || dirty || saved.revision === 0 || !allowed.length;
   if (!workspace.chapters.length) return <p className="bg-muted/20 p-6 text-sm">这部作品还没有章节。请先在作品的大纲与章节页面准备章节。</p>;
   return <div className="ba-editor">
-    {sceneEditor ? <><ChapterSceneEditor workspace={workspace} chapterId={sceneEditor.chapterId} initialSceneId={sceneEditor.sceneId} busy={Boolean(busy)} run={run} reload={reload} onBack={() => { setSceneEditor(null); setObjectDirty(false); }} onDirty={setChapterSceneDirty} onObject={object => { setSelectedObject(object); setPanel("object"); }} />{error && <p role="alert" className="mx-5 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}{busy && <p role="status" className="mx-5 text-sm text-muted-foreground">{busy}…</p>}</> : <>
+    {sceneEditor ? <><ChapterSceneEditor workspace={workspace} chapterId={sceneEditor.chapterId} initialSceneId={sceneEditor.sceneId} createNew={sceneEditor.createNew} busy={Boolean(busy)} run={run} reload={reload} onBack={() => { setSceneEditor(null); setObjectDirty(false); }} onDirty={setChapterSceneDirty} onObject={object => { setSelectedObject(object); setPanel("object"); }} />{error && <p role="alert" className="mx-5 rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}{busy && <p role="status" className="mx-5 text-sm text-muted-foreground">{busy}…</p>}</> : <>
     <header className="ba-toolbar">{novelPicker}<label className="ba-character-search"><Search size={16} aria-hidden="true" /><input aria-label="搜索人物，定位出场" placeholder="搜索人物，定位出场" value={characterSearch} onChange={event => setCharacterSearch(event.target.value)} onKeyDown={event => {
       if (event.key !== "Enter" || !characterSearch.trim()) return;
       const person = workspace.characters.find(item => item.name.includes(characterSearch.trim()));
@@ -287,7 +345,7 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       const span = draft.characterSpans.find(item => item.characterId === person.id);
       if (span) { selectChapter(span.chapterIds[0]); selectSpan(span.id); }
       else { const record = workspace.events.find(item => item.participantIds.includes(person.id) && item.chapterId); if (record?.chapterId) selectChapter(record.chapterId); setSpanId(""); setHistorySelection(value => value + 1); }
-    }} /></label><div className="ba-scope-switcher" aria-label="整书编排入口"><Button size="sm" variant="ghost" onClick={() => setPanel("book")}><BookOpen size={15} />整书资料</Button><Button size="sm" variant="ghost" onClick={() => setPanel("relations")}><Network size={15} />人物关系</Button></div>
+    }} /></label><div className="ba-scope-switcher" aria-label="整书编排入口"><Button size="sm" variant="ghost" onClick={() => setPanel("book")}><BookOpen size={15} />整书资料</Button><Button size="sm" variant="ghost" onClick={() => setPanel("relations")}><Network size={15} />人物关系</Button><Button size="sm" variant="ghost" onClick={() => setPanel("tracks")}><SlidersHorizontal size={15} />表达轨道</Button></div>
       <Button size="sm" variant="secondary" disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存草稿</Button><details className="ba-action-menu"><summary aria-label="更多编排操作"><MoreHorizontal size={17} />更多</summary><div onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.parentElement?.removeAttribute("open"); }}><strong>整书与范围</strong><button type="button" onClick={() => setPanel("planning")}>AI 重编排</button><button type="button" onClick={() => setPanel("requirements")}>后续写作要求</button><button type="button" onClick={() => setPanel("volume-preview")}>卷段调整预览</button><strong>新增到当前章</strong>{(["event", "scene", "relation", "hook"] as const).map(kind => <button type="button" key={kind} onClick={() => { setSelectedObject({ kind, id: "new", chapterId: selectedId }); setPanel("object"); }}>{({ event: "事件", scene: "场景", relation: "关系阶段", hook: "伏笔" })[kind]}</button>)}<strong>资料</strong><button type="button" disabled={Boolean(busy)} onClick={() => void run("刷新资料", {}, async () => { await reload(); return true; })}>刷新资料</button></div></details></header>
     {localDraft && <div className="space-y-2 bg-amber-500/10 p-3 text-sm" role="status"><p>找到本作品尚未保存的本地编辑。可以恢复后检查，也可以继续服务端草稿。</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; updateDraft(localDraft.payload); setSaved(current => ({ ...current, revision: localDraft.revision })); setLocalDraft(null); setNotice("本地编辑已恢复，请核对后保存；其他窗口已修改时会提示版本冲突。"); }}>恢复未保存编辑</Button><Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } }}>使用服务端草稿</Button></div></div>}
     {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
@@ -302,13 +360,20 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       <details className="ba-scope-picker"><summary>调整范围 · 已选 {scope.length} 章</summary><div className="ba-scope-controls"><label className="flex items-center gap-1"><input type="checkbox" aria-label="勾选当前窗口" checked={window.chapters.every(chapter => scope.includes(chapter.id))} onChange={event => { setScope(event.target.checked ? [...new Set([...scope, ...window.chapters.map(chapter => chapter.id)])] : scope.filter(id => !window.chapters.some(chapter => chapter.id === id))); setPreview(null); }} />当前窗口</label>
         <select aria-label="范围起始章节" className="ba-input ba-inline" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>第 {chapter.order} 章</option>)}</select><span>至</span><select aria-label="范围结束章节" className="ba-input ba-inline" value={rangeTo} onChange={event => setRangeTo(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>第 {chapter.order} 章</option>)}</select><Button size="sm" variant="ghost" onClick={() => { setScope(chapterRange(workspace.chapters, rangeFrom, rangeTo)); setPreview(null); }}>勾选区间</Button><Button size="sm" variant="ghost" onClick={() => { setScope([]); setPreview(null); }}>清空范围</Button>
       </div></details>
-      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} scope={scope} onSelect={openChapter} onScope={ids => { setScope(ids); setPreview(null); }} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); setPanel("chapter"); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); setPanel("volume"); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} onControl={(id, key) => { selectChapter(id); setControlKey(key); setPanel("controls"); }} onObject={object => { if (object.kind === "scene" && object.chapterId) { selectChapter(object.chapterId); setSceneEditor({ chapterId: object.chapterId, sceneId: object.id === "new" ? undefined : object.id }); return; } if (object.chapterId) selectChapter(object.chapterId); setSelectedObject(object); setPanel("object"); }} /></div></div>
+      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} scope={scope} onSelect={openChapter} onScope={ids => { setScope(ids); setPreview(null); }} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); setPanel("chapter"); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); setPanel("volume"); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} onControl={(id, key) => { selectChapter(id); setControlKey(key); setPanel("controls"); }} onChapterMenuAction={(action, chapterId) => {
+        selectChapter(chapterId);
+        if (action === "chapter") { openChapter(chapterId); return; }
+        if (action === "scenes" || action === "add-scene") { setPanel(null); setSceneEditor({ chapterId, createNew: action === "add-scene" }); return; }
+        const kind = action === "add-event" ? "event" : action === "add-relation" ? "relation" : "hook";
+        setSelectedObject({ kind, id: "new", chapterId }); setPanel("object");
+      }} onObject={object => { if (object.kind === "scene" && object.chapterId) { selectChapter(object.chapterId); setSceneEditor({ chapterId: object.chapterId, sceneId: object.id === "new" ? undefined : object.id, createNew: object.id === "new" }); return; } if (object.chapterId) selectChapter(object.chapterId); setSelectedObject(object); setPanel("object"); }} /></div></div>
     </fieldset></>}
-    <Dialog open={panel !== null} onOpenChange={open => { if (!open) closePanel(); }}><AppDialogContent title={panel === "book" ? "整书资料与范围" : panel === "relations" ? "人物关系" : panel === "volume" ? "卷段编排" : panel === "volume-preview" ? "卷段调整预览" : panel === "planning" ? "AI 重编排大纲" : panel === "requirements" ? "后续写作要求" : panel === "controls" ? "表达参数" : panel === "object" ? "故事资料与调整" : "章节与人物编排"} description="查看资料、调整草稿，再预览和应用。关闭面板保留编排草稿。" className="ba-side-dialog" bodyClassName="ba-side-body" onInteractOutside={event => { if (busy) event.preventDefault(); }} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} footer={<><span className="text-xs text-muted-foreground mr-auto">{panel === "object" ? objectDirty ? "此项编辑已暂存本地，尚未应用" : "对象调整在本面板预览与应用" : dirty ? "有未保存的编排" : saved.revision ? "编排草稿已保存" : "尚未保存编排"}</span><Button variant="outline" disabled={Boolean(busy)} onClick={closePanel}>关闭</Button>{panel !== "object" && panel !== "book" && panel !== "relations" && <Button disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存编排草稿</Button>}</>}>
+    <Dialog open={panel !== null} onOpenChange={open => { if (!open) closePanel(); }}><AppDialogContent title={panel === "book" ? "整书资料与范围" : panel === "relations" ? "人物关系" : panel === "tracks" ? "表达轨道" : panel === "volume" ? "卷段编排" : panel === "volume-preview" ? "卷段调整预览" : panel === "planning" ? "AI 重编排大纲" : panel === "requirements" ? "后续写作要求" : panel === "controls" ? "表达参数" : panel === "object" ? "故事资料与调整" : "章节与人物编排"} description="查看资料、调整草稿，再预览和应用。关闭面板保留编排草稿。" className="ba-side-dialog" bodyClassName="ba-side-body" onInteractOutside={event => { if (busy) event.preventDefault(); }} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} footer={<><span className="text-xs text-muted-foreground mr-auto">{panel === "object" ? objectDirty ? "此项编辑已暂存本地，尚未应用" : "对象调整在本面板预览与应用" : dirty ? "有未保存的编排" : saved.revision ? "编排草稿已保存" : "尚未保存编排"}</span>{panel !== "object" && <Button variant="outline" disabled={Boolean(busy)} onClick={closePanel}>关闭</Button>}{panel !== "object" && panel !== "book" && panel !== "relations" && <Button disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存编排草稿</Button>}</>}>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}{(busy || notice) && <p role="status" className="text-sm text-muted-foreground">{busy || notice}</p>}
       <fieldset disabled={Boolean(busy)} className="min-w-0 space-y-4">
       {panel === "book" && <section className="ba-book-scope-panel"><div className="ba-book-facts"><span>题材<strong>{workspace.genre?.name || "未设置"}</strong></span><span>章节<strong>{workspace.chapters.length} 章</strong></span><span>卷段<strong>{workspace.volumes.length} 卷</strong></span><span>人物<strong>{workspace.characters.length} 人</strong></span></div><div className="ba-scope-level"><h3>整书必须明确</h3><p>题材定位、故事主线、世界规则、核心人物和全书终局。它们会影响所有卷和章节。</p><div><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=story_macro`}>编辑故事主线</Link><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=world`}>编辑世界观与规则</Link><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=character`}>编辑核心人物</Link></div></div><div className="ba-scope-level"><h3>卷段需要明确</h3><p>本卷承诺、主角变化、高潮和通往下一卷的衔接。请在矩阵的卷段轨道点击对应卷段修改。</p></div><div className="ba-scope-level"><h3>章节需要明确</h3><p>章节目标、事件、场景、人物参与和表达参数。点击章节名称或矩阵中的具体对象修改。</p></div><p className="ba-panel-note">世界观继续由底座原“世界观准备”维护，避免产生两份互相冲突的世界设定。链接会在新窗口打开，当前编排位置和草稿保留。</p></section>}
-      {panel === "relations" && <BookRelationshipPanel workspace={workspace} selectedId={selectedId} onSelectChapter={selectChapter} onOpenRelation={relation => { setSelectedObject({ kind: "relation", id: relation.sourceId, chapterId: relation.chapterId ?? undefined }); setPanel("object"); }} />}
+      {panel === "relations" && <BookRelationshipPanel workspace={workspace} selectedId={selectedId} onSelectChapter={selectChapter} onOpenRelation={(relationId, chapterId) => { setSelectedObject({ kind: "relation", id: relationId, chapterId }); setPanel("object"); }} onCharacterSaved={character => setWorkspace(current => ({ ...current, characters: current.characters.map(item => item.id === character.id ? { ...item, name: character.name, role: character.role } : item) }))} />}
+      {panel === "tracks" && <ExpressionTrackPanel draft={draft} savedRevision={saved.revision} chapterLabel={`第 ${workspace.chapters.find(chapter => chapter.id === selectedId)?.order ?? "—"} 章`} onDraft={updateDraft} onConfigure={key => { setControlKey(key); setPanel("controls"); }} />}
       {(panel === "planning" || panel === "controls" || panel === "requirements") && <section className="space-y-2"><p className="text-sm">调整范围 · 已选 {scope.length} 章，未锁定 {allowed.length} 章</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { setScope([selectedId]); setPreview(null); }}>仅当前章</Button><Button size="sm" variant="outline" onClick={() => { setScope(window.chapters.map(chapter => chapter.id)); setPreview(null); }}>当前窗口</Button><Button size="sm" variant="ghost" onClick={() => { setScope([]); setPreview(null); }}>清空</Button></div><details><summary className="text-sm cursor-pointer">选择章节区间</summary><div className="flex flex-wrap items-center gap-2 py-2"><select className="ba-input ba-inline" aria-label="面板范围起始章节" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><span>至</span><select className="ba-input ba-inline" aria-label="面板范围结束章节" value={rangeTo} onChange={event => setRangeTo(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><Button size="sm" variant="outline" onClick={() => { setScope(chapterRange(workspace.chapters, rangeFrom, rangeTo)); setPreview(null); }}>使用这个区间</Button></div></details></section>}
       {panel === "chapter" && <ArrangementInspector workspace={workspace} draft={draft} selectedId={selectedId} scope={scope} spanId={spanId} spanSelection={spanSelection} onSpan={selectSpan} onDraft={updateDraft} busy={Boolean(busy)} characterId={characterId} historySelection={historySelection} onSelectChapter={selectChapter} onAddAppearance={addAppearance} onScope={ids => { setScope(ids); setPreview(null); }} onPreview={() => void previewRequirements()} previewDisabled={previewDisabled} dirty={dirty} onObject={object => { if (object.kind === "scene" && object.chapterId) { setPanel(null); setSceneEditor({ chapterId: object.chapterId, sceneId: object.id }); return; } setSelectedObject(object); setPanel("object"); }} />}
       {panel === "controls" && <ArrangementControlsPanel key={`${selectedId}:${controlKey ?? "all"}`} workspace={workspace} draft={draft} chapterId={selectedId} controlKey={controlKey} scope={scope} onDraft={updateDraft} />}

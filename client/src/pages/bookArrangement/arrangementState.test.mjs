@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildArrangementPlanInput, chapterOverviewSegments, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, resizeChapterWindow, updateChapterEdit } from "./arrangementState.ts";
+import { auditDimension, auditHeatState, buildArrangementPlanInput, chapterOverviewSegments, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, resizeChapterWindow, updateChapterEdit } from "./arrangementState.ts";
 
 const chapters = Array.from({ length: 23 }, (_, index) => ({ id: `id-${index}`, order: index * 3 + 2, title: `章${index}` }));
 const emptyDraft = () => ({ baseRevision: "base1", chapterEdits: [], characterSpans: [], pinnedTracks: [] });
@@ -103,4 +103,20 @@ test("AI planning receives saved zero controls and stable character rules with n
   assert.doesNotMatch(result.instruction, /过期旧要求/u);
   assert.ok(result.preserve.includes("保留结盟"));
   assert.match(result.preserve.at(-1), /锁定章节/u);
+});
+
+test("audit checks map to stable reader-facing dimensions before rendering", () => {
+  assert.equal(auditDimension({ title: "ending_hook_soft", category: "mode_fit" }), "pace");
+  assert.equal(auditDimension({ title: "mode_exposition_voice", category: "mode_fit" }), "ai");
+  assert.equal(auditDimension({ title: "logic_chain_density", category: "mode_fit" }), "logic");
+  assert.equal(auditDimension({ title: "角色目标漂移", category: "character_goal_shift" }), "character");
+  assert.equal(auditDimension({ title: "未知检查", category: "unknown" }), "logic");
+});
+
+test("audit heat state keeps handled results distinct and uses the highest open severity", () => {
+  assert.equal(auditHeatState([]), "empty");
+  assert.equal(auditHeatState([{ status: "resolved", severity: "critical" }, { status: "ignored", severity: "high" }]), "handled");
+  assert.equal(auditHeatState([{ status: "resolved", severity: "critical" }, { status: "open", severity: "medium" }]), "medium");
+  assert.equal(auditHeatState([{ status: "open", severity: "low" }, { status: "open", severity: "critical" }]), "critical");
+  assert.equal(auditHeatState([{ status: "open", severity: "unexpected" }]), "medium");
 });

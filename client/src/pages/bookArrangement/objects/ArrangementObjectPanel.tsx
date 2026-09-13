@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { BookArrangementObjectDetail, BookArrangementObjectKind, BookArrangementObjectPreview, BookArrangementObjectPreviewRequest, BookArrangementObjectValue, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { createBookArrangementApi } from "@/api/bookArrangement";
 import { Button } from "@/components/ui/button";
@@ -118,7 +118,7 @@ function ObjectPanelWorkspace({ workspace, selectedObject, busy, run, reload, on
   const issue = selectedObject.kind === "check" ? workspace.checks?.find(item => item.id === selectedObject.id || item.sourceId === selectedObject.id) : undefined;
   const history = (workspace.objectPreviews ?? []).filter(candidate => candidate.kind === selectedObject.kind && (create ? candidate.action === "create" && (!selectedObject.chapterId || candidate.affectedChapterIds.includes(selectedObject.chapterId)) : candidate.objectId === detail?.id));
   return <section className="min-w-0 space-y-4 text-foreground" aria-label={`${objectKindLabels[selectedObject.kind]}详情`} aria-busy={working}>
-    <header className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words text-lg">{issue?.title ?? detail?.title ?? `${create ? "新增" : ""}${objectKindLabels[selectedObject.kind]}`}</h2>{detail && <p className="mt-1 text-xs text-muted-foreground">{detail.evidenceLabel}{detail.editable ? " · 预览后应用" : " · 只读资料"}</p>}</div>{onClose && <Button size="sm" variant="ghost" aria-label="关闭对象详情" disabled={working} onClick={onClose}><X size={16} aria-hidden="true" /></Button>}</header>
+    <header className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words text-lg">{issue?.title ?? detail?.title ?? `${create ? "新增" : ""}${objectKindLabels[selectedObject.kind]}`}</h2>{detail && <p className="mt-1 text-xs text-muted-foreground">{detail.evidenceLabel}{detail.editable ? " · 预览后应用" : " · 只读资料"}</p>}</div></header>
     {operation && <p role="status" className="text-sm text-muted-foreground">{operation}…</p>}
     {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}

@@ -9,7 +9,7 @@ import { moveScene, resizeSceneBoundary, sceneBudgetPercent } from "./sceneEdito
 import "./chapterSceneEditor.css";
 
 type EditableScene = BookArrangementScene & { locked?: boolean };
-type Props = { workspace: BookArrangementWorkspace; chapterId: string; initialSceneId?: string; busy: boolean; run: ArrangementRun; reload: () => Promise<void>; onBack: () => void; onDirty: (chapterId: string, dirty: boolean) => void; onObject: (selection: ArrangementObjectSelection) => void };
+type Props = { workspace: BookArrangementWorkspace; chapterId: string; initialSceneId?: string; createNew?: boolean; busy: boolean; run: ArrangementRun; reload: () => Promise<void>; onBack: () => void; onDirty: (chapterId: string, dirty: boolean) => void; onObject: (selection: ArrangementObjectSelection) => void };
 const colors = ["blue", "violet", "mint", "peach", "rose", "cyan", "amber", "indigo"];
 const joinLines = (items: string[]) => items.join("\n");
 const splitLines = (value: string) => value.split(/\r?\n|[,，;；、]/).map(item => item.trim()).filter(Boolean);
@@ -39,7 +39,7 @@ const sceneChangeSummary = (preview: BookArrangementScenePreview) => {
   return rows;
 };
 
-export function ChapterSceneEditor({ workspace, chapterId, initialSceneId, busy, run, reload, onBack, onDirty, onObject }: Props) {
+export function ChapterSceneEditor({ workspace, chapterId, initialSceneId, createNew = false, busy, run, reload, onBack, onDirty, onObject }: Props) {
   const chapter = workspace.chapters.find(item => item.id === chapterId)!;
   const source = useMemo(() => workspace.scenes.filter(scene => scene.chapterId === chapterId).sort((a, b) => a.sortOrder - b.sortOrder), [workspace.scenes, chapterId]);
   const initial = useMemo(() => source.length ? source : starterScenes(chapterId, chapter.targetWordCount ?? 3000), [source, chapterId, chapter.targetWordCount]);
@@ -55,6 +55,7 @@ export function ChapterSceneEditor({ workspace, chapterId, initialSceneId, busy,
   const [localError, setLocalError] = useState("");
   const [draggingId, setDraggingId] = useState("");
   const boundary = useRef<{ index: number; x: number; width: number; base: EditableScene[] } | null>(null);
+  const createNewHandled = useRef(false);
   const dirty = source.length === 0 || JSON.stringify(clean(scenes)) !== JSON.stringify(source);
   const totalWords = scenes.reduce((sum, scene) => sum + scene.targetWordCount, 0);
   const selected = scenes.find(scene => scene.id === selectedId) ?? scenes[0];
@@ -79,6 +80,11 @@ export function ChapterSceneEditor({ workspace, chapterId, initialSceneId, busy,
     next.splice(at, 0, { id, revision: "new", chapterId, sortOrder: at + 1, title: "新场景", objective: "", conflict: "", reveal: "", emotionBeat: "", targetWordCount: words, mustAdvance: [], mustPreserve: [], entryState: "进入新场景", exitState: "完成场景任务", forbiddenExpansion: [], resistance: "", turn: "", emotionalShift: "", readerValue: "" });
     change(next.map((scene, index) => ({ ...scene, sortOrder: index + 1 }))); setSelectedId(id);
   };
+  useEffect(() => {
+    if (!createNew || createNewHandled.current) return;
+    createNewHandled.current = true;
+    add();
+  }, [createNew]);
   const remove = (sceneId: string) => {
     const target = scenes.find(scene => scene.id === sceneId);
     if (!target || target.locked || scenes.length <= 3) return setLocalError(target?.locked ? "请先解除此场景的占比锁定。" : "底座要求每章保留 3 至 8 个场景。");
