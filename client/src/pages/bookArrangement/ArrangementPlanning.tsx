@@ -23,7 +23,7 @@ export function ArrangementPlanning({ workspace, draft, scope, busy, dirty, run,
   const identity = JSON.stringify([draft, scope, instruction, preserve]);
   useEffect(() => { setPreview(null); setSelected([]); setApplied(false); }, [identity]);
   const stale = preview?.changes.some(change => preview.baseRevisions[change.chapterId] !== workspace.chapters.find(chapter => chapter.id === change.chapterId)?.revision) ?? false;
-  return <section className="space-y-3 pt-3">
+  return <section className="ba-planning-content space-y-3 pt-3">
     <p className="text-sm text-muted-foreground">让 AI 参考已保存的章节备注、人物区段和表达参数，重编排勾选且未锁定章节的大纲。采纳会修改这些章节的规划，历史正文保持原样。</p>
     <label className="block space-y-1 text-sm"><span>补充大纲调整目标（可选）</span><textarea aria-label="大纲调整目标" rows={3} className="ba-input" value={instruction} onChange={event => setInstruction(event.target.value)} placeholder="留空即按保存的配置调整。也可补充：加强对立，保留结盟。" /></label>
     <label className="block space-y-1 text-sm"><span>需要保留的安排（每行一项）</span><textarea aria-label="大纲保留要求" rows={2} className="ba-input" value={preserve} onChange={event => setPreserve(event.target.value)} /></label>
@@ -37,7 +37,7 @@ export function ArrangementPlanning({ workspace, draft, scope, busy, dirty, run,
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => void (async () => { const result = await run("读取大纲候选", {}, () => api.workspace()); if (result) setHistory((result.planningVersions ?? []).map(recoverPlanPreview).filter((item): item is WritingPlanPreview => item !== null)); })()}>查找已保存的大纲候选</Button>
     </div>
     {history.length > 0 && <select aria-label="恢复大纲候选" className="ba-input" value="" onChange={event => { const item = history.find(entry => entry.id === event.target.value); if (item) { setPreview(item); setSelected(item.changes.map(change => change.chapterId).filter(id => allowed.includes(id))); setApplied(false); } }}><option value="">选择要恢复的大纲候选</option>{history.map(item => <option key={item.id} value={item.id}>{item.changes.map(change => workspace.chapters.find(chapter => chapter.id === change.chapterId)?.title ?? change.chapterId).join("、")}</option>)}</select>}
-    {preview && <div className="space-y-3 bg-muted/25 p-3">
+    {preview && <div className="ba-plan-candidate space-y-3">
       {stale && <p className="text-sm text-amber-700">相关章节已变化，请重新预览。</p>}
       {preview.changes.map(change => <div key={change.chapterId} className="space-y-2"><label className="flex gap-2 text-sm"><input type="checkbox" aria-label={`采纳大纲${change.chapterId}`} disabled={busy || applied || !allowed.includes(change.chapterId)} checked={selected.includes(change.chapterId)} onChange={event => setSelected(event.target.checked ? [...selected, change.chapterId] : selected.filter(id => id !== change.chapterId))} />{workspace.chapters.find(chapter => chapter.id === change.chapterId)?.title ?? change.chapterId}{!allowed.includes(change.chapterId) ? "（不在未锁定调整范围内）" : ""}</label><div className="grid gap-3 md:grid-cols-2"><div><p className="text-xs text-muted-foreground">原大纲</p><p className="whitespace-pre-wrap text-sm">{change.before}</p></div><div><p className="text-xs text-muted-foreground">候选大纲</p><p className="whitespace-pre-wrap text-sm">{change.after}</p></div></div></div>)}
       {preview.impact.map((item, index) => <p key={index} className="text-xs text-muted-foreground">{item}</p>)}

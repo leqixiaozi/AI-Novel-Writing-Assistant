@@ -12,9 +12,81 @@ export const presenceLabels = { must: "必须出场", suggested: "建议参与",
 export const eventStatusLabels: Record<string, string> = { planned: "规划", occurred: "已发生", foreshadowed: "已铺垫", resolved: "已解决", cancelled: "已取消", superseded: "已替代" };
 
 /** Window coordinates are array indices, never chapter order numbers. */
-export function chapterWindow<T>(chapters: T[], requestedStart: number, size = 10) {
+export function chapterWindow<T>(chapters: T[], requestedStart: number, size = 8) {
   const start = Math.max(0, Math.min(Math.floor(requestedStart) || 0, Math.max(0, chapters.length - size)));
   return { start, chapters: chapters.slice(start, start + size) };
+}
+
+export interface ChapterLaneSegment<T> {
+  source: T;
+  segmentId: string;
+  chapterIds: string[];
+  start: number;
+  end: number;
+  lane: number;
+}
+
+/** Split gaps before packing; lane placement depends on stable IDs, never names or input order. */
+export function packChapterLanes<T extends { id: string; chapterIds: string[] }>(chapters: Array<{ id: string }>, entries: T[]): ChapterLaneSegment<T>[] {
+  const segments: ChapterLaneSegment<T>[] = [];
+  for (const source of entries) {
+    const included = new Set(source.chapterIds);
+    let start = -1;
+    const finish = (end: number) => {
+      if (start < 0) return;
+      const chapterIds = chapters.slice(start, end + 1).map(chapter => chapter.id);
+      segments.push({ source, segmentId: `${source.id}:${chapterIds[0]}`, chapterIds, start, end, lane: 0 });
+      start = -1;
+    };
+    chapters.forEach((chapter, index) => {
+      if (included.has(chapter.id)) { if (start < 0) start = index; }
+      else finish(index - 1);
+    });
+    finish(chapters.length - 1);
+  }
+  segments.sort((left, right) => left.start - right.start || right.end - left.end || left.source.id.localeCompare(right.source.id));
+  const laneEnds: number[] = [];
+  return segments.map(segment => {
+    let lane = laneEnds.findIndex(end => end < segment.start);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = segment.end;
+    return { ...segment, lane };
+  });
+}
+
+export interface CharacterPresenceEntry {
+  id: string;
+  characterId: string;
+  name: string;
+  chapterIds: string[];
+  kind: "record" | "plan";
+  spanId?: string;
+  mode?: keyof typeof presenceLabels;
+  weight: number | null;
+  note: string;
+}
+
+/** Participation from occurred/resolved events is evidence; draft spans remain author plans. */
+export function characterPresenceEntries(workspace: BookArrangementWorkspace, draft: BookArrangementDraftPayload): CharacterPresenceEntry[] {
+  const entries: CharacterPresenceEntry[] = [];
+  const chapterIds = new Set(workspace.chapters.map(chapter => chapter.id));
+  for (const character of workspace.characters) {
+    const recordedIds = new Set(workspace.events.filter(event => event.chapterId && chapterIds.has(event.chapterId) && (event.status === "occurred" || event.status === "resolved") && event.participantIds.includes(character.id)).map(event => event.chapterId!));
+    if (recordedIds.size) entries.push({ id: `record:${character.id}`, characterId: character.id, name: character.name, chapterIds: workspace.chapters.filter(chapter => recordedIds.has(chapter.id)).map(chapter => chapter.id), kind: "record", weight: null, note: "来自已有事件参与记录" });
+  }
+  for (const span of draft.characterSpans) {
+    const character = workspace.characters.find(person => person.id === span.characterId);
+    if (!character) continue;
+    entries.push({ id: `plan:${span.id}`, spanId: span.id, characterId: character.id, name: character.name, chapterIds: span.chapterIds.filter(id => chapterIds.has(id)), kind: "plan", mode: span.mode, weight: span.weight, note: span.note });
+  }
+  return entries;
+}
+
+export function characterTrackColor(characterId: string): string {
+  const colors = ["#3b82f6", "#e75a9d", "#18a68a", "#9964d9", "#dc873b", "#568aa7"];
+  let hash = 0;
+  for (const character of characterId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return colors[hash % colors.length];
 }
 export function chapterRange(chapters: Array<{ id: string }>, first: string, last: string): string[] {
   const from = chapters.findIndex(chapter => chapter.id === first);

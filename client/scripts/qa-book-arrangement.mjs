@@ -61,6 +61,9 @@ function createWorkspace(novelId, title, chapterCount) {
     appliedSettings: Object.fromEntries(chapters.map(c => [c.id, { revision: 0, settings: emptySettings() }])),
     draft: { revision: 0, updatedAt: null, payload: { baseRevision: `${novelId}-base`, chapterEdits: [{ chapterId: `${novelId}-c5`, note: "保留第8章结盟", controls: { tension: { mode: "set", value: 0 } }, locked: false }].filter(e => chapters.some(c => c.id === e.chapterId)), characterSpans: [], pinnedTracks: ["pace", "tension"] } },
     previews: [],
+    relations: Array.from({ length: 5 }, (_, index) => ({ id: `relation-${novelId}-${index}`, sourceId: `relation-${index}`, sourceEntity: "CharacterRelationStage", chapterIds: [chapters[Math.min(3, chapters.length - 1)].id], title: `关系阶段${index + 1}`, summary: "真实来源投影的隔离测试数据", status: "active", basis: "plan", evidenceLabel: "卷规划记录", sourceCharacterId: `${novelId}-p1`, targetCharacterId: `${novelId}-p2`, sourceType: "volume_plan", chapterId: null, volumeId: `${novelId}-v1`, isCurrent: true })),
+    clues: Array.from({ length: 11 }, (_, index) => ({ id: `clue-${novelId}-${index}`, sourceId: `clue-${index}`, sourceEntity: "TimelineHook", chapterIds: [chapters[Math.min(3, chapters.length - 1)].id], title: `线索${index + 1}`, summary: "保留来源说明", status: "open", basis: "record", evidenceLabel: "草稿提取记录", setupChapterId: chapters[Math.min(3, chapters.length - 1)].id, payoffChapterId: null, expectedPayoffChapterOrder: null, sourceSnapshotId: null })),
+    checks: [],
   };
 }
 const workspaces = { n1: createWorkspace("n1", "甲书：失物招领", 23), n2: createWorkspace("n2", "乙书：独立故事", 3) };
@@ -130,9 +133,10 @@ async function assertAligned(expectedIds) {
     const heads = [...matrix.querySelectorAll(".ba-head[data-chapter-id]")];
     return {
       ids: heads.map(element => element.dataset.chapterId), heads: heads.map(rect),
-      people: [...matrix.querySelectorAll(".ba-person-cell")].map(rect),
+      guides: [...matrix.querySelectorAll(".ba-plot-guides > [data-chapter-id]")].map(element => ({ id: element.dataset.chapterId, ...rect(element) })),
+      packed: [...matrix.querySelectorAll(".ba-presence-block, .ba-volume-block, .ba-evidence-block")].map(element => ({ ...rect(element), start: Number(element.style.gridColumnStart) - 1, span: Number(element.style.gridColumnEnd.replace("span", "").trim()), marginLeft: parseFloat(getComputedStyle(element).marginLeft) || 0, marginRight: parseFloat(getComputedStyle(element).marginRight) || 0 })),
       parameters: [...matrix.querySelectorAll(".ba-curve-cell")].map(rect),
-      events: [...matrix.querySelectorAll(".ba-event")].map(element => rect(element.closest(".ba-cell"))),
+      events: [...matrix.querySelectorAll(".ba-event-scene-cell")].map(rect),
       scenes: [...matrix.querySelectorAll(".ba-scene")].map(element => rect(element.closest(".ba-cell"))),
       clippedParameters: [...matrix.querySelectorAll(".ba-curve-cell")].flatMap(element => {
         const cell = element.getBoundingClientRect(), label = element.querySelector("span").getBoundingClientRect();
@@ -142,13 +146,27 @@ async function assertAligned(expectedIds) {
   });
   assert.deepEqual(geometry.ids, expectedIds);
   assert.deepEqual(geometry.clippedParameters, [], "parameter labels overflow their chapter cells");
-  for (const kind of ["people", "parameters", "events", "scenes"]) {
+  for (const kind of ["parameters", "events", "scenes"]) {
     assert.ok(geometry[kind].length >= expectedIds.length, `${kind} row missing`);
     geometry[kind].forEach((cell, index) => {
       const head = geometry.heads[index % expectedIds.length];
       assert.ok(Math.abs(cell.x - head.x) <= 1 && Math.abs(cell.width - head.width) <= 1, `${kind} column ${index} is misaligned`);
     });
   }
+  for (const guide of geometry.guides) {
+    const head = geometry.heads[expectedIds.indexOf(guide.id)];
+    assert.ok(head && Math.abs(guide.x - head.x) <= 2 && Math.abs(guide.width - head.width) <= 2, "packed lane chapter guides must share the header axis");
+  }
+  for (const block of geometry.packed) {
+    const first = geometry.heads[block.start], last = geometry.heads[block.start + block.span - 1];
+    assert.ok(first && last, "packed blocks must stay within the visible chapter IDs");
+    assert.ok(Math.abs(block.x - block.marginLeft - first.x) <= 2, "packed block starts on its stable chapter column");
+    assert.ok(Math.abs(block.x + block.width + block.marginRight - last.x - last.width) <= 2, "packed block ends on its stable chapter column");
+  }
+}
+async function openDetails(name) {
+  const summary = page.locator("summary").filter({ hasText: name }).first();
+  if (!await summary.evaluate(element => element.closest("details").open)) await summary.click();
 }
 const noPageOverflow = async () => assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "page overflows instead of containing chapter scroll");
 const selectChapter = order => page.getByRole("button", { name: `选择第${order}章`, exact: true }).click();
@@ -164,10 +182,18 @@ try {
   await page.getByLabel("选择作品").selectOption("n1");
   await page.getByRole("button", { name: "选择第1章", exact: true }).waitFor();
   assert.equal(requests.some(r => r.method !== "GET"), false);
-  await assertAligned(workspaces.n1.chapters.slice(0, 10).map(c => c.id));
+  await assertAligned(workspaces.n1.chapters.slice(0, 8).map(c => c.id));
+  assert.equal(await page.locator(".ba-clue-plot .ba-evidence-block").count(), 3);
+  assert.equal(await page.locator(".ba-relation-plot .ba-evidence-block").count(), 3);
+  await page.getByRole("button", { name: "另 8 个线索区段", exact: true }).click();
+  assert.equal(await page.locator(".ba-clue-plot .ba-evidence-block").count(), 11);
+  await page.getByRole("button", { name: "收起更多线索", exact: true }).click();
+  await page.getByRole("button", { name: "另 2 个关系区段", exact: true }).click();
+  assert.equal(await page.locator(".ba-relation-plot .ba-evidence-block").count(), 5);
+  await page.getByRole("button", { name: "收起更多关系", exact: true }).click();
   await page.getByRole("button", { name: "下一窗口", exact: true }).click();
   await page.getByRole("button", { name: "下一窗口", exact: true }).click();
-  await assertAligned(workspaces.n1.chapters.slice(-10).map(c => c.id));
+  await assertAligned(workspaces.n1.chapters.slice(-8).map(c => c.id));
   assert.equal(await page.locator(".ba-head[data-chapter-id].is-selected").count(), 1, "tail window must keep the inspected chapter visible and selected");
   const selectedTailId = await page.locator(".ba-head[data-chapter-id].is-selected").getAttribute("data-chapter-id");
   const selectedTail = workspaces.n1.chapters.find(chapter => chapter.id === selectedTailId);
@@ -178,7 +204,7 @@ try {
   await page.getByRole("button", { name: "选择第1章", exact: true }).waitFor();
   await assertAligned(workspaces.n2.chapters.map(c => c.id));
   assert.equal(requests.some(r => r.method !== "GET"), false);
-  checks.push("selecting and switching novels never writes; all four tracks share the exact tail and short-book chapter columns");
+  checks.push("read-only tracks share an eight-chapter axis; packed relations and clues default to three lanes and expand without losing evidence");
   await page.getByLabel("选择作品").selectOption("n1");
   await page.getByRole("button", { name: "第4章紧张感表达未设置", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "第5章紧张感表达0", exact: true }).innerText(), "0");
@@ -186,20 +212,23 @@ try {
   checks.push("unset tension is a gap while explicit zero remains a visible point");
   await page.getByRole("button", { name: "选择第4章", exact: true }).focus();
   await page.keyboard.press("Enter");
+  await openDetails("本章备注与表达参数");
   await page.getByLabel("编排备注", { exact: true }).fill("第4—5章加强既有对立，保留第8章结盟");
-  await page.locator("summary").filter({ hasText: "本章五种表达参数" }).click();
+  await openDetails("本章五种表达参数");
   await page.getByLabel("叙述节奏设置方式", { exact: true }).selectOption("set");
   await page.getByLabel("叙述节奏档位", { exact: true }).selectOption("75");
   await page.reload();
   await page.getByRole("button", { name: "恢复未保存编辑", exact: true }).click();
   await selectChapter(4);
+  await openDetails("本章备注与表达参数");
   assert.equal(await page.getByLabel("编排备注", { exact: true }).inputValue(), "第4—5章加强既有对立，保留第8章结盟");
   assert.equal(requests.some(r => r.method !== "GET"), false);
   for (const checkbox of await page.getByRole("checkbox", { name: /^调整范围第/ }).all()) await checkbox.uncheck();
   await page.getByRole("checkbox", { name: "调整范围第4章", exact: true }).check();
   await page.getByRole("checkbox", { name: "调整范围第5章", exact: true }).check();
-  await page.getByRole("tab", { name: "人物区段", exact: true }).click();
+  await page.getByRole("tab", { name: "出场安排", exact: true }).click();
   await page.getByRole("button", { name: "新增人物区段", exact: true }).click();
+  await openDetails("权重与出场章节");
   assert.equal(await page.getByLabel("区段权重", { exact: true }).inputValue(), "");
   await page.getByLabel("区段人物", { exact: true }).selectOption("n1-p2");
   const beforeInvalidSave = requests.length;
@@ -229,25 +258,33 @@ try {
   await page.reload();
   await page.getByRole("button", { name: "选择第4章", exact: true }).waitFor();
   await selectChapter(4);
+  await openDetails("本章备注与表达参数");
   assert.equal(await page.getByLabel("编排备注", { exact: true }).inputValue(), "第4—5章加强既有对立，保留第8章结盟");
-  await page.getByRole("tab", { name: "人物区段", exact: true }).click();
+  await page.getByRole("tab", { name: "出场安排", exact: true }).click();
   await page.getByLabel("选择人物区段").selectOption(saved.payload.characterSpans[0].id);
+  await openDetails("权重与出场章节");
   assert.equal(await page.getByLabel("区段人物", { exact: true }).inputValue(), "n1-p2");
   assert.equal(await page.getByLabel("区段权重", { exact: true }).inputValue(), "0");
-  await page.getByRole("tab", { name: "章信息", exact: true }).click();
-  await page.getByRole("button", { name: "林舟第4章区段", exact: true }).click();
-  await page.getByRole("tab", { name: "人物区段", exact: true, selected: true }).waitFor();
-  assert.equal(await page.getByRole("tab", { name: "人物区段", exact: true }).getAttribute("aria-selected"), "true", "clicking the same existing span must reopen its inspector tab");
+  await page.getByRole("tab", { name: "历史依据", exact: true }).click();
+  await page.locator(`.ba-presence-block[data-kind="plan"][data-span-id="${saved.payload.characterSpans[0].id}"]`).click();
+  await page.getByRole("tab", { name: "出场安排", exact: true, selected: true }).waitFor();
+  assert.equal(await page.getByRole("tab", { name: "出场安排", exact: true }).getAttribute("aria-selected"), "true", "clicking the same packed plan must reopen its inspector tab");
+  const spansBeforeHistory = clone(workspaces.n1.draft.payload.characterSpans);
+  await page.locator('.ba-presence-block[data-kind="record"][data-character-id="n1-p1"]').click();
+  await page.getByRole("tab", { name: "历史依据", exact: true, selected: true }).waitFor();
+  assert.deepEqual(workspaces.n1.draft.payload.characterSpans, spansBeforeHistory, "record clicks must not create editable plans");
   await page.getByLabel("选择作品").selectOption("n2");
   await page.getByRole("button", { name: "选择第1章", exact: true }).waitFor();
   assert.deepEqual(workspaces.n2.draft.payload.characterSpans, []);
   await page.getByLabel("选择作品").selectOption("n1");
   await page.getByRole("button", { name: "选择第4章", exact: true }).waitFor();
   await selectChapter(4);
-  await page.getByRole("tab", { name: "章信息", exact: true }).click();
+  await page.getByRole("tab", { name: "出场安排", exact: true }).click();
+  await openDetails("本章备注与表达参数");
   assert.equal(await page.getByLabel("编排备注", { exact: true }).inputValue(), "第4—5章加强既有对立，保留第8章结盟");
   checks.push("unsaved edits and server drafts restore after reload; cross-book navigation retains character zero without leaking edits");
   await selectChapter(5);
+  await openDetails("本章备注与表达参数");
   await page.getByRole("checkbox", { name: "锁定本章编排", exact: true }).check();
   assert.equal(await page.getByLabel("编排备注", { exact: true }).isDisabled(), true);
   await Promise.all([page.waitForResponse(r => r.url().endsWith("/book-arrangement/draft") && r.status() === 200), page.getByRole("button", { name: "保存草稿", exact: true }).click()]);
@@ -290,7 +327,8 @@ try {
   await page.reload();
   await page.getByRole("button", { name: "选择第4章", exact: true }).waitFor();
   await selectChapter(4);
-  await page.locator("summary").filter({ hasText: "已应用的后续要求" }).click();
+  await openDetails("本章备注与表达参数");
+  await openDetails("已应用的后续要求");
   await page.locator(".ba-inspector").getByText("叙述节奏：75", { exact: true }).waitFor();
   await page.locator(".ba-inspector").getByText("启用可选要求", { exact: true }).waitFor();
   assert.deepEqual(canonicalData(), expectedAfterApply);
@@ -302,7 +340,7 @@ try {
   for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(150);
   assert.ok(await page.locator(".book-arrangement-scroll").evaluate(element => element.scrollLeft) > 0, "keyboard arrows must move the shared horizontal scroller");
-  await assertAligned(workspaces.n1.chapters.slice(0, 10).map(c => c.id));
+  await assertAligned(workspaces.n1.chapters.slice(0, 8).map(c => c.id));
   await screenshot("05-narrow-common-scroll");
   checks.push("390px viewport contains a keyboard-reachable shared chapter scroller with aligned tracks");
   assert.deepEqual(errors, []);

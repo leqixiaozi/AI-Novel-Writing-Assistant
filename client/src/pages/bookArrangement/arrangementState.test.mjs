@@ -1,16 +1,47 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildArrangementPlanInput, chapterRange, chapterWindow, controlValue, curveSegments, draftDirty, editableChapterIds, updateChapterEdit } from "./arrangementState.ts";
+import { buildArrangementPlanInput, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, updateChapterEdit } from "./arrangementState.ts";
 
 const chapters = Array.from({ length: 23 }, (_, index) => ({ id: `id-${index}`, order: index * 3 + 2, title: `章${index}` }));
 const emptyDraft = () => ({ baseRevision: "base1", chapterEdits: [], characterSpans: [], pinnedTracks: [] });
 
 test("the same stable chapter window supports gaps, 23 chapter tail, short and empty books", () => {
-  assert.deepEqual(chapterWindow(chapters, 20).chapters.map(chapter => chapter.id), chapters.slice(13).map(chapter => chapter.id));
-  assert.equal(chapterWindow(chapters, 20).start, 13);
+  assert.deepEqual(chapterWindow(chapters, 20).chapters.map(chapter => chapter.id), chapters.slice(15).map(chapter => chapter.id));
+  assert.equal(chapterWindow(chapters, 20).start, 15);
   assert.equal(chapterWindow(chapters, -5).start, 0);
   assert.deepEqual(chapterWindow(chapters.slice(0, 3), 10).chapters, chapters.slice(0, 3));
   assert.deepEqual(chapterWindow([], 20), { start: 0, chapters: [] });
+});
+
+test("packed lanes preserve chapter gaps, clip to the visible window and never overlap", () => {
+  const entries = [{ id: "p2", chapterIds: ["id-3", "id-4", "id-6"] }, { id: "p1", chapterIds: ["id-2", "id-3", "id-4", "id-5"] }, { id: "outside", chapterIds: ["id-12"] }];
+  const visible = chapters.slice(3, 8);
+  const packed = packChapterLanes(visible, entries);
+  assert.equal(packed.length, 3);
+  assert.deepEqual(packed.filter(segment => segment.source.id === "p2").map(segment => segment.chapterIds), [["id-3", "id-4"], ["id-6"]]);
+  assert.deepEqual(packed.find(segment => segment.source.id === "p1").chapterIds, ["id-3", "id-4", "id-5"]);
+  for (const left of packed) for (const right of packed) if (left !== right && left.lane === right.lane) assert.ok(left.end < right.start || right.end < left.start);
+  assert.deepEqual(packChapterLanes(visible, entries.toReversed()), packed);
+  assert.equal(packed.find(segment => segment.chapterIds[0] === "id-6").lane, 0);
+});
+
+test("only recorded events create evidence blocks; same-name characters retain distinct IDs and plans retain zero", () => {
+  const workspace = { chapters, characters: [{ id: "p1", name: "林舟" }, { id: "p2", name: "林舟" }, { id: "absent", name: "未出场" }], events: [
+    { id: "event1", chapterId: "id-1", status: "occurred", participantIds: ["p1", "p1"] },
+    { id: "event2", chapterId: "id-2", status: "resolved", participantIds: ["p1"] },
+    { id: "event3", chapterId: "id-3", status: "planned", participantIds: ["p2"] },
+    { id: "event4", chapterId: "id-4", status: "cancelled", participantIds: ["p2"] },
+  ] };
+  const draft = emptyDraft();
+  draft.characterSpans.push({ id: "span", characterId: "p2", chapterIds: ["id-2", "id-3"], mode: "forbidden", weight: 0, note: "暂不出场" });
+  const entries = characterPresenceEntries(workspace, draft);
+  assert.equal(entries.length, 2);
+  assert.deepEqual(entries.find(entry => entry.kind === "record").chapterIds, ["id-1", "id-2"]);
+  assert.equal(entries.find(entry => entry.kind === "record").characterId, "p1");
+  assert.equal(entries.find(entry => entry.kind === "plan").characterId, "p2");
+  assert.equal(entries.find(entry => entry.kind === "plan").weight, 0);
+  assert.equal(packChapterLanes(chapters.slice(10), entries).length, 0);
+  assert.equal(characterTrackColor("p2"), characterTrackColor("p2"));
 });
 
 test("range selection uses stable IDs and reading order, including reversed endpoints", () => {
