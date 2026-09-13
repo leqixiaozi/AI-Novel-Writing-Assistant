@@ -3,6 +3,7 @@ import type { BookArrangementApplyReceipt, BookArrangementApplyRequest, BookArra
 import { apiClient } from "./client";
 import type { BookArrangementVolumePreview, BookArrangementVolumePreviewRequest, BookArrangementVolumeApplyReceipt } from "@ai-novel/shared/types/bookArrangement";
 import type { BookArrangementObjectApplyReceipt, BookArrangementObjectDetail, BookArrangementObjectKind, BookArrangementObjectPreview, BookArrangementObjectPreviewRequest } from "@ai-novel/shared/types/bookArrangement";
+import type { BookArrangementSceneApplyReceipt, BookArrangementScenePreview, BookArrangementScenePreviewRequest } from "@ai-novel/shared/types/bookArrangement";
 
 export function createBookArrangementApi(novelId: string) {
   const base = `/novels/${encodeURIComponent(novelId)}/book-arrangement`;
@@ -29,5 +30,7 @@ export function createBookArrangementApi(novelId: string) {
     },
     previewObject: (input: BookArrangementObjectPreviewRequest, key: string) => write<BookArrangementObjectPreview>("post", "/objects/preview", input, key),
     applyObject: (candidateId: string, key: string) => write<BookArrangementObjectApplyReceipt>("post", `/objects/${encodeURIComponent(candidateId)}/apply`, {}, key),
+    previewScenes: (input: BookArrangementScenePreviewRequest, key: string) => write<BookArrangementScenePreview>("post", "/scenes/preview", input, key),
+    applyScenes: (candidateId: string, key: string) => write<BookArrangementSceneApplyReceipt>("post", `/scenes/${encodeURIComponent(candidateId)}/apply`, {}, key),
   };
 }

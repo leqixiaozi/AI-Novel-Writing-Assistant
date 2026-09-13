@@ -72,6 +72,13 @@ GET 工作区在原人物、章节、事件和场景之外，投影 `CharacterRe
 
 场景行与原 `Chapter.sceneCards` 同步，保留能够按 ID／原位置对应的预算及独立约束，再以实际场景卡计算原规划复用合同。不能把旧场景卡和新场景同时送入写作。卡片与场景无法可靠对应时预览提示冲突；删除／移走最后一个场景需要先补替代，避免原规划器自动重新生成而掩盖作者的意图。
 
+章节内场景采用“上方篇幅条、中部场景卡、右侧编辑区”的同页交互。点击矩阵中的场景或“编排所选章节场景”进入章内编辑；彩色篇幅条按各场景目标字数分配宽度，拖动相邻边界时只重算两侧未锁定场景，最低保留 5%。场景卡支持稳定 ID 下的排序、拆分、合并、新增和删除，右侧按故事安排、节奏表达、人物边界编辑原场景字段。锁定只保护本次编辑，不写成新的故事事实。
+
+预览会冻结整章场景顺序、字段、章节版本和依赖版本，并保存为 `arrangement_scene` 候选；此时不修改场景、场景卡或正文。应用在一个事务内同时更新 `ChapterPlanScene` 与 `Chapter.sceneCards`，重验锁章、人工接管、导演租约、同步任务及并发版本，返回可重复读取的采纳回执。整章至少保留 3 个、最多 8 个场景，预算总字数必须在合法范围。应用只调整后续写作依据，已有 `Chapter.content` 保持原样。
+
+> 🏠 白话比喻：像在一张披萨上移动切线，某一块变大时相邻那块会变小，整张披萨没有凭空增加；确认菜单前也不会端走桌上的旧菜。对应实现：边界拖动只改相邻预算，预览与正式应用分离，正文不随场景规划重写。
+> 🧠 速记：拖边界、编卡片、先预览、整章落库、正文不动。
+
 关系目标使用 `arrangement_plan` 来源；`isCurrent` 只表示此计划启用，不是事实确认。动态人物概览的 `plannedRelations` 与原 `relations` 分开，按稳定章节 ID 或纯卷范围读取，事实库和当前人物关系查询排除它。规划和写作只在有匹配目标时附加明确的“尚未发生”目标片段；未设置时保持原上下文输出。新线索使用 `planned`，不得放入既有未回收钩子或人物已知事实。
 
 `TimelineHookPlanService` 按本章铺设和本章预计回收读取计划，通过可选 `plannedHookGuidance` 接入原规划与写作的四种模式。发生过的钩子仍由原 `listOpenHooks` 路径处理。两种来源不能混用，预计回收缺少原文铺垫依据时仍需核对，不能补造历史。
@@ -104,6 +111,8 @@ GET 工作区在原人物、章节、事件和场景之外，投影 `CharacterRe
 | POST `/book-arrangement/:candidateId/apply` | 按选中范围原子应用后续要求 |
 | POST `/book-arrangement/volumes/preview` | 按 `draftRevision`、`volumeIds` 冻结卷调整与影响候选 |
 | POST `/book-arrangement/volumes/:candidateId/apply` | 校验版本、范围与交接状态后应用卷规划；正文与章序保持不变 |
+| POST `/book-arrangement/scenes/preview` | 冻结一章完整场景顺序、预算和约束，保存整章候选但不改正式资料 |
+| POST `/book-arrangement/scenes/:candidateId/apply` | 原子同步场景行与场景卡，返回幂等回执且不改章节正文 |
 | GET `/book-arrangement/objects/:kind/:objectId` | 原对象详情、来源版本和字段定义；`objectId=new` 只读新建模板，可带 `chapterId` |
 | POST `/book-arrangement/objects/preview` | 按 `kind`、`action`、`objectId`、`expectedRevision`、`patch` 保存原对象修改候选 |
 | POST `/book-arrangement/objects/:candidateId/apply` | 在版本及范围保护内提交原表变更，返回可幂等恢复的回执 |

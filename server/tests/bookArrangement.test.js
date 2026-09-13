@@ -21,16 +21,17 @@ function loadModules(db) {
   const storage = load(`${base}infrastructure/AdjustmentStore.ts`, { ...common, "../../../../db/prisma": { prisma: db }, "./OperationLease": operations });
   common["../infrastructure/AdjustmentStore"] = storage;
   const settingsModule = load(`${base}application/WritingSettingsService.ts`, { ...common, "../../../../prompting/prompts/novel/chapterNarrativeControls": load("prompting/prompts/novel/chapterNarrativeControls.ts", {}) });
-  const arrangement = load(`${base}application/BookArrangementService.ts`, { ...common, "./WritingSettingsService": settingsModule, "../../../../prompting/prompts/novel/bookArrangementControls": load("prompting/prompts/novel/bookArrangementControls.ts", {}) });
+  const arrangement = load(`${base}application/BookArrangementService.ts`, { ...common, "./WritingSettingsService": settingsModule, "../../../../prompting/prompts/novel/bookArrangementControls": load("prompting/prompts/novel/bookArrangementControls.ts", {}), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
   const objectContracts = load(`${base}domain/arrangementObjects.ts`, { zod: require("zod"), "./contracts": contracts });
   const metadata = load("services/planner/plannerPlanMetadata.ts", { "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract") });
   const persistence = load("services/planner/plannerPersistence.ts", { "node:crypto": require("node:crypto"), "../../db/prisma": { prisma: db }, "./plannerPlanMetadata": metadata, "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
   const sceneCards = load(`${base}infrastructure/ArrangementSceneCards.ts`, { "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
   const objectRepository = load(`${base}infrastructure/ArrangementObjectRepository.ts`, { "../../../../services/planner/plannerPersistence": persistence, "./ArrangementSceneCards": sceneCards });
   const objectModule = load(`${base}application/BookArrangementObjectService.ts`, { ...common, "../../../../events": { novelEventBus: { emit: async () => {} } }, "../domain/arrangementObjects": objectContracts, "../infrastructure/ArrangementObjectRepository": objectRepository, "../infrastructure/ArrangementSceneCards": sceneCards });
+  const chapterScenesModule = load(`${base}application/ChapterSceneArrangementService.ts`, { ...common, "node:crypto": require("node:crypto"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl"), "../../../../events": { novelEventBus: { emit: async () => {} } }, "../../../../services/planner/plannerPersistence": persistence });
   const store = new storage.AdjustmentStore(db);
   const settings = new settingsModule.WritingSettingsService(store);
-  return { store, settings, service: new arrangement.BookArrangementService(store, settings), objects: new objectModule.BookArrangementObjectService(store), objectContracts, Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
+  return { store, settings, service: new arrangement.BookArrangementService(store, settings), objects: new objectModule.BookArrangementObjectService(store), chapterScenes: new chapterScenesModule.ChapterSceneArrangementService(store), objectContracts, Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
 }
 async function fixture(t) {
   const temporaryRoot = process.platform === "win32" && fs.existsSync("D:/cache") ? "D:/cache" : os.tmpdir();
@@ -55,6 +56,40 @@ async function fixture(t) {
 }
 const settings = controls => ({ enabled: true, controls, preserve: [] });
 const isConflict = error => error.statusCode === 409;
+
+test("chapter scene arrangement previews and applies the complete scene sequence atomically", async t => {
+  const f = await fixture(t);
+  const { normalizeChapterScenePlan, serializeChapterScenePlan, parseChapterScenePlan } = require("@ai-novel/shared/types/chapterLengthControl");
+  const chapter = f.chapters[0];
+  const obsoletePlan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: chapter.id, level: "chapter", title: "旧章计划", objective: "不应进入工作区", updatedAt: new Date("2020-01-01T00:00:00Z") } });
+  await f.db.chapterPlanScene.create({ data: { planId: obsoletePlan.id, sortOrder: 1, title: "旧计划场景" } });
+  const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: chapter.id, level: "chapter", title: chapter.title, objective: chapter.expectation } });
+  const rows = [];
+  for (const [index, title] of ["发现异常", "当面试探", "独自确认"].entries()) rows.push(await f.db.chapterPlanScene.create({ data: { planId: plan.id, sortOrder: index + 1, title, objective: `目标${index + 1}` } }));
+  const originalCards = normalizeChapterScenePlan(rows.map((row, index) => ({ key: row.id, title: `卡片标题${index + 1}`, purpose: `卡片目的${index + 1}`, mustAdvance: [], mustPreserve: [], entryState: `进入${index + 1}`, exitState: `结束${index + 1}`, forbiddenExpansion: [], targetWordCount: [600, 1500, 900][index], resistance: "", turn: "", emotionalShift: "", readerValue: "" })), 3000);
+  await f.db.chapter.update({ where: { id: chapter.id }, data: { targetWordCount: 3000, sceneCards: serializeChapterScenePlan(originalCards) } });
+  const workspace = await f.service.workspace(f.novelId);
+  const source = workspace.scenes.filter(scene => scene.chapterId === chapter.id);
+  assert.equal(source.length, 3);
+  assert.ok(source.every(scene => rows.some(row => row.id === scene.id)));
+  const changed = [source[0], source[2], source[1]].map((scene, index) => ({ ...scene, sortOrder: index + 1, targetWordCount: [900, 900, 1200][index] }));
+  const runtime = await f.db.directorRuntimeInstance.create({ data: { novelId: f.novelId, currentChapterId: null } });
+  const execution = await f.db.directorRuntimeExecution.create({ data: { novelId: f.novelId, runtimeId: runtime.id, stepType: "chapter_generation", status: "running", leaseExpiresAt: new Date(Date.now() + 60000) } });
+  assert.equal((await f.chapterScenes.preview(f.novelId, { chapterId: chapter.id, expectedChapterRevision: workspace.chapters.find(item => item.id === chapter.id).revision, scenes: changed })).canApply, false);
+  await f.db.directorRuntimeExecution.delete({ where: { id: execution.id } });
+  await f.db.directorRuntimeInstance.delete({ where: { id: runtime.id } });
+  const preview = await f.chapterScenes.preview(f.novelId, { chapterId: chapter.id, expectedChapterRevision: workspace.chapters.find(item => item.id === chapter.id).revision, scenes: changed });
+  assert.ok(preview);
+  assert.deepEqual(preview.after.map(scene => [scene.id, scene.sortOrder, scene.targetWordCount]), changed.map(scene => [scene.id, scene.sortOrder, scene.targetWordCount]));
+  assert.deepEqual((await f.db.chapterPlanScene.findMany({ where: { planId: plan.id }, orderBy: { sortOrder: "asc" } })).map(scene => scene.id), rows.map(scene => scene.id));
+  const receipt = await f.chapterScenes.apply(f.novelId, preview.id);
+  assert.deepEqual(await f.chapterScenes.apply(f.novelId, preview.id), receipt);
+  assert.deepEqual((await f.db.chapterPlanScene.findMany({ where: { planId: plan.id }, orderBy: { sortOrder: "asc" } })).map(scene => scene.id), [rows[0].id, rows[2].id, rows[1].id]);
+  const applied = parseChapterScenePlan((await f.db.chapter.findUnique({ where: { id: chapter.id } })).sceneCards);
+  assert.deepEqual(applied.scenes.map(scene => scene.targetWordCount), [900, 900, 1200]);
+  assert.deepEqual(applied.scenes.map(card => [card.key, card.title, card.purpose]), changed.map(scene => { const original = originalCards.scenes.find(card => card.key === scene.id); return [scene.id, original.title, original.purpose]; }));
+  assert.equal((await f.db.chapter.findUnique({ where: { id: chapter.id } })).content, chapter.content);
+});
 
 test("planned hook guidance: only setup and payoff chapters receive author plans, never historical hooks", async t => {
   const f = await fixture(t);
@@ -691,7 +726,7 @@ test("book arrangement: GET avoids operation creation and every write requires a
   const f = await fixture(t);
   const handlers = new Map();
   const service = { store: f.store, arrangementWorkspace: f.service.workspace.bind(f.service), saveArrangementDraft: f.service.saveDraft.bind(f.service), previewArrangement: f.service.preview.bind(f.service), applyArrangement: f.service.apply.bind(f.service) };
-  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../domain/arrangementObjects": f.objectContracts });
+  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../application/ChapterSceneArrangementService": { chapterScenePreviewSchema: { parse: value => value } }, "../domain/arrangementObjects": f.objectContracts });
   routes.registerBookArrangementRoutes(Object.fromEntries(["get", "put", "post"].map(method => [method, (route, handler) => handlers.set(`${method}:${route}`, handler)])));
   const req = { params: { id: f.novelId, candidateId: "candidate" }, body: {}, path: "/test", get: () => undefined };
   let response;

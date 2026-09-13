@@ -128,10 +128,10 @@ export interface BookArrangementWorkspace {
   novelId: string;
   title: string;
   baseRevision: string;
-  chapters: Array<{ id: string; title: string; order: number; revision: string; outline: string; hasContent: boolean; wordCount: number }>;
+  chapters: Array<{ id: string; title: string; order: number; revision: string; outline: string; hasContent: boolean; wordCount: number; targetWordCount: number | null }>;
   characters: Array<{ id: string; name: string; role: string | null }>;
   events: BookArrangementEvent[];
-  scenes: Array<{ id: string; chapterId: string; title: string; objective: string | null; sortOrder: number }>;
+  scenes: BookArrangementScene[];
   volumes: BookArrangementVolume[];
   appliedSettings: Record<string, { revision: number; settings: WritingSettingsPayload }>;
   draft: DraftRecord;
@@ -143,6 +143,7 @@ export interface BookArrangementWorkspace {
   genre?: { id: string; name: string } | null;
   volumePreviews?: BookArrangementVolumePreview[];
   objectPreviews?: BookArrangementObjectPreview[];
+  scenePreviews?: BookArrangementScenePreview[];
 }
 export interface BookArrangementSaveDraftRequest { expectedRevision: number; payload: DraftPayload }
 export interface BookArrangementPreviewRequest { draftRevision: number; chapterIds: string[] }
@@ -182,4 +183,25 @@ export interface BookArrangementObjectPreview {
 }
 export interface BookArrangementObjectApplyReceipt {
   id: string; status: "applied"; kind: BookArrangementObjectKind; objectId: string; affectedChapterIds: string[];
+}
+
+export interface BookArrangementScene {
+  id: string; revision: string; chapterId: string; sortOrder: number;
+  title: string; objective: string; conflict: string; reveal: string; emotionBeat: string;
+  targetWordCount: number; mustAdvance: string[]; mustPreserve: string[];
+  entryState: string; exitState: string; forbiddenExpansion: string[];
+  resistance: string; turn: string; emotionalShift: string; readerValue: string;
+}
+export interface BookArrangementScenePreviewRequest {
+  chapterId: string; expectedChapterRevision: string; scenes: BookArrangementScene[];
+}
+export interface BookArrangementScenePreview {
+  applied?: BookArrangementSceneApplyReceipt;
+  id: string; chapterId: string; before: BookArrangementScene[]; after: BookArrangementScene[];
+  affectedChapterIds: string[]; writtenChapterIds: string[]; baseRevision: string;
+  impact: string[]; unchecked: string[];
+  conflicts: Array<{ code: string; message: string; chapterIds: string[] }>; canApply: boolean;
+}
+export interface BookArrangementSceneApplyReceipt {
+  id: string; status: "applied"; chapterId: string; sceneIds: string[];
 }

@@ -8,6 +8,7 @@ import { chapterRevision, conflict, controlsSchema, digest, EMPTY_SETTINGS, pars
 import { AdjustmentStore } from "../infrastructure/AdjustmentStore";
 import { WritingSettingsService } from "./WritingSettingsService";
 import { BOOK_ARRANGEMENT_CONTROL_VERSION, renderBookArrangementPreserve } from "../../../../prompting/prompts/novel/bookArrangementControls";
+import { parseChapterScenePlan } from "@ai-novel/shared/types/chapterLengthControl";
 
 const DRAFT_SCOPE = "book-arrangement:draft";
 const chapterScope = (id: string) => `arrangement:chapter:${id}`;
@@ -75,16 +76,16 @@ export class BookArrangementService {
 
   async workspace(novelId: string): Promise<BookArrangementWorkspace> {
     const novel = await this.store.novel(novelId);
-    const [baseRevision, chapters, characters, events, scenes, volumes, settings, draft, candidates, relationStages, hooks, latestSnapshot, auditReports, conflicts, cover, genre] = await Promise.all([
+    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, latestSnapshot, auditReports, conflicts, cover, genre] = await Promise.all([
       this.store.dependencies(novelId),
       this.store.db.chapter.findMany({ where: { novelId }, orderBy: { order: "asc" } }),
       this.store.db.character.findMany({ where: { novelId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
       this.store.db.storyTimelineEvent.findMany({ where: { novelId }, orderBy: [{ eventOrder: "asc" }, { id: "asc" }] }),
-      this.store.db.chapterPlanScene.findMany({ where: { plan: { novelId, chapterId: { not: null }, status: { not: "stale" } } }, include: { plan: { select: { chapterId: true } } }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] }),
+      this.store.db.storyPlan.findMany({ where: { novelId, chapterId: { not: null }, level: "chapter", status: { not: "stale" } }, include: { scenes: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }] }),
       this.store.db.volumePlan.findMany({ where: { novelId }, include: { chapters: { select: { chapterId: true }, orderBy: { chapterOrder: "asc" } } }, orderBy: { sortOrder: "asc" } }),
       this.store.db.writingSetting.findMany({ where: { novelId, scopeKey: { startsWith: "arrangement:chapter:" } } }),
       this.store.db.writingSetting.findUnique({ where: { novelId_scopeKey: { novelId, scopeKey: DRAFT_SCOPE } } }),
-      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume", "arrangement_object"] } }, orderBy: { createdAt: "desc" }, take: 50 }),
+      this.store.db.chapterEditVersion.findMany({ where: { novelId, kind: { in: ["arrangement", "arrangement_volume", "arrangement_object", "arrangement_scene"] } }, orderBy: { createdAt: "desc" }, take: 80 }),
       this.store.db.characterRelationStage.findMany({ where: { novelId, sourceCharacter: { novelId }, targetCharacter: { novelId } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
       this.store.db.timelineHook.findMany({ where: { novelId }, orderBy: [{ createdInChapterIndex: "asc" }, { id: "asc" }] }),
       this.store.db.storyStateSnapshot.findFirst({ where: { novelId }, include: { foreshadowStates: { orderBy: { id: "asc" } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
@@ -123,13 +124,29 @@ export class BookArrangementService {
       const chapterId = validChapter(item.chapterId);
       checks.push({ id: `OpenConflict:${item.id}`, sourceId: item.id, sourceEntity: "OpenConflict", chapterIds: chapterId ? [chapterId] : [], title: item.title, summary: item.summary, status: item.status, basis: "record", evidenceLabel: "已登记的故事冲突；这是待核对记录，不等于已确认错误。", chapterId, severity: item.severity, category: item.conflictType, evidence: item.evidenceJson, fixSuggestion: item.resolutionHint, reportId: null, sourceRevision: null });
     }
+    const canonicalPlans = new Map<string, (typeof chapterPlans)[number]>();
+    for (const plan of chapterPlans) if (plan.chapterId && !canonicalPlans.has(plan.chapterId)) canonicalPlans.set(plan.chapterId, plan);
+    const projectedScenes = chapters.flatMap(chapter => {
+      const activePlan = canonicalPlans.get(chapter.id);
+      if (!activePlan) return [];
+      const parsedPlan = parseChapterScenePlan(chapter.sceneCards, { targetWordCount: chapter.targetWordCount ?? undefined });
+      const fallbackWords = Math.max(1, Math.round((chapter.targetWordCount ?? 3000) / Math.max(1, activePlan.scenes.length)));
+      return activePlan.scenes.map((scene, index) => {
+        const card = parsedPlan?.scenes.find(item => item.key === scene.id) ?? parsedPlan?.scenes[index];
+        return { id: scene.id, revision: digest({ id: scene.id, updatedAt: scene.updatedAt, sortOrder: scene.sortOrder, title: scene.title, objective: scene.objective, conflict: scene.conflict, reveal: scene.reveal, emotionBeat: scene.emotionBeat }), chapterId: chapter.id, sortOrder: index + 1,
+          title: scene.title, objective: scene.objective ?? card?.purpose ?? "", conflict: scene.conflict ?? card?.resistance ?? "", reveal: scene.reveal ?? card?.turn ?? "", emotionBeat: scene.emotionBeat ?? card?.emotionalShift ?? "",
+          targetWordCount: card?.targetWordCount ?? fallbackWords, mustAdvance: card?.mustAdvance ?? [], mustPreserve: card?.mustPreserve ?? [], entryState: card?.entryState ?? scene.objective ?? scene.title,
+          exitState: card?.exitState ?? scene.reveal ?? scene.emotionBeat ?? scene.objective ?? scene.title, forbiddenExpansion: card?.forbiddenExpansion ?? [], resistance: card?.resistance ?? scene.conflict ?? "",
+          turn: card?.turn ?? scene.reveal ?? "", emotionalShift: card?.emotionalShift ?? scene.emotionBeat ?? "", readerValue: card?.readerValue ?? "" };
+      });
+    });
     return {
       novelId, title: novel.title, baseRevision,
       coverUrl: cover?.url ?? null, genre, relations, clues, checks,
-      chapters: chapters.map(chapter => ({ id: chapter.id, title: chapter.title, order: chapter.order, revision: chapterRevision(chapter), outline: chapter.expectation ?? "", hasContent: Boolean(chapter.content?.trim()), wordCount: Array.from((chapter.content ?? "").replace(/\s/g, "")).length })),
+      chapters: chapters.map(chapter => ({ id: chapter.id, title: chapter.title, order: chapter.order, revision: chapterRevision(chapter), outline: chapter.expectation ?? "", hasContent: Boolean(chapter.content?.trim()), wordCount: Array.from((chapter.content ?? "").replace(/\s/g, "")).length, targetWordCount: chapter.targetWordCount })),
       characters,
       events: events.map(event => ({ id: event.id, title: event.title, summary: event.summary, revision: digest(event), chapterId: event.chapterId, chapterOrder: event.chapterIndex, storyDayIndex: event.storyDayIndex, storyTimeLabel: event.storyTimeLabel, participantIds: parseJson<string[]>(event.participantIdsJson, []), status: event.status, visibility: event.visibility })),
-      scenes: scenes.flatMap(scene => scene.plan.chapterId && chapterIds.has(scene.plan.chapterId) ? [{ id: scene.id, chapterId: scene.plan.chapterId, title: scene.title, objective: scene.objective, sortOrder: scene.sortOrder }] : []),
+      scenes: projectedScenes,
       volumes: volumes.map(volume => {
         const ids = volume.chapters.flatMap(chapter => chapter.chapterId && chapterIds.has(chapter.chapterId) ? [chapter.chapterId] : []);
         const orders = chapters.filter(chapter => ids.includes(chapter.id)).map(chapter => chapter.order);
@@ -140,6 +157,7 @@ export class BookArrangementService {
       previews: candidates.filter(row => row.kind === "arrangement").flatMap(row => { const candidate = parseJson<ArrangementCandidate>(row.metadataJson, null!); return candidate?.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
       volumePreviews: candidates.filter(row => row.kind === "arrangement_volume").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementVolumePreview }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
       objectPreviews: candidates.filter(row => row.kind === "arrangement_object").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectPreview; applied?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectApplyReceipt }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id, ...(candidate.applied ? { applied: candidate.applied } : {}) }] : []; }),
+      scenePreviews: candidates.filter(row => row.kind === "arrangement_scene").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementScenePreview; applied?: import("@ai-novel/shared/types/bookArrangement").BookArrangementSceneApplyReceipt }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id, ...(candidate.applied ? { applied: candidate.applied } : {}) }] : []; }),
     };
   }
 

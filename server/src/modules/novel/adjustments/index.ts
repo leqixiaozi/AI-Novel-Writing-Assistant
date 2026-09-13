@@ -7,6 +7,7 @@ import { WritingLineService } from "./application/WritingLineService";
 import { BookArrangementService } from "./application/BookArrangementService";
 import { BookArrangementVolumeService } from "./application/BookArrangementVolumeService";
 import { BookArrangementObjectService } from "./application/BookArrangementObjectService";
+import { ChapterSceneArrangementService } from "./application/ChapterSceneArrangementService";
 
 const store = new AdjustmentStore();
 const settings = new WritingSettingsService(store);
@@ -17,6 +18,7 @@ const lines = new WritingLineService(store);
 const arrangement = new BookArrangementService(store, settings);
 const arrangementVolumes = new BookArrangementVolumeService(store);
 const arrangementObjects = new BookArrangementObjectService(store);
+const arrangementScenes = new ChapterSceneArrangementService(store);
 
 /** Optional facade: legacy callers never resolve requirements unless their request opts in. */
 export const adjustmentService = {
@@ -53,6 +55,8 @@ export const adjustmentService = {
   arrangementObject: arrangementObjects.detail.bind(arrangementObjects),
   previewArrangementObject: arrangementObjects.preview.bind(arrangementObjects),
   applyArrangementObject: arrangementObjects.apply.bind(arrangementObjects),
+  previewArrangementScenes: arrangementScenes.preview.bind(arrangementScenes),
+  applyArrangementScenes: arrangementScenes.apply.bind(arrangementScenes),
 };
 
 export async function getRequirementsForRuntime(novelId: string, chapterId: string, requirementsId: string) {
