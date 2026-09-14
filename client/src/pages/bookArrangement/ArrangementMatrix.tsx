@@ -112,7 +112,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSe
     <div className="ba-sticky-chapter-head">
       <div className="ba-sticky-chapter-head-inner" style={{ "--ba-count": chapters.length, transform: `translateX(${-matrixScrollLeft}px)` } as CSSProperties}>
         <div className="ba-label ba-head">章节</div>
-        {chapters.map(chapter => <button type="button" key={chapter.id} data-chapter-id={chapter.id} className={`ba-cell ba-head ${selectedId === chapter.id ? "is-selected" : ""}`} aria-label={`选择第${chapter.order}章 · ${chapter.title}`} title={`第${chapter.order}章 · ${chapter.title}`} onClick={() => onSelect(chapter.id)}>
+        {chapters.map(chapter => <button type="button" key={chapter.id} data-chapter-id={chapter.id} className={`ba-cell ba-head ${selectedId === chapter.id ? "is-selected" : ""}`} aria-label={`选择第${chapter.order}章 · ${chapter.title}`} title={`第${chapter.order}章 · ${chapter.title}`} onClick={() => onSelect(chapter.id)} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openChapterMenu(chapter.id, event.clientX, event.clientY); }}>
           <span className="ba-chapter-heading"><span className="ba-chapter-number">{chapter.order} ·</span><span className="ba-chapter-title">{chapter.title}</span>{chapterEdit(draft, chapter.id).locked && <LockKeyhole size={12} aria-label="已锁定编排" />}</span>
           <span className={`ba-chapter-state ${chapter.hasContent ? "is-written" : "is-pending"}`}>{chapter.hasContent ? "已写" : "待写"}</span>
         </button>)}
