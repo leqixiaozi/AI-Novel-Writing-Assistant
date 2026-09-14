@@ -93,6 +93,7 @@ export interface NovelApplicationServices {
   saveNovelWorldToLibrary: NovelApplicationMethod;
   syncNovelWorldWithLibrary: NovelApplicationMethod;
   listCharacterRelations: NovelApplicationMethod;
+  updateCharacterRelation: NovelApplicationMethod;
   listCharacterCastOptions: NovelApplicationMethod;
   generateCharacterCastOptions: NovelApplicationMethod;
   applyCharacterCastOption: NovelApplicationMethod;
@@ -211,6 +212,7 @@ export const novelApplicationServiceMethodNames = [
   "saveNovelWorldToLibrary",
   "syncNovelWorldWithLibrary",
   "listCharacterRelations",
+  "updateCharacterRelation",
   "listCharacterCastOptions",
   "generateCharacterCastOptions",
   "applyCharacterCastOption",

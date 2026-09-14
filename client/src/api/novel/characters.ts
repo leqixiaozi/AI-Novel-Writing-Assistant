@@ -110,6 +110,25 @@ export async function getCharacterRelations(id: string) {
   return data;
 }
 
+export async function updateCharacterRelation(
+  id: string,
+  relationId: string,
+  payload: Pick<CharacterRelation,
+    | "surfaceRelation"
+    | "hiddenTension"
+    | "conflictSource"
+    | "secretAsymmetry"
+    | "dynamicLabel"
+    | "nextTurnPoint"
+  >,
+) {
+  const { data } = await apiClient.put<ApiResponse<CharacterRelation>>(
+    `/novels/${id}/character-relations/${relationId}`,
+    payload,
+  );
+  return data;
+}
+
 export async function getCharacterCastOptions(id: string) {
   const { data } = await apiClient.get<ApiResponse<CharacterCastOption[]>>(`/novels/${id}/character-prep/cast-options`);
   return data;

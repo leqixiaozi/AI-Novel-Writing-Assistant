@@ -13,6 +13,7 @@ import type {
   SupplementalCharacterGenerationResult,
 } from "@ai-novel/shared/types/novel";
 import type { LLMProvider } from "@ai-novel/shared/types/llm";
+import { AppError } from "../../../middleware/errorHandler";
 import { prisma } from "../../../db/prisma";
 import { runStructuredPrompt } from "../../../prompting/core/promptRunner";
 import { buildCharacterCastContextBlocks } from "../../../prompting/prompts/novel/characterPreparation.contextBlocks";
@@ -580,6 +581,65 @@ export class CharacterPreparationService {
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }));
+  }
+
+  async updateCharacterRelation(
+    novelId: string,
+    relationId: string,
+    input: {
+      surfaceRelation: string;
+      hiddenTension?: string | null;
+      conflictSource?: string | null;
+      secretAsymmetry?: string | null;
+      dynamicLabel?: string | null;
+      nextTurnPoint?: string | null;
+    },
+  ): Promise<CharacterRelation> {
+    const existing = await prisma.characterRelation.findFirst({
+      where: { id: relationId, novelId },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new AppError("人物关系不存在。", 404);
+    }
+
+    const row = await prisma.characterRelation.update({
+      where: { id: relationId },
+      data: {
+        surfaceRelation: input.surfaceRelation.trim(),
+        hiddenTension: input.hiddenTension?.trim() || null,
+        conflictSource: input.conflictSource?.trim() || null,
+        secretAsymmetry: input.secretAsymmetry?.trim() || null,
+        dynamicLabel: input.dynamicLabel?.trim() || null,
+        nextTurnPoint: input.nextTurnPoint?.trim() || null,
+      },
+      include: {
+        sourceCharacter: { select: { name: true } },
+        targetCharacter: { select: { name: true } },
+      },
+    });
+
+    return {
+      id: row.id,
+      novelId: row.novelId,
+      sourceCharacterId: row.sourceCharacterId,
+      targetCharacterId: row.targetCharacterId,
+      sourceCharacterName: row.sourceCharacter.name,
+      targetCharacterName: row.targetCharacter.name,
+      surfaceRelation: row.surfaceRelation,
+      hiddenTension: row.hiddenTension,
+      conflictSource: row.conflictSource,
+      secretAsymmetry: row.secretAsymmetry,
+      dynamicLabel: row.dynamicLabel,
+      nextTurnPoint: row.nextTurnPoint,
+      trustScore: row.trustScore,
+      conflictScore: row.conflictScore,
+      intimacyScore: row.intimacyScore,
+      dependencyScore: row.dependencyScore,
+      evidence: row.evidence,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 
   async generateSupplementalCharacters(

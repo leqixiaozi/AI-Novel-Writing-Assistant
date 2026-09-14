@@ -14,6 +14,20 @@ const optionParamsSchema = z.object({
   optionId: z.string().trim().min(1),
 });
 
+const relationParamsSchema = z.object({
+  id: z.string().trim().min(1),
+  relationId: z.string().trim().min(1),
+});
+
+const characterRelationUpdateSchema = z.object({
+  surfaceRelation: z.string().trim().min(1).max(500),
+  hiddenTension: z.string().trim().max(1000).optional().nullable(),
+  conflictSource: z.string().trim().max(1000).optional().nullable(),
+  secretAsymmetry: z.string().trim().max(1000).optional().nullable(),
+  dynamicLabel: z.string().trim().max(240).optional().nullable(),
+  nextTurnPoint: z.string().trim().max(1000).optional().nullable(),
+});
+
 const castOptionGenerateSchema = z.object({
   provider: llmProviderSchema.optional(),
   model: z.string().trim().optional(),
@@ -37,6 +51,7 @@ interface RegisterNovelCharacterPreparationRoutesInput {
   router: Router;
   novelService: Pick<NovelApplicationServices,
     | "listCharacterRelations"
+    | "updateCharacterRelation"
     | "listCharacterCastOptions"
     | "generateCharacterCastOptions"
     | "applyCharacterCastOption"
@@ -66,6 +81,28 @@ export function registerNovelCharacterPreparationRoutes(
       next(error);
     }
   });
+
+  router.put(
+    "/:id/character-relations/:relationId",
+    validate({ params: relationParamsSchema, body: characterRelationUpdateSchema }),
+    async (req, res, next) => {
+      try {
+        const { id, relationId } = req.params as z.infer<typeof relationParamsSchema>;
+        const data = await novelService.updateCharacterRelation(
+          id,
+          relationId,
+          req.body as z.infer<typeof characterRelationUpdateSchema>,
+        );
+        res.status(200).json({
+          success: true,
+          data,
+          message: "人物关系已保存。",
+        } satisfies ApiResponse<typeof data>);
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
 
   router.get("/:id/character-prep/cast-options", validate({ params: idParamsSchema }), async (req, res, next) => {
     try {

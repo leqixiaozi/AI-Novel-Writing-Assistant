@@ -19,6 +19,7 @@ import {
   type Node,
   type NodeMouseHandler,
   type NodeProps,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AlertTriangle, GitBranch, Network, RadioTower, Sparkles, UsersRound } from "lucide-react";
@@ -45,6 +46,7 @@ interface CharacterRelationshipGraphPanelProps {
   isLoading?: boolean;
   compact?: boolean;
   renderNodeDetail?: (node: RelationshipGraphNode) => ReactNode;
+  renderEdgeDetail?: (edge: RelationshipGraphEdge) => ReactNode;
   renderEdgeActions?: (edge: RelationshipGraphEdge) => ReactNode;
 }
 
@@ -54,6 +56,7 @@ interface RelationshipNodeData extends Record<string, unknown> {
 
 interface RelationshipEdgeData extends Record<string, unknown> {
   graphEdge: RelationshipGraphEdge;
+  onSelect: () => void;
 }
 
 type RelationshipFlowNode = Node<RelationshipNodeData, "characterNode">;
@@ -85,25 +88,20 @@ const MODE_OPTIONS: Array<{
 ];
 
 export default function CharacterRelationshipGraphPanel(props: CharacterRelationshipGraphPanelProps) {
-  const { model, mode, onModeChange, selectedCharacterId, onSelectedCharacterChange, isLoading = false, compact = false, renderNodeDetail, renderEdgeActions } = props;
+  const { model, mode, onModeChange, selectedCharacterId, onSelectedCharacterChange, isLoading = false, compact = false, renderNodeDetail, renderEdgeDetail, renderEdgeActions } = props;
   const [selection, setSelection] = useState<Selection | null>(null);
   const [interactiveNodes, setInteractiveNodes] = useState<RelationshipFlowNode[]>([]);
-  const previousModeRef = useRef<RelationshipGraphMode>(mode);
+  const flowInstanceRef = useRef<ReactFlowInstance<RelationshipFlowNode, RelationshipFlowEdge> | null>(null);
 
   useEffect(() => {
-    if (selectedCharacterId && model.nodes.some((node) => node.id === selectedCharacterId)) {
-      setSelection({ type: "node", id: selectedCharacterId });
-      return;
-    }
-    if (model.edges[0]) {
-      setSelection({ type: "edge", id: model.edges[0].id });
-      return;
-    }
-    if (model.nodes[0]) {
-      setSelection({ type: "node", id: model.nodes[0].id });
-      return;
-    }
-    setSelection(null);
+    setSelection((current) => {
+      if (current?.type === "edge" && model.edges.some((edge) => edge.id === current.id)) return current;
+      if (current?.type === "node" && model.nodes.some((node) => node.id === current.id)) return current;
+      if (selectedCharacterId && model.nodes.some((node) => node.id === selectedCharacterId)) return { type: "node", id: selectedCharacterId };
+      if (model.edges[0]) return { type: "edge", id: model.edges[0].id };
+      if (model.nodes[0]) return { type: "node", id: model.nodes[0].id };
+      return null;
+    });
   }, [model.edges, model.nodes, selectedCharacterId]);
 
   const flowNodes = useMemo<RelationshipFlowNode[]>(
@@ -124,10 +122,16 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
     [model.nodes],
   );
 
+  const topologyKey = useMemo(
+    () => `${mode}|${model.nodes.map((node) => node.id).sort().join(",")}|${model.edges.map((edge) => `${edge.id}:${edge.source}:${edge.target}`).sort().join(",")}`,
+    [mode, model.edges, model.nodes],
+  );
+  const previousTopologyRef = useRef("");
+
   useEffect(() => {
     setInteractiveNodes((currentNodes) => {
-      const shouldResetLayout = previousModeRef.current !== mode || currentNodes.length === 0;
-      previousModeRef.current = mode;
+      const shouldResetLayout = previousTopologyRef.current !== topologyKey || currentNodes.length === 0;
+      previousTopologyRef.current = topologyKey;
       if (shouldResetLayout) {
         return flowNodes;
       }
@@ -139,7 +143,11 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
           : node;
       });
     });
-  }, [flowNodes, mode]);
+  }, [flowNodes, topologyKey]);
+
+  const selectEdge = useCallback((id: string) => {
+    setSelection({ type: "edge", id });
+  }, []);
 
   const flowEdges = useMemo<RelationshipFlowEdge[]>(
     () => model.edges.map((item) => ({
@@ -147,7 +155,7 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
       type: "relationshipEdge",
       source: item.source,
       target: item.target,
-      data: { graphEdge: item },
+      data: { graphEdge: item, onSelect: () => selectEdge(item.id) },
       animated: item.isDynamic,
       markerEnd: {
         type: MarkerType.ArrowClosed,
@@ -157,9 +165,10 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
       },
       selectable: true,
       focusable: true,
+      interactionWidth: 28,
       zIndex: item.isDynamic ? 16 : 12,
     })),
-    [model.edges],
+    [model.edges, selectEdge],
   );
 
   const selectedNode = selection?.type === "node"
@@ -179,8 +188,15 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
   }, []);
 
   const handleEdgeClick: EdgeMouseHandler<RelationshipFlowEdge> = (_, edge) => {
-    setSelection({ type: "edge", id: edge.id });
+    selectEdge(edge.id);
   };
+
+  const resetLayout = useCallback(() => {
+    setInteractiveNodes(flowNodes);
+    globalThis.requestAnimationFrame?.(() => {
+      void flowInstanceRef.current?.fitView({ padding: 0.28, duration: 240 });
+    });
+  }, [flowNodes]);
 
   return (
     <FullscreenView
@@ -193,22 +209,28 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
           {model.dynamicEdgeCount > 0 ? <Badge variant="secondary">{model.dynamicEdgeCount} 条动态阶段</Badge> : null}
         </>
       )}
-      actions={MODE_OPTIONS.map((option) => {
-        const Icon = option.icon;
-        return (
-          <Button
-            key={option.value}
-            type="button"
-            size="sm"
-            variant={mode === option.value ? "default" : "outline"}
-            onClick={() => onModeChange(option.value)}
-            className="gap-1.5"
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {option.label}
-          </Button>
-        );
-      })}
+      actions={<>
+        {MODE_OPTIONS.map((option) => {
+          const Icon = option.icon;
+          return (
+            <Button
+              key={option.value}
+              type="button"
+              size="sm"
+              variant={mode === option.value ? "default" : "outline"}
+              onClick={() => onModeChange(option.value)}
+              className="gap-1.5"
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {option.label}
+            </Button>
+          );
+        })}
+        <Button type="button" size="sm" variant="outline" onClick={resetLayout} className="gap-1.5">
+          <Sparkles className="h-3.5 w-3.5" />
+          自动排布
+        </Button>
+      </>}
       toggleLabel="全屏查看"
       exitLabel="退出全屏"
       bodyClassName={compact ? "ba-relationship-graph-compact grid min-h-[560px] grid-cols-[minmax(0,1fr)_320px] gap-0" : "grid min-h-[560px] gap-0 xl:grid-cols-[minmax(0,1fr)_340px]"}
@@ -242,6 +264,7 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
               zoomOnPinch
               zoomOnDoubleClick={false}
               proOptions={{ hideAttribution: true }}
+              onInit={(instance) => { flowInstanceRef.current = instance; }}
             >
               <Background color="hsl(var(--border))" gap={28} size={1} />
               <Panel position="top-left" className="rounded-xl border border-border/70 bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
@@ -267,6 +290,7 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
         selectedEdge={selectedEdge}
         selectedCharacterId={selectedCharacterId}
         renderNodeDetail={renderNodeDetail}
+        renderEdgeDetail={renderEdgeDetail}
         renderEdgeActions={renderEdgeActions}
       />
     </FullscreenView>
@@ -368,18 +392,24 @@ function CharacterRelationshipEdge(props: EdgeProps) {
       />
       {graphEdge ? (
         <EdgeLabelRenderer>
-          <div
+          <button
+            type="button"
+            aria-label={`编辑关系：${graphEdge.label}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              data?.onSelect();
+            }}
             className={cn(
-              "nodrag nopan absolute max-w-[150px] truncate rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-sm",
+              "nodrag nopan absolute max-w-[150px] truncate rounded-full border px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               tone.label,
             )}
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              pointerEvents: "none",
+              pointerEvents: "all",
             }}
           >
             {graphEdge.label}
-          </div>
+          </button>
         </EdgeLabelRenderer>
       ) : null}
     </>
@@ -391,6 +421,7 @@ function RelationshipDetailPanel(props: {
   selectedEdge: RelationshipGraphEdge | null;
   selectedCharacterId: string;
   renderNodeDetail?: (node: RelationshipGraphNode) => ReactNode;
+  renderEdgeDetail?: (edge: RelationshipGraphEdge) => ReactNode;
   renderEdgeActions?: (edge: RelationshipGraphEdge) => ReactNode;
 }) {
   const { selectedNode, selectedEdge } = props;
@@ -398,7 +429,7 @@ function RelationshipDetailPanel(props: {
   return (
     <aside className="h-full min-h-0 overflow-y-auto bg-background p-4">
       {selectedEdge ? (
-        <EdgeDetail edge={selectedEdge} actions={props.renderEdgeActions?.(selectedEdge)} />
+        props.renderEdgeDetail?.(selectedEdge) ?? <EdgeDetail edge={selectedEdge} actions={props.renderEdgeActions?.(selectedEdge)} />
       ) : selectedNode ? (
         props.renderNodeDetail?.(selectedNode) ?? <NodeDetail node={selectedNode} />
       ) : (

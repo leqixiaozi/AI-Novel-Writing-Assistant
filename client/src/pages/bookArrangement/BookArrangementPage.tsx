@@ -6,7 +6,7 @@ import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type Sce
 import type { Character, CharacterRelation } from "@ai-novel/shared/types/novel";
 import type { CharacterRelationStage } from "@ai-novel/shared/types/characterDynamics";
 import { createBookArrangementApi } from "@/api/bookArrangement";
-import { getCharacterRelations, getNovelCharacters, getNovelList, updateNovelCharacter } from "@/api/novel";
+import { getCharacterRelations, getNovelCharacters, getNovelList, updateCharacterRelation, updateNovelCharacter } from "@/api/novel";
 import { getCharacterDynamicsOverview } from "@/api/novelCharacterDynamics";
 import { Button } from "@/components/ui/button";
 import { Dialog, AppDialogContent } from "@/components/ui/dialog";
@@ -31,7 +31,8 @@ import { SceneExpressionPointPanel } from "./panels/SceneExpressionPointPanel";
 import { expressionPointKey } from "./controls/sceneExpressionState";
 import { closeObjectLayer, openObjectLayer, type ArrangementPanel, type ArrangementPanelLayers } from "./panels/panelNavigation";
 import CharacterRelationshipGraphPanel from "@/pages/novels/components/characterWorkspace/CharacterRelationshipGraphPanel";
-import { buildRelationshipGraphModel, type RelationshipGraphMode } from "@/pages/novels/components/characterWorkspace/characterRelationshipGraphModel";
+import { buildRelationshipGraphModel, type RelationshipGraphEdge, type RelationshipGraphMode } from "@/pages/novels/components/characterWorkspace/characterRelationshipGraphModel";
+import { characterRelationDraftError, toCharacterRelationDraft, type CharacterRelationQuickDraft } from "./panels/characterRelationshipEditing";
 import "./panels/arrangement.css";
 
 function errorMessage(error: unknown): string {
@@ -65,6 +66,26 @@ function CharacterQuickEditor({ novelId, character, onSaved }: { novelId: string
     } catch (error) { setNotice(errorMessage(error)); } finally { setSaving(false); }
   };
   return <form className="ba-character-quick-editor" onSubmit={event => { event.preventDefault(); void save(); }}><header><div><h3>{character.name}</h3><p>修改会写回底座人物资料，并用于后续章节规划。</p></div></header>{field("name", "人物名称")}{field("role", "角色定位")}{field("storyFunction", "故事作用", true)}{field("relationToProtagonist", "与主角关系", true)}{field("currentGoal", "当前目标", true)}{field("currentState", "当前状态", true)}{notice && <p role="status" className="ba-help">{notice}</p>}<Button type="submit" disabled={saving}>{saving ? "正在保存…" : "保存人物信息"}</Button></form>;
+}
+
+function CharacterRelationQuickEditor({ novelId, edge, fullEditorUrl, onSaved }: { novelId: string; edge: RelationshipGraphEdge; fullEditorUrl: string; onSaved: (relation: CharacterRelation) => void }) {
+  const relation = edge.staticRelation!;
+  const [draft, setDraft] = useState<CharacterRelationQuickDraft>(() => toCharacterRelationDraft(relation));
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  useEffect(() => { setDraft(toCharacterRelationDraft(relation)); setNotice(""); }, [relation]);
+  const field = (key: keyof CharacterRelationQuickDraft, label: string, rows = 2) => <label className="ba-character-quick-field"><span>{label}</span><textarea className="ba-input" rows={rows} value={draft[key]} onChange={event => setDraft(current => ({ ...current, [key]: event.target.value }))} /></label>;
+  const save = async () => {
+    const validation = characterRelationDraftError(draft);
+    if (validation) { setNotice(validation); return; }
+    setSaving(true); setNotice("");
+    try {
+      const response = await updateCharacterRelation(novelId, relation.id, draft);
+      if (!response.data) throw new Error(response.message || "人物关系保存失败。");
+      onSaved(response.data); setNotice("人物关系已保存，并会用于后续章节规划。");
+    } catch (error) { setNotice(errorMessage(error)); } finally { setSaving(false); }
+  };
+  return <form className="ba-character-quick-editor" onSubmit={event => { event.preventDefault(); void save(); }}><header><div><h3>{edge.sourceName} ↔ {edge.targetName}</h3><p>修改全书初始关系，后续章节规划会读取这里的结果。</p></div></header>{field("surfaceRelation", "表层关系")}{field("dynamicLabel", "关系标签", 1)}{field("hiddenTension", "隐藏张力")}{field("conflictSource", "冲突来源")}{field("secretAsymmetry", "秘密不对称")}{field("nextTurnPoint", "下一转折点")}{notice && <p role="status" className="ba-help">{notice}</p>}<div className="flex flex-wrap gap-2"><Button type="submit" disabled={saving}>{saving ? "正在保存…" : "保存人物关系"}</Button><Button asChild type="button" variant="outline"><Link target="_blank" rel="noreferrer" to={fullEditorUrl}>完整关系配置</Link></Button></div></form>;
 }
 
 function BookRelationshipPanel({ workspace, selectedId, onSelectChapter, onOpenRelation, onCharacterSaved }: { workspace: BookArrangementWorkspace; selectedId: string; onSelectChapter: (chapterId: string) => void; onOpenRelation: (relationId: string, chapterId?: string) => void; onCharacterSaved: (character: Character) => void }) {
@@ -112,15 +133,16 @@ function BookRelationshipPanel({ workspace, selectedId, onSelectChapter, onOpenR
 
   const graphModel = useMemo(() => buildRelationshipGraphModel({ characters, staticRelations: tab === "initial" ? initialRelations : [], dynamicRelations: tab === "chapter" ? chapterRelations : [], selectedCharacterId, mode }), [chapterRelations, characters, initialRelations, mode, selectedCharacterId, tab]);
   const saveCharacter = (updated: Character) => { setCharacters(current => current.map(character => character.id === updated.id ? updated : character)); onCharacterSaved(updated); };
+  const saveRelation = (updated: CharacterRelation) => { setInitialRelations(current => current.map(relation => relation.id === updated.id ? updated : relation)); };
 
   return <section className="ba-book-catalog ba-relation-panel">
     <div className="ba-inspector-tabs" role="tablist" aria-label="人物关系范围">
       <button type="button" role="tab" aria-selected={tab === "initial"} onClick={() => setTab("initial")}>初始关系</button>
       <button type="button" role="tab" aria-selected={tab === "chapter"} onClick={() => setTab("chapter")}>当前章节</button>
     </div>
-    <header><div><h3>{tab === "initial" ? "全书初始人物关系" : currentChapter ? `第 ${currentChapter.order} 章 · ${currentChapter.title}` : "当前章节"}</h3><p>{tab === "initial" ? "点击人物直接修改基础信息；点击连线查看初始关系。" : "查看所选章节的人物关系快照与计划变化。"}</p></div>{tab === "initial" ? <Link target="_blank" rel="noreferrer" to={relationEditorUrl}>完整关系配置</Link> : <select className="ba-input ba-inline" aria-label="选择要查看人物关系的章节" value={selectedId} onChange={event => onSelectChapter(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select>}</header>
+    <header><div><h3>{tab === "initial" ? "全书初始人物关系" : currentChapter ? `第 ${currentChapter.order} 章 · ${currentChapter.title}` : "当前章节"}</h3><p>{tab === "initial" ? "点击人物或关系标签直接修改；自动排布可恢复清晰布局。" : "查看所选章节的人物关系快照与计划变化。"}</p></div>{tab === "initial" ? <Link target="_blank" rel="noreferrer" to={relationEditorUrl}>完整关系配置</Link> : <select className="ba-input ba-inline" aria-label="选择要查看人物关系的章节" value={selectedId} onChange={event => onSelectChapter(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select>}</header>
     {(initialError || chapterError) && <div role="alert" className="ba-relation-load-error"><span>{initialError || chapterError}</span><Button size="sm" variant="outline" onClick={() => setReload(value => value + 1)}>重新读取</Button></div>}
-    <CharacterRelationshipGraphPanel model={graphModel} mode={mode} onModeChange={setMode} selectedCharacterId={selectedCharacterId} onSelectedCharacterChange={setSelectedCharacterId} isLoading={initialLoading || (tab === "chapter" && chapterLoading)} compact renderNodeDetail={tab === "initial" ? node => <CharacterQuickEditor novelId={workspace.novelId} character={node.character} onSaved={saveCharacter} /> : undefined} renderEdgeActions={edge => tab === "initial" ? <Link target="_blank" rel="noreferrer" to={relationEditorUrl}>配置这组初始关系</Link> : (() => { const stage = edge.dynamicStages.find(relation => relation.chapterId === selectedId) ?? edge.dynamicStages.find(relation => relation.isCurrent) ?? edge.dynamicStages[0]; return stage ? <Button size="sm" variant="outline" onClick={() => onOpenRelation(stage.id, stage.chapterId ?? selectedId)}>调整这个关系阶段</Button> : null; })()} />
+    <CharacterRelationshipGraphPanel model={graphModel} mode={mode} onModeChange={setMode} selectedCharacterId={selectedCharacterId} onSelectedCharacterChange={setSelectedCharacterId} isLoading={initialLoading || (tab === "chapter" && chapterLoading)} compact renderNodeDetail={tab === "initial" ? node => <CharacterQuickEditor novelId={workspace.novelId} character={node.character} onSaved={saveCharacter} /> : undefined} renderEdgeDetail={tab === "initial" ? edge => edge.staticRelation ? <CharacterRelationQuickEditor novelId={workspace.novelId} edge={edge} fullEditorUrl={relationEditorUrl} onSaved={saveRelation} /> : undefined : undefined} renderEdgeActions={edge => tab === "chapter" ? (() => { const stage = edge.dynamicStages.find(relation => relation.chapterId === selectedId) ?? edge.dynamicStages.find(relation => relation.isCurrent) ?? edge.dynamicStages[0]; return stage ? <Button size="sm" variant="outline" onClick={() => onOpenRelation(stage.id, stage.chapterId ?? selectedId)}>调整这个关系阶段</Button> : null; })() : null} />
   </section>;
 }
 

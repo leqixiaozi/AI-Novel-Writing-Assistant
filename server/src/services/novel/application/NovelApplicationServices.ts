@@ -584,6 +584,13 @@ export class DefaultNovelApplicationServices {
     return this.characterPreparationService.listCharacterRelations(...args);
   }
 
+  async updateCharacterRelation(...args: Parameters<CharacterPreparationService["updateCharacterRelation"]>) {
+    const [novelId] = args;
+    const result = await this.characterPreparationService.updateCharacterRelation(...args);
+    await this.characterDynamicsService.rebuildDynamics(novelId, { sourceType: "rebuild_projection" }).catch(() => null);
+    return result;
+  }
+
   listCharacterCastOptions(...args: Parameters<CharacterPreparationService["listCharacterCastOptions"]>) {
     return this.characterPreparationService.listCharacterCastOptions(...args);
   }
