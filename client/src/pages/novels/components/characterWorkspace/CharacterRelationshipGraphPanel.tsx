@@ -36,6 +36,11 @@ import type {
   RelationshipGraphModel,
   RelationshipGraphNode,
 } from "./characterRelationshipGraphModel";
+import {
+  buildRelationshipPortLayout,
+  type RelationshipNodePort,
+  type RelationshipPortSide,
+} from "./characterRelationshipPorts";
 
 interface CharacterRelationshipGraphPanelProps {
   model: RelationshipGraphModel;
@@ -52,6 +57,7 @@ interface CharacterRelationshipGraphPanelProps {
 
 interface RelationshipNodeData extends Record<string, unknown> {
   graphNode: RelationshipGraphNode;
+  ports: RelationshipNodePort[];
 }
 
 interface RelationshipEdgeData extends Record<string, unknown> {
@@ -104,12 +110,17 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
     });
   }, [model.edges, model.nodes, selectedCharacterId]);
 
+  const portLayout = useMemo(
+    () => buildRelationshipPortLayout(model.nodes, model.edges),
+    [model.edges, model.nodes],
+  );
+
   const flowNodes = useMemo<RelationshipFlowNode[]>(
     () => model.nodes.map((item) => ({
       id: item.id,
       type: "characterNode",
       position: { x: item.x, y: item.y },
-      data: { graphNode: item },
+      data: { graphNode: item, ports: portLayout.nodePorts.get(item.id) ?? [] },
       draggable: true,
       selectable: true,
       focusable: true,
@@ -119,7 +130,7 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
         height: GRAPH_NODE_HEIGHT,
       },
     })),
-    [model.nodes],
+    [model.nodes, portLayout.nodePorts],
   );
 
   const topologyKey = useMemo(
@@ -156,6 +167,8 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
       source: item.source,
       target: item.target,
       data: { graphEdge: item, onSelect: () => selectEdge(item.id) },
+      sourceHandle: portLayout.edgePorts.get(item.id)?.sourceHandle,
+      targetHandle: portLayout.edgePorts.get(item.id)?.targetHandle,
       animated: item.isDynamic,
       markerEnd: {
         type: MarkerType.ArrowClosed,
@@ -168,7 +181,7 @@ export default function CharacterRelationshipGraphPanel(props: CharacterRelation
       interactionWidth: 28,
       zIndex: item.isDynamic ? 16 : 12,
     })),
-    [model.edges, selectEdge],
+    [model.edges, portLayout.edgePorts, selectEdge],
   );
 
   const selectedNode = selection?.type === "node"
@@ -308,7 +321,7 @@ function CharacterRelationshipNode(props: NodeProps) {
   return (
     <div
       className={cn(
-        "relative h-[148px] w-[196px] overflow-hidden rounded-2xl border px-3.5 pb-9 pt-3.5 shadow-sm transition",
+        "relative h-[148px] w-[196px] overflow-visible rounded-2xl border px-3.5 pb-9 pt-3.5 shadow-sm transition",
         isProtagonist
           ? "border-emerald-300 bg-[linear-gradient(135deg,#f0fdf4_0%,#ffffff_58%,#ecfeff_100%)] shadow-[0_18px_42px_rgba(16,185,129,0.18)]"
           : "bg-background/95",
@@ -322,18 +335,16 @@ function CharacterRelationshipNode(props: NodeProps) {
       {isProtagonist ? (
         <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#10b981,#0ea5e9)]" />
       ) : null}
-      <Handle
-        type="target"
-        position={Position.Left}
+      {data.ports.map((port) => <Handle
+        key={port.handleId}
+        id={port.handleId}
+        type={port.type}
+        position={toFlowPosition(port.side)}
         isConnectable={false}
-        className="!h-2 !w-2 !border-0 !bg-transparent"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        isConnectable={false}
-        className="!h-2 !w-2 !border-0 !bg-transparent"
-      />
+        aria-label={`${character.name}关系连接点`}
+        className="!h-2.5 !w-2.5 !border-2 !border-background !bg-muted-foreground/70"
+        style={portStyle(port)}
+      />)}
       <div className="flex items-start gap-2">
         <div className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-sm font-semibold",
@@ -370,6 +381,18 @@ function CharacterRelationshipNode(props: NodeProps) {
       </div>
     </div>
   );
+}
+
+function toFlowPosition(side: RelationshipPortSide): Position {
+  if (side === "top") return Position.Top;
+  if (side === "right") return Position.Right;
+  if (side === "bottom") return Position.Bottom;
+  return Position.Left;
+}
+
+function portStyle(port: RelationshipNodePort) {
+  const offset = `${Math.round(port.offset * 1000) / 10}%`;
+  return port.side === "top" || port.side === "bottom" ? { left: offset } : { top: offset };
 }
 
 function CharacterRelationshipEdge(props: EdgeProps) {
