@@ -68,7 +68,7 @@ const DialogDescription = React.forwardRef<
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
-type AppDialogContentProps = React.ComponentPropsWithoutRef<typeof DialogContent> & {
+type AppDialogContentProps = Omit<React.ComponentPropsWithoutRef<typeof DialogContent>, "title"> & {
   title: React.ReactNode;
   description?: React.ReactNode;
   bodyClassName?: string;

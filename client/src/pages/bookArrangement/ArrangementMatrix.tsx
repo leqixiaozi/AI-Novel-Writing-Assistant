@@ -13,7 +13,7 @@ import { chapterSceneGroups, expressionPoint, expressionPointKey, sceneExpressio
 
 interface Props {
   workspace: BookArrangementWorkspace; draft: BookArrangementDraftPayload; chapters: BookArrangementWorkspace["chapters"];
-  selectedId: string; scope: string[]; onSelect: (id: string) => void; onScope: (ids: string[]) => void;
+  selectedId: string; onSelect: (id: string) => void;
   onSpan: (id: string, chapterId?: string) => void; onDraft: (draft: BookArrangementDraftPayload) => void;
   characterSearch?: string; onCharacter?: (characterId: string, chapterId?: string) => void; onHistory?: (chapterId: string, characterId?: string) => void;
   selectedVolumeId?: string; onVolume?: (id: string) => void; onVolumeEdit?: (edit: BookArrangementVolumeEdit) => void; windowStart?: number; onWindowStart?: (index: number) => void;
@@ -39,7 +39,7 @@ function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string
   return chapterIds[index];
 }
 
-export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, expressionPoints, selectedExpression, onExpressionPoints, onExpressionSelect, onObject, onChapterMenuAction }: Props) {
+export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSelect, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, expressionPoints, selectedExpression, onExpressionPoints, onExpressionSelect, onObject, onChapterMenuAction }: Props) {
   const [groups, setGroups] = useState<Record<string, boolean>>({});
   const [personFilter, setPersonFilter] = useState("");
   const [allPresence, setAllPresence] = useState(false);
@@ -47,6 +47,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   const [allClues, setAllClues] = useState(false);
   const [expandedCells, setExpandedCells] = useState<Record<string, boolean>>({});
   const [chapterMenu, setChapterMenu] = useState<{ chapterId: string; x: number; y: number } | null>(null);
+  const [matrixScrollLeft, setMatrixScrollLeft] = useState(0);
   const chapterMenuRef = useRef<HTMLDivElement>(null);
   const allGroupsCollapsed = collapsibleGroups.every(key => groups[key]);
   const configuredTracks = draft.pinnedTracks.filter((key): key is SceneExpressionDimensionKey => SCENE_EXPRESSION_DIMENSIONS.some(dimension => dimension.key === key));
@@ -106,14 +107,17 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
       <label>人物筛选 <select aria-label="人物筛选" className="ba-input ba-inline" value={personFilter} onChange={event => { setPersonFilter(event.target.value); setAllPresence(false); if (event.target.value) onCharacter?.(event.target.value); }}><option value="">全部人物</option>{workspace.characters.map(person => <option key={person.id} value={person.id}>{person.name}{person.role ? ` · ${person.role}` : ""}</option>)}</select></label>
       <Button size="sm" variant="ghost" aria-label={allGroupsCollapsed ? "展开全部编排轨道" : "折叠全部编排轨道"} onClick={() => setGroups(allGroupsCollapsed ? {} : Object.fromEntries(collapsibleGroups.map(key => [key, true])))}>{allGroupsCollapsed ? "全部展开" : "全部折叠"}</Button>
     </div>
-    <div className="book-arrangement-scroll" tabIndex={0} aria-label="章节矩阵，可横向滚动">
-      <div className="ba-matrix ba-compact-matrix" style={{ "--ba-count": chapters.length } as CSSProperties}>
+    <div className="ba-sticky-chapter-head">
+      <div className="ba-sticky-chapter-head-inner" style={{ "--ba-count": chapters.length, transform: `translateX(${-matrixScrollLeft}px)` } as CSSProperties}>
         <div className="ba-label ba-head">章节</div>
-        {chapters.map(chapter => <div key={chapter.id} data-chapter-id={chapter.id} className={`ba-cell ba-head ${selectedId === chapter.id ? "is-selected" : ""}`}>
-          <button type="button" className="ba-chapter-heading" aria-label={`选择第${chapter.order}章 · ${chapter.title}`} title={`第${chapter.order}章 · ${chapter.title}`} onClick={() => onSelect(chapter.id)}><span className="ba-chapter-number">{chapter.order} ·</span><span className="ba-chapter-title">{chapter.title}</span>{chapterEdit(draft, chapter.id).locked && <LockKeyhole size={12} aria-label="已锁定编排" />}</button>
-          <label className={`ba-chapter-state ${chapter.hasContent ? "is-written" : "is-pending"}`}><input type="checkbox" aria-label={`调整范围第${chapter.order}章`} checked={scope.includes(chapter.id)} onChange={event => onScope(event.target.checked ? [...scope, chapter.id] : scope.filter(id => id !== chapter.id))} />{chapter.hasContent ? "已写" : "待写"}</label>
-        </div>)}
-
+        {chapters.map(chapter => <button type="button" key={chapter.id} data-chapter-id={chapter.id} className={`ba-cell ba-head ${selectedId === chapter.id ? "is-selected" : ""}`} aria-label={`选择第${chapter.order}章 · ${chapter.title}`} title={`第${chapter.order}章 · ${chapter.title}`} onClick={() => onSelect(chapter.id)}>
+          <span className="ba-chapter-heading"><span className="ba-chapter-number">{chapter.order} ·</span><span className="ba-chapter-title">{chapter.title}</span>{chapterEdit(draft, chapter.id).locked && <LockKeyhole size={12} aria-label="已锁定编排" />}</span>
+          <span className={`ba-chapter-state ${chapter.hasContent ? "is-written" : "is-pending"}`}>{chapter.hasContent ? "已写" : "待写"}</span>
+        </button>)}
+      </div>
+    </div>
+    <div className="book-arrangement-scroll" tabIndex={0} aria-label="章节矩阵，可横向滚动" onScroll={event => setMatrixScrollLeft(event.currentTarget.scrollLeft)}>
+      <div className="ba-matrix ba-compact-matrix" style={{ "--ba-count": chapters.length } as CSSProperties}>
         {label("volumes", "卷段", `${new Set(volumes.map(segment => segment.source.id)).size} 卷`)}
         <div className="ba-track-content">{!groups.volumes && <ArrangementVolumeTrack workspace={workspace} draft={draft} chapters={chapters} selectedChapterId={selectedId} selectedVolumeId={selectedVolumeId} onVolume={onVolume} onVolumeEdit={onVolumeEdit} windowStart={windowStart} onWindowStart={onWindowStart} />}</div>
 
@@ -149,10 +153,9 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
 
         <button type="button" className="ba-label ba-section-label ba-expression-section-label" aria-expanded={!groups.controls} onClick={() => toggle("controls")}>
           <span className="ba-expression-section-title">{groups.controls ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>场景表达轨道<small>{visibleTracks.length} 条 · {visibleScenes.length} 个场景点</small></span></span>
-          {!groups.controls && <span className="ba-expression-dimension-gutter" style={{ "--ba-track-count": visibleTracks.length } as CSSProperties} aria-hidden="true"><i />{SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => <i key={track.key} className={`is-${track.color}`}>{track.label}</i>)}</span>}
+          {!groups.controls && <span className="ba-expression-dimension-gutter" style={{ "--ba-track-count": visibleTracks.length } as CSSProperties} aria-hidden="true">{SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => <i key={track.key} className={`is-${track.color}`}>{track.label}</i>)}</span>}
         </button>
         <div className="ba-track-content ba-controls-content">{!groups.controls && <div className="ba-scene-track-scroll" style={{ "--ba-count": Math.max(1, chapters.length) } as CSSProperties}>
-          <div className="ba-scene-axis">{sceneGroups.map(group => <span key={group.chapter.id} title={`第${group.chapter.order}章 · ${group.chapter.title}\n${group.scenes.length} 个场景`}><b>第{group.chapter.order}章</b><small>{group.scenes.length} 场</small></span>)}</div>
           {SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => {
             return <div key={track.key} className={`ba-control-track is-${track.color}`}><div className="ba-curve">
               <svg aria-label={`${track.label}场景曲线，未设置处断线`} viewBox={`0 0 ${Math.max(1, chapters.length) * 100} 62`} preserveAspectRatio="none">{sceneExpressionCurveSegments(visibleScenes.map(scene => ({ x: scene.curveX, level: expressionPoint(expressionPoints, scene.id, track.key)?.level ?? null }))).map((segment, index) => <polyline key={index} fill="none" stroke={`var(--ba-${track.color})`} strokeWidth="2" vectorEffect="non-scaling-stroke" points={segment.map(point => `${point.x},${point.y}`).join(" ")} />)}</svg>

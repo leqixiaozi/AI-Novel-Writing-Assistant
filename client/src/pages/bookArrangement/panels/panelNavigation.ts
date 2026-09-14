@@ -24,3 +24,15 @@ export function openObjectLayer(current: ArrangementPanelLayers): ArrangementPan
 export function closeObjectLayer(current: ArrangementPanelLayers): ArrangementPanelLayers {
   return { ...current, objectOpen: false };
 }
+
+export function closeBaseLayer(current: ArrangementPanelLayers): ArrangementPanelLayers {
+  return { ...current, base: null };
+}
+
+export function panelScopeLabel(panel: ArrangementPanel, chapterOrder: number, selectedChapterCount: number): string {
+  if (panel === "book" || panel === "relations" || panel === "hooks" || panel === "tracks") return "全书";
+  if (panel === "expression-point") return "单个场景";
+  if (panel === "volume" || panel === "volume-preview") return "卷段";
+  if ((panel === "planning" || panel === "requirements" || panel === "controls") && selectedChapterCount > 1) return `批量 · ${selectedChapterCount} 章`;
+  return `第 ${chapterOrder} 章`;
+}
