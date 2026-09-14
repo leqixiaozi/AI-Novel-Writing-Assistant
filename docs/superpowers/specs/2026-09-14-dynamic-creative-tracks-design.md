@@ -339,8 +339,7 @@ flowchart LR
 面板固定列出五条系统轨道。作者只能：
 
 - 显示或隐藏轨道；
-- 调整轨道顺序；
-- 使用项目主题颜色；
+- 使用五条轨道各自固定的项目主题颜色；
 - 查看五档解释与内容保护规则；
 - 恢复默认显示设置。
 
@@ -348,9 +347,11 @@ flowchart LR
 
 ### 9.2 主矩阵
 
-- 横轴精度是场景。所有可见场景按正文阅读顺序排列，章节标题只在上方跨列分组，每个章节下显示 `S1、S2、S3…`。
+- 横轴分格与上方章节矩阵完全对齐，一章只占一列；该章所有可见场景按 `S1、S2、S3…` 排在同一列内部。场景仍是保存和拖动的最小精度。
+- 章节格只显示章号与场景数，悬停显示完整章节名称；不会为每个场景额外扩出一整列。
 - 一个点只对应一个真实场景和一个维度，不再用一个点代表整章，也不显示章级节点。
-- 未设置点在 `L3` 位置显示“底座写法”的空心占位；已设置点使用轨道颜色实心显示并标注 `L1—L5`。空心占位只是操作入口，不会保存为 `L3`。
+- 同章场景以多个小圆圈放在同一个章节格中。未设置点使用淡色虚线圆；L1 空心、L2 四分之一填充、L3 半填充、L4 四分之三填充、L5 全填充。圆圈内不显示“底座”、S 序号或档位文字，空心占位不会保存为 `L3`。
+- 轨道标题区域拆出竖排窄列显示五个维度名称，维度名不覆盖第一章点位。
 - 鼠标悬停显示章节序号、场景序号、完整场景标题、当前档位和是否已设置，例如“第5章 · S2 摸供桌｜L4 紧凑推进”。
 - 左键单击只选中点，不打开弹窗；按住点上下拖动时，点吸附到五个离散档位，并实时更新连线、档位标签和草稿摘要。
 - 只允许垂直拖动。水平移动不改变场景归属，也不能把一个场景的参数拖到相邻场景。
@@ -359,7 +360,14 @@ flowchart LR
 - 键盘聚焦点位后使用上下方向键调整档位；`Shift+F10` 或菜单键打开与右键相同的详细编辑层。
 - 点击章节标题仍进入原章节或场景管理，不由轨道接管。
 
-### 9.3 右侧编辑面板
+### 9.3 书级启用
+
+- “用于后续写作”是独立书级开关，默认关闭；编辑和保存点位不等于启用。
+- 关闭时保留已经保存的点位，生成链路不查询点位表、不注入表达片段。
+- 启用与点位在同一个版本化事务中保存；运行时缓存随保存失效，下一次章节生成读取最新状态。
+- 原有章级表达参数仍可从当前章节操作和更多菜单进入，新轨道不替换底座控制。
+
+### 9.4 右侧编辑面板
 
 面板只显示：
 
@@ -368,8 +376,7 @@ flowchart LR
 3. 当前档位含义和禁止改变的内容；
 4. 作者对这个场景点的备注；
 5. 当前场景已有任务与结果摘要，只读；
-6. 应用到草稿、恢复底座写法；
-7. 已写正文存在时的“预览场景写法”入口。
+6. 当前草稿状态、恢复底座写法与后续写作生效说明。
 
 详细编辑层只编辑当前点，不把五条轨道混在同一个表单中。关闭详细层后，下面的轨道页面保持原滚动位置、横向场景窗口、选中点和未保存草稿。
 
@@ -382,18 +389,20 @@ flowchart LR
 | 方法与路径 | 用途 |
 |---|---|
 | `GET /book-arrangement/scene-expression-definitions` | 读取固定五维字典 |
-| `GET /book-arrangement/scene-expression-points` | 按可见章节范围读取场景点 |
-| `PUT /book-arrangement/scenes/:sceneId/expression-points` | 带版本保存单场景完整表达点 |
-| `PUT /book-arrangement/scene-expression-points/batch` | 批量保存多个现有场景的点 |
-| `DELETE /book-arrangement/scenes/:sceneId/expression-points` | 恢复该场景底座写法 |
-| `POST /book-arrangement/scenes/:sceneId/expression-preview` | 为已写场景生成候选 |
+| `GET /book-arrangement/scene-expression-points` | 读取本书已保存的场景点与版本摘要 |
+| `PUT /book-arrangement/scene-expression-points` | 带期望版本整组保存；缺少的旧点表示恢复底座写法 |
 
-单场景写入合同：
+写入合同：
 
 ```ts
-export interface PutSceneExpressionPointsRequest {
-  baseRevision: number;
-  controls: Partial<Record<SceneExpressionDimensionKey, SceneExpressionLevel>>;
+export interface SceneExpressionPointSaveRequest {
+  expectedRevision: string;
+  points: Array<{
+    sceneId: string;
+    dimensionKey: SceneExpressionDimensionKey;
+    level: SceneExpressionLevel;
+    note?: string | null;
+  }>;
 }
 ```
 
@@ -446,7 +455,7 @@ export interface PutSceneExpressionPointsRequest {
 - 每个场景在每条可见轨道上都有独立操作点，悬停能识别完整场景标题。
 - 左键单击不打开弹窗；垂直拖动和上下方向键只改变当前场景当前维度的五级草稿。
 - 水平拖动不能改变点位绑定的场景，右键或键盘菜单键打开当前点详细编辑层。
-- 单点、框选场景和本章批量操作最终都保存场景点。
+- 单点调整和本章内连续操作最终都以稳定场景 ID 整组保存场景点。
 - 右侧面板不提供剧情对象编辑入口。
 - 关闭叠层后保留下层位置和选择状态。
 

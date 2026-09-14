@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type 
 import { createPortal } from "react-dom";
 import { BookmarkPlus, CalendarPlus, ChevronDown, ChevronRight, Circle, Diamond, FilePenLine, LayoutList, LockKeyhole, Network, Plus } from "lucide-react";
 import type { BookArrangementDraftPayload, BookArrangementVolumeEdit, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
+import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type SceneExpressionLevel, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 import { Button } from "@/components/ui/button";
-import { arrangementTracks, auditDimension, auditDimensions, auditHeatState, chapterEdit, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
+import { auditDimension, auditDimensions, auditHeatState, chapterEdit, characterPresenceEntries, characterTrackColor, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
 import { ArrangementVolumeTrack } from "./volume/ArrangementVolumeTrack";
-import type { WritingControlKey } from "@ai-novel/shared/types/writingAdjustments";
 import type { ArrangementObjectSelection } from "./objects/ArrangementObjectPanel";
 import { ArrangementPresenceBlock } from "./panels/ArrangementPresenceBlock";
 import { ArrangementCurveCell } from "./controls/ArrangementCurveCell";
+import { chapterSceneGroups, expressionPoint, expressionPointKey, sceneExpressionCurveSegments, setExpressionPoint } from "./controls/sceneExpressionState";
 
 interface Props {
   workspace: BookArrangementWorkspace; draft: BookArrangementDraftPayload; chapters: BookArrangementWorkspace["chapters"];
@@ -16,7 +17,10 @@ interface Props {
   onSpan: (id: string, chapterId?: string) => void; onDraft: (draft: BookArrangementDraftPayload) => void;
   characterSearch?: string; onCharacter?: (characterId: string, chapterId?: string) => void; onHistory?: (chapterId: string, characterId?: string) => void;
   selectedVolumeId?: string; onVolume?: (id: string) => void; onVolumeEdit?: (edit: BookArrangementVolumeEdit) => void; windowStart?: number; onWindowStart?: (index: number) => void;
-  onControl?: (chapterId: string, key: WritingControlKey) => void;
+  expressionPoints: SceneExpressionPointInput[];
+  selectedExpression?: string;
+  onExpressionPoints: (points: SceneExpressionPointInput[]) => void;
+  onExpressionSelect: (sceneId: string, dimensionKey: SceneExpressionDimensionKey, open: boolean) => void;
   onObject?: (object: ArrangementObjectSelection) => void;
   onChapterMenuAction?: (action: ChapterMenuAction, chapterId: string) => void;
 }
@@ -35,7 +39,7 @@ function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string
   return chapterIds[index];
 }
 
-export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, onControl, onObject, onChapterMenuAction }: Props) {
+export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scope, onSelect, onScope, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, expressionPoints, selectedExpression, onExpressionPoints, onExpressionSelect, onObject, onChapterMenuAction }: Props) {
   const [groups, setGroups] = useState<Record<string, boolean>>({});
   const [personFilter, setPersonFilter] = useState("");
   const [allPresence, setAllPresence] = useState(false);
@@ -45,7 +49,10 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
   const [chapterMenu, setChapterMenu] = useState<{ chapterId: string; x: number; y: number } | null>(null);
   const chapterMenuRef = useRef<HTMLDivElement>(null);
   const allGroupsCollapsed = collapsibleGroups.every(key => groups[key]);
-  const visibleTracks = draft.pinnedTracks.length || workspace.draft.revision > 0 ? draft.pinnedTracks : ["pace", "tension"];
+  const configuredTracks = draft.pinnedTracks.filter((key): key is SceneExpressionDimensionKey => SCENE_EXPRESSION_DIMENSIONS.some(dimension => dimension.key === key));
+  const visibleTracks = configuredTracks.length ? configuredTracks : SCENE_EXPRESSION_DIMENSIONS.map(dimension => dimension.key);
+  const sceneGroups = chapterSceneGroups(chapters, workspace.scenes);
+  const visibleScenes = sceneGroups.flatMap(group => group.scenes);
   const toggle = (key: string) => setGroups({ ...groups, [key]: !groups[key] });
   const presence = characterPresenceEntries(workspace, draft).filter(entry => (!personFilter || entry.characterId === personFilter) && (!characterSearch.trim() || entry.name.toLocaleLowerCase().includes(characterSearch.trim().toLocaleLowerCase())));
   const packedPresence = packChapterLanes(chapters, presence);
@@ -140,17 +147,23 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
         {label("threads", "线索与伏笔", `${new Set(packedClues.map(segment => segment.source.id)).size} 项`)}
         <div className="ba-track-content">{!groups.threads && <>{clues.length ? <div className="ba-packed-plot ba-clue-plot" style={plotStyle(clues)}>{guides()}{clues.map(segment => <button type="button" key={segment.segmentId} className={`ba-evidence-block ${segment.source.basis === "plan" ? "is-plan" : "is-record"}`} data-source-id={segment.source.id} style={segmentStyle(segment, segment.source.payoffChapterId ? "#e45b59" : "#18a68a")} title={`${segment.source.title}\n${segment.source.evidenceLabel}\n${segment.source.summary}`} onClick={event => onObject?.({ kind: segment.source.sourceEntity === "TimelineHook" ? "hook" : "foreshadow", id: segment.source.sourceId, chapterId: clickedChapter(event, segment.chapterIds, selectedId) })}><Diamond size={14} fill={segment.source.basis === "plan" ? "none" : "currentColor"} /><span>{segment.source.title}<small>{segment.source.evidenceLabel}</small></span></button>)}</div> : empty("当前范围暂无可定位的线索与伏笔")}{packedClues.length > clues.length && <button type="button" className="ba-presence-more" onClick={() => setAllClues(true)}>另 {packedClues.length - clues.length} 个线索区段 <ChevronDown size={13} /></button>}{allClues && packedClues.some(segment => segment.lane >= 3) && <button type="button" className="ba-presence-more" onClick={() => setAllClues(false)}>收起更多线索</button>}</>}</div>
 
-        {label("controls", "表达轨道", `${visibleTracks.length} 种表达目标`)}
-        <div className="ba-track-content ba-controls-content">{!groups.controls && arrangementTracks.filter(track => visibleTracks.includes(track.key)).map(track => {
-          const values = chapters.map(chapter => controlValue(chapterEdit(draft, chapter.id).controls, track.key));
-          return <div key={track.key} className="ba-control-track"><span className="ba-control-label">{track.label}</span><div className="ba-curve" style={{ "--ba-count": chapters.length } as CSSProperties}>
-            <svg aria-label={`${track.label}曲线，未设置处断线`} viewBox={`0 0 ${chapters.length * 100} 62`} preserveAspectRatio="none">{curveSegments(values).map((segment, index) => <g key={index}><polyline fill="none" stroke={track.color} strokeWidth="2" vectorEffect="non-scaling-stroke" points={segment.map(point => `${point.x},${point.y}`).join(" ")} />{segment.map(point => <circle key={point.x} cx={point.x} cy={point.y} r="3" fill={track.color} />)}</g>)}</svg>
-            {chapters.map((chapter, index) => <ArrangementCurveCell key={chapter.id} chapterId={chapter.id} order={chapter.order} label={track.label} controlKey={track.key} value={values[index]} selected={selectedId === chapter.id} draft={draft} onDraft={onDraft} onOpen={() => onControl?.(chapter.id, track.key)} />)}
-          </div></div>;
-        })}</div>
+        <button type="button" className="ba-label ba-section-label ba-expression-section-label" aria-expanded={!groups.controls} onClick={() => toggle("controls")}>
+          <span className="ba-expression-section-title">{groups.controls ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>场景表达轨道<small>{visibleTracks.length} 条 · {visibleScenes.length} 个场景点</small></span></span>
+          {!groups.controls && <span className="ba-expression-dimension-gutter" style={{ "--ba-track-count": visibleTracks.length } as CSSProperties} aria-hidden="true"><i />{SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => <i key={track.key} className={`is-${track.color}`}>{track.label}</i>)}</span>}
+        </button>
+        <div className="ba-track-content ba-controls-content">{!groups.controls && <div className="ba-scene-track-scroll" style={{ "--ba-count": Math.max(1, chapters.length) } as CSSProperties}>
+          <div className="ba-scene-axis">{sceneGroups.map(group => <span key={group.chapter.id} title={`第${group.chapter.order}章 · ${group.chapter.title}\n${group.scenes.length} 个场景`}><b>第{group.chapter.order}章</b><small>{group.scenes.length} 场</small></span>)}</div>
+          {SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => {
+            return <div key={track.key} className={`ba-control-track is-${track.color}`}><div className="ba-curve">
+              <svg aria-label={`${track.label}场景曲线，未设置处断线`} viewBox={`0 0 ${Math.max(1, chapters.length) * 100} 62`} preserveAspectRatio="none">{sceneExpressionCurveSegments(visibleScenes.map(scene => ({ x: scene.curveX, level: expressionPoint(expressionPoints, scene.id, track.key)?.level ?? null }))).map((segment, index) => <polyline key={index} fill="none" stroke={`var(--ba-${track.color})`} strokeWidth="2" vectorEffect="non-scaling-stroke" points={segment.map(point => `${point.x},${point.y}`).join(" ")} />)}</svg>
+              {sceneGroups.map(group => <div key={group.chapter.id} className="ba-curve-chapter" data-chapter-id={group.chapter.id}>{group.scenes.map((scene, sceneIndex) => { const point = expressionPoint(expressionPoints, scene.id, track.key); const binding = expressionPointKey(scene.id, track.key); return <ArrangementCurveCell key={binding} chapterOrder={group.chapter.order} sceneOrder={scene.sortOrder} sceneIndex={sceneIndex} sceneCount={group.scenes.length} scene={scene} dimension={track} level={point?.level ?? null} note={point?.note ?? null} selected={selectedExpression === binding} onSelect={() => onExpressionSelect(scene.id, track.key, false)} onOpen={() => onExpressionSelect(scene.id, track.key, true)} onChange={(level: SceneExpressionLevel) => onExpressionPoints(setExpressionPoint(expressionPoints, { sceneId: scene.id, dimensionKey: track.key, level, note: point?.note ?? null }))} />; })}</div>)}
+            </div></div>;
+          })}
+          {!visibleScenes.length && <p className="ba-track-empty">当前章节范围没有可绑定的场景，请先完成场景编排。</p>}
+        </div>}</div>
 
         <button type="button" className="ba-label ba-section-label ba-audit-label" aria-expanded={!groups.reviews} onClick={() => toggle("reviews")}>
-          {groups.reviews ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>核对结果<small>4 项质量维度</small>{!groups.reviews && <span className="ba-audit-dimension-list">{auditDimensions.map(dimension => <i key={dimension.key}>{dimension.label}</i>)}</span>}</span>
+          {groups.reviews ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>核对结果{!groups.reviews && <span className="ba-audit-dimension-list">{auditDimensions.map(dimension => <i key={dimension.key}>{dimension.label}</i>)}</span>}</span>
         </button>
         {groups.reviews ? <div className="ba-track-content" /> : <div className="ba-track-content ba-audit-heatmap" style={{ "--ba-count": chapters.length } as CSSProperties}><div className="ba-audit-summary" aria-label="核对结果图例"><span className="is-handled">已处理</span><span className="is-low">轻微</span><span className="is-medium">留意</span><span className="is-high">高风险</span><span className="is-critical">严重</span></div>{auditDimensions.flatMap(dimension => chapters.map(chapter => {
           const checks = (workspace.checks ?? []).filter(check => check.chapterIds.includes(chapter.id) && auditDimension(check) === dimension.key);

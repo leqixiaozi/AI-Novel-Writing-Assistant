@@ -25,6 +25,7 @@ import {
   buildPreviousChaptersSummary,
 } from "./runtimeContextBlocks";
 import { buildStoryModePromptBlock, normalizeStoryModeOutput } from "../../storyMode/storyModeProfile";
+import { renderSceneExpressionControls } from "../../../prompting/prompts/novel/sceneExpressionControls";
 import { mapRowToPlan } from "../storyMacro/storyMacroPlanPersistence";
 import {
   buildBookContractContext,
@@ -143,6 +144,11 @@ export class GenerationContextAssembler {
     // Context assembly is a read boundary. Planning and contract writes must
     // finish in ChapterExecutionPreparationService before this method runs.
     const ensuredPlan = await plannerService.getChapterPlan(novelId, chapterId);
+    const sceneExpressionPointsPromise = novel.sceneExpressionTracksEnabled && ensuredPlan?.scenes?.length ? prisma.sceneExpressionPoint.findMany({
+      where: { novelId, sceneId: { in: ensuredPlan.scenes.map((scene: { id: string }) => scene.id) } },
+      orderBy: [{ sceneId: "asc" }, { dimensionKey: "asc" }],
+      select: { sceneId: true, dimensionKey: true, level: true, note: true },
+    }) : Promise.resolve([]);
     const resourceCharacterIds = resolveChapterResourceCharacterIds({
       plan: ensuredPlan,
       characters: novel.characters,
@@ -166,6 +172,7 @@ export class GenerationContextAssembler {
       styleContext,
       payoffLedger,
       characterResourceContext,
+      sceneExpressionPoints,
     ] = await Promise.all([
       this.worldContextGateway.getWorldContextBlock(novelId, { purpose: "chapter" }),
       pendingReviewProposalCountPromise,
@@ -257,6 +264,7 @@ export class GenerationContextAssembler {
         chapterOrder: chapter.order,
         ...(resourceCharacterIds.length > 0 ? { characterIds: resourceCharacterIds } : {}),
       }).catch(() => null),
+      sceneExpressionPointsPromise,
     ]);
 
     const resolvedStateDrivenContext = await contextAssemblyService.build({
@@ -355,6 +363,9 @@ export class GenerationContextAssembler {
         primary: novel.primaryStoryMode ? normalizeStoryModeOutput(novel.primaryStoryMode) : null,
         secondary: novel.secondaryStoryMode ? normalizeStoryModeOutput(novel.secondaryStoryMode) : null,
       }),
+      novel.sceneExpressionTracksEnabled
+        ? renderSceneExpressionControls(ensuredPlan.scenes, sceneExpressionPoints.map(point => ({ ...point, dimensionKey: point.dimensionKey as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionDimensionKey, level: point.level as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionLevel })))
+        : "",
     ].filter(Boolean).join("\n\n");
     const mappedPlan = mapPlan(ensuredPlan);
     const mappedStateSnapshot = buildRuntimeStateSnapshotFromCanonical(canonicalState);

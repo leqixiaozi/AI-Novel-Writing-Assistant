@@ -347,6 +347,7 @@ model Novel {
   emotionIntensity  EmotionIntensity?
   aiFreedom         AIFreedom?
   postGenerationStyleReviewEnabled Boolean @default(true)
+  sceneExpressionTracksEnabled Boolean @default(false)
   defaultChapterLength Int?
   estimatedChapterCount Int?
   projectStatus     ProjectProgressStatus? @default(not_started)
@@ -3083,6 +3084,7 @@ model ChapterPlanScene {
   reveal       String?
   emotionBeat  String?
   plan         StoryPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  expressionPoints SceneExpressionPoint[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -3628,6 +3630,22 @@ model TimelineHook {
   @@index([novelId, resolveMode, blocking])
   @@index([novelId, createdInChapterIndex])
   @@index([novelId, expectedResolveByChapterIndex])
+}
+
+model SceneExpressionPoint {
+  id           String   @id
+  novelId      String
+  sceneId      String
+  dimensionKey String
+  level        Int
+  note         String?
+  revision     Int      @default(1)
+  scene        ChapterPlanScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([novelId, sceneId, dimensionKey])
+  @@index([novelId, sceneId])
 }
 
 /// Author-planned or prose-evidenced lifecycle nodes for an existing hook.

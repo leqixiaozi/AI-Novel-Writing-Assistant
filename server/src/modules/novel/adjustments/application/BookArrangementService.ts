@@ -76,7 +76,7 @@ export class BookArrangementService {
 
   async workspace(novelId: string): Promise<BookArrangementWorkspace> {
     const novel = await this.store.novel(novelId);
-    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, hookLifecycleNodes, latestSnapshot, auditReports, conflicts, cover, genre] = await Promise.all([
+    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, hookLifecycleNodes, latestSnapshot, auditReports, conflicts, cover, genre, expressionPoints] = await Promise.all([
       this.store.dependencies(novelId),
       this.store.db.chapter.findMany({ where: { novelId }, orderBy: { order: "asc" } }),
       this.store.db.character.findMany({ where: { novelId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
@@ -94,6 +94,7 @@ export class BookArrangementService {
       this.store.db.openConflict.findMany({ where: { novelId }, orderBy: [{ updatedAt: "desc" }, { id: "asc" }] }),
       this.store.db.imageAsset.findFirst({ where: { novelId, sceneType: "novel_cover", isPrimary: true }, select: { url: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
       novel.genreId ? this.store.db.novelGenre.findUnique({ where: { id: novel.genreId }, select: { id: true, name: true } }) : Promise.resolve(null),
+      this.store.db.sceneExpressionPoint.findMany({ where: { novelId }, orderBy: [{ sceneId: "asc" }, { dimensionKey: "asc" }] }),
     ]);
     const chapterIds = new Set(chapters.map(chapter => chapter.id));
     const validChapter = (chapterId: string | null): string | null => chapterId && chapterIds.has(chapterId) ? chapterId : null;
@@ -167,6 +168,9 @@ export class BookArrangementService {
       volumePreviews: candidates.filter(row => row.kind === "arrangement_volume").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementVolumePreview }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id }] : []; }),
       objectPreviews: candidates.filter(row => row.kind === "arrangement_object").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectPreview; applied?: import("@ai-novel/shared/types/bookArrangement").BookArrangementObjectApplyReceipt }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id, ...(candidate.applied ? { applied: candidate.applied } : {}) }] : []; }),
       scenePreviews: candidates.filter(row => row.kind === "arrangement_scene").flatMap(row => { const candidate = parseJson<{ preview?: import("@ai-novel/shared/types/bookArrangement").BookArrangementScenePreview; applied?: import("@ai-novel/shared/types/bookArrangement").BookArrangementSceneApplyReceipt }>(row.metadataJson, {}); return candidate.preview ? [{ ...candidate.preview, id: row.id, ...(candidate.applied ? { applied: candidate.applied } : {}) }] : []; }),
+      sceneExpressionPoints: expressionPoints.map(row => ({ ...row, dimensionKey: row.dimensionKey as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionDimensionKey, level: row.level as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionLevel, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() })),
+      sceneExpressionRevision: digest([novel.sceneExpressionTracksEnabled, expressionPoints.map(row => [row.id, row.sceneId, row.dimensionKey, row.level, row.note, row.revision, row.updatedAt.toISOString()])]),
+      sceneExpressionEnabled: novel.sceneExpressionTracksEnabled,
     };
   }
 

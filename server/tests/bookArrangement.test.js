@@ -29,9 +29,10 @@ function loadModules(db) {
   const objectRepository = load(`${base}infrastructure/ArrangementObjectRepository.ts`, { "../../../../services/planner/plannerPersistence": persistence, "./ArrangementSceneCards": sceneCards });
   const objectModule = load(`${base}application/BookArrangementObjectService.ts`, { ...common, "../../../../events": { novelEventBus: { emit: async () => {} } }, "../domain/arrangementObjects": objectContracts, "../infrastructure/ArrangementObjectRepository": objectRepository, "../infrastructure/ArrangementSceneCards": sceneCards });
   const chapterScenesModule = load(`${base}application/ChapterSceneArrangementService.ts`, { ...common, "node:crypto": require("node:crypto"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl"), "../../../../events": { novelEventBus: { emit: async () => {} } }, "../../../../services/planner/plannerPersistence": persistence });
+  const expressionModule = load(`${base}application/SceneExpressionTrackService.ts`, { ...common, "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks"), "../../../../services/novel/runtime/BatchContextCache": { batchContextCache: { invalidate() {} } } });
   const store = new storage.AdjustmentStore(db);
   const settings = new settingsModule.WritingSettingsService(store);
-  return { store, settings, service: new arrangement.BookArrangementService(store, settings), objects: new objectModule.BookArrangementObjectService(store), chapterScenes: new chapterScenesModule.ChapterSceneArrangementService(store), objectContracts, Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
+  return { store, settings, service: new arrangement.BookArrangementService(store, settings), objects: new objectModule.BookArrangementObjectService(store), chapterScenes: new chapterScenesModule.ChapterSceneArrangementService(store), expressions: new expressionModule.SceneExpressionTrackService(store), objectContracts, Store: storage.AdjustmentStore, Arrangement: arrangement.BookArrangementService, contracts, arrangementModule: arrangement, errors };
 }
 async function fixture(t) {
   const temporaryRoot = process.platform === "win32" && fs.existsSync("D:/cache") ? "D:/cache" : os.tmpdir();
@@ -56,6 +57,32 @@ async function fixture(t) {
 }
 const settings = controls => ({ enabled: true, controls, preserve: [] });
 const isConflict = error => error.statusCode === 409;
+
+test("scene expression points save only fixed writing levels on scenes owned by the novel", async t => {
+  const f = await fixture(t);
+  const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: f.chapters[0].id, level: "chapter", title: "本章", objective: "确认异常" } });
+  const scene = await f.db.chapterPlanScene.create({ data: { planId: plan.id, sortOrder: 1, title: "推门入室", objective: "确认屋内异常" } });
+  const foreignNovel = await f.db.novel.create({ data: { title: "他书" } });
+  const foreignChapter = await f.db.chapter.create({ data: { novelId: foreignNovel.id, order: 1, title: "他章" } });
+  const foreignPlan = await f.db.storyPlan.create({ data: { novelId: foreignNovel.id, chapterId: foreignChapter.id, level: "chapter", title: "他章", objective: "他书目标" } });
+  const foreignScene = await f.db.chapterPlanScene.create({ data: { planId: foreignPlan.id, sortOrder: 1, title: "他书场景" } });
+  const beforeScene = await f.db.chapterPlanScene.findUnique({ where: { id: scene.id } });
+  const current = await f.expressions.list(f.novelId);
+  assert.equal(current.enabled, false);
+  const saved = await f.expressions.save(f.novelId, { expectedRevision: current.revision, enabled: true, points: [{ sceneId: scene.id, dimensionKey: "scene_pace", level: 4, note: "动作衔接更紧" }] });
+  assert.equal(saved.enabled, true);
+  assert.equal(saved.points.length, 1);
+  assert.equal(saved.points[0].level, 4);
+  assert.notEqual(saved.revision, current.revision);
+  assert.deepEqual(await f.db.chapterPlanScene.findUnique({ where: { id: scene.id } }), beforeScene);
+  await assert.rejects(() => f.expressions.save(f.novelId, { expectedRevision: saved.revision, enabled: true, points: [{ sceneId: scene.id, dimensionKey: "plot_twist", level: 5 }] }), /维度/);
+  await assert.rejects(() => f.expressions.save(f.novelId, { expectedRevision: saved.revision, enabled: true, points: [{ sceneId: scene.id, dimensionKey: "scene_pace", level: 6 }] }), /档位/);
+  await assert.rejects(() => f.expressions.save(f.novelId, { expectedRevision: saved.revision, enabled: true, points: [{ sceneId: foreignScene.id, dimensionKey: "scene_pace", level: 2 }] }), /不属于当前作品/);
+  await assert.rejects(() => f.expressions.save(f.novelId, { expectedRevision: current.revision, enabled: false, points: [] }), isConflict);
+  const cleared = await f.expressions.save(f.novelId, { expectedRevision: saved.revision, enabled: false, points: [] });
+  assert.equal(cleared.enabled, false);
+  assert.deepEqual(cleared.points, []);
+});
 
 test("chapter scene arrangement previews and applies the complete scene sequence atomically", async t => {
   const f = await fixture(t);
@@ -746,12 +773,14 @@ test("book arrangement: GET avoids operation creation and every write requires a
   const f = await fixture(t);
   const handlers = new Map();
   const service = { store: f.store, arrangementWorkspace: f.service.workspace.bind(f.service), saveArrangementDraft: f.service.saveDraft.bind(f.service), previewArrangement: f.service.preview.bind(f.service), applyArrangement: f.service.apply.bind(f.service) };
-  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../application/ChapterSceneArrangementService": { chapterScenePreviewSchema: { parse: value => value } }, "../domain/arrangementObjects": f.objectContracts });
+  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks"), "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../application/ChapterSceneArrangementService": { chapterScenePreviewSchema: { parse: value => value } }, "../application/SceneExpressionTrackService": { sceneExpressionSaveSchema: { parse: value => value } }, "../domain/arrangementObjects": f.objectContracts });
   routes.registerBookArrangementRoutes(Object.fromEntries(["get", "put", "post"].map(method => [method, (route, handler) => handlers.set(`${method}:${route}`, handler)])));
   const req = { params: { id: f.novelId, candidateId: "candidate" }, body: {}, path: "/test", get: () => undefined };
   let response;
   await handlers.get("get:/:id/book-arrangement")(req, { json(value) { response = value; } }, error => { throw error; });
   assert.equal(response.success, true);
+  await handlers.get("get:/:id/book-arrangement/scene-expression-definitions")(req, { json(value) { response = value; } }, error => { throw error; });
+  assert.deepEqual(response.data.map(item => item.key), ["scene_pace", "sentence_cadence", "detail_expansion", "camera_distance", "language_ornament"]);
   assert.equal(await f.db.writingAdjustmentOperation.count(), 0);
   for (const [key, handler] of handlers) if (!key.startsWith("get:")) {
     let caught;

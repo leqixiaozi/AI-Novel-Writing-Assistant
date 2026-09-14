@@ -5,6 +5,7 @@ const { createHash } = require("node:crypto");
 const Database = require("better-sqlite3");
 const hash = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const marker = "arrangement-demo-v1";
+const expressionDimensions = ["scene_pace", "sentence_cadence", "detail_expansion", "camera_distance", "language_ornament"];
 
 function prepareDraft(original, chapters, people, novelId) {
   const payload = structuredClone(original);
@@ -68,6 +69,7 @@ async function main() {
     const created = await prisma.$transaction(async tx => {
       await new AdjustmentStore(tx).lockChapters(tx, novelId, sample.map(chapter => chapter.id), true);
       if (await tx.chapterAdjustmentGuard.count({ where: { novelId, manualSessionId: { not: null } } })) throw new Error("Finish active manual handoff before preparing demo data.");
+      await tx.novel.update({ where: { id: novelId }, data: { sceneExpressionTracksEnabled: true } });
       const receipt = [];
       const add = async (model, data) => { if (!await tx[model].findUnique({ where: { id: data.id } })) { await tx[model].create({ data }); receipt.push({ model, id: data.id }); } };
       const maxEvent = await tx.storyTimelineEvent.aggregate({ where: { novelId }, _max: { eventOrder: true } });
@@ -92,6 +94,19 @@ async function main() {
             else await add("chapterPlanScene", { id: sceneId, planId: demoPlan.id, ...data });
           }
         }
+        const expressionScenes = await tx.chapterPlanScene.findMany({ where: { planId: id("plan", chapter.id) }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] });
+        for (const [sceneIndex, scene] of expressionScenes.entries()) {
+          for (const [dimensionIndex, dimensionKey] of expressionDimensions.entries()) {
+            // Leave occasional bindings unset so the demo also exposes the base-writing state.
+            if ((index + sceneIndex + dimensionIndex) % 9 === 8) continue;
+            if (!await tx.sceneExpressionPoint.count({ where: { novelId, sceneId: scene.id, dimensionKey } })) await add("sceneExpressionPoint", {
+              id: id("expression", scene.id, dimensionKey), novelId, sceneId: scene.id, dimensionKey,
+              level: ((index + sceneIndex + dimensionIndex) % 5) + 1,
+              note: "【演示】只约束本场景的表达方式，不改变场景任务、事件、人物或事实。",
+              revision: 1,
+            });
+          }
+        }
         if (index % 4 === 0 && !await tx.characterRelationStage.count({ where: { novelId, chapterId: chapter.id } })) await add("characterRelationStage", { id: id("relation", chapter.id), novelId, chapterId: chapter.id, chapterOrder: chapter.order, sourceCharacterId: workspace.characters[0].id, targetCharacterId: workspace.characters[(index / 4 + 1) % (workspace.characters.length - 1) + 1].id, sourceType: "arrangement_plan", stageLabel: "【演示目标】由试探转为有限合作", stageSummary: "规划目标，不代表本章已经发生关系变化。", nextTurnPoint: "通过既有线索核对决定合作条件", confidence: 0, isCurrent: true });
         const demoRelation = await tx.characterRelationStage.findUnique({ where: { id: id("relation", chapter.id) } });
         if (demoRelation?.novelId === novelId && demoRelation.sourceType === "volume_projection" && demoRelation.stageLabel === "【演示目标】由试探转为有限合作" && demoRelation.confidence === 0) {
@@ -112,7 +127,7 @@ async function main() {
       return receipt;
     }, { timeout: 60000, isolationLevel: "Serializable" });
     const after = await service.workspace(novelId);
-    const result = { ...plan, backupPath, backupBytes: fs.statSync(backupPath).size, integrity: "ok", chapterHashPreserved: hash(await prisma.chapter.findMany({ where: { novelId }, orderBy: { id: "asc" } })) === beforeHash, created, upgraded, counts: { events: after.events.length, scenes: after.scenes.length, relations: after.relations.length, clues: after.clues.length, characterSpans: after.draft.payload.characterSpans.length, chapterEdits: after.draft.payload.chapterEdits.length } };
+    const result = { ...plan, backupPath, backupBytes: fs.statSync(backupPath).size, integrity: "ok", chapterHashPreserved: hash(await prisma.chapter.findMany({ where: { novelId }, orderBy: { id: "asc" } })) === beforeHash, created, upgraded, counts: { events: after.events.length, scenes: after.scenes.length, expressionPoints: after.sceneExpressionPoints.length, relations: after.relations.length, clues: after.clues.length, characterSpans: after.draft.payload.characterSpans.length, chapterEdits: after.draft.payload.chapterEdits.length } };
     fs.writeFileSync(path.join(runDir, "receipt.json"), JSON.stringify(result, null, 2));
     console.log(JSON.stringify({ ...result, created: created.length, upgraded: upgraded.length, receipt: path.join(runDir, "receipt.json") }, null, 2));
   } finally { await prisma.$disconnect(); }

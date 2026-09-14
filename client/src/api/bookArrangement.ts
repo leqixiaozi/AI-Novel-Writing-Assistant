@@ -4,6 +4,7 @@ import { apiClient } from "./client";
 import type { BookArrangementVolumePreview, BookArrangementVolumePreviewRequest, BookArrangementVolumeApplyReceipt } from "@ai-novel/shared/types/bookArrangement";
 import type { BookArrangementObjectApplyReceipt, BookArrangementObjectDetail, BookArrangementObjectKind, BookArrangementObjectPreview, BookArrangementObjectPreviewRequest } from "@ai-novel/shared/types/bookArrangement";
 import type { BookArrangementSceneApplyReceipt, BookArrangementScenePreview, BookArrangementScenePreviewRequest } from "@ai-novel/shared/types/bookArrangement";
+import type { SceneExpressionDimensionDefinition, SceneExpressionPointSaveReceipt, SceneExpressionPointSaveRequest } from "@ai-novel/shared/types/sceneExpressionTracks";
 
 export function createBookArrangementApi(novelId: string) {
   const base = `/novels/${encodeURIComponent(novelId)}/book-arrangement`;
@@ -16,6 +17,11 @@ export function createBookArrangementApi(novelId: string) {
     async workspace(): Promise<BookArrangementWorkspace> {
       const { data } = await apiClient.get<ApiResponse<BookArrangementWorkspace>>(base);
       if (!data.data) throw new Error(data.message || "未能读取编排资料。");
+      return data.data;
+    },
+    async sceneExpressionDefinitions(): Promise<readonly SceneExpressionDimensionDefinition[]> {
+      const { data } = await apiClient.get<ApiResponse<readonly SceneExpressionDimensionDefinition[]>>(`${base}/scene-expression-definitions`);
+      if (!data.data) throw new Error(data.message || "未能读取场景表达字典。");
       return data.data;
     },
     saveDraft: (input: BookArrangementSaveDraftRequest, key: string) => write<BookArrangementDraftRecord>("put", "/draft", input, key),
@@ -32,5 +38,6 @@ export function createBookArrangementApi(novelId: string) {
     applyObject: (candidateId: string, key: string) => write<BookArrangementObjectApplyReceipt>("post", `/objects/${encodeURIComponent(candidateId)}/apply`, {}, key),
     previewScenes: (input: BookArrangementScenePreviewRequest, key: string) => write<BookArrangementScenePreview>("post", "/scenes/preview", input, key),
     applyScenes: (candidateId: string, key: string) => write<BookArrangementSceneApplyReceipt>("post", `/scenes/${encodeURIComponent(candidateId)}/apply`, {}, key),
+    saveSceneExpressionPoints: (input: SceneExpressionPointSaveRequest, key: string) => write<SceneExpressionPointSaveReceipt>("put", "/scene-expression-points", input, key),
   };
 }
