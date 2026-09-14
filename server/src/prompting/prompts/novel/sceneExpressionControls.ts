@@ -1,11 +1,12 @@
-import { sceneExpressionBand, sceneExpressionDefinition, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
+import { SCENE_EXPRESSION_DIMENSIONS, sceneExpressionBand, sceneExpressionDefinition, type SceneExpressionDimensionDefinition, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 
 export const SCENE_EXPRESSION_PROMPT_ASSET_KEY = "novel.scene.expression_controls" as const;
-export const SCENE_EXPRESSION_PROMPT_VERSION = "1.0.0";
+export const SCENE_EXPRESSION_PROMPT_VERSION = "1.1.0";
 
 export function renderSceneExpressionControls(
   scenes: Array<{ id: string; sortOrder: number; title: string }>,
   points: SceneExpressionPointInput[],
+  definitions: readonly SceneExpressionDimensionDefinition[] = SCENE_EXPRESSION_DIMENSIONS,
 ): string {
   if (!points.length) return "";
   const pointsByScene = new Map<string, SceneExpressionPointInput[]>();
@@ -14,9 +15,9 @@ export function renderSceneExpressionControls(
     const scenePoints = pointsByScene.get(scene.id) ?? [];
     if (!scenePoints.length) return [];
     const lines = scenePoints.flatMap(point => {
-      const definition = sceneExpressionDefinition(point.dimensionKey);
-      const band = sceneExpressionBand(point.dimensionKey, point.level);
-      if (!definition || !band) return [];
+      const definition = sceneExpressionDefinition(point.dimensionKey, definitions);
+      const band = sceneExpressionBand(point.dimensionKey, point.level, definitions);
+      if (!definition?.enabled || !band) return [];
       return [`- ${definition.label}：L${band.level}／${band.name}。${band.instruction}${point.note?.trim() ? ` 作者写法备注：${point.note.trim()}` : ""}`, ...definition.invariants.map(rule => `  - 保护：${rule}`)];
     });
     return lines.length ? [[`【场景 S${scene.sortOrder}：${scene.title}】`, ...lines].join("\n")] : [];

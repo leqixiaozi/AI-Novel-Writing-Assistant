@@ -21,7 +21,7 @@ function loadModules(db) {
   const storage = load(`${base}infrastructure/AdjustmentStore.ts`, { ...common, "../../../../db/prisma": { prisma: db }, "./OperationLease": operations });
   common["../infrastructure/AdjustmentStore"] = storage;
   const settingsModule = load(`${base}application/WritingSettingsService.ts`, { ...common, "../../../../prompting/prompts/novel/chapterNarrativeControls": load("prompting/prompts/novel/chapterNarrativeControls.ts", {}) });
-  const arrangement = load(`${base}application/BookArrangementService.ts`, { ...common, "./WritingSettingsService": settingsModule, "../../../../prompting/prompts/novel/bookArrangementControls": load("prompting/prompts/novel/bookArrangementControls.ts", {}), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
+  const arrangement = load(`${base}application/BookArrangementService.ts`, { ...common, "./WritingSettingsService": settingsModule, "../../../../prompting/prompts/novel/bookArrangementControls": load("prompting/prompts/novel/bookArrangementControls.ts", {}), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl"), "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks") });
   const objectContracts = load(`${base}domain/arrangementObjects.ts`, { zod: require("zod"), "./contracts": contracts });
   const metadata = load("services/planner/plannerPlanMetadata.ts", { "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract") });
   const persistence = load("services/planner/plannerPersistence.ts", { "node:crypto": require("node:crypto"), "../../db/prisma": { prisma: db }, "./plannerPlanMetadata": metadata, "@ai-novel/shared/types/chapterCreativeContract": require("@ai-novel/shared/types/chapterCreativeContract"), "@ai-novel/shared/types/chapterLengthControl": require("@ai-novel/shared/types/chapterLengthControl") });
@@ -58,7 +58,7 @@ async function fixture(t) {
 const settings = controls => ({ enabled: true, controls, preserve: [] });
 const isConflict = error => error.statusCode === 409;
 
-test("scene expression points save only fixed writing levels on scenes owned by the novel", async t => {
+test("scene expression points save only registered five-level tracks on scenes owned by the novel", async t => {
   const f = await fixture(t);
   const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: f.chapters[0].id, level: "chapter", title: "本章", objective: "确认异常" } });
   const scene = await f.db.chapterPlanScene.create({ data: { planId: plan.id, sortOrder: 1, title: "推门入室", objective: "确认屋内异常" } });
@@ -82,6 +82,34 @@ test("scene expression points save only fixed writing levels on scenes owned by 
   const cleared = await f.expressions.save(f.novelId, { expectedRevision: saved.revision, enabled: false, points: [] });
   assert.equal(cleared.enabled, false);
   assert.deepEqual(cleared.points, []);
+});
+
+test("book-level expression catalog saves custom tracks and validates their scene points", async t => {
+  const f = await fixture(t);
+  const current = await f.expressions.catalog(f.novelId);
+  assert.equal(current.revision, 0);
+  assert.equal(current.definitions.length, 5);
+  const source = current.definitions[0];
+  const custom = {
+    ...source,
+    key: "custom_dialogue_density",
+    origin: "custom",
+    label: "对话密度",
+    description: "控制已有场景中的对话占比。",
+    sortOrder: 6,
+    bands: source.bands.map(band => ({ ...band, name: `对话 L${band.level}`, instruction: `使用第 ${band.level} 档对话密度，不新增剧情事实。` })),
+    invariants: ["不得新增人物或对话事实"],
+  };
+  const savedCatalog = await f.expressions.saveCatalog(f.novelId, { expectedRevision: 0, definitions: [...current.definitions, custom] });
+  assert.equal(savedCatalog.revision, 1);
+  assert.equal(savedCatalog.definitions.at(-1).label, "对话密度");
+  await assert.rejects(() => f.expressions.saveCatalog(f.novelId, { expectedRevision: 0, definitions: savedCatalog.definitions }), isConflict);
+
+  const plan = await f.db.storyPlan.create({ data: { novelId: f.novelId, chapterId: f.chapters[0].id, level: "chapter", title: "本章", objective: "确认异常" } });
+  const scene = await f.db.chapterPlanScene.create({ data: { planId: plan.id, sortOrder: 1, title: "推门入室" } });
+  const points = await f.expressions.list(f.novelId);
+  const receipt = await f.expressions.save(f.novelId, { expectedRevision: points.revision, enabled: true, points: [{ sceneId: scene.id, dimensionKey: custom.key, level: 3 }] });
+  assert.equal(receipt.points[0].dimensionKey, custom.key);
 });
 
 test("chapter scene arrangement previews and applies the complete scene sequence atomically", async t => {
@@ -772,15 +800,16 @@ test("book arrangement: durable operation replay preserves draft/preview/apply H
 test("book arrangement: GET avoids operation creation and every write requires an idempotency key", async t => {
   const f = await fixture(t);
   const handlers = new Map();
-  const service = { store: f.store, arrangementWorkspace: f.service.workspace.bind(f.service), saveArrangementDraft: f.service.saveDraft.bind(f.service), previewArrangement: f.service.preview.bind(f.service), applyArrangement: f.service.apply.bind(f.service) };
-  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks"), "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../application/ChapterSceneArrangementService": { chapterScenePreviewSchema: { parse: value => value } }, "../application/SceneExpressionTrackService": { sceneExpressionSaveSchema: { parse: value => value } }, "../domain/arrangementObjects": f.objectContracts });
+  const service = { store: f.store, arrangementWorkspace: f.service.workspace.bind(f.service), saveArrangementDraft: f.service.saveDraft.bind(f.service), previewArrangement: f.service.preview.bind(f.service), applyArrangement: f.service.apply.bind(f.service), sceneExpressionCatalog: f.expressions.catalog.bind(f.expressions) };
+  const routes = loadRuntimeSource(path.join(serverRoot, "src/modules/novel/adjustments/http/bookArrangementRoutes.ts"), { zod: require("zod"), "..": { adjustmentService: service }, "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks"), "../../../../middleware/errorHandler": f.errors, "../application/BookArrangementService": f.arrangementModule, "../application/ChapterSceneArrangementService": { chapterScenePreviewSchema: { parse: value => value } }, "../application/SceneExpressionTrackService": { sceneExpressionSaveSchema: { parse: value => value }, sceneExpressionCatalogSaveSchema: { parse: value => value } }, "../domain/arrangementObjects": f.objectContracts });
   routes.registerBookArrangementRoutes(Object.fromEntries(["get", "put", "post"].map(method => [method, (route, handler) => handlers.set(`${method}:${route}`, handler)])));
   const req = { params: { id: f.novelId, candidateId: "candidate" }, body: {}, path: "/test", get: () => undefined };
   let response;
   await handlers.get("get:/:id/book-arrangement")(req, { json(value) { response = value; } }, error => { throw error; });
   assert.equal(response.success, true);
   await handlers.get("get:/:id/book-arrangement/scene-expression-definitions")(req, { json(value) { response = value; } }, error => { throw error; });
-  assert.deepEqual(response.data.map(item => item.key), ["scene_pace", "sentence_cadence", "detail_expansion", "camera_distance", "language_ornament"]);
+  assert.equal(response.data.revision, 0);
+  assert.deepEqual(response.data.definitions.map(item => item.key), ["scene_pace", "sentence_cadence", "detail_expansion", "camera_distance", "language_ornament"]);
   assert.equal(await f.db.writingAdjustmentOperation.count(), 0);
   for (const [key, handler] of handlers) if (!key.startsWith("get:")) {
     let caught;

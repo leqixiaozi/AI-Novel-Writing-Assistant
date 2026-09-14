@@ -5,8 +5,7 @@ import { AppError } from "../../../../middleware/errorHandler";
 import { arrangementChapterIdsSchema, arrangementDraftSchema } from "../application/BookArrangementService";
 import { arrangementObjectPreviewSchema } from "../domain/arrangementObjects";
 import { chapterScenePreviewSchema } from "../application/ChapterSceneArrangementService";
-import { sceneExpressionSaveSchema } from "../application/SceneExpressionTrackService";
-import { SCENE_EXPRESSION_DIMENSIONS } from "@ai-novel/shared/types/sceneExpressionTracks";
+import { sceneExpressionCatalogSaveSchema, sceneExpressionSaveSchema } from "../application/SceneExpressionTrackService";
 
 const id = z.string().trim().min(1).max(200);
 const novelId = (req: Request) => id.parse(req.params.id);
@@ -31,7 +30,8 @@ function mutation(operation: string, run: (req: Request) => Promise<unknown>): R
 export function registerBookArrangementRoutes(router: Router) {
   const base = "/:id/book-arrangement";
   router.get(base, endpoint(req => service.arrangementWorkspace(novelId(req))));
-  router.get(`${base}/scene-expression-definitions`, endpoint(async () => SCENE_EXPRESSION_DIMENSIONS));
+  router.get(`${base}/scene-expression-definitions`, endpoint(req => service.sceneExpressionCatalog(novelId(req))));
+  router.put(`${base}/scene-expression-definitions`, mutation("scene-expression-definitions", req => service.saveSceneExpressionCatalog(novelId(req), sceneExpressionCatalogSaveSchema.parse(req.body))));
   router.get(`${base}/scene-expression-points`, endpoint(req => service.sceneExpressionPoints(novelId(req))));
   router.put(`${base}/scene-expression-points`, mutation("scene-expression-points", req => service.saveSceneExpressionPoints(novelId(req), sceneExpressionSaveSchema.parse(req.body))));
   router.get(`${base}/objects/:kind/:objectId`, endpoint(req => service.arrangementObject(novelId(req), id.parse(req.params.kind), id.parse(req.params.objectId), z.string().optional().parse(req.query.chapterId))));

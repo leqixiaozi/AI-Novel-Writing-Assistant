@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { BookOpen, ChevronLeft, ChevronRight, MoreHorizontal, Network, Search, SlidersHorizontal, Waypoints } from "lucide-react";
 import type { BookArrangementDraftPayload, BookArrangementDraftRecord, BookArrangementPreview, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
-import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
+import type { SceneExpressionDimensionDefinition, SceneExpressionDimensionKey, SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 import type { Character, CharacterRelation } from "@ai-novel/shared/types/novel";
 import type { CharacterRelationStage } from "@ai-novel/shared/types/characterDynamics";
 import { createBookArrangementApi } from "@/api/bookArrangement";
@@ -28,6 +28,7 @@ import { ArrangementVolumePreview } from "./volume/ArrangementVolumePreview";
 import { ChapterSceneEditor } from "./scenes/ChapterSceneEditor";
 import { HookLifecyclePanel } from "./hooks/HookLifecyclePanel";
 import { SceneExpressionPointPanel } from "./panels/SceneExpressionPointPanel";
+import { SceneExpressionTrackCatalogPanel } from "./panels/SceneExpressionTrackCatalogPanel";
 import { expressionPointKey } from "./controls/sceneExpressionState";
 import { closeBaseLayer, closeObjectLayer, openObjectLayer, panelScopeLabel, type ArrangementPanel, type ArrangementPanelLayers } from "./panels/panelNavigation";
 import CharacterRelationshipGraphPanel from "@/pages/novels/components/characterWorkspace/CharacterRelationshipGraphPanel";
@@ -39,7 +40,7 @@ function errorMessage(error: unknown): string {
   const failure = error as { response?: { data?: { message?: string } }; message?: string };
   return failure.response?.data?.message || failure.message || "操作未完成，请重试。输入内容已保留。";
 }
-type LocalDraft = { revision: number; payload: BookArrangementDraftPayload; expressionRevision?: string; expressionEnabled?: boolean; expressionPoints?: SceneExpressionPointInput[] };
+type LocalDraft = { revision: number; payload: BookArrangementDraftPayload; expressionRevision?: string; expressionEnabled?: boolean; expressionPoints?: SceneExpressionPointInput[]; expressionCatalogRevision?: number; expressionDefinitions?: SceneExpressionDimensionDefinition[] };
 function readLocalDraft(novelId: string): LocalDraft | null {
   try { const value = JSON.parse(sessionStorage.getItem(`book-arrangement:${novelId}`) || "null") as LocalDraft | null; return value && typeof value.revision === "number" && typeof value.payload?.baseRevision === "string" && Array.isArray(value.payload.chapterEdits) && Array.isArray(value.payload.characterSpans) && Array.isArray(value.payload.pinnedTracks) ? value : null; } catch { return null; }
 }
@@ -146,24 +147,6 @@ function BookRelationshipPanel({ workspace, selectedId, onSelectChapter, onOpenR
   </section>;
 }
 
-function ExpressionTrackPanel({ draft, onDraft, enabled, onEnabled }: { draft: BookArrangementDraftPayload; onDraft: (draft: BookArrangementDraftPayload) => void; enabled: boolean; onEnabled: (enabled: boolean) => void }) {
-  const configured = draft.pinnedTracks.filter((key): key is SceneExpressionDimensionKey => SCENE_EXPRESSION_DIMENSIONS.some(item => item.key === key));
-  const visible = configured.length ? configured : SCENE_EXPRESSION_DIMENSIONS.map(item => item.key);
-  const setVisible = (keys: SceneExpressionDimensionKey[]) => {
-    const legacy = draft.pinnedTracks.filter(key => !SCENE_EXPRESSION_DIMENSIONS.some(item => item.key === key));
-    onDraft({ ...draft, pinnedTracks: [...new Set([...legacy, ...keys])] });
-  };
-  return <section className="ba-expression-track-panel">
-    <header><div><h3>场景表达轨道</h3><p>五条轨道只控制场景的写法。点位绑定真实场景，不改变剧情、人物和线索。</p></div><span>{visible.length} / {SCENE_EXPRESSION_DIMENSIONS.length} 条已显示</span></header>
-    <label className="ba-expression-runtime-switch"><input type="checkbox" checked={enabled} onChange={event => onEnabled(event.target.checked)} /><span><strong>用于后续写作</strong><small>{enabled ? "已启用：生成本书后续章节时会读取对应场景点。" : "未启用：点位可以继续编辑和保存，生成仍沿用底座写法。"}</small></span></label>
-    <div className="ba-expression-track-actions"><Button size="sm" variant="outline" onClick={() => setVisible(SCENE_EXPRESSION_DIMENSIONS.map(track => track.key))}>显示全部</Button><Button size="sm" variant="ghost" onClick={() => setVisible(["scene_pace", "sentence_cadence", "detail_expansion"])}>精简显示</Button></div>
-    <div className="ba-expression-track-list">{SCENE_EXPRESSION_DIMENSIONS.map(track => { const checked = visible.includes(track.key); return <article key={track.key} style={{ "--ba-track-color": `var(--ba-${track.color})` } as CSSProperties}>
-      <label><input type="checkbox" checked={checked} disabled={checked && visible.length === 1} onChange={event => setVisible(event.target.checked ? [...visible, track.key] : visible.filter(key => key !== track.key))} /><i aria-hidden="true" /><span><strong>{track.label}</strong><small>{track.description}</small></span></label>
-    </article>; })}</div>
-    <p className="ba-panel-note">在矩阵中悬停点位查看场景，左键上下拖动调整 L1—L5；右键打开详细设置。未设置点继续使用底座写法。</p>
-  </section>;
-}
-
 export default function BookArrangementPage() {
   const [params, setParams] = useSearchParams();
   const novelId = params.get("novelId") || "";
@@ -221,8 +204,10 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const [saved, setSaved] = useState<BookArrangementDraftRecord>(initialWorkspace.draft);
   const [draft, setDraft] = useState(initialWorkspace.draft.payload);
   const [savedExpression, setSavedExpression] = useState({ revision: initialWorkspace.sceneExpressionRevision, enabled: initialWorkspace.sceneExpressionEnabled, points: initialWorkspace.sceneExpressionPoints.map(({ sceneId, dimensionKey, level, note }) => ({ sceneId, dimensionKey, level, note })) as SceneExpressionPointInput[] });
+  const [savedExpressionCatalog, setSavedExpressionCatalog] = useState({ revision: initialWorkspace.sceneExpressionCatalogRevision, definitions: initialWorkspace.sceneExpressionDefinitions });
   const [expressionEnabled, setExpressionEnabled] = useState(initialWorkspace.sceneExpressionEnabled);
   const [expressionPoints, setExpressionPoints] = useState<SceneExpressionPointInput[]>(savedExpression.points);
+  const [expressionDefinitions, setExpressionDefinitions] = useState<SceneExpressionDimensionDefinition[]>(initialWorkspace.sceneExpressionDefinitions);
   const [selectedExpression, setSelectedExpression] = useState<{ sceneId: string; dimensionKey: SceneExpressionDimensionKey } | null>(null);
   const [localDraft, setLocalDraft] = useState(() => readLocalDraft(initialWorkspace.novelId));
   const [windowStart, setWindowStart] = useState(0);
@@ -271,7 +256,8 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   const api = useMemo(() => createBookArrangementApi(workspace.novelId), [workspace.novelId]);
   const arrangementDirty = draftDirty(draft, saved.payload);
   const expressionDirty = expressionEnabled !== savedExpression.enabled || JSON.stringify(expressionPoints) !== JSON.stringify(savedExpression.points);
-  const dirty = arrangementDirty || expressionDirty;
+  const expressionCatalogDirty = JSON.stringify(expressionDefinitions) !== JSON.stringify(savedExpressionCatalog.definitions);
+  const dirty = arrangementDirty || expressionDirty || expressionCatalogDirty;
   const latestDraft = useRef({ draft, saved });
   latestDraft.current = { draft, saved };
   const setChapterSceneDirty = useCallback((chapterId: string, value: boolean) => {
@@ -307,8 +293,8 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
   useEffect(() => { onDirty(dirty || Boolean(localDraft) || objectDirty || sceneDirtyIds.size > 0); }, [dirty, localDraft, objectDirty, sceneDirtyIds, onDirty]);
   useEffect(() => {
     if (!dirty) { if (!localDraft) { try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } } return; }
-    try { sessionStorage.setItem(localKey, JSON.stringify({ revision: saved.revision, payload: draft, expressionRevision: savedExpression.revision, expressionEnabled, expressionPoints })); } catch { /* beforeunload remains active when session storage is unavailable */ }
-  }, [draft, dirty, saved.revision, savedExpression.revision, expressionEnabled, expressionPoints, localKey, localDraft]);
+    try { sessionStorage.setItem(localKey, JSON.stringify({ revision: saved.revision, payload: draft, expressionRevision: savedExpression.revision, expressionEnabled, expressionPoints, expressionCatalogRevision: savedExpressionCatalog.revision, expressionDefinitions })); } catch { /* beforeunload remains active when session storage is unavailable */ }
+  }, [draft, dirty, saved.revision, savedExpression.revision, savedExpressionCatalog.revision, expressionEnabled, expressionPoints, expressionDefinitions, localKey, localDraft]);
   const updateDraft = (value: BookArrangementDraftPayload) => { setDraft(value); setPreview(null); setVolumePreview(null); setApplied(false); setNotice(""); };
   const updateVolume = (edit: BookArrangementVolumeEdit) => {
     setSelectedVolumeId(edit.volumeId);
@@ -332,6 +318,10 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       const points = next.sceneExpressionPoints.map(({ sceneId, dimensionKey, level, note }) => ({ sceneId, dimensionKey, level, note }));
       setSavedExpression({ revision: next.sceneExpressionRevision, enabled: next.sceneExpressionEnabled, points }); setExpressionEnabled(next.sceneExpressionEnabled); setExpressionPoints(points);
     } else if (next.sceneExpressionRevision !== savedExpression.revision) setError("另一个窗口已更新场景表达轨道。本地调整已保留，请比较后再保存。");
+    if (discardDraft || !expressionCatalogDirty) {
+      setSavedExpressionCatalog({ revision: next.sceneExpressionCatalogRevision, definitions: next.sceneExpressionDefinitions });
+      setExpressionDefinitions(next.sceneExpressionDefinitions);
+    } else if (next.sceneExpressionCatalogRevision !== savedExpressionCatalog.revision) setError("另一个窗口已修改场景表达轨道定义。本地提示词已保留，请比较后再保存。");
     if (!keep && (!localDraft || discardDraft)) { setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* no persistent local recovery available */ } }
     if (draftConflict) setError("另一个窗口已更新编排草稿。本地编辑与原保存版本已保留；请先比较，或明确放弃本地编辑后重载，避免覆盖他人修改。");
     else if (next.draft.payload.baseRevision !== next.baseRevision) setNotice("资料已刷新，请保存草稿以使用最新章节资料。");
@@ -347,6 +337,14 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       const record = await run("保存编排草稿", input, key => api.saveDraft(input, key));
       if (!record) return undefined;
       result = record; setSaved(record); setDraft(record.payload);
+    }
+    if (expressionCatalogDirty) {
+      const input = { expectedRevision: savedExpressionCatalog.revision, definitions: expressionDefinitions };
+      const receipt = await run("保存场景表达轨道定义", input, key => api.saveSceneExpressionDefinitions(input, key));
+      if (!receipt) return undefined;
+      setSavedExpressionCatalog({ revision: receipt.revision, definitions: receipt.definitions });
+      setExpressionDefinitions(receipt.definitions);
+      setWorkspace(current => ({ ...current, sceneExpressionDefinitions: receipt.definitions, sceneExpressionCatalogRevision: receipt.revision }));
     }
     if (expressionDirty) {
       const input = { expectedRevision: savedExpression.revision, enabled: expressionEnabled, points: expressionPoints };
@@ -414,7 +412,7 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       else { const record = workspace.events.find(item => item.participantIds.includes(person.id) && item.chapterId); if (record?.chapterId) selectChapter(record.chapterId); setSpanId(""); setHistorySelection(value => value + 1); }
     }} /></label><div className="ba-scope-switcher" aria-label="全书级编排入口"><span className="ba-scope-switcher-label">全书</span><Button size="sm" variant="ghost" onClick={() => setPanel("book")}><BookOpen size={15} />整书资料</Button><Button size="sm" variant="ghost" onClick={() => setPanel("relations")}><Network size={15} />人物关系</Button><Button size="sm" variant="ghost" onClick={() => setPanel("hooks")}><Waypoints size={15} />线索伏笔</Button><Button size="sm" variant="ghost" onClick={() => setPanel("tracks")}><SlidersHorizontal size={15} />表达轨道</Button></div>
       <Button size="sm" variant="secondary" disabled={Boolean(busy) || (!dirty && saved.revision > 0)} onClick={() => void save()}>保存草稿</Button><details className="ba-action-menu"><summary aria-label="更多编排操作"><MoreHorizontal size={17} />更多</summary><div onClick={event => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.parentElement?.removeAttribute("open"); }}><strong>整书与范围</strong><button type="button" onClick={() => setPanel("planning")}>AI 重编排</button><button type="button" onClick={() => setPanel("requirements")}>后续写作要求</button><button type="button" onClick={() => setPanel("volume-preview")}>卷段调整预览</button><strong>当前章节</strong><button type="button" onClick={() => { setScope([selectedId]); setControlKey(undefined); setPanel("controls"); }}>原有表达参数</button><strong>新增到当前章</strong>{(["event", "scene", "relation", "hook"] as const).map(kind => <button type="button" key={kind} onClick={() => openObjectPanel({ kind, id: "new", chapterId: selectedId })}>{({ event: "事件", scene: "场景", relation: "关系阶段", hook: "伏笔" })[kind]}</button>)}<strong>资料</strong><button type="button" disabled={Boolean(busy)} onClick={() => void run("刷新资料", {}, async () => { await reload(); return true; })}>刷新资料</button></div></details></header>
-    {localDraft && <div className="space-y-2 bg-amber-500/10 p-3 text-sm" role="status"><p>找到本作品尚未保存的本地编辑。可以恢复后检查，也可以继续服务端草稿。</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; updateDraft(localDraft.payload); setSaved(current => ({ ...current, revision: localDraft.revision })); if (localDraft.expressionRevision && Array.isArray(localDraft.expressionPoints)) { setSavedExpression(current => ({ ...current, revision: localDraft.expressionRevision! })); if (typeof localDraft.expressionEnabled === "boolean") setExpressionEnabled(localDraft.expressionEnabled); setExpressionPoints(localDraft.expressionPoints); } setLocalDraft(null); setNotice("本地编排与场景表达点已恢复，请核对后保存；其他窗口已修改时会提示版本冲突。"); }}>恢复未保存编辑</Button><Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } }}>使用服务端草稿</Button></div></div>}
+    {localDraft && <div className="space-y-2 bg-amber-500/10 p-3 text-sm" role="status"><p>找到本作品尚未保存的本地编辑。可以恢复后检查，也可以继续服务端草稿。</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; updateDraft(localDraft.payload); setSaved(current => ({ ...current, revision: localDraft.revision })); if (localDraft.expressionRevision && Array.isArray(localDraft.expressionPoints)) { setSavedExpression(current => ({ ...current, revision: localDraft.expressionRevision! })); if (typeof localDraft.expressionEnabled === "boolean") setExpressionEnabled(localDraft.expressionEnabled); setExpressionPoints(localDraft.expressionPoints); } if (typeof localDraft.expressionCatalogRevision === "number" && Array.isArray(localDraft.expressionDefinitions)) { setSavedExpressionCatalog(current => ({ ...current, revision: localDraft.expressionCatalogRevision! })); setExpressionDefinitions(localDraft.expressionDefinitions); } setLocalDraft(null); setNotice("本地编排、场景表达轨道与点位已恢复，请核对后保存；其他窗口已修改时会提示版本冲突。"); }}>恢复未保存编辑</Button><Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (inFlight.current) return; setLocalDraft(null); try { sessionStorage.removeItem(localKey); } catch { /* unavailable storage */ } }}>使用服务端草稿</Button></div></div>}
     {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {(busy || notice) && <p role="status" className="text-sm text-muted-foreground">{busy ? `${busy}…` : notice}</p>}
     <fieldset disabled={Boolean(busy)} className="ba-layout">
@@ -424,7 +422,7 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
         <ArrangementChapterNavigator chapters={workspace.chapters} volumes={overviewVolumes} start={window.start} visibleCount={window.chapters.length} selectedId={selectedId} onStart={setWindowStart} onWindow={(start, size) => { setWindowStart(start); setWindowSize(size); }} onSelect={selectChapter} disabled={Boolean(busy)} />
       </section>
       <div className="ba-context-actions"><span className="ba-current-scope"><i>当前章节</i><span>第 {currentChapter?.order} 章{currentChapter ? ` · ${currentChapter.title}` : ""}{currentVolume ? ` · ${currentVolume.title}` : ""}</span></span><Button size="sm" variant="ghost" onClick={() => { setScope([selectedId]); setControlKey(undefined); setPanel("controls"); }}>章节表达参数</Button>{dirty && <Button size="sm" variant="ghost" disabled={Boolean(busy)} onClick={() => { if (globalThis.confirm("放弃尚未保存的编排编辑，并载入服务端草稿？")) void run("重载服务端草稿", {}, async () => { await reload(true); return true; }); }}>放弃本地编辑</Button>}</div>
-      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} onSelect={openChapter} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); setPanel("chapter"); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); setPanel("volume"); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} expressionPoints={expressionPoints} selectedExpression={selectedExpression ? expressionPointKey(selectedExpression.sceneId, selectedExpression.dimensionKey) : undefined} onExpressionPoints={points => { setExpressionPoints(points); setNotice(""); }} onExpressionSelect={(sceneId, dimensionKey, open) => { setSelectedExpression({ sceneId, dimensionKey }); const scene = workspace.scenes.find(item => item.id === sceneId); if (scene) selectChapter(scene.chapterId); if (open) setPanel("expression-point"); }} onChapterMenuAction={(action, chapterId) => {
+      <div id="ba-chapter-matrix"><ArrangementMatrix workspace={workspace} draft={draft} chapters={window.chapters} selectedId={selectedId} onSelect={openChapter} onSpan={selectSpan} onDraft={updateDraft} characterSearch={characterSearch} onCharacter={(id, chapterId) => { setSelectedVolumeId(""); setCharacterId(id); if (chapterId) selectChapter(chapterId); }} onHistory={(chapterId, personId) => { selectChapter(chapterId); setCharacterId(personId ?? ""); setSpanId(""); setHistorySelection(value => value + 1); setPanel("chapter"); }} selectedVolumeId={selectedVolumeId} onVolume={id => { setSelectedVolumeId(id); setSpanId(""); setPanel("volume"); }} onVolumeEdit={updateVolume} windowStart={window.start} onWindowStart={setWindowStart} expressionDefinitions={expressionDefinitions} expressionPoints={expressionPoints} selectedExpression={selectedExpression ? expressionPointKey(selectedExpression.sceneId, selectedExpression.dimensionKey) : undefined} onExpressionPoints={points => { setExpressionPoints(points); setNotice(""); }} onExpressionSelect={(sceneId, dimensionKey, open) => { setSelectedExpression({ sceneId, dimensionKey }); const scene = workspace.scenes.find(item => item.id === sceneId); if (scene) selectChapter(scene.chapterId); if (open) setPanel("expression-point"); }} onChapterMenuAction={(action, chapterId) => {
         selectChapter(chapterId);
         if (action === "chapter") { openChapter(chapterId); return; }
         if (action === "scenes" || action === "add-scene") { setPanel(null); setSceneEditor({ chapterId, createNew: action === "add-scene" }); return; }
@@ -438,8 +436,8 @@ function ArrangementEditor({ initialWorkspace, onDirty, novelPicker }: { initial
       {panel === "book" && <section className="ba-book-scope-panel"><div className="ba-book-facts"><span>题材<strong>{workspace.genre?.name || "未设置"}</strong></span><span>章节<strong>{workspace.chapters.length} 章</strong></span><span>卷段<strong>{workspace.volumes.length} 卷</strong></span><span>人物<strong>{workspace.characters.length} 人</strong></span></div><div className="ba-scope-level"><h3>整书必须明确</h3><p>题材定位、故事主线、世界规则、核心人物和全书终局。它们会影响所有卷和章节。</p><div><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=story_macro`}>编辑故事主线</Link><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=world`}>编辑世界观与规则</Link><Link target="_blank" rel="noreferrer" to={`/novels/${workspace.novelId}/edit?stage=character`}>编辑核心人物</Link></div></div><div className="ba-scope-level"><h3>卷段需要明确</h3><p>本卷承诺、主角变化、高潮和通往下一卷的衔接。请在矩阵的卷段轨道点击对应卷段修改。</p></div><div className="ba-scope-level"><h3>章节需要明确</h3><p>章节目标、事件、场景、人物参与和表达参数。点击章节名称或矩阵中的具体对象修改。</p></div><p className="ba-panel-note">世界观继续由底座原“世界观准备”维护，避免产生两份互相冲突的世界设定。链接会在新窗口打开，当前编排位置和草稿保留。</p></section>}
       {panel === "relations" && <BookRelationshipPanel workspace={workspace} selectedId={selectedId} onSelectChapter={selectChapter} onOpenRelation={(relationId, chapterId) => openObjectPanel({ kind: "relation", id: relationId, chapterId })} onCharacterSaved={character => setWorkspace(current => ({ ...current, characters: current.characters.map(item => item.id === character.id ? { ...item, name: character.name, role: character.role } : item) }))} />}
       {panel === "hooks" && <HookLifecyclePanel workspace={workspace} selectedChapterId={selectedId} windowStart={window.start} windowSize={window.chapters.length} onWindowStart={setWindowStart} onSelectChapter={selectChapter} onObject={openObjectPanel} />}
-      {panel === "tracks" && <ExpressionTrackPanel draft={draft} onDraft={updateDraft} enabled={expressionEnabled} onEnabled={value => { setExpressionEnabled(value); setNotice(""); }} />}
-      {panel === "expression-point" && selectedExpression && <SceneExpressionPointPanel workspace={workspace} sceneId={selectedExpression.sceneId} dimensionKey={selectedExpression.dimensionKey} points={expressionPoints} onPoints={points => { setExpressionPoints(points); setNotice(""); }} />}
+      {panel === "tracks" && <SceneExpressionTrackCatalogPanel draft={draft} onDraft={updateDraft} enabled={expressionEnabled} onEnabled={value => { setExpressionEnabled(value); setNotice(""); }} definitions={expressionDefinitions} onDefinitions={value => { setExpressionDefinitions(value); setNotice(""); }} />}
+      {panel === "expression-point" && selectedExpression && <SceneExpressionPointPanel workspace={workspace} sceneId={selectedExpression.sceneId} dimensionKey={selectedExpression.dimensionKey} definitions={expressionDefinitions} points={expressionPoints} onPoints={points => { setExpressionPoints(points); setNotice(""); }} />}
       {(panel === "planning" || panel === "controls" || panel === "requirements") && <details className="ba-batch-scope"><summary><span>批量调整</span><small>{scope.length > 1 ? `已选 ${scope.length} 章 · 未锁定 ${allowed.length} 章` : "按窗口或区间选择章节"}</small></summary><div className="ba-batch-scope-body"><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => { setScope([selectedId]); setPreview(null); }}>仅当前章</Button><Button size="sm" variant="outline" onClick={() => { setScope(window.chapters.map(chapter => chapter.id)); setPreview(null); }}>当前窗口</Button><Button size="sm" variant="ghost" onClick={() => { setScope([]); setPreview(null); }}>清空</Button></div><div className="flex flex-wrap items-center gap-2"><select className="ba-input ba-inline" aria-label="面板范围起始章节" value={rangeFrom} onChange={event => setRangeFrom(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><span>至</span><select className="ba-input ba-inline" aria-label="面板范围结束章节" value={rangeTo} onChange={event => setRangeTo(event.target.value)}>{workspace.chapters.map(chapter => <option key={chapter.id} value={chapter.id}>{chapter.order} · {chapter.title}</option>)}</select><Button size="sm" variant="outline" onClick={() => { setScope(chapterRange(workspace.chapters, rangeFrom, rangeTo)); setPreview(null); }}>使用这个区间</Button></div></div></details>}
       {panel === "chapter" && <ArrangementInspector workspace={workspace} draft={draft} selectedId={selectedId} scope={scope} spanId={spanId} spanSelection={spanSelection} onSpan={selectSpan} onDraft={updateDraft} busy={Boolean(busy)} characterId={characterId} historySelection={historySelection} onSelectChapter={selectChapter} onAddAppearance={addAppearance} onScope={ids => { setScope(ids); setPreview(null); }} onPreview={() => void previewRequirements()} previewDisabled={previewDisabled} dirty={dirty} onObject={object => { if (object.kind === "scene" && object.chapterId) { setPanel(null); setSceneEditor({ chapterId: object.chapterId, sceneId: object.id }); return; } openObjectPanel(object); }} />}
       {panel === "controls" && <ArrangementControlsPanel key={`${selectedId}:${controlKey ?? "all"}`} workspace={workspace} draft={draft} chapterId={selectedId} controlKey={controlKey} scope={scope} onDraft={updateDraft} />}

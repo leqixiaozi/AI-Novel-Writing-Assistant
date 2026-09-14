@@ -4,7 +4,7 @@ import { apiClient } from "./client";
 import type { BookArrangementVolumePreview, BookArrangementVolumePreviewRequest, BookArrangementVolumeApplyReceipt } from "@ai-novel/shared/types/bookArrangement";
 import type { BookArrangementObjectApplyReceipt, BookArrangementObjectDetail, BookArrangementObjectKind, BookArrangementObjectPreview, BookArrangementObjectPreviewRequest } from "@ai-novel/shared/types/bookArrangement";
 import type { BookArrangementSceneApplyReceipt, BookArrangementScenePreview, BookArrangementScenePreviewRequest } from "@ai-novel/shared/types/bookArrangement";
-import type { SceneExpressionDimensionDefinition, SceneExpressionPointSaveReceipt, SceneExpressionPointSaveRequest } from "@ai-novel/shared/types/sceneExpressionTracks";
+import type { SceneExpressionPointSaveReceipt, SceneExpressionPointSaveRequest, SceneExpressionTrackCatalog, SceneExpressionTrackCatalogSaveRequest } from "@ai-novel/shared/types/sceneExpressionTracks";
 
 export function createBookArrangementApi(novelId: string) {
   const base = `/novels/${encodeURIComponent(novelId)}/book-arrangement`;
@@ -19,11 +19,12 @@ export function createBookArrangementApi(novelId: string) {
       if (!data.data) throw new Error(data.message || "未能读取编排资料。");
       return data.data;
     },
-    async sceneExpressionDefinitions(): Promise<readonly SceneExpressionDimensionDefinition[]> {
-      const { data } = await apiClient.get<ApiResponse<readonly SceneExpressionDimensionDefinition[]>>(`${base}/scene-expression-definitions`);
+    async sceneExpressionDefinitions(): Promise<SceneExpressionTrackCatalog> {
+      const { data } = await apiClient.get<ApiResponse<SceneExpressionTrackCatalog>>(`${base}/scene-expression-definitions`);
       if (!data.data) throw new Error(data.message || "未能读取场景表达字典。");
       return data.data;
     },
+    saveSceneExpressionDefinitions: (input: SceneExpressionTrackCatalogSaveRequest, key: string) => write<SceneExpressionTrackCatalog>("put", "/scene-expression-definitions", input, key),
     saveDraft: (input: BookArrangementSaveDraftRequest, key: string) => write<BookArrangementDraftRecord>("put", "/draft", input, key),
     preview: (input: BookArrangementPreviewRequest, key: string) => write<BookArrangementPreview>("post", "/preview", input, key),
     apply: (id: string, input: BookArrangementApplyRequest, key: string) => write<BookArrangementApplyReceipt>("post", `/${encodeURIComponent(id)}/apply`, input, key),

@@ -1,17 +1,19 @@
 import type { BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
-import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type SceneExpressionLevel, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
+import type { SceneExpressionDimensionDefinition, SceneExpressionDimensionKey, SceneExpressionLevel, SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 import { Button } from "@/components/ui/button";
 import { expressionPoint, setExpressionPoint } from "../controls/sceneExpressionState";
 
-export function SceneExpressionPointPanel({ workspace, sceneId, dimensionKey, points, onPoints }: {
+export function SceneExpressionPointPanel({ workspace, sceneId, dimensionKey, definitions, points, onPoints }: {
   workspace: BookArrangementWorkspace; sceneId: string; dimensionKey: SceneExpressionDimensionKey;
+  definitions: SceneExpressionDimensionDefinition[];
   points: SceneExpressionPointInput[]; onPoints: (points: SceneExpressionPointInput[]) => void;
 }) {
   const scene = workspace.scenes.find(item => item.id === sceneId);
   const chapter = workspace.chapters.find(item => item.id === scene?.chapterId);
-  const dimension = SCENE_EXPRESSION_DIMENSIONS.find(item => item.key === dimensionKey)!;
+  const dimension = definitions.find(item => item.key === dimensionKey);
   const point = expressionPoint(points, sceneId, dimensionKey);
   if (!scene || !chapter) return <p className="ba-empty-state">这个场景已不存在，请刷新全书编排。</p>;
+  if (!dimension) return <p className="ba-empty-state">这个表达轨道已不存在，请关闭面板后重新选择。</p>;
   const update = (level: SceneExpressionLevel, note = point?.note ?? null) => onPoints(setExpressionPoint(points, { sceneId, dimensionKey, level, note }));
   return <section className="ba-expression-point-panel">
     <header><div><span>第 {chapter.order} 章 · S{scene.sortOrder}</span><h3>{scene.title}</h3><p>{dimension.description}</p></div><strong className={`is-${dimension.color}`}>{point ? `L${point.level}` : "底座写法"}</strong></header>

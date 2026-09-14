@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type 
 import { createPortal } from "react-dom";
 import { BookmarkPlus, CalendarPlus, ChevronDown, ChevronRight, Circle, Diamond, FilePenLine, LayoutList, LockKeyhole, Network, Plus } from "lucide-react";
 import type { BookArrangementDraftPayload, BookArrangementVolumeEdit, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
-import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type SceneExpressionLevel, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
+import type { SceneExpressionDimensionDefinition, SceneExpressionDimensionKey, SceneExpressionLevel, SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 import { Button } from "@/components/ui/button";
 import { auditDimension, auditDimensions, auditHeatState, auditIssueTitle, chapterEdit, characterPresenceEntries, characterTrackColor, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
 import { ArrangementVolumeTrack } from "./volume/ArrangementVolumeTrack";
@@ -18,6 +18,7 @@ interface Props {
   characterSearch?: string; onCharacter?: (characterId: string, chapterId?: string) => void; onHistory?: (chapterId: string, characterId?: string) => void;
   selectedVolumeId?: string; onVolume?: (id: string) => void; onVolumeEdit?: (edit: BookArrangementVolumeEdit) => void; windowStart?: number; onWindowStart?: (index: number) => void;
   expressionPoints: SceneExpressionPointInput[];
+  expressionDefinitions: SceneExpressionDimensionDefinition[];
   selectedExpression?: string;
   onExpressionPoints: (points: SceneExpressionPointInput[]) => void;
   onExpressionSelect: (sceneId: string, dimensionKey: SceneExpressionDimensionKey, open: boolean) => void;
@@ -39,7 +40,7 @@ function clickedChapter(event: MouseEvent<HTMLButtonElement>, chapterIds: string
   return chapterIds[index];
 }
 
-export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSelect, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, expressionPoints, selectedExpression, onExpressionPoints, onExpressionSelect, onObject, onChapterMenuAction }: Props) {
+export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSelect, onSpan, onDraft, characterSearch = "", onCharacter, onHistory, selectedVolumeId, onVolume, onVolumeEdit, windowStart, onWindowStart, expressionDefinitions, expressionPoints, selectedExpression, onExpressionPoints, onExpressionSelect, onObject, onChapterMenuAction }: Props) {
   const [groups, setGroups] = useState<Record<string, boolean>>({});
   const [personFilter, setPersonFilter] = useState("");
   const [allPresence, setAllPresence] = useState(false);
@@ -50,8 +51,9 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSe
   const [matrixScrollLeft, setMatrixScrollLeft] = useState(0);
   const chapterMenuRef = useRef<HTMLDivElement>(null);
   const allGroupsCollapsed = collapsibleGroups.every(key => groups[key]);
-  const configuredTracks = draft.pinnedTracks.filter((key): key is SceneExpressionDimensionKey => SCENE_EXPRESSION_DIMENSIONS.some(dimension => dimension.key === key));
-  const visibleTracks = configuredTracks.length ? configuredTracks : SCENE_EXPRESSION_DIMENSIONS.map(dimension => dimension.key);
+  const enabledExpressionDefinitions = expressionDefinitions.filter(dimension => dimension.enabled).sort((a, b) => a.sortOrder - b.sortOrder);
+  const configuredTracks = draft.pinnedTracks.filter((key): key is SceneExpressionDimensionKey => enabledExpressionDefinitions.some(dimension => dimension.key === key));
+  const visibleTracks = configuredTracks.length ? configuredTracks : enabledExpressionDefinitions.map(dimension => dimension.key);
   const sceneGroups = chapterSceneGroups(chapters, workspace.scenes);
   const visibleScenes = sceneGroups.flatMap(group => group.scenes);
   const toggle = (key: string) => setGroups({ ...groups, [key]: !groups[key] });
@@ -153,10 +155,10 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, onSe
 
         <button type="button" className="ba-label ba-section-label ba-expression-section-label" aria-expanded={!groups.controls} onClick={() => toggle("controls")}>
           <span className="ba-expression-section-title">{groups.controls ? <ChevronRight size={15} /> : <ChevronDown size={15} />}<span>场景表达轨道<small>{visibleTracks.length} 条 · {visibleScenes.length} 个场景点</small></span></span>
-          {!groups.controls && <span className="ba-expression-dimension-gutter" style={{ "--ba-track-count": visibleTracks.length } as CSSProperties} aria-hidden="true">{SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => <i key={track.key} className={`is-${track.color}`}>{track.label}</i>)}</span>}
+          {!groups.controls && <span className="ba-expression-dimension-gutter" style={{ "--ba-track-count": visibleTracks.length } as CSSProperties} aria-hidden="true">{enabledExpressionDefinitions.filter(track => visibleTracks.includes(track.key)).map(track => <i key={track.key} className={`is-${track.color}`}>{track.label}</i>)}</span>}
         </button>
         <div className="ba-track-content ba-controls-content">{!groups.controls && <div className="ba-scene-track-scroll" style={{ "--ba-count": Math.max(1, chapters.length) } as CSSProperties}>
-          {SCENE_EXPRESSION_DIMENSIONS.filter(track => visibleTracks.includes(track.key)).map(track => {
+          {enabledExpressionDefinitions.filter(track => visibleTracks.includes(track.key)).map(track => {
             return <div key={track.key} className={`ba-control-track is-${track.color}`}><div className="ba-curve">
               <svg aria-label={`${track.label}场景曲线，未设置处断线`} viewBox={`0 0 ${Math.max(1, chapters.length) * 100} 62`} preserveAspectRatio="none">{sceneExpressionCurveSegments(visibleScenes.map(scene => ({ x: scene.curveX, level: expressionPoint(expressionPoints, scene.id, track.key)?.level ?? null }))).map((segment, index) => <polyline key={index} fill="none" stroke={`var(--ba-${track.color})`} strokeWidth="2" vectorEffect="non-scaling-stroke" points={segment.map(point => `${point.x},${point.y}`).join(" ")} />)}</svg>
               {sceneGroups.map(group => <div key={group.chapter.id} className="ba-curve-chapter" data-chapter-id={group.chapter.id}>{group.scenes.map((scene, sceneIndex) => { const point = expressionPoint(expressionPoints, scene.id, track.key); const binding = expressionPointKey(scene.id, track.key); return <ArrangementCurveCell key={binding} chapterOrder={group.chapter.order} sceneOrder={scene.sortOrder} sceneIndex={sceneIndex} sceneCount={group.scenes.length} scene={scene} dimension={track} level={point?.level ?? null} note={point?.note ?? null} selected={selectedExpression === binding} onSelect={() => onExpressionSelect(scene.id, track.key, false)} onOpen={() => onExpressionSelect(scene.id, track.key, true)} onChange={(level: SceneExpressionLevel) => onExpressionPoints(setExpressionPoint(expressionPoints, { sceneId: scene.id, dimensionKey: track.key, level, note: point?.note ?? null }))} />; })}</div>)}

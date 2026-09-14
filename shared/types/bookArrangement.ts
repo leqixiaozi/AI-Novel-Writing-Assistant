@@ -1,5 +1,5 @@
 import type { WritingControls, WritingSettingsPayload } from "./writingAdjustments";
-import type { SceneExpressionPoint } from "./sceneExpressionTracks";
+import type { SceneExpressionDimensionDefinition, SceneExpressionPoint } from "./sceneExpressionTracks";
 
 /** Only explicitly applied arrangements enter the optional writing contract. */
 export interface BookArrangementChapterEdit {
@@ -164,6 +164,8 @@ export interface BookArrangementWorkspace {
   sceneExpressionPoints: SceneExpressionPoint[];
   sceneExpressionRevision: string;
   sceneExpressionEnabled: boolean;
+  sceneExpressionDefinitions: SceneExpressionDimensionDefinition[];
+  sceneExpressionCatalogRevision: number;
 }
 export interface BookArrangementSaveDraftRequest { expectedRevision: number; payload: DraftPayload }
 export interface BookArrangementPreviewRequest { draftRevision: number; chapterIds: string[] }

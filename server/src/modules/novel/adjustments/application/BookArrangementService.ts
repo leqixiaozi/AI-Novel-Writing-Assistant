@@ -9,6 +9,7 @@ import { AdjustmentStore } from "../infrastructure/AdjustmentStore";
 import { WritingSettingsService } from "./WritingSettingsService";
 import { BOOK_ARRANGEMENT_CONTROL_VERSION, renderBookArrangementPreserve } from "../../../../prompting/prompts/novel/bookArrangementControls";
 import { parseChapterScenePlan } from "@ai-novel/shared/types/chapterLengthControl";
+import { deserializeSceneExpressionDefinitions } from "@ai-novel/shared/types/sceneExpressionTracks";
 
 const DRAFT_SCOPE = "book-arrangement:draft";
 const chapterScope = (id: string) => `arrangement:chapter:${id}`;
@@ -76,7 +77,7 @@ export class BookArrangementService {
 
   async workspace(novelId: string): Promise<BookArrangementWorkspace> {
     const novel = await this.store.novel(novelId);
-    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, hookLifecycleNodes, latestSnapshot, auditReports, conflicts, cover, genre, expressionPoints] = await Promise.all([
+    const [baseRevision, chapters, characters, events, chapterPlans, volumes, settings, draft, candidates, relationStages, hooks, hookLifecycleNodes, latestSnapshot, auditReports, conflicts, cover, genre, expressionPoints, expressionCatalog] = await Promise.all([
       this.store.dependencies(novelId),
       this.store.db.chapter.findMany({ where: { novelId }, orderBy: { order: "asc" } }),
       this.store.db.character.findMany({ where: { novelId }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),
@@ -95,6 +96,7 @@ export class BookArrangementService {
       this.store.db.imageAsset.findFirst({ where: { novelId, sceneType: "novel_cover", isPrimary: true }, select: { url: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }),
       novel.genreId ? this.store.db.novelGenre.findUnique({ where: { id: novel.genreId }, select: { id: true, name: true } }) : Promise.resolve(null),
       this.store.db.sceneExpressionPoint.findMany({ where: { novelId }, orderBy: [{ sceneId: "asc" }, { dimensionKey: "asc" }] }),
+      this.store.db.sceneExpressionTrackCatalog.findUnique({ where: { novelId }, select: { definitionsJson: true, revision: true } }),
     ]);
     const chapterIds = new Set(chapters.map(chapter => chapter.id));
     const validChapter = (chapterId: string | null): string | null => chapterId && chapterIds.has(chapterId) ? chapterId : null;
@@ -171,6 +173,8 @@ export class BookArrangementService {
       sceneExpressionPoints: expressionPoints.map(row => ({ ...row, dimensionKey: row.dimensionKey as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionDimensionKey, level: row.level as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionLevel, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() })),
       sceneExpressionRevision: digest([novel.sceneExpressionTracksEnabled, expressionPoints.map(row => [row.id, row.sceneId, row.dimensionKey, row.level, row.note, row.revision, row.updatedAt.toISOString()])]),
       sceneExpressionEnabled: novel.sceneExpressionTracksEnabled,
+      sceneExpressionDefinitions: deserializeSceneExpressionDefinitions(expressionCatalog?.definitionsJson),
+      sceneExpressionCatalogRevision: expressionCatalog?.revision ?? 0,
     };
   }
 

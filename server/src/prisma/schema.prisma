@@ -438,6 +438,7 @@ model Novel {
   intentVersions     NovelIntentVersion[]
   shortStoryPlan     ShortStoryPlan?
   shortStorySegments ShortStorySegment[]
+  sceneExpressionTrackCatalog SceneExpressionTrackCatalog?
   creationStudioConfirmations CreationStudioConfirmation[]
   createdAt          DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -3646,6 +3647,15 @@ model SceneExpressionPoint {
 
   @@unique([novelId, sceneId, dimensionKey])
   @@index([novelId, sceneId])
+}
+
+model SceneExpressionTrackCatalog {
+  novelId         String   @id
+  definitionsJson String
+  revision        Int      @default(1)
+  novel           Novel    @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 /// Author-planned or prose-evidenced lifecycle nodes for an existing hook.

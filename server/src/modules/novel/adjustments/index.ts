@@ -61,6 +61,8 @@ export const adjustmentService = {
   applyArrangementScenes: arrangementScenes.apply.bind(arrangementScenes),
   sceneExpressionPoints: sceneExpressions.list.bind(sceneExpressions),
   saveSceneExpressionPoints: sceneExpressions.save.bind(sceneExpressions),
+  sceneExpressionCatalog: sceneExpressions.catalog.bind(sceneExpressions),
+  saveSceneExpressionCatalog: sceneExpressions.saveCatalog.bind(sceneExpressions),
 };
 
 export async function getRequirementsForRuntime(novelId: string, chapterId: string, requirementsId: string) {

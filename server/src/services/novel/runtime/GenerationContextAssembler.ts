@@ -26,6 +26,7 @@ import {
 } from "./runtimeContextBlocks";
 import { buildStoryModePromptBlock, normalizeStoryModeOutput } from "../../storyMode/storyModeProfile";
 import { renderSceneExpressionControls } from "../../../prompting/prompts/novel/sceneExpressionControls";
+import { deserializeSceneExpressionDefinitions } from "@ai-novel/shared/types/sceneExpressionTracks";
 import { mapRowToPlan } from "../storyMacro/storyMacroPlanPersistence";
 import {
   buildBookContractContext,
@@ -149,6 +150,9 @@ export class GenerationContextAssembler {
       orderBy: [{ sceneId: "asc" }, { dimensionKey: "asc" }],
       select: { sceneId: true, dimensionKey: true, level: true, note: true },
     }) : Promise.resolve([]);
+    const sceneExpressionDefinitionsPromise = novel.sceneExpressionTracksEnabled
+      ? prisma.sceneExpressionTrackCatalog.findUnique({ where: { novelId }, select: { definitionsJson: true } }).then(row => deserializeSceneExpressionDefinitions(row?.definitionsJson))
+      : Promise.resolve(deserializeSceneExpressionDefinitions());
     const resourceCharacterIds = resolveChapterResourceCharacterIds({
       plan: ensuredPlan,
       characters: novel.characters,
@@ -173,6 +177,7 @@ export class GenerationContextAssembler {
       payoffLedger,
       characterResourceContext,
       sceneExpressionPoints,
+      sceneExpressionDefinitions,
     ] = await Promise.all([
       this.worldContextGateway.getWorldContextBlock(novelId, { purpose: "chapter" }),
       pendingReviewProposalCountPromise,
@@ -265,6 +270,7 @@ export class GenerationContextAssembler {
         ...(resourceCharacterIds.length > 0 ? { characterIds: resourceCharacterIds } : {}),
       }).catch(() => null),
       sceneExpressionPointsPromise,
+      sceneExpressionDefinitionsPromise,
     ]);
 
     const resolvedStateDrivenContext = await contextAssemblyService.build({
@@ -355,6 +361,7 @@ export class GenerationContextAssembler {
       })(),
     });
     const macroConstraints = buildMacroConstraintContext(storyMacroPlan);
+    const sceneExpressionPointInputs = sceneExpressionPoints.map(point => ({ ...point, dimensionKey: point.dimensionKey as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionDimensionKey, level: point.level as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionLevel }));
     const productionFoundationPrompt = [
       novel.genre?.name ? `题材基底：${novel.genre.name}` : "",
       novel.genre?.description ? `题材定位：${novel.genre.description}` : "",
@@ -364,7 +371,7 @@ export class GenerationContextAssembler {
         secondary: novel.secondaryStoryMode ? normalizeStoryModeOutput(novel.secondaryStoryMode) : null,
       }),
       novel.sceneExpressionTracksEnabled
-        ? renderSceneExpressionControls(ensuredPlan.scenes, sceneExpressionPoints.map(point => ({ ...point, dimensionKey: point.dimensionKey as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionDimensionKey, level: point.level as import("@ai-novel/shared/types/sceneExpressionTracks").SceneExpressionLevel })))
+        ? renderSceneExpressionControls(ensuredPlan.scenes, sceneExpressionPointInputs, sceneExpressionDefinitions)
         : "",
     ].filter(Boolean).join("\n\n");
     const mappedPlan = mapPlan(ensuredPlan);
