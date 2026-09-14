@@ -8,6 +8,7 @@ import { ArrangementCheckPanel } from "./ArrangementCheckPanel";
 import { ArrangementObjectFields } from "./ArrangementObjectFields";
 import { ArrangementObjectPreview } from "./ArrangementObjectPreview";
 import { definitivelyRejectedObjectApply, editableObjectPatch, objectKindLabels, objectPanelError, objectRemoval, recoverObjectCandidate, validateObjectFields } from "./objectPanelState";
+import { auditIssueTitle } from "../arrangementState";
 
 export interface ArrangementObjectSelection { kind: BookArrangementObjectKind | "check"; id: string; chapterId?: string; defaults?: Record<string, BookArrangementObjectValue> }
 export interface ArrangementObjectPanelProps {
@@ -119,7 +120,7 @@ function ObjectPanelWorkspace({ workspace, selectedObject, busy, run, reload, on
   const issue = selectedObject.kind === "check" ? workspace.checks?.find(item => item.id === selectedObject.id || item.sourceId === selectedObject.id) : undefined;
   const history = (workspace.objectPreviews ?? []).filter(candidate => candidate.kind === selectedObject.kind && (create ? candidate.action === "create" && (!selectedObject.chapterId || candidate.affectedChapterIds.includes(selectedObject.chapterId)) : candidate.objectId === detail?.id));
   return <section className="min-w-0 space-y-4 text-foreground" aria-label={`${objectKindLabels[selectedObject.kind]}详情`} aria-busy={working}>
-    <header className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words text-lg">{issue?.title ?? detail?.title ?? `${create ? "新增" : ""}${objectKindLabels[selectedObject.kind]}`}</h2>{detail && <p className="mt-1 text-xs text-muted-foreground">{detail.evidenceLabel}{detail.editable ? " · 预览后应用" : " · 只读资料"}</p>}</div></header>
+    <header className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="break-words text-lg">{issue ? auditIssueTitle(issue) : detail?.title ?? `${create ? "新增" : ""}${objectKindLabels[selectedObject.kind]}`}</h2>{detail && <p className="mt-1 text-xs text-muted-foreground">{detail.evidenceLabel}{detail.editable ? " · 预览后应用" : " · 只读资料"}</p>}</div></header>
     {operation && <p role="status" className="text-sm text-muted-foreground">{operation}…</p>}
     {error && <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
     {notice && <p role="status" className="text-xs text-muted-foreground">{notice}</p>}

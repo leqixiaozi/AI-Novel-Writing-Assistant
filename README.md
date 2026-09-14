@@ -169,6 +169,10 @@
 - 支持多章规划预览与选择采纳，以及复用原事件的人物线／时间线调整和影响回查。
 - 未选择新调整合同的请求继续原生成与保存流程。升级需要对应数据库增量迁移；本轮隔离验收不代表已迁移真实作品或验证真实模型文学效果。
 
+#### 修复
+
+- 核对结果的弹窗标题、详情标题和悬浮摘要改用中文问题名称，不再向作者直接显示内部英文规则键；未知规则会根据中文核对摘要生成可读标题。
+
 开发说明见 [可选人工调整](./docs/wiki/workflows/optional-writing-adjustments.md)、[全书编排](./docs/wiki/product/book-arrangement.md) 与 [场景表达轨道合同](./docs/wiki/prompts/scene-expression-track-contract.md)，验收边界见 [人工调整检查点](./docs/checkpoints/2026-09-13-optional-writing-adjustments.md)、[编排检查点](./docs/checkpoints/2026-09-13-book-arrangement.md) 与 [场景表达轨道检查点](./docs/checkpoints/2026-09-14-scene-expression-tracks.md)。
 
 完整历史更新见 [docs/releases/release-notes.md](./docs/releases/release-notes.md)。

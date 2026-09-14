@@ -20,6 +20,43 @@ export const auditDimensions = [
 export type AuditDimensionKey = typeof auditDimensions[number]["key"];
 export type AuditHeatState = "empty" | "handled" | "low" | "medium" | "high" | "critical";
 
+const auditIssueTitles: Record<string, string> = {
+  mode_exposition_voice: "叙述口吻过度解释",
+  mode_logic_chain_density: "逻辑链说明过密",
+  ending_hook_soft: "结尾钩子力度不足",
+  ending_hook_missing: "缺少结尾钩子",
+  ending_hook_weak: "结尾钩子偏弱",
+  entry_state_disconnect: "入场状态衔接断裂",
+  forbidden_overshoot: "超出禁止扩写范围",
+  info_drop_repetition: "信息投放重复",
+  loop_repetition_breakdown: "重复循环导致表达失效",
+  opponent_pressure_loss: "对手压力减弱",
+  obligation_three_cost_not_landed: "三项代价未落实",
+  prose_long_paragraph: "段落过长",
+  prose_negative_flip: "否定转折句式重复",
+  prose_dash_or_ellipsis: "破折号或省略号使用过多",
+  summary_tone: "叙述偏总结口吻",
+};
+const auditCategoryTitles: Record<string, string> = {
+  mode_fit: "表达方式",
+  plot: "剧情推进",
+  continuity: "前后衔接",
+  character: "人物表现",
+  character_goal_shift: "人物目标",
+};
+
+/** Internal audit rule keys remain stable in data, while authors see a Chinese problem title. */
+export function auditIssueTitle(check: Pick<BookArrangementCheck, "title" | "category" | "summary">): string {
+  const raw = check.title.trim();
+  const normalized = raw.toLocaleLowerCase();
+  const mapped = auditIssueTitles[normalized] ?? auditIssueTitles[normalized.split("/").at(-1) ?? ""];
+  if (mapped) return mapped;
+  if (/\p{Script=Han}/u.test(raw) && !/[a-z_]/iu.test(raw)) return raw;
+  const summaryTitle = check.summary.trim().split(/[，,。！？；;\n]/u).find(part => /\p{Script=Han}/u.test(part.trim()))?.trim();
+  const category = auditCategoryTitles[check.category.toLocaleLowerCase()] ?? "核对";
+  return summaryTitle ? `${category}：${summaryTitle.slice(0, 24)}` : `${category}问题`;
+}
+
 /** Convert backend audit categories into four stable labels that authors can scan. */
 export function auditDimension(check: Pick<BookArrangementCheck, "title" | "category">): AuditDimensionKey {
   const title = check.title.toLocaleLowerCase();

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { auditDimension, auditHeatState, buildArrangementPlanInput, chapterOverviewSegments, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, resizeChapterWindow, updateChapterEdit } from "./arrangementState.ts";
+import { auditDimension, auditHeatState, auditIssueTitle, buildArrangementPlanInput, chapterOverviewSegments, chapterRange, chapterWindow, characterPresenceEntries, characterTrackColor, controlValue, curveSegments, draftDirty, editableChapterIds, packChapterLanes, resizeChapterWindow, updateChapterEdit } from "./arrangementState.ts";
 
 const chapters = Array.from({ length: 23 }, (_, index) => ({ id: `id-${index}`, order: index * 3 + 2, title: `章${index}` }));
 const emptyDraft = () => ({ baseRevision: "base1", chapterEdits: [], characterSpans: [], pinnedTracks: [] });
@@ -111,6 +111,14 @@ test("audit checks map to stable reader-facing dimensions before rendering", () 
   assert.equal(auditDimension({ title: "logic_chain_density", category: "mode_fit" }), "logic");
   assert.equal(auditDimension({ title: "角色目标漂移", category: "character_goal_shift" }), "character");
   assert.equal(auditDimension({ title: "未知检查", category: "unknown" }), "logic");
+});
+
+test("audit issue titles hide internal English rule keys from author-facing surfaces", () => {
+  assert.equal(auditIssueTitle({ title: "mode_exposition_voice", category: "mode_fit", summary: "多处用叙述者口吻替读者点破。" }), "叙述口吻过度解释");
+  assert.equal(auditIssueTitle({ title: "entry_state_disconnect", category: "continuity", summary: "入场状态没有接续。" }), "入场状态衔接断裂");
+  assert.equal(auditIssueTitle({ title: "unknown_machine_rule", category: "plot", summary: "转折缺少前置依据，结论显得突然。" }), "剧情推进：转折缺少前置依据");
+  assert.equal(auditIssueTitle({ title: "人物目标漂移", category: "character", summary: "" }), "人物目标漂移");
+  assert.doesNotMatch(auditIssueTitle({ title: "unknown_machine_rule", category: "plot", summary: "" }), /[a-z_]/iu);
 });
 
 test("audit heat state keeps handled results distinct and uses the highest open severity", () => {

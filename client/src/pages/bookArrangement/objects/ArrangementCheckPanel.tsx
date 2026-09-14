@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { WritingChapterPanel } from "@/pages/novels/components/writingAdjustments/WritingChapterPanel";
 import { explicitDirectorTaskId } from "@/pages/novels/components/writingAdjustments/adjustmentState";
 import type { ArrangementRun } from "../ArrangementPlanning";
+import { auditIssueTitle } from "../arrangementState";
 
 const statusLabels: Record<string, string> = { open: "待处理", resolved: "已解决", ignored: "已忽略", closed: "已关闭", dismissed: "已忽略" };
 
@@ -23,7 +24,7 @@ export function ArrangementCheckPanel({ issue, chapterId: selectedChapterId, wor
   const [requirements, setRequirements] = useState<ResolvedWritingRequirements | null>(null);
   const [auditSummary, setAuditSummary] = useState("");
   const [auditIssues, setAuditIssues] = useState<ReviewIssue[]>([]);
-  const [repairTarget, setRepairTarget] = useState<Pick<BookArrangementCheck, "sourceId" | "title" | "summary" | "evidence" | "fixSuggestion"> | null>(issue ? { sourceId: issue.sourceId, title: issue.title, summary: issue.summary, evidence: issue.evidence, fixSuggestion: issue.fixSuggestion } : null);
+  const [repairTarget, setRepairTarget] = useState<Pick<BookArrangementCheck, "sourceId" | "title" | "summary" | "evidence" | "fixSuggestion"> | null>(issue ? { sourceId: issue.sourceId, title: auditIssueTitle(issue), summary: issue.summary, evidence: issue.evidence, fixSuggestion: issue.fixSuggestion } : null);
   const [candidateNotice, setCandidateNotice] = useState("");
   const [draftDirty, setDraftDirty] = useState(false);
   const updateDraftDirty = useCallback((dirty: boolean) => { setDraftDirty(dirty); onDirtyChange?.(dirty); }, [onDirtyChange]);
@@ -49,7 +50,7 @@ export function ArrangementCheckPanel({ issue, chapterId: selectedChapterId, wor
   return <div className="min-w-0 space-y-5">
     {issue ? <section className="space-y-3 bg-muted/20 p-3">
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground"><span>{issue.evidenceLabel}</span><span>状态：{statusLabels[issue.status] ?? issue.status}</span><span>{chapter ? `第${chapter.order}章 · ${chapter.title}` : "尚未定位到章节"}</span></div>
-      <h3 className="text-base">{issue.title}</h3><p className="whitespace-pre-wrap text-sm">{issue.summary}</p>
+      <h3 className="text-base">{auditIssueTitle(issue)}</h3><p className="whitespace-pre-wrap text-sm">{issue.summary}</p>
       <div className="space-y-1"><h4 className="text-sm">原文依据</h4><p className="whitespace-pre-wrap text-sm text-muted-foreground">{issue.evidence || "此问题记录未附原文片段。"}</p></div>
       <div className="space-y-1"><h4 className="text-sm">修复建议</h4><p className="whitespace-pre-wrap text-sm text-muted-foreground">{issue.fixSuggestion || "未提供修复建议，可先重新核对当前正文。"}</p></div>
       <p className="text-xs text-muted-foreground">{!issue.sourceRevision ? "原报告未绑定正文版本，不能据此认定当前稿仍有同一问题。" : "原报告保存了来源版本标识；是否仍适用于当前正文，需要重新核对。"}</p>

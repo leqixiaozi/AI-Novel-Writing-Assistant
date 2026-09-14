@@ -4,7 +4,7 @@ import { BookmarkPlus, CalendarPlus, ChevronDown, ChevronRight, Circle, Diamond,
 import type { BookArrangementDraftPayload, BookArrangementVolumeEdit, BookArrangementWorkspace } from "@ai-novel/shared/types/bookArrangement";
 import { SCENE_EXPRESSION_DIMENSIONS, type SceneExpressionDimensionKey, type SceneExpressionLevel, type SceneExpressionPointInput } from "@ai-novel/shared/types/sceneExpressionTracks";
 import { Button } from "@/components/ui/button";
-import { auditDimension, auditDimensions, auditHeatState, chapterEdit, characterPresenceEntries, characterTrackColor, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
+import { auditDimension, auditDimensions, auditHeatState, auditIssueTitle, chapterEdit, characterPresenceEntries, characterTrackColor, eventStatusLabels, packChapterLanes, presenceLabels, type ChapterLaneSegment } from "./arrangementState";
 import { ArrangementVolumeTrack } from "./volume/ArrangementVolumeTrack";
 import type { ArrangementObjectSelection } from "./objects/ArrangementObjectPanel";
 import { ArrangementPresenceBlock } from "./panels/ArrangementPresenceBlock";
@@ -170,7 +170,7 @@ export function ArrangementMatrix({ workspace, draft, chapters, selectedId, scop
           const state = auditHeatState(checks);
           const openCount = checks.filter(check => !handledCheckStatuses.has(check.status.toLocaleLowerCase())).length;
           const target = checks.find(check => !handledCheckStatuses.has(check.status.toLocaleLowerCase())) ?? checks[0];
-          const detail = checks.length ? `${checks.length} 项；${checks.slice(0, 3).map(check => check.title).join("、")}${checks.length > 3 ? "等" : ""}` : "尚无此类核对结果";
+          const detail = checks.length ? `${checks.length} 项；${checks.slice(0, 3).map(auditIssueTitle).join("、")}${checks.length > 3 ? "等" : ""}` : "尚无此类核对结果";
           return <button key={`${dimension.key}:${chapter.id}`} type="button" className={`ba-audit-cell is-${state} ${chapter.id === selectedId ? "is-selected" : ""}`} data-state={state} disabled={!target} aria-label={`第${chapter.order}章 ${dimension.label}：${auditHeatLabels[state]}，${detail}`} title={`第${chapter.order}章 · ${dimension.label}\n${auditHeatLabels[state]} · ${detail}`} onClick={() => target && onObject?.({ kind: "check", id: target.sourceId, chapterId: chapter.id })}><span>{state === "handled" ? "✓" : openCount || "—"}</span></button>;
         }))}</div>}
       </div>
