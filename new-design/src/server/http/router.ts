@@ -61,7 +61,7 @@ import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonic
 import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
-import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
+import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedChapterPlanContract, getAdoptedPlanningTree, getBookOverview, getPlanningCenterWorkspace, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion, setPlanningObjectArchived } from "../database/planning";
 import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, listPublishedTaskContracts, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
@@ -170,6 +170,7 @@ import {
   planningVersionInputSchema,
   planningVersionRejectSchema,
   planningVersionAdoptSchema,
+  planningObjectArchiveSchema,
   planningImpactStatusSchema,
   promptRecipeCreateSchema,
   promptRecipeVersionSchema,
@@ -544,6 +545,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/books/:id/story-events/:eventId/temporal",asyncRoute(async(req,res)=>success(res,await listTemporalNeighbors(String(req.params.id),String(req.params.eventId)))));
   router.get("/books/:id/story-events/:eventId/causal",asyncRoute(async(req,res)=>{const query=causalGraphQuerySchema.parse(req.query);success(res,await listCausalGraph(String(req.params.id),String(req.params.eventId),query.direction,query.maxDepth));}));
   router.post("/books/:id/planning-objects",asyncRoute(async(req,res)=>success(res,await createPlanningObject({bookId:String(req.params.id),...body(planningObjectInputSchema,req)}),201)));
+  router.get("/books/:id/overview",asyncRoute(async(req,res)=>success(res,await getBookOverview(String(req.params.id)))));
+  router.get("/books/:id/planning-center",asyncRoute(async(req,res)=>success(res,await getPlanningCenterWorkspace(String(req.params.id)))));
   router.get("/books/:id/planning-tree",asyncRoute(async(req,res)=>success(res,await getAdoptedPlanningTree(String(req.params.id)))));
   router.get("/books/:id/stale-planning-versions",asyncRoute(async(req,res)=>success(res,await listStalePlanningVersions(String(req.params.id)))));
   router.get("/books/:id/planning-impacts",asyncRoute(async(req,res)=>success(res,await listPlanningImpacts(String(req.params.id),typeof req.query.status==="string"?planningImpactStatusSchema.parse(req.query.status):undefined))));
@@ -551,8 +554,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/planning-objects/:id/versions",asyncRoute(async(req,res)=>success(res,await addPlanningVersion(String(req.params.id),body(planningVersionInputSchema,req)),201)));
   router.post("/planning-objects/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectPlanningVersion(String(req.params.id),body(planningVersionRejectSchema,req)))));
   router.post("/planning-objects/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptPlanningVersion(String(req.params.id),body(planningVersionAdoptSchema,req)))));
+  router.post("/planning-objects/:id/archive",asyncRoute(async(req,res)=>success(res,await setPlanningObjectArchived(String(req.params.id),{...body(planningObjectArchiveSchema,req),archived:true}))));
+  router.post("/planning-objects/:id/restore",asyncRoute(async(req,res)=>success(res,await setPlanningObjectArchived(String(req.params.id),{...body(planningObjectArchiveSchema,req),archived:false}))));
   router.get("/planning-objects/:id/adoptions",asyncRoute(async(req,res)=>success(res,await listPlanningAdoptions(String(req.params.id)))));
   router.get("/planning-versions/:id/context",asyncRoute(async(req,res)=>success(res,await getPlanningVersionContext(String(req.params.id)))));
+  router.get("/books/:id/chapters/:chapterCardId/adopted-plan",asyncRoute(async(req,res)=>success(res,await getAdoptedChapterPlanContract(String(req.params.id),String(req.params.chapterCardId)))));
   router.post("/prompt-recipes",asyncRoute(async(req,res)=>success(res,await createPromptRecipe(body(promptRecipeCreateSchema,req)),201)));
   router.get("/prompt-recipes/:id",asyncRoute(async(req,res)=>success(res,await getPromptRecipe(String(req.params.id)))));
   router.post("/prompt-recipes/:id/versions",asyncRoute(async(req,res)=>success(res,await addPromptRecipeVersion(String(req.params.id),body(promptRecipeVersionSchema,req)),201)));

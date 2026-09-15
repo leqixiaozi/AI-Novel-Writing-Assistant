@@ -773,13 +773,25 @@ export interface StoryEventRelation {id:string;sequence:number;bookId:string;pro
 export type PlanningLevel="story"|"volume"|"chapter"|"scene";
 export type PlanningVersionSource="manual"|"ai"|"import"|"system"|"body_revision";
 export type PlanningVersionStatus="draft"|"proposed"|"adopted"|"superseded"|"rejected";
-export interface PlanningVersion {id:string;objectId:string;bookId:string;version:number;baseVersionId:string|null;basedOnParentVersionId:string|null;source:PlanningVersionSource;status:PlanningVersionStatus;content:Record<string,unknown>;contentHash:string;sourceBodyVersionId:string|null;createdBy:string;staleAt:string|null;staleReason:string;createdAt:string;}
+export type PlanningExecutionMode="manual"|"ai_assisted"|"automatic";
+export type PlanningReferenceRole="viewpoint"|"location"|"participant"|"event"|"foreshadow"|"item"|"organization";
+export type ForeshadowPlanAction="plant"|"reinforce"|"recover"|"misdirect"|"reveal";
+export interface PlanningReference {id:string;planningVersionId:string;role:PlanningReferenceRole;cardId:string;cardVersionId:string;cardTypeKey:string;cardTypeName:string;title:string;action:ForeshadowPlanAction|null;note:string;sortOrder:number;}
+export interface PlanningVersion {id:string;objectId:string;bookId:string;version:number;baseVersionId:string|null;basedOnParentVersionId:string|null;source:PlanningVersionSource;status:PlanningVersionStatus;executionMode:PlanningExecutionMode;content:Record<string,unknown>;contentHash:string;sourceBodyVersionId:string|null;references:PlanningReference[];createdBy:string;staleAt:string|null;staleReason:string;createdAt:string;}
 export interface PlanningAdoption {id:string;objectId:string;bookId:string;fromVersionId:string|null;toVersionId:string;action:"adopt"|"rollback"|"readopt";objectRevision:number;source:"user"|"system"|"import";actor:string;contentHash:string;idempotencyKey:string;createdAt:string;}
-export interface PlanningVersionAction {id:string;objectId:string;versionId:string;action:"create"|"edit"|"reject"|"mark_stale";actor:string;note:string;createdAt:string;}
+export interface PlanningVersionAction {id:string;objectId:string;versionId:string;action:"create"|"edit"|"reject"|"mark_stale"|"archive"|"restore";actor:string;note:string;createdAt:string;}
 export interface PlanningObject {id:string;bookId:string;level:PlanningLevel;parentObjectId:string|null;cardId:string|null;title:string;sortOrder:number;status:"active"|"archived";currentVersionId:string;adoptedVersionId:string|null;revision:number;currentVersion:PlanningVersion;adoptedVersion:PlanningVersion|null;versions:PlanningVersion[];adoptions:PlanningAdoption[];actions:PlanningVersionAction[];createdAt:string;updatedAt:string;}
 export interface PlanningTreeNode {object:PlanningObject;children:PlanningTreeNode[];}
 export interface PlanningVersionContext {version:PlanningVersion;object:PlanningObject;ancestors:Array<{object:PlanningObject;version:PlanningVersion}>;children:Array<{object:PlanningObject;version:PlanningVersion}>;}
 export interface PlanningImpact {id:string;bookId:string;adoptionId:string;sourceObjectId:string;sourceFromVersionId:string;sourceToVersionId:string;targetKind:"plan_version"|"chapter_body"|"story_time"|"story_relation"|"context"|"generation_task"|"analysis";targetId:string;status:"pending_review"|"resolved"|"dismissed";reason:string;createdAt:string;resolvedAt:string|null;}
+export interface PlanningMaterialOption {cardId:string;cardVersionId:string;typeKey:string;typeName:string;title:string;updatedAt:string;}
+export interface PlanningAiCapability {configured:boolean;taskKey:string|null;taskContractVersionId:string|null;message:string;}
+export interface PlanningCenterWorkspace {bookId:string;objects:PlanningObject[];materials:PlanningMaterialOption[];aiCapability:PlanningAiCapability;updatedAt:string;}
+export interface BookOverviewMetric {key:string;label:string;value:number|null;unit:string;state:"ready"|"attention"|"unknown";detail:string;sourceLabel:string;sourceRoute:string;updatedAt:string|null;}
+export interface BookMaterialReadiness {typeKey:string;typeName:string;categoryName:string;activeCount:number;requiredFieldCount:number;filledRequiredFieldCount:number;state:"ready"|"needs_input"|"unavailable";sourceRoute:string;updatedAt:string|null;}
+export interface BookOverviewRecentTask {id:string;taskKey:string;status:string;sourceRoute:string;updatedAt:string;}
+export interface BookOverview {bookId:string;direction:{planningObjectId:string;planningVersionId:string;title:string;summary:string;updatedAt:string}|null;materials:BookMaterialReadiness[];metrics:BookOverviewMetric[];recentTasks:BookOverviewRecentTask[];context:{state:"ready"|"attention"|"unknown";adoptedRuleCount:number;latestPreviewStatus:string|null;detail:string;sourceRoute:string;updatedAt:string|null};updatedAt:string;}
+export interface AdoptedChapterPlanContract {bookId:string;planningObjectId:string;planningObjectRevision:number;chapterCardId:string;chapterCardVersionId:string;planningVersionId:string;planningVersionNumber:number;planningContentHash:string;executionMode:PlanningExecutionMode;content:Record<string,unknown>;references:PlanningReference[];basedOnVolumePlanVersionId:string;updatedAt:string;}
 
 export type ContractVersionStatus="draft"|"proposed"|"published"|"superseded"|"rejected";
 export interface PromptRecipeComponentBinding {id:string;slotId:string;componentCardId:string;componentVersionId:string;sortOrder:number;required:boolean;componentType:string;componentKey:string;}

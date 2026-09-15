@@ -152,4 +152,8 @@ export const migrations: Migration[] = [
     id: "037_context_binding_assembly_snapshots",
     fileName: "037_context_binding_assembly_snapshots.sql",
   },
+  {
+    id: "038_book_overview_planning_center",
+    fileName: "038_book_overview_planning_center.sql",
+  },
 ];

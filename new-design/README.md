@@ -29,6 +29,7 @@
 - `EpistemicClaim` / `KnowledgeStateProposal` / `KnowledgeStateChange` / `CurrentKnowledgeState`：把客观命题、人物认知和读者认知分开；AI 提案自动入库且可修订，用户确认后才进入有效流水，按叙事位置查询不会读取未来信息。
 - `StoryTimeProposal` / `StoryEventTiming` / `StoryEventRelation` / `StoryNarrativeOccurrence`：保存独立于章节顺序的完整故事时间正本、跨章叙事出现、时序和因果关系；AI 先生成可编辑提案，确认后才进入有效时间线。
 - `PlanningObject` / `PlanningVersion` / `PlanningAdoption` / `PlanningImpact`：保存故事、卷、章、场景四层规划的稳定树、不可变内容版本、唯一采用指针和下游待复核影响；AI 候选自动入库但不会自动成为执行依据。
+- `PlanningVersionReference` / `PlanningOperationEvent`：为每个规划版本锁定人物、地点、事件、道具、势力与伏笔的精确资料版本，并为创建、修订、驳回、归档和恢复保存幂等回执。
 - `PromptRecipe` / `TaskContract`：用稳定键和不可变版本冻结提示词组合、输入输出 Schema、上下文策略、能力、预算、超时、重试与确认规则；AI 草案自动保存为候选，不覆盖已发布版本。
 - `ContextManifest` / `ModelRouteSnapshot`：记录一次执行实际引用的精确对象版本、排除原因和五层模型路由解析结果；只保存来源 ID、哈希与安全密钥引用状态，不复制正本或泄漏密钥位置。
 - `AiTask` / `AiTaskStep` / `AiTaskAttempt`：提供通用 AI 执行账本；任务、步骤和多次尝试分层保存，状态事件、租约检查点、技术重试、人工重开、审批与用量均可追溯，任务本身不复制小说事实。
@@ -44,9 +45,9 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/037_context_binding_assembly_snapshots.sql`、`docs/data-model.md`、`docs/context-management-and-assembly.md`、`docs/business-form-shell.md`、`docs/field-scope-and-versioning.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的字段扩展、上下文规则、运行快照、局部值和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/038_book_overview_planning_center.sql`、`docs/data-model.md`、`docs/book-overview-and-planning-center.md`、`docs/context-management-and-assembly.md`、`docs/business-form-shell.md`、`docs/field-scope-and-versioning.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的规划候选、采用记录、字段扩展、上下文规则、运行快照、局部值和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
-新设计不再接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—037。当前仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把当前状态描述为已经可安装发布。
+新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—038。仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把此状态描述为可安装发布。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
@@ -114,6 +115,8 @@ Outbox 是投递记录，不是另一份小说数据。业务表与小型事件�
 
 子计划明确记录生成时依赖的父级采用版本。父级切版后，依赖旧版的卷、章、场景及其时间／因果引用会标为待复核并保留历史，不会被静默重写。章或场景计划切版只登记对当前正文的影响，不会替用户切换正文；依据采用正文反向修正规划时，也只新增一个带正文版本来源的计划候选。
 
+书籍概览从资料、规划、正文、事实、状态、质量、依赖和 AI 任务正本实时聚合，并显示来源与更新时间；缺少数据时明确显示“暂无”。故事规划使用树形目录和表单编辑，覆盖故事 → 卷 → 章节 → 场景层级，事件、人物弧与伏笔作为同一计划版本的视图和精确引用。前三章采用计划可通过稳定读取合同交给后续正文阶段；执行方式在本阶段只记录人工、AI 辅助或自动意图，不生成正文。
+
 > 🏠 **白话比喻**：规划像一套分层施工图，每层只画自己的内容并注明依据哪一版上级图。上级图换版时，下游图纸盖“待复核”章，不会自动涂改，更不会把已经施工的正文拆掉重做。
 
 > 🧠 **速记方法**：**节点留版本，采用只一份；父版一换，下游待审；正文只提示，不自动改**。
@@ -162,7 +165,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `037` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索、Outbox／后台作业、可移植传输账本、资料组织和上下文装配账本。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `038` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索、Outbox／后台作业、可移植传输账本、资料组织、上下文装配和规划中心引用账本。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`

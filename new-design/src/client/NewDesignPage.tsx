@@ -14,6 +14,7 @@ import ReferencePacksPage from "./ReferencePacksPage";
 import StrategyResourcesPage from "./StrategyResourcesPage";
 import TemplateGroupsPage from "./TemplateGroupsPage";
 import ContextManagementPage from "./ContextManagementPage";
+import { BookOverviewPage, PlanningCenterPage } from "./planningCenter";
 import "./new-design.css";
 import type { BookViewKey } from "../common/contracts";
 
@@ -31,10 +32,14 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/research/market-radar")return <MarketRadarPage/>;
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;
   if(path==="/new-design/research/reference-packs")return <ReferencePacksPage/>;
+  const overviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/overview$/);
+  if(overviewMatch)return <BookOverviewPage bookId={decodeURIComponent(overviewMatch[1])}/>;
+  const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
+  if(planningMatch)return <PlanningCenterPage bookId={decodeURIComponent(planningMatch[1])}/>;
   const viewMatch=path.match(/^\/new-design\/books\/([^/]+)\/views\/(chapters|clues|characters|events|world|resources)$/);
   if(viewMatch)return <BookWorkspacePage bookId={decodeURIComponent(viewMatch[1])} view="views" viewKey={viewMatch[2] as BookViewKey}/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
-  if(bookMatch)return <BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={(bookMatch[2] as "forms"|"cards"|"fields"|undefined)??"forms"}/>;
+  if(bookMatch)return bookMatch[2]?<BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={bookMatch[2] as "forms"|"cards"|"fields"}/>:<BookOverviewPage bookId={decodeURIComponent(bookMatch[1])}/>;
   if(path==="/new-design/structure/card-types")return <CardTypeCatalogPage/>;
   if(path==="/new-design/structure/dictionaries-relations")return <DictionaryRelationsPage/>;
   if(path==="/new-design/structure/forms")return <FormDesignerPage/>;

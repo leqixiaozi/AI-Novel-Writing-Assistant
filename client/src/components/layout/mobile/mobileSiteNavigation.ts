@@ -35,6 +35,7 @@ export const MOBILE_ROUTE_PATTERNS: MobileRoutePattern[] = [
   { key: "book-analysis", pattern: /^\/book-analysis\/?$/, title: "拆书", group: "creation" },
   { key: "market-radar", pattern: /^\/market-radar\/?$/, title: "热门题材雷达", group: "creation" },
   { key: "new-design", pattern: /^\/new-design\/?$/, title: "创作首页", group: "more" },
+  { key: "new-design-book-planning", pattern: /^\/new-design\/books\/[^/]+\/(?:overview|planning)\/?$/, title: "书籍创作", group: "more" },
   { key: "new-design-book-view", pattern: /^\/new-design\/books\/[^/]+\/views\/(?:chapters|clues|characters|events|world|resources)\/?$/, title: "书籍创作", group: "more" },
   { key: "new-design-books", pattern: /^\/new-design\/books(?:\/[^/]+(?:\/(?:forms|cards|fields))?)?\/?$/, title: "我的书籍", group: "more" },
   { key: "new-design-resources", pattern: /^\/new-design\/resources(?:\/.*)?$/, title: "创作资源", group: "more" },

@@ -75,12 +75,17 @@ import type {
   StoryTimeProposalSource,
   StoryTimeValue,
   PlanningAdoption,
+  PlanningCenterWorkspace,
+  PlanningExecutionMode,
   PlanningImpact,
   PlanningLevel,
   PlanningObject,
+  PlanningReference,
   PlanningTreeNode,
   PlanningVersionContext,
   PlanningVersionSource,
+  AdoptedChapterPlanContract,
+  BookOverview,
   PromptRecipe,
   PromptRecipeComponentBinding,
   TaskContract,
@@ -210,6 +215,7 @@ export type ContextBindingVersionInput=Pick<ContextBindingVersion,"inheritanceMo
 export type ContextBindingCreateInput=ContextBindingVersionInput&{bindingKey:string;name:string;description:string;scopeKind:ContextScopeKind;scopeRef?:string|null;bookId?:string|null;spaceId?:string|null;idempotencyKey:string};
 export type ContextResolutionInput={bookId:string;taskKey:string;taskGroup:string;taskNodeKey:string;volumeId?:string|null;chapterId?:string|null;sceneId?:string|null;manualSwitches:Record<string,boolean>};
 export type ContextPreviewInput=ContextResolutionInput&{taskContractVersionId:string;totalBudget:number;timeoutMs?:number;oneTimeOverrides?:{excludeSourceKeys:string[];manualSwitches:Record<string,boolean>};createdBy?:string};
+export type PlanningVersionInput={content:Record<string,unknown>;source:PlanningVersionSource;executionMode:PlanningExecutionMode;references:Array<Pick<PlanningReference,"role"|"cardId"|"cardVersionId"|"action"|"note"|"sortOrder">>;baseVersionId?:string|null;basedOnParentVersionId?:string|null;sourceBodyVersionId?:string|null;createdBy?:string;idempotencyKey:string};
 export type ModelRouteVersionInput={source:"manual"|"import"|"system";provider?:string|null;model?:string|null;parameters?:Record<string,unknown>|null;requiredCapabilities?:string[]|null;credentialRefId?:string|null;budgetPolicy?:Record<string,unknown>|null;timeoutMs?:number|null;retryPolicy?:Record<string,unknown>|null;fallbackMode:"inherit"|"replace";fallbacks:Array<Omit<ModelRouteFallback,"hasCredential">&{credentialRefId?:string|null}>;baseVersionId?:string|null;createdBy?:string};
 export type QualityEvidenceInput={evidenceKind:QualityEvidenceKind;textAnchorId?:string|null;factId?:string|null;stateChangeId?:string|null;storyTimingId?:string|null;storyRelationId?:string|null;planningVersionId?:string|null;ruleKey?:string|null;ruleVersion?:string|null;note:string;isUnverifiedObservation?:boolean};
 export type QualityFixInput={targetChapterDocumentId:string;targetBodyVersionId:string;targetAnchorId?:string|null;patch:Record<string,unknown>;source:"ai"|"user";createdBy?:string};
@@ -456,16 +462,20 @@ export const newDesignApi = {
   listConcurrentStoryEvents:(bookId:string,eventId:string)=>request<StoryEventTiming[]>(`/books/${bookId}/story-events/${eventId}/concurrent`),
   listTemporalStoryNeighbors:(bookId:string,eventId:string)=>request<StoryEventRelation[]>(`/books/${bookId}/story-events/${eventId}/temporal`),
   listCausalStoryGraph:(bookId:string,eventId:string,direction:"upstream"|"downstream",maxDepth=10)=>request<StoryEventRelation[]>(`/books/${bookId}/story-events/${eventId}/causal?${new URLSearchParams({direction,maxDepth:String(maxDepth)}).toString()}`),
-  createPlanningObject:(bookId:string,input:{level:PlanningLevel;parentObjectId?:string|null;cardId?:string|null;title:string;sortOrder:number;content:Record<string,unknown>;source:PlanningVersionSource;baseVersionId?:string|null;basedOnParentVersionId?:string|null;sourceBodyVersionId?:string|null;createdBy?:string})=>request<PlanningObject>(`/books/${bookId}/planning-objects`,{method:"POST",body:JSON.stringify(input)}),
+  getBookOverview:(bookId:string)=>request<BookOverview>(`/books/${bookId}/overview`),
+  getPlanningCenter:(bookId:string)=>request<PlanningCenterWorkspace>(`/books/${bookId}/planning-center`),
+  createPlanningObject:(bookId:string,input:PlanningVersionInput&{level:PlanningLevel;parentObjectId?:string|null;cardId?:string|null;title:string;sortOrder:number})=>request<PlanningObject>(`/books/${bookId}/planning-objects`,{method:"POST",body:JSON.stringify(input)}),
   getAdoptedPlanningTree:(bookId:string)=>request<PlanningTreeNode|null>(`/books/${bookId}/planning-tree`),
   getPlanningObject:(id:string)=>request<PlanningObject>(`/planning-objects/${id}`),
-  addPlanningVersion:(id:string,input:{content:Record<string,unknown>;source:PlanningVersionSource;baseVersionId?:string|null;basedOnParentVersionId?:string|null;sourceBodyVersionId?:string|null;createdBy?:string;expectedRevision:number})=>request<PlanningObject>(`/planning-objects/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
-  rejectPlanningVersion:(id:string,input:{versionId:string;expectedRevision:number;actor?:string;note?:string})=>request<PlanningObject>(`/planning-objects/${id}/reject`,{method:"POST",body:JSON.stringify(input)}),
+  addPlanningVersion:(id:string,input:PlanningVersionInput&{expectedRevision:number})=>request<PlanningObject>(`/planning-objects/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  rejectPlanningVersion:(id:string,input:{versionId:string;expectedRevision:number;idempotencyKey:string;actor?:string;note?:string})=>request<PlanningObject>(`/planning-objects/${id}/reject`,{method:"POST",body:JSON.stringify(input)}),
   adoptPlanningVersion:(id:string,input:{versionId:string;expectedRevision:number;idempotencyKey:string;source?:"user"|"system"|"import";actor?:string})=>request<PlanningObject>(`/planning-objects/${id}/adopt`,{method:"POST",body:JSON.stringify(input)}),
+  archivePlanningObject:(id:string,input:{expectedRevision:number;idempotencyKey:string;actor?:string;note?:string},restore=false)=>request<PlanningObject>(`/planning-objects/${id}/${restore?"restore":"archive"}`,{method:"POST",body:JSON.stringify(input)}),
   listPlanningAdoptions:(id:string)=>request<PlanningAdoption[]>(`/planning-objects/${id}/adoptions`),
   getPlanningVersionContext:(id:string)=>request<PlanningVersionContext>(`/planning-versions/${id}/context`),
   listStalePlanningVersions:(bookId:string)=>request<PlanningObject["versions"]>(`/books/${bookId}/stale-planning-versions`),
   listPlanningImpacts:(bookId:string,status?:PlanningImpact["status"])=>request<PlanningImpact[]>(`/books/${bookId}/planning-impacts${status?`?${new URLSearchParams({status}).toString()}`:""}`),
+  getAdoptedChapterPlan:(bookId:string,chapterCardId:string)=>request<AdoptedChapterPlanContract>(`/books/${bookId}/chapters/${chapterCardId}/adopted-plan`),
   createPromptRecipe:(input:{recipeKey:string;name:string;description?:string}&PromptRecipeVersionInput)=>request<PromptRecipe>("/prompt-recipes",{method:"POST",body:JSON.stringify(input)}),
   getPromptRecipe:(id:string)=>request<PromptRecipe>(`/prompt-recipes/${id}`),
   addPromptRecipeVersion:(id:string,input:PromptRecipeVersionInput&{expectedRevision:number})=>request<PromptRecipe>(`/prompt-recipes/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),

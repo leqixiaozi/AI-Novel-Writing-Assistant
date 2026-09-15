@@ -25,7 +25,8 @@ export const NEW_DESIGN_ADVANCED_NAV = [
 ] as const;
 
 export const BOOK_TASK_NAV = [
-  { key: "overview", label: "创作概览", path: "forms" },
+  { key: "overview", label: "创作概览", path: "overview" },
+  { key: "planning", label: "故事规划", path: "planning" },
   { key: "characters", label: "人物", path: "views/characters" },
   { key: "world", label: "世界设定", path: "views/world" },
   { key: "events", label: "剧情与事件", path: "views/events" },

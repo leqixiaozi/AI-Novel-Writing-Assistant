@@ -1,0 +1,79 @@
+import type { AdoptedChapterPlanContract, BookMaterialReadiness, BookOverview, BookOverviewMetric, PlanningCenterWorkspace, PlanningObject } from "../../../common/contracts";
+import { NewDesignError, assertFound } from "../../domain/errors";
+import { getNewDesignPool } from "../runtime";
+import { getPlanningObject } from "./store";
+
+const asDate=(value:unknown)=>value===null||value===undefined?null:value instanceof Date?value.toISOString():new Date(String(value)).toISOString();
+const isFilled=(value:unknown)=>value!==null&&value!==undefined&&value!==""&&(!Array.isArray(value)||value.length>0);
+const text=(value:unknown)=>typeof value==="string"?value.trim():"";
+
+export async function getPlanningCenterWorkspace(bookId:string):Promise<PlanningCenterWorkspace>{
+  const pool=await getNewDesignPool();
+  assertFound((await pool.query("SELECT id FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
+  const [objectRows,materials,contract]=await Promise.all([
+    pool.query("SELECT id FROM new_design.planning_objects WHERE book_id=$1 ORDER BY CASE level WHEN 'story' THEN 0 WHEN 'volume' THEN 1 WHEN 'chapter' THEN 2 ELSE 3 END,sort_order,id",[bookId]),
+    pool.query(`SELECT card.id card_id,card.current_version_id card_version_id,type.type_key,type.name type_name,card.title,card.updated_at
+      FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id AND card.status='active'
+      JOIN new_design.card_types type ON type.id=card.card_type_id
+      WHERE book.id=$1 AND card.current_version_id IS NOT NULL
+      ORDER BY type.sort_order,type.name,card.title,card.id`,[bookId]),
+    pool.query(`SELECT contract.task_key,version.id version_id FROM new_design.task_contracts contract
+      JOIN new_design.task_contract_versions version ON version.contract_id=contract.id
+      WHERE contract.status='active' AND version.task_group='planning'
+        AND contract.published_version_id=version.id
+      ORDER BY version.created_at DESC LIMIT 1`),
+  ]);
+  const objects:PlanningObject[]=await Promise.all(objectRows.rows.map(row=>getPlanningObject(String(row.id))));
+  const capability=contract.rows[0];
+  return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),aiCapability:capability?{configured:true,taskKey:String(capability.task_key),taskContractVersionId:String(capability.version_id),message:"已识别规划任务合同；AI 候选执行入口仍待接入，可先人工填写计划。"}:{configured:false,taskKey:null,taskContractVersionId:null,message:"规划任务尚未配置。可先人工填写，或到高级设置完成任务合同与模型分工。"},updatedAt:new Date().toISOString()};
+}
+
+export async function getBookOverview(bookId:string):Promise<BookOverview>{
+  const pool=await getNewDesignPool(),book=assertFound((await pool.query("SELECT id,space_id,updated_at FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
+  const [story,materialRows,planCounts,bodyCounts,facts,changes,issues,dependencies,tasks,context]=await Promise.all([
+    pool.query(`SELECT object.id,object.title,object.updated_at,version.id version_id,version.content FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.adopted_version_id WHERE object.book_id=$1 AND object.level='story' AND object.status='active'`,[bookId]),
+    pool.query(`SELECT type.type_key,type.name type_name,COALESCE(category.name,'未分组') category_name,version.fields,card.id card_id,card.values,card.updated_at
+      FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id
+      LEFT JOIN new_design.card_type_categories category ON category.id=type.category_id
+      LEFT JOIN new_design.cards card ON card.card_type_id=type.id AND card.space_id=$1 AND card.status='active'
+      WHERE type.space_id=$1 AND type.status='published' ORDER BY category.sort_order,type.sort_order,type.name,card.id`,[book.space_id]),
+    pool.query(`SELECT count(*) FILTER(WHERE level='volume' AND status='active') volume_total,count(*) FILTER(WHERE level='volume' AND status='active' AND adopted_version_id IS NOT NULL) volume_adopted,count(*) FILTER(WHERE level='chapter' AND status='active') chapter_total,count(*) FILTER(WHERE level='chapter' AND status='active' AND adopted_version_id IS NOT NULL) chapter_adopted,max(updated_at) updated_at FROM new_design.planning_objects WHERE book_id=$1`,[bookId]),
+    pool.query("SELECT count(*) FILTER(WHERE status='active') document_total,count(*) FILTER(WHERE status='active' AND adopted_version_id IS NOT NULL) written_total,max(updated_at) updated_at FROM new_design.chapter_documents WHERE book_id=$1",[bookId]),
+    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.canonical_facts WHERE book_id=$1 AND status='proposed'",[bookId]),
+    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.state_change_proposals WHERE book_id=$1 AND status='proposed'",[bookId]),
+    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.quality_issues WHERE book_id=$1 AND current_status IN ('open','acknowledged','fix_proposed')",[bookId]),
+    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.dependency_resource_states WHERE book_id=$1 AND state IN ('stale','invalid','needs_review','recompute_pending','recomputing')",[bookId]),
+    pool.query("SELECT id,task_key,status,source_route,updated_at FROM new_design.ai_tasks WHERE book_id=$1 ORDER BY updated_at DESC,id DESC LIMIT 5",[bookId]),
+    pool.query(`SELECT total.adopted_count,preview.status preview_status,preview.created_at preview_at
+      FROM (SELECT count(*) adopted_count FROM new_design.context_bindings WHERE (book_id=$1 OR book_id IS NULL) AND status='active' AND adopted_version_id IS NOT NULL) total
+      LEFT JOIN LATERAL (SELECT status,created_at FROM new_design.context_previews WHERE book_id=$1 ORDER BY created_at DESC LIMIT 1) preview ON true`,[bookId]),
+  ]);
+  const grouped=new Map<string,{typeKey:string;typeName:string;categoryName:string;fields:Array<{key?:string;required?:boolean}>;cards:Array<{values:Record<string,unknown>;updatedAt:string|null}>}>();
+  for(const row of materialRows.rows){const key=String(row.type_key),entry=grouped.get(key)??{typeKey:key,typeName:String(row.type_name),categoryName:String(row.category_name),fields:(row.fields??[]) as Array<{key?:string;required?:boolean}>,cards:[]};if(row.card_id)entry.cards.push({values:(row.values??{}) as Record<string,unknown>,updatedAt:asDate(row.updated_at)});grouped.set(key,entry);}
+  const materials:BookMaterialReadiness[]=[...grouped.values()].map(entry=>{const required=entry.fields.filter(field=>field.required&&field.key),filled=entry.cards.reduce((sum,card)=>sum+required.filter(field=>isFilled(card.values[String(field.key)])).length,0),expected=required.length*entry.cards.length;return{typeKey:entry.typeKey,typeName:entry.typeName,categoryName:entry.categoryName,activeCount:entry.cards.length,requiredFieldCount:expected,filledRequiredFieldCount:filled,state:entry.cards.length===0?"unavailable":expected===0||filled===expected?"ready":"needs_input",sourceRoute:`/new-design/books/${bookId}/cards`,updatedAt:entry.cards.map(card=>card.updatedAt).filter(Boolean).sort().at(-1)??null};});
+  const pc=planCounts.rows[0],bc=bodyCounts.rows[0],fact=facts.rows[0],change=changes.rows[0],issue=issues.rows[0],dependency=dependencies.rows[0];
+  const metric=(key:string,label:string,value:number|null,unit:string,state:BookOverviewMetric["state"],detail:string,sourceLabel:string,sourceRoute:string,updatedAt:unknown):BookOverviewMetric=>({key,label,value,unit,state,detail,sourceLabel,sourceRoute,updatedAt:asDate(updatedAt)});
+  const metrics=[
+    metric("volume_plans","卷规划",Number(pc.volume_adopted),`/${Number(pc.volume_total)}`,Number(pc.volume_total)>0&&Number(pc.volume_adopted)===Number(pc.volume_total)?"ready":"attention","采用后的卷计划才会约束章节规划。","规划版本账本",`/new-design/books/${bookId}/planning`,pc.updated_at),
+    metric("chapter_plans","章节规划",Number(pc.chapter_adopted),`/${Number(pc.chapter_total)}`,Number(pc.chapter_total)>=3&&Number(pc.chapter_adopted)>=3?"ready":"attention","前三章各自需要一个明确采用的计划版本。","规划版本账本",`/new-design/books/${bookId}/planning`,pc.updated_at),
+    metric("written_chapters","已写章节",Number(bc.written_total),`/${Number(bc.document_total)}`,Number(bc.written_total)>0?"ready":"attention","只统计存在采用正文版本的章节。","正文版本账本",`/new-design/books/${bookId}/views/chapters`,bc.updated_at),
+    metric("pending_facts","待确认事实",Number(fact.count)," 条",Number(fact.count)>0?"attention":"ready","候选事实需要确认后才进入正式事实。","事实账本",`/new-design/books/${bookId}/views/events`,fact.updated_at),
+    metric("pending_changes","待结算变化",Number(change.count)," 条",Number(change.count)>0?"attention":"ready","这里只展示状态变化提案，不提前结算。","状态提案账本",`/new-design/books/${bookId}/views/characters`,change.updated_at),
+    metric("continuity_issues","连续性与质量问题",Number(issue.count)," 项",Number(issue.count)>0?"attention":"ready","包括待处理、已知悉和已有修复候选的问题。","质量审查账本",`/new-design/books/${bookId}/planning?panel=issues`,issue.updated_at),
+    metric("stale_items","待复核或重算",Number(dependency.count)," 项",Number(dependency.count)>0?"attention":"ready","来源版本变化后等待复核、失效或重算的派生项。","依赖失效账本",`/new-design/books/${bookId}/planning?panel=impacts`,dependency.updated_at),
+  ];
+  const storyRow=story.rows[0],storyContent=(storyRow?.content??{}) as Record<string,unknown>,summary=["summary","direction","goal","premise"].map(key=>text(storyContent[key])).find(Boolean)??"已采用故事方向，详细内容可进入故事规划查看。";
+  const contextRow=context.rows[0],adoptedCount=Number(contextRow?.adopted_count??0),previewStatus=contextRow?.preview_status?String(contextRow.preview_status):null;
+  return{bookId,direction:storyRow?{planningObjectId:String(storyRow.id),planningVersionId:String(storyRow.version_id),title:String(storyRow.title),summary,updatedAt:asDate(storyRow.updated_at)!}:null,materials,metrics,recentTasks:tasks.rows.map(row=>({id:String(row.id),taskKey:String(row.task_key),status:String(row.status),sourceRoute:String(row.source_route),updatedAt:asDate(row.updated_at)!})),context:{state:adoptedCount>0?(previewStatus==="invalid"||previewStatus==="stale"?"attention":"ready"):"unknown",adoptedRuleCount:adoptedCount,latestPreviewStatus:previewStatus,detail:adoptedCount===0?"暂无可用的上下文规则。":previewStatus?`最近一次装配预览：${previewStatus}`:"规则可用，尚无装配预览。",sourceRoute:"/new-design/structure/context",updatedAt:asDate(contextRow?.preview_at)},updatedAt:new Date().toISOString()};
+}
+
+export async function getAdoptedChapterPlanContract(bookId:string,chapterCardId:string):Promise<AdoptedChapterPlanContract>{
+  const pool=await getNewDesignPool(),row=assertFound((await pool.query(`SELECT object.id,object.revision,object.adopted_version_id,object.updated_at,card.current_version_id chapter_card_version_id
+    FROM new_design.planning_objects object JOIN new_design.books book ON book.id=object.book_id
+    JOIN new_design.cards card ON card.id=object.card_id AND card.space_id=book.space_id
+    WHERE object.book_id=$1 AND object.card_id=$2 AND object.level='chapter' AND object.status='active'`,[bookId,chapterCardId])).rows[0],"章节计划不存在。");
+  if(!row.adopted_version_id)throw new NewDesignError("该章节还没有采用的计划版本。",409);
+  const object=await getPlanningObject(String(row.id)),version=assertFound(object.adoptedVersion,"该章节还没有采用的计划版本。");
+  if(!version.basedOnParentVersionId)throw new NewDesignError("章节采用计划缺少卷计划版本依据。",409);
+  return{bookId,planningObjectId:object.id,planningObjectRevision:object.revision,chapterCardId,chapterCardVersionId:String(row.chapter_card_version_id),planningVersionId:version.id,planningVersionNumber:version.version,planningContentHash:version.contentHash,executionMode:version.executionMode,content:version.content,references:version.references,basedOnVolumePlanVersionId:version.basedOnParentVersionId,updatedAt:asDate(row.updated_at)!};
+}
