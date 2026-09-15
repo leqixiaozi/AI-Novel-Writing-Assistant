@@ -32,6 +32,7 @@ export const MOBILE_ROUTE_PATTERNS: MobileRoutePattern[] = [
   { key: "chat-legacy", pattern: /^\/chat-legacy\/?$/, title: "旧版聊天", group: "creation" },
   { key: "book-analysis", pattern: /^\/book-analysis\/?$/, title: "拆书", group: "creation" },
   { key: "market-radar", pattern: /^\/market-radar\/?$/, title: "热门题材雷达", group: "creation" },
+  { key: "new-design", pattern: /^\/new-design\/?$/, title: "新设计", group: "more" },
   { key: "tasks", pattern: /^\/tasks\/?$/, title: "任务", group: "tasks" },
   { key: "auto-director-follow-ups", pattern: /^\/auto-director\/follow-ups\/?$/, title: "导演跟进", group: "tasks" },
   { key: "knowledge", pattern: /^\/knowledge\/?$/, title: "知识库", group: "more" },
@@ -93,6 +94,12 @@ const moreNavGroups: MobileNavGroup[] = [
       { key: "world-generator", label: "创建世界样本", to: "/worlds/generator", group: "more" },
       { key: "prompt-workbench", label: "提示词管理", to: "/prompt-workbench", group: "more" },
       { key: "settings", label: "系统设置", to: "/settings", group: "more" },
+    ],
+  },
+  {
+    title: "新设计",
+    items: [
+      { key: "new-design", label: "新设计", to: "/new-design", group: "more" },
     ],
   },
 ];

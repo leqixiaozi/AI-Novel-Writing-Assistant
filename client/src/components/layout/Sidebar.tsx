@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   BookOpenText,
   Braces,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -61,7 +62,6 @@ const navGroups: NavGroup[] = [
       { to: "/comic", label: "漫画工作台", icon: SquareStack },
       { to: "/creative-hub", label: "创作中枢", icon: LayoutDashboard },
       { to: "/book-analysis", label: "拆书", icon: ScanSearch },
-      { to: "/new-design", label: "新设计", icon: Layers3 },
     ],
   },
   {
@@ -87,6 +87,12 @@ const navGroups: NavGroup[] = [
       { to: "/settings", label: "系统设置", icon: Settings2 },
     ],
   },
+  {
+    title: "新设计",
+    items: [
+      { to: "/new-design", label: "新设计", icon: Layers3 },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -97,6 +103,9 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [badgeQueriesEnabled, setBadgeQueriesEnabled] = useState(false);
   const [visualAssetLibraryOpen, setVisualAssetLibraryOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(navGroups.map((group) => [group.title, true])),
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => setBadgeQueriesEnabled(true), 500);
@@ -221,17 +230,26 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
-        {navGroups.map((group) => (
-          <div key={group.title} className="space-y-1">
-            {!collapsed ? (
-              <div className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-                {group.title}
-              </div>
-            ) : (
-              <div className="mx-auto h-px w-8 bg-border/70" />
-            )}
+        {navGroups.map((group) => {
+          const expanded = expandedGroups[group.title] ?? true;
+          return (
+            <div key={group.title} className="space-y-1">
+              {!collapsed ? (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? "收起" : "展开"}${group.title}分组`}
+                  className="flex w-full items-center justify-between rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80 transition-colors hover:bg-accent/60 hover:text-foreground"
+                  onClick={() => setExpandedGroups((current) => ({ ...current, [group.title]: !expanded }))}
+                >
+                  <span>{group.title}</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} />
+                </button>
+              ) : (
+                <div className="mx-auto h-px w-8 bg-border/70" />
+              )}
 
-            {group.items.map((item) => {
+              {(collapsed || expanded) && group.items.map((item) => {
               const Icon = item.icon;
               const isNovelEntry = item.to === "/novels";
 
@@ -314,9 +332,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   )}
                 </NavLink>
               );
-            })}
-          </div>
-        ))}
+              })}
+            </div>
+          );
+        })}
       </nav>
       <VisualAssetLibraryDialog open={visualAssetLibraryOpen} onOpenChange={setVisualAssetLibraryOpen} />
     </aside>
