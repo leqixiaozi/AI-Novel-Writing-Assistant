@@ -55,10 +55,10 @@ export default function DictionaryRelationsPage() {
   const activeItems = useMemo(() => dictionary?.items.filter((item) => item.status === "active") ?? [],[dictionary]);
 
   return (
-    <StructureShell title="字典与关系" description="用稳定键管理跨模板选项，并约束卡片之间允许建立的关系。">
+    <StructureShell title="选项与关联" description="用稳定键管理跨模板选项，并约束不同资料之间允许建立的关联。">
       <div className="nd-segmented nd-catalog-switch">
         <button className={view === "dictionaries" ? "is-active" : ""} type="button" onClick={() => setView("dictionaries")}>稳定字典</button>
-        <button className={view === "relations" ? "is-active" : ""} type="button" onClick={() => setView("relations")}>关系类型</button>
+        <button className={view === "relations" ? "is-active" : ""} type="button" onClick={() => setView("relations")}>资料关联</button>
       </div>
       {view === "dictionaries" ? (
         <div className="nd-structure-workspace">

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BookOpenText,
   ChevronRight,
@@ -50,6 +50,16 @@ export default function MobileSiteShell({ children }: MobileSiteShellProps) {
   const pageTitle = getMobilePageTitle(location.pathname);
   const primaryNavItems = getMobilePrimaryNavItems();
   const moreNavGroups = getMobileMoreNavGroups();
+  const advancedRouteActive = location.pathname.startsWith("/new-design/structure/");
+  const [expandedMoreGroups, setExpandedMoreGroups] = useState<Record<string, boolean>>({
+    "new-design-advanced": advancedRouteActive,
+  });
+
+  useEffect(() => {
+    if (advancedRouteActive) {
+      setExpandedMoreGroups((current) => ({ ...current, "new-design-advanced": true }));
+    }
+  }, [advancedRouteActive]);
 
   const openPrimaryItem = (key: MobilePrimaryNavKey, to: string) => {
     if (key === "more") {
@@ -127,12 +137,11 @@ export default function MobileSiteShell({ children }: MobileSiteShellProps) {
               </Button>
             </div>
             <div className="space-y-4">
-              {moreNavGroups.map((group) => (
-                <section key={group.title} className="space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {group.title}
-                  </div>
-                  <div className="grid gap-2">
+              {moreNavGroups.map((group) => {
+                const expanded = !group.collapsible || Boolean(expandedMoreGroups[group.key]);
+                return <section key={group.key} className="space-y-2">
+                  {group.collapsible ? <button type="button" aria-expanded={expanded} aria-controls={`mobile-nav-${group.key}`} className={cn("flex w-full items-center justify-between rounded-xl px-1 py-1 text-xs uppercase tracking-wide text-muted-foreground", advancedRouteActive && "text-primary")} onClick={() => setExpandedMoreGroups((current) => ({ ...current, [group.key]: !expanded }))}><span>{group.title}</span><ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")}/></button> : <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</div>}
+                  {expanded ? <div id={`mobile-nav-${group.key}`} className="grid gap-2">
                     {group.items.map((item) => (
                       <Link
                         key={item.key}
@@ -147,9 +156,9 @@ export default function MobileSiteShell({ children }: MobileSiteShellProps) {
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </Link>
                     ))}
-                  </div>
+                  </div> : null}
                 </section>
-              ))}
+              })}
             </div>
           </div>
         </div>

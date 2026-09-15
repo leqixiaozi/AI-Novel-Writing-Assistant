@@ -27,7 +27,8 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV, isNewDesignAdvancedPath } from "@ai-novel/new-design/client";
 import { listKnowledgeDocuments } from "@/api/knowledge";
 import { queryKeys } from "@/api/queryKeys";
 import { getAutoDirectorFollowUpOverview } from "@/api/autoDirectorFollowUps";
@@ -90,18 +91,25 @@ const navGroups: NavGroup[] = [
   },
   {
     title: "新设计",
-    items: [
-      { to: "/new-design", label: "新设计首页", icon: Layers3, end: true },
-      { to: "/new-design/books", label: "我的书籍", icon: BookOpenText },
-      { to: "/new-design/resources", label: "我的卡片", icon: Database },
-      { to: "/new-design/research", label: "研究与分析", icon: ScanSearch },
-      { to: "/new-design/structure/card-types", label: "元卡片类型", icon: SquareStack },
-      { to: "/new-design/structure/dictionaries-relations", label: "字典与关系", icon: Workflow },
-      { to: "/new-design/structure/forms", label: "卡片组表单", icon: SquarePen },
-      { to: "/new-design/structure/templates", label: "模板组", icon: LayoutDashboard },
-    ],
+    items: NEW_DESIGN_PRIMARY_NAV.map((item) => ({
+      to: item.href,
+      label: item.label,
+      icon: { home: Layers3, books: BookOpenText, resources: Database, research: ScanSearch }[item.key],
+      end: "end" in item ? item.end : undefined,
+    })),
   },
 ];
+
+const newDesignAdvancedItems: NavItem[] = NEW_DESIGN_ADVANCED_NAV.map((item) => ({
+  to: item.href,
+  label: item.label,
+  icon: {
+    "content-types": SquareStack,
+    "options-relations": Workflow,
+    forms: SquarePen,
+    templates: LayoutDashboard,
+  }[item.key],
+}));
 
 interface SidebarProps {
   collapsed: boolean;
@@ -109,8 +117,11 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  const location = useLocation();
+  const advancedRouteActive = isNewDesignAdvancedPath(location.pathname);
   const [badgeQueriesEnabled, setBadgeQueriesEnabled] = useState(false);
   const [visualAssetLibraryOpen, setVisualAssetLibraryOpen] = useState(false);
+  const [newDesignAdvancedExpanded, setNewDesignAdvancedExpanded] = useState(advancedRouteActive);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((group) => [group.title, true])),
   );
@@ -119,6 +130,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const timer = window.setTimeout(() => setBadgeQueriesEnabled(true), 500);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (advancedRouteActive) setNewDesignAdvancedExpanded(true);
+  }, [advancedRouteActive]);
 
   const taskQuery = useQuery({
     queryKey: queryKeys.tasks.overview,
@@ -341,6 +356,33 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </NavLink>
               );
               })}
+              {(collapsed || expanded) && group.title === "新设计" ? (
+                <div className="space-y-1">
+                  {!collapsed ? (
+                    <button
+                      type="button"
+                      aria-controls="new-design-advanced-navigation"
+                      aria-expanded={newDesignAdvancedExpanded}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-md py-2 pl-4 pr-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                        advancedRouteActive ? "bg-accent/90 text-accent-foreground" : "text-foreground",
+                      )}
+                      onClick={() => setNewDesignAdvancedExpanded((current) => !current)}
+                    >
+                      <span className="flex min-w-0 items-center"><Settings2 className="mr-3 h-[18px] w-[18px] shrink-0"/><span className="truncate">高级设置</span></span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !newDesignAdvancedExpanded && "-rotate-90")} />
+                    </button>
+                  ) : null}
+                  {newDesignAdvancedExpanded ? (
+                    <div id="new-design-advanced-navigation" className="space-y-1">
+                      {newDesignAdvancedItems.map((item) => {
+                        const Icon = item.icon;
+                        return <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined}>{({ isActive }) => <div className={cn("relative flex items-center rounded-md text-sm transition-colors", collapsed ? "justify-center px-2 py-2.5" : "py-2 pl-8 pr-2", isActive ? "bg-accent/90 text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground")}><span className={cn("absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-transparent", isActive && "bg-primary", collapsed && "left-0.5 h-6")}/><Icon className={cn("h-[18px] w-[18px] shrink-0", collapsed ? "mx-auto" : "mr-3")}/>{!collapsed ? <span className="truncate">{item.label}</span> : null}</div>}</NavLink>;
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           );
         })}

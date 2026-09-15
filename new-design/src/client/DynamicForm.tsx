@@ -21,7 +21,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
     groups.set(group, [...(groups.get(group) ?? []), field]);
   }
 
-  if (fields.length === 0) return <div className="nd-empty nd-empty-compact">添加字段后，这里会出现与实际卡片一致的表单。</div>;
+  if (fields.length === 0) return <div className="nd-empty nd-empty-compact">添加字段后，这里会出现实际填写表单。</div>;
 
   return (
     <div className="nd-dynamic-form">

@@ -38,5 +38,5 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/structure/dictionaries-relations")return <DictionaryRelationsPage/>;
   if(path==="/new-design/structure/forms")return <FormDesignerPage/>;
   if(path==="/new-design/structure/templates")return <TemplateGroupsPage/>;
-  return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前书籍与结构设计中心层级中。</p><a className="nd-button nd-button-primary" href="/new-design">返回新设计首页</a></div>;
+  return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前新设计导航范围内。</p><a className="nd-button nd-button-primary" href="/new-design">返回创作首页</a></div>;
 }

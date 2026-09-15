@@ -8,8 +8,10 @@ export interface MobileNavItem {
 }
 
 export interface MobileNavGroup {
+  key: string;
   title: string;
   items: MobileNavItem[];
+  collapsible?: boolean;
 }
 
 export interface MobileRoutePattern {
@@ -32,9 +34,12 @@ export const MOBILE_ROUTE_PATTERNS: MobileRoutePattern[] = [
   { key: "chat-legacy", pattern: /^\/chat-legacy\/?$/, title: "旧版聊天", group: "creation" },
   { key: "book-analysis", pattern: /^\/book-analysis\/?$/, title: "拆书", group: "creation" },
   { key: "market-radar", pattern: /^\/market-radar\/?$/, title: "热门题材雷达", group: "creation" },
-  { key: "new-design", pattern: /^\/new-design\/?$/, title: "新设计", group: "more" },
+  { key: "new-design", pattern: /^\/new-design\/?$/, title: "创作首页", group: "more" },
+  { key: "new-design-book-view", pattern: /^\/new-design\/books\/[^/]+\/views\/(?:chapters|clues|characters|events|world|resources)\/?$/, title: "书籍创作", group: "more" },
   { key: "new-design-books", pattern: /^\/new-design\/books(?:\/[^/]+(?:\/(?:forms|cards|fields))?)?\/?$/, title: "我的书籍", group: "more" },
-  { key: "new-design-structure", pattern: /^\/new-design\/structure\//, title: "结构设计中心", group: "more" },
+  { key: "new-design-resources", pattern: /^\/new-design\/resources(?:\/.*)?$/, title: "创作资源", group: "more" },
+  { key: "new-design-research", pattern: /^\/new-design\/research(?:\/.*)?$/, title: "研究与分析", group: "more" },
+  { key: "new-design-structure", pattern: /^\/new-design\/structure\//, title: "高级设置", group: "more" },
   { key: "tasks", pattern: /^\/tasks\/?$/, title: "任务", group: "tasks" },
   { key: "auto-director-follow-ups", pattern: /^\/auto-director\/follow-ups\/?$/, title: "导演跟进", group: "tasks" },
   { key: "knowledge", pattern: /^\/knowledge\/?$/, title: "知识库", group: "more" },
@@ -66,6 +71,7 @@ const primaryNavItems: MobileNavItem[] = [
 
 const moreNavGroups: MobileNavGroup[] = [
   {
+    key: "creation-help",
     title: "创作辅助",
     items: [
       { key: "help", label: "创作向导", to: "/help", group: "more" },
@@ -76,6 +82,7 @@ const moreNavGroups: MobileNavGroup[] = [
     ],
   },
   {
+    key: "assets",
     title: "资产库",
     items: [
       { key: "knowledge", label: "知识库", to: "/knowledge", group: "more" },
@@ -88,6 +95,7 @@ const moreNavGroups: MobileNavGroup[] = [
     ],
   },
   {
+    key: "system",
     title: "世界与系统",
     items: [
       { key: "tasks", label: "运行记录", to: "/tasks", group: "more" },
@@ -99,15 +107,24 @@ const moreNavGroups: MobileNavGroup[] = [
     ],
   },
   {
+    key: "new-design",
     title: "新设计",
     items: [
-      { key: "new-design", label: "新设计首页", to: "/new-design", group: "more" },
+      { key: "new-design", label: "创作首页", to: "/new-design", group: "more" },
       { key: "new-design-books", label: "我的书籍", to: "/new-design/books", group: "more" },
-      { key: "new-design-resources", label: "我的卡片", to: "/new-design/resources", group: "more" },
-      { key: "new-design-card-types", label: "元卡片类型", to: "/new-design/structure/card-types", group: "more" },
-      { key: "new-design-dictionaries", label: "字典与关系", to: "/new-design/structure/dictionaries-relations", group: "more" },
-      { key: "new-design-forms", label: "卡片组表单", to: "/new-design/structure/forms", group: "more" },
-      { key: "new-design-templates", label: "模板组", to: "/new-design/structure/templates", group: "more" },
+      { key: "new-design-resources", label: "创作资源", to: "/new-design/resources", group: "more" },
+      { key: "new-design-research", label: "研究与分析", to: "/new-design/research", group: "more" },
+    ],
+  },
+  {
+    key: "new-design-advanced",
+    title: "高级设置",
+    collapsible: true,
+    items: [
+      { key: "new-design-card-types", label: "内容类型", to: "/new-design/structure/card-types", group: "more" },
+      { key: "new-design-dictionaries", label: "选项与关联", to: "/new-design/structure/dictionaries-relations", group: "more" },
+      { key: "new-design-forms", label: "创作表单", to: "/new-design/structure/forms", group: "more" },
+      { key: "new-design-templates", label: "开书模板", to: "/new-design/structure/templates", group: "more" },
     ],
   },
 ];

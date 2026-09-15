@@ -62,7 +62,7 @@ export default function FieldBuilder({ fields, publishedKeys, allowPublishedPres
       <div className="nd-section-heading">
         <div>
           <p className="nd-kicker">字段定义</p>
-          <h2 id="nd-fields-title">这类卡片要收集什么</h2>
+          <h2 id="nd-fields-title">这类资料要收集什么</h2>
         </div>
         <button className="nd-button nd-button-secondary" type="button" onClick={() => onChange([...fields, createField(fields.length, publishedKeys.size > 0)])}>
           ＋ 添加字段

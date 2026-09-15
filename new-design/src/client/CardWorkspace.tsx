@@ -23,11 +23,11 @@ export default function CardWorkspace({
   cardTypes,
   categories,
   spaceId,
-  workspaceLabel = "卡片库",
+  workspaceLabel = "资料",
   treeAriaLabel = "本书资料类型",
   contextLabel = "本书资料",
-  createLabel = "＋ 新建卡片",
-  entityLabel = "卡片",
+  createLabel = "＋ 新建资料",
+  entityLabel = "资料",
 }: CardWorkspaceProps) {
   const publishedTypes = useMemo(() => cardTypes.filter((item) => item.status === "published" && item.currentVersionId), [cardTypes]);
   const [cardTypeId, setCardTypeId] = useState("");
@@ -132,7 +132,7 @@ export default function CardWorkspace({
           setIssues({});
         }
       })
-      .catch((error) => setMessage(error instanceof Error ? error.message : "卡片加载失败。"));
+      .catch((error) => setMessage(error instanceof Error ? error.message : "资料加载失败。"));
   }, [cardTypeId, archived, spaceId]);
 
   const beginCreate = () => {
@@ -153,7 +153,7 @@ export default function CardWorkspace({
       setMessage(`“${saved.title}”已保存为修订 ${saved.revision}。`);
     } catch (error) {
       if (error instanceof ApiError) { setIssues(error.issues); setMessage(error.message); }
-      else setMessage("卡片保存失败。");
+      else setMessage("资料保存失败。");
     } finally { setBusy(false); }
   };
   const changeArchiveState = async (card: CardSummary) => {
@@ -163,7 +163,7 @@ export default function CardWorkspace({
       else await newDesignApi.archiveCard(card.id, card.revision);
       if (editing?.id === card.id) setEditing(null);
       await reloadCards();
-      setMessage(card.status === "archived" ? "卡片已恢复。" : "卡片已归档，内容和版本仍然保留。 ");
+      setMessage(card.status === "archived" ? "资料已恢复。" : "资料已归档，内容和修改记录仍然保留。 ");
     } catch (error) { setMessage(error instanceof Error ? error.message : "操作失败。"); }
     finally { setBusy(false); }
   };
@@ -175,10 +175,10 @@ export default function CardWorkspace({
   };
 
   const editorVisible = creating || editing;
-  const cardCountLabel = useMemo(() => `${cards.length} 张${archived ? "已归档" : "使用中"}卡片`, [cards.length, archived]);
+  const cardCountLabel = useMemo(() => `${cards.length} 条${archived ? "已归档" : "使用中"}资料`, [cards.length, archived]);
 
   if (publishedTypes.length === 0) {
-    return <div className="nd-empty nd-empty-page"><strong>先发布一个元卡片类型</strong><span>发布后，卡片库会按它的字段自动生成创建表单。</span></div>;
+    return <div className="nd-empty nd-empty-page"><strong>先发布一个内容类型</strong><span>发布后，系统会按它的字段自动生成填写表单。</span></div>;
   }
 
   return (
@@ -199,7 +199,7 @@ export default function CardWorkspace({
           </div>
         </div>
         <div className="nd-card-toolbar">
-          <div className="nd-segmented" aria-label="卡片状态">
+          <div className="nd-segmented" aria-label="资料状态">
             <button className={!archived ? "is-active" : ""} type="button" onClick={() => setArchived(false)}>使用中</button>
             <button className={archived ? "is-active" : ""} type="button" onClick={() => setArchived(true)}>已归档</button>
           </div>
@@ -207,7 +207,7 @@ export default function CardWorkspace({
         <p className="nd-count">{cardCountLabel}</p>
         <div className="nd-card-list">
           {cards.length === 0 ? (
-            <div className="nd-empty nd-empty-compact">这里还没有卡片。</div>
+            <div className="nd-empty nd-empty-compact">这里还没有资料。</div>
           ) : cards.map((card) => (
             <article className={`nd-card-list-item${editing?.id === card.id ? " is-selected" : ""}`} key={card.id}>
               <button className="nd-card-open" type="button" onClick={() => beginEdit(card)}>
@@ -215,7 +215,7 @@ export default function CardWorkspace({
                 <span>修订 {card.revision} · 类型 v{card.typeVersion}</span>
               </button>
               <div className="nd-row-actions">
-                <button type="button" onClick={() => void showHistory(card)}>版本</button>
+                <button type="button" onClick={() => void showHistory(card)}>修改记录</button>
                 <button type="button" disabled={busy} onClick={() => void changeArchiveState(card)}>{card.status === "archived" ? "恢复" : "归档"}</button>
               </div>
             </article>
@@ -230,7 +230,7 @@ export default function CardWorkspace({
           <>
             <div className="nd-section-heading">
               <div><p className="nd-kicker">{editing ? `修订 ${editing.revision}` : `新${entityLabel}`}</p><h2>{editing ? editing.title : `新建${selectedType?.name ?? entityLabel}`}</h2></div>
-              {editing && <button className="nd-text-button" type="button" onClick={() => void showHistory(editing)}>查看版本</button>}
+              {editing && <button className="nd-text-button" type="button" onClick={() => void showHistory(editing)}>查看修改记录</button>}
             </div>
             <label className={`nd-control${issues.title ? " has-error" : ""}`}>
               <span>{entityLabel}标题 <b>*</b></span>
@@ -250,7 +250,7 @@ export default function CardWorkspace({
       {history && (
         <div className="nd-dialog-backdrop" role="presentation" onMouseDown={() => setHistory(null)}>
           <section className="nd-history-dialog" role="dialog" aria-modal="true" aria-labelledby="nd-history-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="nd-section-heading"><div><p className="nd-kicker">只读快照</p><h2 id="nd-history-title">版本历史</h2></div><button className="nd-dialog-close" type="button" onClick={() => setHistory(null)}>×</button></div>
+            <div className="nd-section-heading"><div><p className="nd-kicker">只读快照</p><h2 id="nd-history-title">修改记录</h2></div><button className="nd-dialog-close" type="button" aria-label="关闭修改记录" onClick={() => setHistory(null)}>×</button></div>
             <div className="nd-history-list">
               {history.map((version) => (
                 <article key={version.id}>

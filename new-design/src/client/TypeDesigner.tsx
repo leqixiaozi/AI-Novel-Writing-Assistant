@@ -17,7 +17,7 @@ const CAPABILITY_LABELS: Record<CardTypeCapability, { name: string; description:
   body_text: { name: "承载正文", description: "可以挂接正式叙事文本" },
   timeline: { name: "进入时间线", description: "可以按故事时间定位" },
   state_change: { name: "形成状态变化", description: "会改变人物、关系或世界状态" },
-  relation_subject: { name: "关系主体", description: "可以与其他卡片建立关系" },
+  relation_subject: { name: "关联主体", description: "可以与其他资料建立关联" },
   lifecycle: { name: "生命周期", description: "具有计划、进行、完成等阶段" },
   creative_goal: { name: "创作目标", description: "服务作者的结构安排与生产计划" },
   canonical_fact: { name: "正式事实", description: "可作为故事世界的确定信息" },
@@ -105,7 +105,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
       setDraft(published);
       setVersions(nextVersions);
       onSaved(published);
-      setMessage({ tone: "success", text: `版本 v${published.currentVersion} 已发布，可以创建卡片。` });
+      setMessage({ tone: "success", text: `版本 v${published.currentVersion} 已发布，可以创建资料。` });
     } catch (error) {
       const text = error instanceof ApiError ? error.message : "发布失败。";
       setMessage({ tone: "error", text });
@@ -120,8 +120,8 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
         <section className="nd-section nd-type-overview">
           <div className="nd-section-heading">
             <div>
-              <p className="nd-kicker">元卡片类型</p>
-              <h1>{draft.id ? draft.name || "未命名类型" : "新建元卡片类型"}</h1>
+              <p className="nd-kicker">内容类型</p>
+              <h1>{draft.id ? draft.name || "未命名类型" : "新建内容类型"}</h1>
             </div>
             <span className={`nd-status nd-status-${draft.status}`}>
               {draft.isSystem ? "系统内置 · " : ""}{draft.currentVersion ? `已发布 v${draft.currentVersion}` : "草稿"}
@@ -134,7 +134,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
             </label>
             <label className="nd-control nd-control-wide">
               <span>用途说明</span>
-              <input value={draft.description} placeholder="这类卡片帮助作者记录什么" onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+              <input value={draft.description} placeholder="这类资料帮助作者记录什么" onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
             </label>
           </div>
           {categories.length>0&&<label className="nd-control"><span>所属分类</span><select value={draft.categoryId??""} onChange={(event)=>setDraft({...draft,categoryId:event.target.value||null,categoryKey:categories.find((item)=>item.id===event.target.value)?.key??null})}><option value="">未分类</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.parentId?"　":""}{category.name}</option>)}</select><small>分类只管理目录位置，不会让类型继承字段。</small></label>}
@@ -146,7 +146,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           <div className="nd-capability-section">
             <div>
               <p className="nd-kicker">语义能力</p>
-              <p className="nd-help-text">描述这类卡片能参与哪些通用流程，不把题材规则写死在底层。</p>
+              <p className="nd-help-text">描述这类资料能参与哪些通用流程，不把题材规则写死在底层。</p>
             </div>
             <div className="nd-capability-grid">
               {CARD_TYPE_CAPABILITIES.map((capability) => {
@@ -185,7 +185,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
         <div className="nd-preview-paper">
           <div className="nd-preview-title">
             <span>FORM · {String((draft.currentVersion ?? 0) + 1).padStart(2, "0")}</span>
-            <h2>{draft.name || "未命名卡片"}</h2>
+            <h2>{draft.name || "未命名资料"}</h2>
             <p>{draft.description || "填写类型说明后，作者会在这里理解表单用途。"}</p>
           </div>
           <DynamicForm fields={draft.draftFields} values={{}} preview />
