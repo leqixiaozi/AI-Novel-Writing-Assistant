@@ -10,6 +10,10 @@ export interface PromptAssetLoaderEntry {
 
 export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
   {
+    key: "novel.writing_adjustment.spine@v3",
+    load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentSpinePrompt as UnknownPromptAsset,
+  },
+  {
     key: "novel.writing_adjustment.evidence@v1",
     load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentEvidencePrompt as UnknownPromptAsset,
   },
@@ -18,11 +22,11 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentSceneLocationPrompt as UnknownPromptAsset,
   },
   {
-    key: "novel.writing_adjustment.generate@v1",
+    key: "novel.writing_adjustment.generate@v4",
     load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentGeneratePrompt as UnknownPromptAsset,
   },
   {
-    key: "novel.writing_adjustment.review@v1",
+    key: "novel.writing_adjustment.review@v3",
     load: () => require("../prompts/novel/writingAdjustment.prompts").writingAdjustmentReviewPrompt as UnknownPromptAsset,
   },
   {
@@ -382,7 +386,7 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/novel/characterResource.prompts").characterResourceExtractionPrompt as UnknownPromptAsset,
   },
   {
-    key: "novel.character.castOptions@v2",
+    key: "novel.character.castOptions@v3",
     load: () => require("../prompts/novel/characterPreparation.prompts").characterCastOptionPrompt as UnknownPromptAsset,
   },
   {
@@ -414,7 +418,7 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/novel/characterPreparation.prompts").characterCastAutoNormalizePrompt as UnknownPromptAsset,
   },
   {
-    key: "novel.character.supplemental@v1",
+    key: "novel.character.supplemental@v2",
     load: () => require("../prompts/novel/characterPreparation.prompts").supplementalCharacterPrompt as UnknownPromptAsset,
   },
   {

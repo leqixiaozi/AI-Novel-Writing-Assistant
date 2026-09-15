@@ -3,6 +3,15 @@ import { SCENE_EXPRESSION_DIMENSIONS, sceneExpressionBand, sceneExpressionDefini
 export const SCENE_EXPRESSION_PROMPT_ASSET_KEY = "novel.scene.expression_controls" as const;
 export const SCENE_EXPRESSION_PROMPT_VERSION = "1.1.0";
 
+/** Remove only generated control labels in legacy task-sheet expression lines, never story numbers. */
+export function compileLegacySceneExpressionLabels(text: string | null): string | null {
+  if (!text) return text;
+  return text.split("\n").map(line => {
+    if (!line.startsWith("表达：")) return line;
+    return line.replace(/(场景节奏|句段节拍|细节展开|镜头距离|语言修饰度)L[1-5]：/g, "$1：");
+  }).join("\n");
+}
+
 export function renderSceneExpressionControls(
   scenes: Array<{ id: string; sortOrder: number; title: string }>,
   points: SceneExpressionPointInput[],
@@ -18,14 +27,14 @@ export function renderSceneExpressionControls(
       const definition = sceneExpressionDefinition(point.dimensionKey, definitions);
       const band = sceneExpressionBand(point.dimensionKey, point.level, definitions);
       if (!definition?.enabled || !band) return [];
-      return [`- ${definition.label}：L${band.level}／${band.name}。${band.instruction}${point.note?.trim() ? ` 作者写法备注：${point.note.trim()}` : ""}`, ...definition.invariants.map(rule => `  - 保护：${rule}`)];
+      return [`- ${definition.label}：${band.instruction}${point.note?.trim() ? ` 作者写法备注：${point.note.trim()}` : ""}`, ...definition.invariants.map(rule => `  - 保护：${rule}`)];
     });
     return lines.length ? [[`【场景 S${scene.sortOrder}：${scene.title}】`, ...lines].join("\n")] : [];
   });
   if (!blocks.length) return "";
   return [
     "【场景表达轨道】",
-    "只改变表达，不改变故事。不得新增、删除、合并或调换事件；不得改变人物出场、行动、决定、知情、关系、线索、因果和场景结果；不得补充未提供的姓名、日期、地点、身份、物证内容或结论。无法在事实边界内达到档位时，以事实为准并降低表现强度。",
+    "只改变表达，不改变故事。不得新增、删除、合并或调换事件；不得改变人物出场、行动、决定、知情、关系、线索、因果和场景结果；不得补充未提供的姓名、日期、地点、身份、物证内容或结论。表达要求与事实冲突时，以事实为准。",
     ...blocks,
   ].join("\n\n");
 }

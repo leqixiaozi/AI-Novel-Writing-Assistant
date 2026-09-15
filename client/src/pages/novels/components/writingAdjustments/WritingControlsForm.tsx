@@ -32,7 +32,7 @@ export function WritingControlsForm({ controls, onChange, characters, definition
       <p className="text-xs text-muted-foreground">{definition.description}</p>
       {value.mode === "set" && <div className="grid gap-2 sm:grid-cols-2">
         <select aria-label={`${definition.label}档位`} className={adjustmentInputClass} value={value.value ?? 50} onChange={(event) => update({ value: Number(event.target.value) })}>
-          {[0, 25, 50, 75, 100].map((band, index) => <option key={band} value={band}>{definition.bands[index] ?? `第 ${index + 1} 档`}（{band}）</option>)}
+          {[0, 25, 50, 75, 100].map((band, index) => <option key={band} value={band}>{definition.bands[index] ?? "自定义表达"}</option>)}
         </select>
         {objects.map((field) => field === "matter"
           ? <input key={field} aria-label={`${definition.label}涉及事项`} placeholder="涉及什么事" className={adjustmentInputClass} value={value.matter ?? ""} onChange={(event) => update({ matter: event.target.value })} />

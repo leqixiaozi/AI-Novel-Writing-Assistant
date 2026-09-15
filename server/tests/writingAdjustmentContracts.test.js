@@ -9,6 +9,21 @@ const contracts = loadRuntimeSource(source("modules/novel/adjustments/domain/con
 });
 const narrative = loadRuntimeSource(source("prompting/prompts/novel/chapterNarrativeControls.ts"), {});
 
+test("resolved expression instructions contain the dialogue matter but no numeric bands", () => {
+  for (const rawValue of [0, 25, 50, 75, 100]) {
+    const text = narrative.buildChapterNarrativeControlBlock({ pace: { rawValue }, dialogueDirectness: { rawValue, speaker: "甲", listener: "乙", matter: "归还两份收据" } });
+    assert.match(text, /归还两份收据/);
+    assert.doesNotMatch(text, /原值|有效档|L[1-5]|\/ 100|档位/);
+  }
+});
+
+test("legacy focus compilation preserves story numbers and only converts the owned control fragment", () => {
+  const result = narrative.compileLegacyArrangementFocus("第三日，两联。表达关注权重：85/100（编排期望，不代表已写正文的实际戏份）。");
+  assert.match(result, /第三日，两联/);
+  assert.match(result, /优先从指定人物/);
+  assert.doesNotMatch(result, /85\/100/);
+});
+
 test("writing controls distinguish no setting, inherited zero and explicit disable", () => {
   assert.deepEqual(contracts.controlsSchema.parse({}), {});
   const merged = contracts.mergeControls([
@@ -26,7 +41,8 @@ test("five narrative bands preserve legal zero and round midpoint toward the hig
   const cases = [[0, 1], [12.49, 1], [12.5, 2], [37.5, 3], [50, 3], [62.5, 4], [75, 4], [87.5, 5], [100, 5]];
   for (const [rawValue, band] of cases) {
     const block = narrative.buildChapterNarrativeControlBlock({ pace: { rawValue } });
-    assert.match(block, new RegExp(`L${band}`), `value ${rawValue}`);
+    const fragments = ["充分展开", "多留一点观察", "均衡交替", "压缩重复说明", "更集中的段落"];
+    assert.ok(block.includes(fragments[band - 1]), `value ${rawValue}`);
   }
   assert.equal(narrative.buildChapterNarrativeControlBlock(undefined), "");
 });

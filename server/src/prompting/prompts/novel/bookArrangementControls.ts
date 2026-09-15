@@ -13,7 +13,8 @@ const PARTICIPATION_RULES = {
 export function renderBookArrangementPreserve(note: string, spans: Array<BookArrangementCharacterSpan & { characterName: string }>): string[] {
   const preserve = note.trim() ? [`本章编排要求：${note.trim()}`] : [];
   for (const span of spans) {
-    preserve.push(`人物编排：${span.characterName}（人物 ID：${span.characterId}）。${PARTICIPATION_RULES[span.mode]}${span.weight !== null ? `表达关注权重：${span.weight}/100（编排期望，不代表已写正文的实际戏份）。` : ""}${span.note.trim() ? `作者备注：${span.note.trim()}` : ""}`);
+    const focus = span.weight === null ? "" : ["只做必要交代，保留其已有行动。", "给少量动作或反应描写。", "均衡呈现其已有行动与反应。", "优先描写其已有动作、反应和处境。", "持续围绕其感知与行动组织镜头，不改变他人的行动归属。"][Math.min(4, Math.floor(span.weight / 25 + .5))];
+    preserve.push(`人物编排：${span.characterName}（人物 ID：${span.characterId}）。${PARTICIPATION_RULES[span.mode]}${focus}${span.note.trim() ? `作者备注：${span.note.trim()}` : ""}`);
   }
   return preserve;
 }

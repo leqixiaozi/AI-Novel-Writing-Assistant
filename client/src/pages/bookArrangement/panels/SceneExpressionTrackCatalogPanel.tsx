@@ -27,7 +27,7 @@ function newDefinition(sortOrder: number): SceneExpressionDimensionDefinition {
     color: "blue",
     enabled: true,
     sortOrder,
-    bands: [1, 2, 3, 4, 5].map(level => ({ level: level as 1 | 2 | 3 | 4 | 5, name: `第 ${level} 档`, instruction: `说明第 ${level} 档应如何改写已有场景内容。` })),
+    bands: [1, 2, 3, 4, 5].map(level => ({ level: level as 1 | 2 | 3 | 4 | 5, name: ["充分克制", "略作强调", "均衡表达", "明显强调", "集中表达"][level - 1], instruction: "" })),
     invariants: ["不得新增、删除或改变剧情事实"],
     promptAssetKey: "novel.scene.expression_controls",
   };
@@ -76,10 +76,10 @@ export function SceneExpressionTrackCatalogPanel({ draft, onDraft, enabled, onEn
     {editing && <form className="ba-expression-definition-editor" onSubmit={event => { event.preventDefault(); commit(editing); }}>
       <header><div><h4>{editing.origin === "system" ? `修改内置轨道 · ${editing.label}` : definitions.some(item => item.key === editing.key) ? `修改自定义轨道 · ${editing.label}` : "新增场景表达轨道"}</h4><p>这里的文字会进入生成提示，只描述写法强弱，不写剧情要求。</p></div>{editing.origin === "system" && <Button type="button" size="sm" variant="ghost" onClick={() => restore(editing.key)}><RotateCcw size={14} />恢复默认</Button>}</header>
       <div className="ba-expression-definition-grid"><label><span>轨道名称</span><input className="ba-input" maxLength={30} required value={editing.label} onChange={event => setEditing({ ...editing, label: event.target.value })} /></label><label><span>颜色</span><select className="ba-input" value={editing.color} onChange={event => setEditing({ ...editing, color: event.target.value as SceneExpressionColor })}>{colors.map(color => <option key={color.value} value={color.value}>{color.label}</option>)}</select></label><label className="is-wide"><span>用途说明</span><textarea className="ba-input" rows={2} maxLength={200} required value={editing.description} onChange={event => setEditing({ ...editing, description: event.target.value })} /></label></div>
-      <div className="ba-expression-band-editor"><strong>5 档提示词</strong>{editing.bands.map((band, index) => <div key={band.level}><b>L{band.level}</b><input className="ba-input" maxLength={30} required aria-label={`L${band.level}名称`} value={band.name} onChange={event => setEditing({ ...editing, bands: editing.bands.map((item, position) => position === index ? { ...item, name: event.target.value } : item) })} /><textarea className="ba-input" rows={2} maxLength={300} required aria-label={`L${band.level}提示词`} value={band.instruction} onChange={event => setEditing({ ...editing, bands: editing.bands.map((item, position) => position === index ? { ...item, instruction: event.target.value } : item) })} /></div>)}</div>
+      <div className="ba-expression-band-editor"><strong>表达方式与对应提示词</strong>{editing.bands.map((band, index) => <div key={band.level}><input className="ba-input" maxLength={30} required aria-label={`表达方式${index + 1}名称`} value={band.name} onChange={event => setEditing({ ...editing, bands: editing.bands.map((item, position) => position === index ? { ...item, name: event.target.value } : item) })} /><textarea className="ba-input" rows={2} maxLength={300} required aria-label={`表达方式${index + 1}提示词`} placeholder="填写具体执行要求，无需写级别或数值" value={band.instruction} onChange={event => setEditing({ ...editing, bands: editing.bands.map((item, position) => position === index ? { ...item, instruction: event.target.value } : item) })} /></div>)}</div>
       <label className="ba-expression-invariants"><span>内容保护规则（每行一条，最多 6 条）</span><textarea className="ba-input" rows={4} required value={editing.invariants.join("\n")} onChange={event => setEditing({ ...editing, invariants: event.target.value.split("\n").map(item => item.trim()).filter(Boolean).slice(0, 6) })} /></label>
       <div className="ba-expression-definition-actions"><Button type="button" variant="ghost" onClick={() => setEditing(null)}>取消</Button><Button type="submit">{definitions.some(item => item.key === editing.key) ? "保存本次修改" : "添加到本书"}</Button></div>
     </form>}
-    <p className="ba-panel-note">矩阵左键上下拖动场景点调整 L1—L5，右键打开该场景的详细设置。未设置点继续使用本书底座写法。</p>
+    <p className="ba-panel-note">矩阵左键上下拖动场景点调整表达方式，右键查看具体写作要求。未设置点继续使用本书底座写法。</p>
   </section>;
 }

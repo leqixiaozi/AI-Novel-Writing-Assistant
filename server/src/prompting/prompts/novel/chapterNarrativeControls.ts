@@ -11,6 +11,7 @@ export interface SuspicionTargetControl extends NumericNarrativeControl {
 export interface DialogueDirectnessControl extends NumericNarrativeControl {
   speaker: string;
   listener: string;
+  matter?: string;
 }
 
 export interface CharacterProminenceControl extends NumericNarrativeControl {
@@ -115,6 +116,15 @@ function requireLabel(value: string, field: string): string {
   return normalized;
 }
 
+/** Compatibility for the exact numeric fragment emitted by older arrangement versions. */
+export function compileLegacyArrangementFocus(text: string): string {
+  return text.replace(/表达关注权重：(\d+(?:\.\d+)?)\/100（编排期望，不代表已写正文的实际戏份）。/g, (original, value) => {
+    const weight = Number(value);
+    if (weight < 0 || weight > 100) return original;
+    return resolveBand(weight, "character_prominence").band.instruction;
+  });
+}
+
 function resolveBand(rawValue: number, key: NarrativeControlKey): { level: number; band: NarrativeControlBand } {
   if (!Number.isFinite(rawValue) || rawValue < 0 || rawValue > 100) {
     throw new Error(`narrative control ${key} rawValue must be a finite number from 0 to 100`);
@@ -129,11 +139,10 @@ function renderControl(
   objectLine?: string,
 ): string {
   const definition = CONTROL_DEFINITIONS[key];
-  const { level, band } = resolveBand(control.rawValue, key);
+  const { band } = resolveBand(control.rawValue, key);
   return [
-    `【${key}／${definition.label}】`,
+    `【${definition.label}】`,
     objectLine ? `对象：${objectLine}` : "",
-    `原值：${control.rawValue} / 100；有效档：L${level}／${band.name}`,
     `执行：${band.instruction}`,
     `禁止误读：${definition.antiMisread}`,
     `内部检查：${definition.evidenceFocus}`,
@@ -168,7 +177,7 @@ export function buildChapterNarrativeControlBlock(controls?: ChapterNarrativeCon
     blocks.push(renderControl(
       "dialogue_directness",
       controls.dialogueDirectness,
-      `${speaker} → ${listener}`,
+      `${speaker} → ${listener}${controls.dialogueDirectness.matter?.trim() ? `；谈论事项：${controls.dialogueDirectness.matter.trim()}` : ""}`,
     ));
   }
   if (controls.characterProminence) {
@@ -186,7 +195,7 @@ export function buildChapterNarrativeControlBlock(controls?: ChapterNarrativeCon
 
   return [
     "【本章写法与节奏控制】",
-    "以下档位是表达方式的柔性目标，不是剧情指令，也不代表文学质量高低。",
+    "以下要求只控制表达方式，不是新增剧情指令。",
     "总原则：只改变表达，不改变故事。请把它理解为对同一份剧情采用不同讲述和剪辑方式。",
     "故事内容锁定：不得新增、删除、合并或调换事件，不得改变人物出场、行动、决定、线索内容、因果关系与场景结果。",
     "chapter mission、硬事实、知情范围、出场安排、伏笔操作和必达项优先；若控制目标与它们冲突，以硬约束为准。",
@@ -195,7 +204,7 @@ export function buildChapterNarrativeControlBlock(controls?: ChapterNarrativeCon
     "不得补充未提供的数量、种类、可读文字、画面内容、附带物件或指向关系；这些都必须来自正式上下文。",
     "线索内容未给出时，只写角色查看、辨认、无法确认或作出待核实判断，不替作者决定线索具体长什么样、写了什么或证明什么。",
     "任务要求人物作出后续决定但没有提供因果桥时，可以写成基于现有疑问去核实，不得回填新证据来证明决定正确。",
-    "无法在事实边界内达到目标档位时，保留既有事实并降低表现强度，不得用编造内容强行达档。",
+    "表达要求与事实冲突时保留既有事实，不得用编造内容满足表达要求。",
     blocks.join("\n\n"),
   ].join("\n");
 }

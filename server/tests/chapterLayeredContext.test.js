@@ -933,6 +933,11 @@ test("chapter writer blocks enforce enabled critical context contracts", () => {
 
   const styleBlock = assertNonEmptyBlock(writerBlocks, "style_contract");
   assert.equal(styleBlock.required, true);
+  assert.equal(styleBlock.allowSummary, false, "style contracts cannot use prefix truncation");
+  const { selectContextBlocks } = require("../dist/prompting/core/contextSelection.js");
+  const selected = selectContextBlocks([styleBlock], { maxTokensBudget: 15 });
+  assert.equal(selected.selectedBlocks[0].content, styleBlock.content, "style rules and final self-check must survive a small soft budget intact");
+  assert.deepEqual(selected.summarizedBlockIds, []);
   assert.match(styleBlock.content, /保持高压反压的叙事手感/);
 
   const continuationBlock = assertNonEmptyBlock(writerBlocks, "continuation_constraints");

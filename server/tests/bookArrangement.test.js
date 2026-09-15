@@ -729,7 +729,8 @@ test("book arrangement: application affects only the optional layer with book-ar
   const applied = await f.service.apply(f.novelId, preview.id, { chapterIds: [fourth.id, fifth.id] });
   assert.equal(applied.appliedSettings[fourth.id].settings.controls.pace.value, 0);
   assert.match(applied.appliedSettings[fourth.id].settings.preserve.join("\n"), new RegExp(f.character.id));
-  assert.match(applied.appliedSettings[fourth.id].settings.preserve.join("\n"), /0\/100/);
+  assert.match(applied.appliedSettings[fourth.id].settings.preserve.join("\n"), /只做必要交代/);
+  assert.doesNotMatch(applied.appliedSettings[fourth.id].settings.preserve.join("\n"), /\d+\/100/);
   assert.equal((await f.settings.get(f.novelId, fourth.id)).effective.controls.tension.mode, "disabled");
   assert.equal((await f.settings.get(f.novelId, fourth.id)).sources.pace, "本章");
   assert.equal((await f.settings.get(f.novelId, fifth.id)).sources.pace, "全书编排");

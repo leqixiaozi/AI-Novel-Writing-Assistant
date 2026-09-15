@@ -24,6 +24,27 @@ export class AdjustmentStore {
     if (!chapter) throw new AppError("章节不存在。", 404);
     return chapter;
   }
+  /** Read author background without triggering world generation or state synchronization. */
+  async writingBackground(novelId: string, chapterOrder: number, chapterId: string) {
+    const [novel, worldInstance, relations, stages] = await Promise.all([
+      this.novel(novelId),
+      this.db.novelWorld.findUnique({ where: { novelId }, select: { title: true, coverSummary: true, structuredDataJson: true, storySliceJson: true, bindingContractJson: true } }),
+      this.db.characterRelation.findMany({ where: { novelId }, orderBy: { id: "asc" }, select: { id: true, sourceCharacterId: true, targetCharacterId: true, surfaceRelation: true, hiddenTension: true, conflictSource: true, secretAsymmetry: true } }),
+      this.db.characterRelationStage.findMany({ where: { novelId, OR: [{ chapter: { order: { lte: chapterOrder } } }, { chapterId: null, chapterOrder: { lte: chapterOrder } }] }, orderBy: [{ chapterOrder: "asc" }, { id: "asc" }], select: { sourceCharacterId: true, targetCharacterId: true, stageLabel: true, stageSummary: true, sourceType: true, chapterOrder: true, chapter: { select: { order: true } } } }),
+    ]);
+    const worldTemplate = !worldInstance && novel.worldId ? await this.db.world.findUnique({ where: { id: novel.worldId }, select: { name: true, background: true, axioms: true, geography: true, cultures: true, magicSystem: true, politics: true, economy: true, factions: true, history: true } }) : null;
+    const tasks = await this.db.storyTimelineEvent.findMany({ where: { novelId, chapterId, status: { not: "cancelled" } }, orderBy: [{ eventOrder: "asc" }, { id: "asc" }], select: { id: true, title: true, summary: true, status: true, source: true, type: true, prerequisiteIdsJson: true, participantIdsJson: true } });
+    const prerequisiteIds = tasks.flatMap(task => parseJson<string[]>(task.prerequisiteIdsJson, []));
+    const prerequisites = prerequisiteIds.length ? await this.db.storyTimelineEvent.findMany({ where: { novelId, id: { in: prerequisiteIds }, chapterIndex: { lt: chapterOrder }, status: { not: "cancelled" } }, select: { id: true, title: true, summary: true, status: true, source: true } }) : [];
+    return {
+      authorBackground: { description: novel.description, targetAudience: novel.targetAudience, bookSellingPoint: novel.bookSellingPoint, styleTone: novel.styleTone },
+      world: worldInstance ? { source: "本书世界设定", title: worldInstance.title, summary: worldInstance.coverSummary, structure: parseJson(worldInstance.structuredDataJson, null), slice: parseJson(worldInstance.storySliceJson, null), contract: parseJson(worldInstance.bindingContractJson, null) } : { source: "本书关联世界样本", template: worldTemplate, slice: parseJson(novel.storyWorldSliceJson, null) },
+      authorRelationBackground: relations,
+      chapterTasks: tasks.map(({ prerequisiteIdsJson, participantIdsJson, ...task }) => ({ ...task, participantIds: parseJson(participantIdsJson, []), prerequisites: prerequisites.filter(item => parseJson<string[]>(prerequisiteIdsJson, []).includes(item.id)) })),
+      chapterRelationStages: stages.map(stage => ({ ...stage, chapter: undefined, chapterOrder: stage.chapter?.order ?? stage.chapterOrder })),
+      usageBoundary: "人物背景、秘密和世界设定供作者保持一致，不等于角色已知，也不授权提前揭露。关系背景不是开篇实时状态；关系阶段只查询至本章，计划来源仍是待发生安排。本章之前的已确认历史及本章任务决定实际知情与关系。未查询到的资料保持未知。",
+    };
+  }
   async chapters(novelId: string, scope: WritingAdjustmentScope) {
     await this.novel(novelId);
     const ids = scope.kind === "novel" ? null : scope.kind === "chapters" ? scope.chapterIds : scope.chapterId ? [scope.chapterId] : [];
@@ -42,7 +63,7 @@ export class AdjustmentStore {
     return rows;
   }
   async dependencies(novelId: string) {
-    const [novel, chapters, characters, canon, plans, decisions, events, scenes] = await Promise.all([
+    const [novel, chapters, characters, canon, plans, decisions, events, scenes, backgroundRevisions] = await Promise.all([
       this.novel(novelId),
       this.db.chapter.findMany({ where: { novelId }, select: { id: true, content: true, expectation: true, order: true, updatedAt: true }, orderBy: { id: "asc" } }),
       this.db.character.findMany({ where: { novelId }, select: { id: true, updatedAt: true }, orderBy: { id: "asc" } }),
@@ -51,8 +72,16 @@ export class AdjustmentStore {
       this.db.creativeDecision.findMany({ where: { novelId, adjustmentJson: { not: null } }, select: { id: true, adjustmentJson: true, updatedAt: true }, orderBy: { id: "asc" } }),
       this.db.storyTimelineEvent.findMany({ where: { novelId }, select: { id: true, updatedAt: true }, orderBy: { id: "asc" } }),
       this.db.storyPlan.findMany({ where: { novelId }, select: { id: true, updatedAt: true, scenes: { select: { id: true, updatedAt: true }, orderBy: { id: "asc" } } }, orderBy: { id: "asc" } }),
+      Promise.all([
+        this.db.novelWorld.findUnique({ where: { novelId }, select: { updatedAt: true } }),
+        this.db.world.findMany({ where: { novels: { some: { id: novelId } } }, select: { id: true, updatedAt: true } }),
+        this.db.characterRelation.findMany({ where: { novelId }, select: { id: true, updatedAt: true }, orderBy: { id: "asc" } }),
+        this.db.characterRelationStage.findMany({ where: { novelId }, select: { id: true, updatedAt: true }, orderBy: { id: "asc" } }),
+        this.db.sceneExpressionPoint.findMany({ where: { novelId }, select: { id: true, revision: true }, orderBy: { id: "asc" } }),
+        this.db.sceneExpressionTrackCatalog.findUnique({ where: { novelId }, select: { revision: true } }),
+      ]),
     ]);
-    return digest({ novel: novel.updatedAt, chapters: chapters.map(c => [c.id, chapterRevision(c)]), characters, canon, plans, decisions, events, scenes });
+    return digest({ novel: novel.updatedAt, chapters: chapters.map(c => [c.id, chapterRevision(c)]), characters, canon, plans, decisions, events, scenes, backgroundRevisions });
   }
   async version(novelId: string, chapterId: string, id: string) {
     const row = await this.db.chapterEditVersion.findFirst({ where: { id, novelId, chapterId } });

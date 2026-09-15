@@ -72,8 +72,29 @@ test("adjustment planning rejects unauthorized chapter writes and duplicate targ
   assert.throws(() => prompts.writingAdjustmentPlanPrompt.postValidate({ ...valid, changes: [valid.changes[0], valid.changes[0]] }, promptInput), /多个/);
 });
 
+test("spine review cannot pass by omitting checks or fabricating completed evidence", () => {
+  const input = { ...promptInput, spine: [{ id: "s1", expectation: "required", requirement: "询问", sourceId: "src-1", sourceQuote: "保留已知事实" }] };
+  const output = { summary: "done", issues: [], checkedEvidenceIds: [], missingEvidence: [] };
+  assert.throws(() => prompts.writingAdjustmentReviewPrompt.postValidate(output, input), /未逐项覆盖/);
+  const uncertain = prompts.writingAdjustmentReviewPrompt.postValidate({ ...output, checks: [{ id: "s1", status: "met", quote: "", reason: "done" }] }, input);
+  assert.equal(uncertain.checks[0].status, "uncertain");
+  const valid = { ...output, checks: [{ id: "s1", status: "met", quote: "林舟问起寄信人", reason: "asked" }] };
+  assert.equal(prompts.writingAdjustmentReviewPrompt.postValidate(valid, input), valid);
+  assert.throws(() => prompts.writingAdjustmentSpinePrompt.postValidate({ items: [{ id: "s1", expectation: "required", requirement: "new", sourceId: "invented" }] }, { ...input, requirementSources: [{ id: "src-1", text: "保留已知事实" }] }), /来源未匹配/);
+});
+
+test("adjustment review grounds requirement quotes in configuration rather than candidate prose", () => {
+  const issue = { id: "q1", kind: "plan", severity: "error", quote: "林舟", requirementQuote: "保留已知事实", evidenceIds: [], message: "核对", suggestion: "核对要求" };
+  const output = { summary: "核对", issues: [issue], checkedEvidenceIds: [], missingEvidence: [] };
+  assert.equal(prompts.writingAdjustmentReviewPrompt.postValidate(output, promptInput), output);
+  assert.throws(() => prompts.writingAdjustmentReviewPrompt.postValidate({ ...output, issues: [{ ...issue, requirementQuote: "林舟问起寄信人" }] }, promptInput), /配置依据未匹配/);
+  assert.throws(() => prompts.writingAdjustmentReviewPrompt.postValidate({ ...output, issues: [{ ...issue, requirementQuote: "必须转动180度" }] }, promptInput), /配置依据未匹配/);
+});
+
 test("adjustment review and planning structured schemas reject malformed AI results", () => {
   assert.equal(prompts.writingAdjustmentReviewSchema.safeParse({ summary: "通过" }).success, false);
+  const normalized = prompts.writingAdjustmentReviewSchema.parse({ summary: "核对", issues: [{ id: "q1", kind: "logic", severity: "error", message: "因果错误", quote: "原文", evidenceIds: [], suggestion: "修正" }], checkedEvidenceIds: [], missingEvidence: [] });
+  assert.equal(normalized.issues[0].kind, "plan");
   assert.equal(prompts.writingAdjustmentPlanSchema.safeParse({ summary: "完成", changes: "已写入" }).success, false);
   assert.equal(prompts.writingAdjustmentQuerySchema.safeParse({ query: "谁丢了信", characterIds: [], chapterIds: [], beforeChapterOrder: 0, reason: "查证" }).success, false);
 });

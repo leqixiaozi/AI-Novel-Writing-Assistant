@@ -9,6 +9,10 @@ function load() {
   return loadRuntimeSource(modulePath, { "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks") });
 }
 
+test("legacy expression labels are removed without touching a story code or count", () => {
+  assert.equal(load().compileLegacySceneExpressionLabels("门牌L4，第三日，两联\n表达：场景节奏L4：压缩重复；镜头距离L2：外部观察。"), "门牌L4，第三日，两联\n表达：场景节奏：压缩重复；镜头距离：外部观察。");
+});
+
 test("scene expression renderer injects nothing when the chapter has no saved points", () => {
   assert.equal(load().renderSceneExpressionControls([{ id: "s1", sortOrder: 1, title: "进门" }], []), "");
 });
@@ -19,8 +23,9 @@ test("scene expression renderer binds fixed writing instructions to stable scene
     [{ sceneId: "s2", dimensionKey: "scene_pace", level: 4, note: "动作衔接清楚" }, { sceneId: "s2", dimensionKey: "camera_distance", level: 5, note: null }],
   );
   assert.match(text, /【场景 S2：摸供桌】/);
-  assert.match(text, /场景节奏：L4／紧凑推进/);
-  assert.match(text, /镜头距离：L5／沉浸贴身/);
+  assert.match(text, /场景节奏：/);
+  assert.match(text, /镜头距离：/);
+  assert.doesNotMatch(text, /L[1-5]／|原值|有效档/);
   assert.match(text, /只改变表达，不改变故事/);
   assert.doesNotMatch(text, /plot_twist|人物聚焦度|悬疑强度/);
 });
@@ -36,7 +41,7 @@ test("scene expression renderer uses the current book's custom five-level dictio
     [{ sceneId: "s1", dimensionKey: "custom_dialogue_density", level: 4, note: null }],
     definitions,
   );
-  assert.match(text, /对话密度：L4／对话 L4/);
+  assert.doesNotMatch(text, /对话密度：L4／/);
   assert.match(text, /使用第 4 档对话密度/);
   assert.match(text, /不得新增对话事实/);
 });

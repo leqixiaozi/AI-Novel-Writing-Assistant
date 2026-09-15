@@ -16,9 +16,9 @@ export function SceneExpressionPointPanel({ workspace, sceneId, dimensionKey, de
   if (!dimension) return <p className="ba-empty-state">这个表达轨道已不存在，请关闭面板后重新选择。</p>;
   const update = (level: SceneExpressionLevel, note = point?.note ?? null) => onPoints(setExpressionPoint(points, { sceneId, dimensionKey, level, note }));
   return <section className="ba-expression-point-panel">
-    <header><div><span>第 {chapter.order} 章 · S{scene.sortOrder}</span><h3>{scene.title}</h3><p>{dimension.description}</p></div><strong className={`is-${dimension.color}`}>{point ? `L${point.level}` : "底座写法"}</strong></header>
+    <header><div><span>第 {chapter.order} 章 · S{scene.sortOrder}</span><h3>{scene.title}</h3><p>{dimension.description}</p></div><strong className={`is-${dimension.color}`}>{point ? dimension.bands.find(band => band.level === point.level)?.name : "底座写法"}</strong></header>
     <div className="ba-expression-band-list" role="radiogroup" aria-label={`${dimension.label}档位`}>
-      {dimension.bands.map(band => <button key={band.level} type="button" role="radio" aria-checked={point?.level === band.level} onClick={() => update(band.level)}><b>L{band.level}</b><span><strong>{band.name}</strong><small>{band.instruction}</small></span></button>)}
+      {dimension.bands.map(band => <button key={band.level} type="button" role="radio" aria-checked={point?.level === band.level} onClick={() => update(band.level)}><span><strong>{band.name}</strong><small>{band.instruction}</small></span></button>)}
     </div>
     <label className="ba-expression-note"><span>这个场景的补充说明</span><textarea className="ba-input" rows={4} maxLength={500} placeholder="可留空。这里只说明写法，不新增剧情要求。" value={point?.note ?? ""} onChange={event => update(point?.level ?? 3, event.target.value || null)} /><small>{point?.note?.length ?? 0} / 500</small></label>
     <section className="ba-expression-boundary"><h4>内容保护</h4><ul>{dimension.invariants.map(rule => <li key={rule}>{rule}</li>)}</ul><p>只改变表达，不改变事件、人物行动、知情、关系、线索、因果和场景结果。</p></section>

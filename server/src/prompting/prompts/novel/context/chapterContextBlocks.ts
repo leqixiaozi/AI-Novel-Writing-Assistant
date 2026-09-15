@@ -501,6 +501,8 @@ export function buildChapterWriterContextBlocks(
         group: "style_contract",
         priority: 74,
         required: mode === "full",
+        // Prefix summaries silently remove later character/language/anti-AI rules.
+        allowSummary: false,
         content: buildWriterStyleContractText(writeContext.styleContract),
       })
       : null,

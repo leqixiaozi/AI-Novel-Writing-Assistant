@@ -18,6 +18,7 @@ Wiki 不记录单次提交改了什么，也不替代 release notes。它只记�
 - [模块边界与文档治理](./architecture/module-boundaries.md)
 - [当前模型选择与厂商默认模型边界](./architecture/model-selection.md)
 - [配置项归属与可见性规范](./architecture/configuration-conventions.md)
+- [叙事控制内核：六卡、PostgreSQL 与 AGE 边界](./architecture/narrative-control-kernel.md)
 
 ### Workflows
 

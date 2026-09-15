@@ -8,6 +8,15 @@ import type { AdjustmentRun } from "./WritingEvidencePanel";
 import { recoverVersionReview, reviewMatchesDraft } from "./adjustmentState";
 
 const syncLabels = { pending: "等待同步", running: "同步中", succeeded: "同步完成", failed: "同步待重试", superseded: "已由更新稿替代，无需同步此版本" };
+function configurationCheckLabel(item: WritingEditVersion): string | null {
+  const check = item.metadata?.configurationValidation;
+  if (!check || typeof check !== "object") return null;
+  const status = (check as Record<string, unknown>).status;
+  if (status === "passed") return "AI 配置核对未发现明确错误，请阅读后决定是否采纳。";
+  if (status === "needs_attention") return "已完成多轮生成，仍有配置问题待处理，请勿直接采纳。";
+  if (status === "review_failed") return "候选已保存，配置核对未完成。";
+  return null;
+}
 interface LocalWritingDraft { content: string; baseline: string; versionId: string | null }
 function readLocalWritingDraft(key?: string): LocalWritingDraft | null {
   if (!key || typeof sessionStorage === "undefined") return null;
@@ -62,7 +71,7 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
     if (!requirements) return;
     const input = { requirementsId: requirements.id, operation, ...(operation === "rewrite" || requirements.scope.kind === "scene" || requirements.scope.kind === "selection" ? { content, instruction } : {}) };
     const result = await run("生成调整候选", input, (key) => api.preview(chapterId, input, key));
-    if (result) { setCandidates(result); await reload(); }
+    if (result) { setCandidates(result); if (result[0]) choose(result[0]); await reload(); }
   };
   const saveDraft = async () => {
     const input = { content, expectedRevision: baseline, requirementsId: version?.requirementsId ?? requirements?.id, sourceCandidateId: version?.id };
@@ -99,6 +108,7 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
     {activeSession?.taskId && !matchingDirectorSession && <Link className="text-sm text-primary underline" to={`/novels/${encodeURIComponent(novelId)}/edit?tab=chapter&directorTaskId=${encodeURIComponent(activeSession.taskId)}`}>回到所属导演任务结束调整</Link>}
     {directorResumeSent && directorTaskId && <p role="status" className="text-sm">继续请求已提交。<Link className="text-primary underline" to={`/novels/${encodeURIComponent(novelId)}/edit?tab=chapter&directorTaskId=${encodeURIComponent(directorTaskId)}`}>查看导演进度</Link></p>}
     <p className="text-xs text-muted-foreground">调整稿可单独保存和比较，正式采纳后用于后续创作。接管本章可保护调整期间的正文。</p>
+    {version && configurationCheckLabel(version) && <p role="status" className="text-sm">{configurationCheckLabel(version)}</p>}
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="secondary" disabled={busy || !requirements} onClick={() => void generate("write")}>{requirements?.scope.kind === "scene" ? "调整所选场景" : "按要求生成候选"}</Button>
       {history[0] && <Button type="button" size="sm" variant="secondary" disabled={busy || dirty} onClick={() => choose(history[0])}>恢复最近调整稿及核对</Button>}
@@ -108,6 +118,7 @@ export function WritingChapterPanel({ novelId, chapterId, directorTaskId, curren
     {(candidates.length > 0 || history.length > 0) && <details className="space-y-2"><summary className="cursor-pointer text-sm">比较候选与已保存调整稿</summary>
       <div className="grid max-h-96 gap-3 overflow-auto md:grid-cols-2">{[...new Map([...candidates, ...history].map((item) => [item.id, item])).values()].map((item, index) => <article key={item.id} className="space-y-2 bg-muted/30 p-3">
         <p className="text-xs text-muted-foreground">{item.kind === "draft" ? "调整稿" : "候选"} {index + 1} · {new Date(item.createdAt).toLocaleString()}</p>
+        {configurationCheckLabel(item) && <p className="text-sm">{configurationCheckLabel(item)}</p>}
         <p className="max-h-52 overflow-auto whitespace-pre-wrap text-sm">{item.content}</p>
         <Button type="button" size="sm" variant="secondary" disabled={busy || dirty} onClick={() => choose(item)}>载入此版本</Button>
       </article>)}</div>

@@ -19,7 +19,7 @@ export function ArrangementCurveCell({ chapterOrder, sceneOrder, sceneIndex, sce
   }, []);
   const shown = proposed ?? level;
   const band = shown ? dimension.bands.find(item => item.level === shown) : undefined;
-  const title = `第${chapterOrder}章 · S${sceneOrder} ${scene.title}\n${dimension.label}：${band ? `L${band.level} ${band.name}` : "未设置"}${note ? `\n备注：${note}` : ""}`;
+  const title = `第${chapterOrder}章 · S${sceneOrder} ${scene.title}\n${dimension.label}：${band ? band.name : "未设置"}${note ? `\n备注：${note}` : ""}`;
   const trackBounds = (button: HTMLButtonElement) => {
     const parent = button.closest<HTMLElement>(".ba-curve-chapter");
     const box = parent?.getBoundingClientRect() ?? button.getBoundingClientRect();
@@ -34,6 +34,6 @@ export function ArrangementCurveCell({ chapterOrder, sceneOrder, sceneIndex, sce
     onPointerUp={event => { const current = session.current; if (!current || current.id !== event.pointerId) return; const moved = current.moved || Math.abs(event.clientY - current.y) >= 5; const box = trackBounds(event.currentTarget); cancel(); if (moved) onChange(expressionLevelAtY(event.clientY, box.top, box.height)); }}
     onPointerCancel={cancel} onLostPointerCapture={() => { if (session.current) cancel(); }}
     onKeyDown={event => { if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) { event.preventDefault(); onOpen(); return; } if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return; event.preventDefault(); onChange(Math.max(1, Math.min(5, (level ?? 3) + (event.key === "ArrowUp" ? 1 : -1))) as SceneExpressionLevel); }}>
-    <span className="sr-only">S{sceneOrder}，{shown ? `L${shown}` : "未设置"}</span>
+    <span className="sr-only">S{sceneOrder}，{band?.name ?? "未设置"}</span>
   </button>;
 }

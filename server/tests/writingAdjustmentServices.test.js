@@ -32,6 +32,8 @@ function loadServices(db, ai, syncImplementation) {
   const prompts = Object.fromEntries(["Generate", "Review", "Plan", "Query", "Evidence"].map(name => [`writingAdjustment${name}Prompt`, { id: `test.adjustment.${name}`, version: "v1" }]));
   const forbidden = () => { throw new Error("Real model invocation forbidden in storage integration test"); };
   const contentModule = load(`${moduleRoot}application/WritingContentService.ts`, {
+    "../../../../prompting/prompts/novel/sceneExpressionControls": load("prompting/prompts/novel/sceneExpressionControls.ts", { "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks") }),
+    "@ai-novel/shared/types/sceneExpressionTracks": require("@ai-novel/shared/types/sceneExpressionTracks"),
     ...common, "../../../../prompting/core/promptRunner": { runTextPrompt: forbidden, runStructuredPrompt: forbidden },
     "../../../../prompting/prompts/novel/writingAdjustment.prompts": prompts,
   });
@@ -97,6 +99,58 @@ async function fixture(t, overrides = {}, syncImplementation) {
 }
 const settings = (controls, preserve = []) => ({ enabled: true, controls, preserve });
 const conflict = (error) => error.statusCode === 409;
+
+test("background queries bind this book, exclude future relation stages and include dialogue matter", async t => {
+  const f = await fixture(t);
+  const chapter = f.chapters[1];
+  const a = await f.db.character.create({ data: { novelId: f.novelId, name: "甲", role: "信差", background: "从小在港口长大", voiceTexture: "话短" } });
+  const b = await f.db.character.create({ data: { novelId: f.novelId, name: "乙", role: "掌柜" } });
+  await f.db.storyTimelineEvent.create({ data: { novelId: f.novelId, chapterId: chapter.id, chapterIndex: chapter.order, eventOrder: 1, title: "问询", summary: "当面问询", type: "plot", status: "planned", source: "manual", visibility: "author", participantIdsJson: JSON.stringify([a.id, b.id]) } });
+  await f.db.novelWorld.create({ data: { novelId: f.novelId, title: "雾港", structuredDataJson: JSON.stringify({ rule: "渡船夜间停航" }) } });
+  for (const order of [2, 8]) await f.db.characterRelationStage.create({ data: { novelId: f.novelId, sourceCharacterId: a.id, targetCharacterId: b.id, chapterOrder: order, stageLabel: `阶段${order}`, stageSummary: `关系${order}`, sourceType: "manual" } });
+  const context = JSON.parse(await f.content.context(f.novelId, chapter.id));
+  assert.equal(context.characters.find(c => c.id === a.id).background, "从小在港口长大");
+  assert.equal(context.world.structure.rule, "渡船夜间停航");
+  assert.deepEqual(context.chapterRelationStages.map(s => s.stageLabel), ["阶段2"]);
+  assert.ok(!JSON.stringify(context).includes("关系8"));
+  const req = await f.settings.resolve(f.novelId, { scope: { kind: "chapter", chapterId: chapter.id }, overrides: { dialogueDirectness: { mode: "set", value: 50, speakerId: a.id, listenerId: b.id, matter: "归还两份收据" } } });
+  assert.match(await f.settings.prompt(req, chapter.id), /归还两份收据/);
+  const previousRevision = await f.store.dependencies(f.novelId);
+  await f.db.novelWorld.update({ where: { novelId: f.novelId }, data: { title: "新的雾港" } });
+  assert.notEqual(await f.store.dependencies(f.novelId), previousRevision);
+});
+
+test("chapter context includes only its participants and latest bounded relations", async t => {
+  const f = await fixture(t);
+  const chapter = f.chapters[1];
+  const people = await Promise.all(["甲", "乙", "局外人"].map(name => f.db.character.create({ data: { novelId: f.novelId, name, role: "配角", background: `${name}的履历` } })));
+  const [a, b, outsider] = people;
+  await f.db.characterRelation.create({ data: { novelId: f.novelId, sourceCharacterId: a.id, targetCharacterId: b.id, surfaceRelation: "雇佣双方", secretAsymmetry: "未分章的后来秘密" } });
+  await f.db.characterRelation.create({ data: { novelId: f.novelId, sourceCharacterId: a.id, targetCharacterId: outsider.id, surfaceRelation: "局外人关系" } });
+  await f.db.storyTimelineEvent.create({ data: { novelId: f.novelId, chapterId: chapter.id, chapterIndex: chapter.order, eventOrder: 1, title: "见面", summary: "两人当面问询", type: "plot", status: "planned", source: "manual", visibility: "author", participantIdsJson: JSON.stringify([a.id, b.id]) } });
+  for (const [order, target, label, sourceType] of [[2, b, "旧关系", "manual_override"], [3, b, "当前防备", "manual_override"], [4, b, "本章待缓和", "arrangement_plan"], [4, b, "旧稿结盟", "chapter_draft_extract"], [8, b, "未来亲密", "manual_override"], [2, outsider, "无关关系", "manual_override"]]) {
+    await f.db.characterRelationStage.create({ data: { novelId: f.novelId, sourceCharacterId: a.id, targetCharacterId: target.id, chapterOrder: order, stageLabel: label, stageSummary: label, sourceType } });
+  }
+  const context = JSON.parse(await f.content.context(f.novelId, chapter.id));
+  assert.deepEqual(context.characters.map(c => c.name).sort(), ["乙", "甲"].sort());
+  assert.deepEqual(context.authorRelationBackground.map(r => r.surfaceRelation), ["雇佣双方"]);
+  assert.doesNotMatch(JSON.stringify(context), /未分章的后来秘密|局外人关系/);
+  assert.deepEqual(context.chapterRelationStages.map(s => s.stageLabel).sort(), ["当前防备", "本章待缓和"].sort());
+  assert.doesNotMatch(JSON.stringify(context), /局外人的履历|无关关系|未来亲密|旧关系|旧稿结盟/);
+  const empty = JSON.parse(await f.content.context(f.novelId, f.chapters[2].id));
+  assert.deepEqual(empty.characters, []);
+});
+
+test("review uses the candidate background snapshot after author background changes", async t => {
+  const f = await fixture(t);
+  const chapter = f.chapters[1];
+  const req = await f.settings.resolve(f.novelId, { scope: { kind: "chapter", chapterId: chapter.id }, overrides: {} });
+  const [candidate] = await f.content.generate(f.novelId, chapter.id, { requirementsId: req.id, operation: "rewrite" });
+  await f.db.novel.update({ where: { id: f.novelId }, data: { description: "后续才改过的背景" } });
+  await f.content.review(f.novelId, chapter.id, { editVersionId: candidate.id });
+  assert.equal(f.calls.review[0].contextText, candidate.metadata.contextSnapshot);
+  assert.doesNotMatch(f.calls.review[0].contextText, /后续才改过的背景/);
+});
 
 test("real SQLite: chapter overrides and zero are frozen per chapter across default changes", async t => {
   const f = await fixture(t);

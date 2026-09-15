@@ -52,6 +52,11 @@ const {
   chapterWriterPrompt,
 } = require("../dist/prompting/prompts/novel/chapterWriter.prompts.js");
 const {
+  writingAdjustmentSpinePrompt,
+  writingAdjustmentGeneratePrompt,
+  writingAdjustmentReviewPrompt,
+} = require("../dist/prompting/prompts/novel/writingAdjustment.prompts.js");
+const {
   compilePromptTemplate,
 } = require("../dist/prompting/templates/templateCompiler.js");
 const {
@@ -155,10 +160,10 @@ test("prompt registry exposes versioned planning assets", () => {
     "novel.director.candidates@v2",
     "novel.director.candidate_patch@v1",
     "novel.director.blueprint@v1",
-    "novel.character.castOptions@v2",
+    "novel.character.castOptions@v3",
     "novel.character.castOptions.repair@v1",
     "novel.character.castOptions.zhNormalize@v1",
-    "novel.character.supplemental@v1",
+    "novel.character.supplemental@v2",
     "novel.character.supplemental.zhNormalize@v1",
     "novel.character.mind.snapshot@v1",
     "novel.character.influence.options@v1",
@@ -192,6 +197,9 @@ test("prompt registry exposes versioned planning assets", () => {
     "style.recommendation@v1",
     "novel.review.chapter@v2",
     promptKey(chapterWriterPrompt),
+    promptKey(writingAdjustmentGeneratePrompt),
+    promptKey(writingAdjustmentSpinePrompt),
+    promptKey(writingAdjustmentReviewPrompt),
     promptKey(chapterArtifactDeltaPrompt),
     "world.draft.generate@v1",
     "world.draft.refine@v1",
@@ -417,7 +425,7 @@ test("prompt registry resolves style prompts by their declared asset versions", 
 });
 
 test("character cast prompt hardens real-name constraints and required gender output", () => {
-  const asset = getRegisteredPromptAsset("novel.character.castOptions", "v2");
+  const asset = getRegisteredPromptAsset("novel.character.castOptions", "v3");
   assert.ok(asset);
 
   const messages = asset.render({
@@ -665,6 +673,142 @@ test("chapter writer prompt does not expose scene contract controls", () => {
   assert.doesNotMatch(systemContent, /控字数模式/);
   assert.doesNotMatch(systemContent, /本轮硬上限/);
   assert.doesNotMatch(humanContent, /只写当前场景/);
+});
+
+test("style rewrite compiles narrative controls as expression-only guidance", () => {
+  const messages = styleRewritePrompt.render({
+    styleContractText: "保持现实向悬疑的克制表达。",
+    content: "林舟打开17号柜，拿出照片和纸票，认出父亲笔迹，与苏晚约定次日去旧码头。",
+    issuesBlock: "只调整写法与节奏。",
+    narrativeControls: {
+      pace: { rawValue: 12.5 },
+      tension: { rawValue: 100 },
+      suspicionTarget: {
+        rawValue: 50,
+        subject: "林舟",
+        object: "苏晚",
+        matter: "是否隐瞒行踪",
+      },
+      dialogueDirectness: {
+        rawValue: 75,
+        speaker: "林舟",
+        listener: "苏晚",
+      },
+      characterProminence: {
+        rawValue: 0,
+        character: "苏晚",
+      },
+    },
+  }, {
+    blocks: [],
+    selectedBlockIds: [],
+    droppedBlockIds: [],
+    summarizedBlockIds: [],
+    estimatedInputTokens: 0,
+  });
+
+  const systemContent = String(messages[0].content);
+  assert.match(systemContent, /【本章写法与节奏控制】/);
+  assert.match(systemContent, /故事内容锁定.*不得新增、删除、合并或调换事件/s);
+  assert.match(systemContent, /叙述节奏.*既定行动之间多留一点观察、反应和理解空间/s);
+  assert.match(systemContent, /紧张感表达.*最大化呈现既有关键关口的压迫感/s);
+  assert.match(systemContent, /林舟 → 苏晚.*是否隐瞒行踪/s);
+  assert.match(systemContent, /疑点强调度.*清楚突出已有疑点/s);
+  assert.match(systemContent, /只强调已有疑点.*不改变谁怀疑谁、为何怀疑或怀疑后的行动/s);
+  assert.match(systemContent, /对白直白度.*既定诉求和立场大多明确说出/s);
+  assert.match(systemContent, /保持同一沟通意图、信息内容、决定和结果/);
+  assert.match(systemContent, /人物聚焦度.*苏晚.*只做必要交代/s);
+  assert.match(systemContent, /不改变行动、决定、成果或后果的归属/);
+  assert.match(systemContent, /只改变表达，不改变故事/);
+  assert.doesNotMatch(systemContent, /安排针对性验证|新增期限|迫使人物立即应对/);
+});
+
+test("style rewrite rejects invalid narrative control values instead of silently clamping", () => {
+  assert.throws(() => styleRewritePrompt.render({
+    styleContractText: "保持原意。",
+    content: "林舟打开17号柜。",
+    issuesBlock: "只调整节奏。",
+    narrativeControls: {
+      pace: { rawValue: 101 },
+    },
+  }, {
+    blocks: [],
+    selectedBlockIds: [],
+    droppedBlockIds: [],
+    summarizedBlockIds: [],
+    estimatedInputTokens: 0,
+  }), /pace.*0.*100/);
+});
+
+test("style rewrite prevents narrative controls from inventing clue-bearing details", () => {
+  const messages = styleRewritePrompt.render({
+    styleContractText: "保持原意。",
+    content: "林舟打开17号柜，拿出旧照片和纸票。",
+    issuesBlock: "只调整节奏。",
+    narrativeControls: {
+      pace: { rawValue: 100 },
+      tension: { rawValue: 100 },
+    },
+  }, {
+    blocks: [],
+    selectedBlockIds: [],
+    droppedBlockIds: [],
+    summarizedBlockIds: [],
+    estimatedInputTokens: 0,
+  });
+
+  const systemContent = String(messages[0].content);
+  assert.match(systemContent, /不得自行补充会改变推理方向的姓名、日期、地点、身份、关系、物证内容或因果结论/);
+  assert.match(systemContent, /未提供的物件内容保持未知，或只补充不承载线索的表面细节/);
+  assert.match(systemContent, /不得补充未提供的数量、种类、可读文字、画面内容、附带物件或指向关系/);
+  assert.match(systemContent, /线索内容未给出时，只写角色查看、辨认、无法确认或作出待核实判断/);
+  assert.match(systemContent, /任务要求人物作出后续决定但没有提供因果桥时.*不得回填新证据/);
+  assert.match(systemContent, /表达要求与事实冲突时保留既有事实.*不得用编造内容满足表达要求/);
+});
+
+test("fresh chapter writing permits connective prose without authorizing new story events", () => {
+  const messages = writingAdjustmentGeneratePrompt.render({
+    operation: "write",
+    scope: "chapter",
+    requirementsText: "沈渡取得唯一血契原件并带回铺中。",
+    contextText: "本章只有沈渡与贺平出场。",
+    spine: [{ id: "S1", requirement: "带走唯一原件", sourceQuote: "唯一血契原件" }],
+  });
+  const systemContent = String(messages[0].content);
+
+  assert.match(systemContent, /允许补充不改变人物选择、信息、因果与结果的微动作、感官定位和自然衔接/);
+  assert.match(systemContent, /不得新增改变人物选择、信息、因果或结果的事件/);
+  assert.match(systemContent, /只写核对后的关系，不展示、命名或反推出缺失值/);
+  assert.match(systemContent, /限定对象唯一或只有一份时，不新增同类物/);
+  assert.match(systemContent, /softMinWordCount与softMaxWordCount.*必须进入该软范围/);
+  assert.doesNotMatch(systemContent, /小波折/);
+});
+
+test("fresh chapter spine and review separate required actions from forbidden additions", () => {
+  const input = {
+    operation: "write",
+    scope: "chapter",
+    requirementsText: "贺平必须签收一联。不得新增文字、印记或鉴定结果。",
+    contextText: "唯一原件由沈渡带走。",
+  };
+  const spineSystem = String(writingAdjustmentSpinePrompt.render(input)[0].content);
+  const reviewSystem = String(writingAdjustmentReviewPrompt.render({
+    ...input,
+    content: "贺平接过一联，沈渡带走原件。",
+    spine: [
+      { id: "S1", expectation: "required", requirement: "贺平签收一联", sourceQuote: "贺平必须签收一联" },
+      { id: "S2", expectation: "forbidden", requirement: "不得新增文字、印记或鉴定结果", sourceQuote: "不得新增文字、印记或鉴定结果" },
+    ],
+  })[0].content);
+
+  assert.match(spineSystem, /expectation.*required.*forbidden/s);
+  assert.match(spineSystem, /禁止项/);
+  assert.match(spineSystem, /复合要求.*拆成/);
+  assert.match(reviewSystem, /语义相近动作.*不能替代.*明确要求的动作/);
+  assert.match(reviewSystem, /required.*同一主体.*同一动作.*同一结果/s);
+  assert.match(reviewSystem, /forbidden.*没有违禁内容/s);
+  assert.equal(writingAdjustmentSpinePrompt.taskType, "fact_extraction");
+  assert.equal(writingAdjustmentReviewPrompt.taskType, "critical_review");
 });
 
 test("novel main-chain prompt assets declare explicit non-zero context budgets", () => {

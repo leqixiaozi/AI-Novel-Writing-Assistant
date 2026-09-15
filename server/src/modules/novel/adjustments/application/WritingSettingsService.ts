@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { ChapterNarrativeControls } from "../../../../prompting/prompts/novel/chapterNarrativeControls";
-import { buildChapterNarrativeControlBlock } from "../../../../prompting/prompts/novel/chapterNarrativeControls";
+import { buildChapterNarrativeControlBlock, compileLegacyArrangementFocus } from "../../../../prompting/prompts/novel/chapterNarrativeControls";
 import type { ResolvedWritingRequirements, WritingAdjustmentScope, WritingControls, WritingSettingsPayload, WritingSettingsResponse } from "@ai-novel/shared/types/writingAdjustments";
 import { AppError } from "../../../../middleware/errorHandler";
 import { AdjustmentStore } from "../infrastructure/AdjustmentStore";
@@ -104,9 +104,9 @@ export class WritingSettingsService {
       const value = { rawValue: v.value! };
       if (key === "pace" || key === "tension") controls[key] = value;
       else if (key === "suspicionTarget") controls[key] = { ...value, subject: names.get(v.subjectId!)!, object: names.get(v.objectId!)!, matter: v.matter! };
-      else if (key === "dialogueDirectness") controls[key] = { ...value, speaker: names.get(v.speakerId!)!, listener: names.get(v.listenerId!)! };
+      else if (key === "dialogueDirectness") controls[key] = { ...value, speaker: names.get(v.speakerId!)!, listener: names.get(v.listenerId!)!, matter: v.matter };
       else controls.characterProminence = { ...value, character: names.get(v.characterId!)! };
     }
-    return [buildChapterNarrativeControlBlock(controls), req.preserve.length ? `作者保留项：\n${req.preserve.join("\n")}` : ""].filter(Boolean).join("\n\n");
+    return [buildChapterNarrativeControlBlock(controls), req.preserve.length ? `作者保留项：\n${req.preserve.map(compileLegacyArrangementFocus).join("\n")}` : ""].filter(Boolean).join("\n\n");
   }
 }

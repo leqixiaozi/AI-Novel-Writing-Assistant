@@ -11,6 +11,10 @@ import {
   styleProfileSanitizeForGenerationSchema,
   styleRecommendationSchema,
 } from "./style.promptSchemas";
+import {
+  buildChapterNarrativeControlBlock,
+  type ChapterNarrativeControls,
+} from "../novel/chapterNarrativeControls";
 
 export interface StyleDetectionPromptInput {
   styleContractText: string;
@@ -40,6 +44,7 @@ export interface StyleRewritePromptInput {
   styleContractText: string;
   content: string;
   issuesBlock: string;
+  narrativeControls?: ChapterNarrativeControls | null;
 }
 
 export interface StyleProfileExtractionPromptInput {
@@ -353,22 +358,26 @@ export const styleRewritePrompt: PromptAsset<StyleRewritePromptInput, string, st
   contextPolicy: {
     maxTokensBudget: 0,
   },
-  render: (input) => [
-    new SystemMessage([
+  render: (input) => {
+    const narrativeControlBlock = buildChapterNarrativeControlBlock(input.narrativeControls);
+    return [
+      new SystemMessage([
       "你是中文小说修文编辑。",
-      "你的任务是根据已检测到的违规问题，对原文进行定点修正，让文本更符合写法规则、角色表达规则和反AI要求。",
+      "你的任务是只对给定原文进行表达层重写，让同一内容呈现不同的写法和节奏。你不是从大纲生成新正文。",
       "",
       "你必须同时遵守当前写法合同的所有约束：",
       "【写法合同】",
       input.styleContractText || "无",
+      narrativeControlBlock,
       "",
       "全局硬规则：",
       "1. 只输出修正后的完整正文，不要输出解释、注释、修改说明、代码块或额外文本。",
       "2. 所有内容必须使用简体中文。",
       "3. 优先修正 issuesBlock 中的问题；如果相邻段落存在同类明显 AI 痕迹，可以同步做表达层修正。",
       "4. 不得改变事件事实、事件顺序、人物关系、角色立场、信息先后与核心剧情结果。",
-      "5. 不得引入原文没有的新设定、新人物、新冲突或新结论。",
+      "5. 不得引入原文没有的新动作、新反应、新对白信息、新物件、新设定、新人物、新冲突或新结论。",
       "6. issuesBlock 中的 suggestion 只表示修改方向，不是可复制文本。禁止直接照抄 suggestion 中的示例句。",
+      "7. 原文中的每个事件、动作主体、信息点、决定和结果都必须保留；允许改写句子和段落组织，不允许补写原文没有的因果桥。",
       "",
       "修正原则：",
       "1. 优先做最小必要改动，能局部修好就不要整体推翻。",
@@ -402,7 +411,8 @@ export const styleRewritePrompt: PromptAsset<StyleRewritePromptInput, string, st
       "检测到的问题：",
       input.issuesBlock,
     ].join("\n")),
-  ],
+    ];
+  },
 };
 
 export const styleProfileExtractionPrompt: PromptAsset<

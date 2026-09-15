@@ -91,6 +91,7 @@ export const PROVIDERS: Record<BuiltinLLMProvider, ProviderConfig> = {
     baseURL: "https://api.minimax.io/v1",
     defaultModel: "MiniMax-M2.7",
     models: [
+      "MiniMax-M3",
       "MiniMax-M2.7",
       "MiniMax-M2.7-highspeed",
       "MiniMax-M2.5",
