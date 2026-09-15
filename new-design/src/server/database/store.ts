@@ -22,6 +22,8 @@ function mapCardType(row: Record<string, unknown>): CardTypeSummary {
     description: String(row.description ?? ""),
     isSystem: Boolean(row.is_system),
     sortOrder: Number(row.sort_order ?? 1_000),
+    categoryId: row.category_id ? String(row.category_id) : null,
+    categoryKey: row.category_key ? String(row.category_key) : null,
     semanticCapabilities: (row.semantic_capabilities ?? []) as CardTypeCapability[],
     status: row.status as CardTypeSummary["status"],
     revision: Number(row.revision),
@@ -52,9 +54,10 @@ function mapCard(row: Record<string, unknown>): CardSummary {
 
 async function findCardType(queryable: Queryable, id: string, lock = false): Promise<CardTypeSummary | null> {
   const result = await queryable.query(`
-    SELECT ct.*, ctv.version AS current_version
+    SELECT ct.*, ctv.version AS current_version, category.category_key
     FROM new_design.card_types ct
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
+    LEFT JOIN new_design.card_type_categories category ON category.id = ct.category_id
     WHERE ct.id = $1
     ${lock ? "FOR UPDATE OF ct" : ""}
   `, [id]);
@@ -75,11 +78,12 @@ async function findCurrentTypeFields(queryable: Queryable, cardTypeId: string): 
 export async function listCardTypes(spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
-    SELECT ct.*, ctv.version AS current_version
+    SELECT ct.*, ctv.version AS current_version, category.category_key
     FROM new_design.card_types ct
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
+    LEFT JOIN new_design.card_type_categories category ON category.id = ct.category_id
     WHERE ct.space_id = $1 AND ct.status <> 'archived'
-    ORDER BY ct.is_system DESC, ct.sort_order ASC, ct.updated_at DESC
+    ORDER BY ct.is_system DESC, category.sort_order ASC NULLS LAST, ct.sort_order ASC, ct.updated_at DESC
   `, [spaceId]);
   return result.rows.map(mapCardType);
 }
@@ -88,15 +92,15 @@ export async function getCardType(id: string): Promise<CardTypeSummary> {
   return assertFound(await findCardType(await getNewDesignPool(), id), "元卡片类型不存在。");
 }
 
-export async function createCardType(input: { key: string; name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[] }, spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary> {
+export async function createCardType(input: { key: string; name: string; description: string; categoryId?: string | null; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[] }, spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary> {
   const pool = await getNewDesignPool();
   const id = randomUUID();
   try {
     const result = await pool.query(`
-      INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields)
-      VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb)
+      INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields, category_id)
+      VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb, $8)
       RETURNING *
-    `, [id, spaceId, input.key, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
+    `, [id, spaceId, input.key, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields), input.categoryId ?? null]);
     return mapCardType({ ...result.rows[0], current_version: null });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") throw new NewDesignError("类型标识已存在，请换一个标识。", 409, { key: "类型标识已存在。" });
@@ -106,7 +110,7 @@ export async function createCardType(input: { key: string; name: string; descrip
 
 export async function updateCardType(
   id: string,
-  input: { name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[]; revision: number },
+  input: { name: string; description: string; categoryId?: string | null; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[]; revision: number },
 ): Promise<CardTypeSummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
@@ -125,10 +129,10 @@ export async function updateCardType(
     }
     const result = await client.query(`
       UPDATE new_design.card_types
-      SET name = $2, description = $3, semantic_capabilities = $4::jsonb, draft_fields = $5::jsonb, revision = revision + 1, updated_at = now()
+      SET name = $2, description = $3, semantic_capabilities = $4::jsonb, draft_fields = $5::jsonb, category_id = $6, revision = revision + 1, updated_at = now()
       WHERE id = $1
       RETURNING *
-    `, [id, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
+    `, [id, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields), input.categoryId === undefined ? existing.categoryId : input.categoryId]);
     await client.query("COMMIT");
     return mapCardType({ ...result.rows[0], current_version: existing.currentVersion });
   } catch (error) {

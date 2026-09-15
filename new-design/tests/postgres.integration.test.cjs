@@ -12,6 +12,8 @@ const runtime = require("../dist/server/database/runtime.js");
 const store = require("../dist/server/database/store.js");
 const composition = require("../dist/server/database/compositionStore.js");
 const templates = require("../dist/server/database/templateStore.js");
+const bookCreation = require("../dist/server/database/bookCreationStore.js");
+const categoriesStore = require("../dist/server/database/categoryStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -33,15 +35,13 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   const builtInTypes = await store.listCardTypes();
   const systemTypes = builtInTypes.filter((cardType) => cardType.isSystem);
-  assert.equal(systemTypes.length, 19);
-  assert.deepEqual(
-    systemTypes.slice(0, 5).map((cardType) => cardType.name),
-    ["人物", "组织／势力", "地点", "道具", "世界规则"],
-  );
-  assert.deepEqual(
-    systemTypes.map((cardType) => cardType.key),
-    ["character", "organization", "location", "prop", "world_rule", "event", "goal_task", "conflict", "secret_truth", "clue_evidence", "foreshadow", "suspense_question", "plotline", "plot_beat", "arc", "theme", "volume", "chapter", "scene"],
-  );
+  assert.equal(systemTypes.length, 29);
+  for (const key of ["character", "organization", "world_rule", "event", "volume", "scene", "genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material", "world_overview", "power_system", "race", "culture", "religion"]) {
+    assert.ok(systemTypes.some((cardType) => cardType.key === key), `missing built-in type ${key}`);
+  }
+  const categories = await categoriesStore.listCardTypeCategories();
+  assert.deepEqual(categories.map((category) => category.name), ["创作策略", "人物与组织", "世界设定", "剧情结构", "篇章结构", "参考资料"]);
+  assert.ok(systemTypes.every((cardType) => cardType.categoryId));
   assert.deepEqual(
     systemTypes.find((cardType) => cardType.key === "event").semanticCapabilities,
     ["timeline", "state_change", "canonical_fact"],
@@ -66,7 +66,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.ok(demoCards.every((card) => !card.title.startsWith("《照骨山河》")));
   assert.deepEqual(
     [...new Set(demoCards.map((card) => bookTypes.find((type) => type.id === card.cardTypeId)?.key))].sort(),
-    systemTypes.map((cardType) => cardType.key).sort(),
+    systemTypes.filter((cardType)=>["character", "organization", "location", "prop", "world_rule", "event", "goal_task", "conflict", "secret_truth", "clue_evidence", "foreshadow", "suspense_question", "plotline", "plot_beat", "arc", "theme", "volume", "chapter", "scene"].includes(cardType.key)).map((cardType) => cardType.key).sort(),
   );
   for (const cardType of bookTypes) {
     const currentVersion = (await store.listCardTypeVersions(cardType.id)).find((version) => version.id === cardType.currentVersionId);
@@ -138,7 +138,63 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const defaultTemplate = templateGroups.find((template) => template.name === "通用长篇小说模板");
   assert.ok(defaultTemplate);
   const initialTemplateVersion = (await templates.listTemplateVersions(defaultTemplate.id))[0];
-  assert.equal(initialTemplateVersion.version, 1);
+  assert.equal(initialTemplateVersion.payload.cardTypes.length, 29);
+
+  const inspirationCandidates = await bookCreation.listInspirationCandidates();
+  assert.equal(inspirationCandidates.length, 6);
+  let blankSession = await bookCreation.createBookCreationSession({
+    method: "blank",
+    templateVersionId: initialTemplateVersion.id,
+    bookName: "空白流程样书",
+    description: "验证空白入口安装统一结构。",
+    sourceReference: "",
+    inputPayload: {},
+  });
+  blankSession = await bookCreation.completeBookCreation(blankSession.id);
+  assert.ok(blankSession.bookId);
+  const blankBook = await templates.getBook(blankSession.bookId);
+  assert.equal((await store.listCards({ spaceId: blankBook.spaceId })).length, 0);
+  assert.equal((await composition.listCardGroupForms(blankBook.spaceId)).length, 1);
+
+  let aiSession = await bookCreation.createBookCreationSession({
+    method: "idea",
+    templateVersionId: initialTemplateVersion.id,
+    bookName: "",
+    description: "",
+    sourceReference: "用户输入",
+    inputPayload: { idea: "一个失去记忆的守灯人必须找回被篡改的旧案" },
+  });
+  const directionBatchId = await bookCreation.beginSessionGeneration(aiSession.id, "directions");
+  const directionCandidates = [
+    { id: "memory-lamp", title: "守灯旧案", premise: "守灯人每次点灯都会失去记忆，却必须借灯火查清一宗被篡改的旧案。", protagonist: "失去部分童年记忆的守灯人", centralConflict: "救人需要继续点灯，追查真相却会让他忘记查案目的", readerPromise: "在持续失去中拼回真相", styleKeywords: ["悬疑", "成长"] },
+    { id: "mirror-city", title: "镜城残卷", premise: "一座靠记忆维持的城市即将崩塌，抄书人发现自己的家族负责删除危险历史。", protagonist: "负责誊抄禁书的年轻抄书人", centralConflict: "公开历史会摧毁城市秩序，隐瞒则会让灾难重演", readerPromise: "层层解密并重建秩序", styleKeywords: ["奇幻", "解谜"] },
+    { id: "river-oath", title: "逆河之誓", premise: "逆流而上的摆渡人能够送亡者回到一个遗憾发生前，却要承担改变历史的代价。", protagonist: "拒绝接受妹妹死亡的摆渡人", centralConflict: "挽回亲人会让更多陌生人失去原有命运", readerPromise: "选择、牺牲与情感兑现", styleKeywords: ["冒险", "情感"] },
+  ];
+  aiSession = await bookCreation.saveDirectionCandidates(aiSession.id, directionBatchId, directionCandidates);
+  aiSession = await bookCreation.selectBookDirection(aiSession.id, directionCandidates[0].id);
+  const initialBatchId = await bookCreation.beginSessionGeneration(aiSession.id, "initial_content");
+  aiSession = await bookCreation.saveInitialCards(aiSession.id, initialBatchId, initialTemplateVersion.payload.seedCards.slice(0, 6));
+  aiSession = await bookCreation.completeBookCreation(aiSession.id);
+  assert.ok(aiSession.bookId);
+  const aiBook = await templates.getBook(aiSession.bookId);
+  const aiCards = await store.listCards({ spaceId: aiBook.spaceId });
+  assert.equal(aiCards.length, 6);
+  const provenance = await (await runtime.getNewDesignPool()).query("SELECT confirmation_status FROM new_design.card_field_origins WHERE card_id=ANY($1::uuid[])", [aiCards.map((card) => card.id)]);
+  assert.ok(provenance.rowCount > 0);
+  assert.ok(provenance.rows.every((row) => row.confirmation_status === "ai_draft"));
+  const sourceRows = await (await runtime.getNewDesignPool()).query("SELECT method,confirmation_status FROM new_design.book_content_sources WHERE book_id=$1", [aiBook.id]);
+  assert.deepEqual(sourceRows.rows[0], { method: "idea", confirmation_status: "confirmed" });
+
+  const assistCard = aiCards.find((card) => Object.keys(card.values).length > 0);
+  assert.ok(assistCard);
+  const assistContext = await bookCreation.getCardAssistContext(aiBook.id, assistCard.id);
+  const assistFieldKey = Object.keys(assistCard.values)[0];
+  const formAssistId = await bookCreation.beginFormAssist({ bookId: aiBook.id, cardId: assistCard.id, formKey: "event_planning", instruction: "补充细节", baseRevision: assistCard.revision });
+  await bookCreation.saveFormAssist(formAssistId, { [assistFieldKey]: assistCard.values[assistFieldKey] });
+  const assistedCard = await bookCreation.applyFormAssist(formAssistId, [assistFieldKey], assistCard.revision);
+  assert.equal(assistedCard.revision, 2);
+  assert.equal(assistContext.bookName, "守灯旧案");
+
   const secondBook = await templates.createBook({
     key: `parallel_${Date.now().toString(36)}`,
     name: "并行样书",
@@ -179,7 +235,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   await store.publishCardType(systemEventType.id, systemEventType.revision);
   const currentTemplate = (await templates.listTemplates()).find((template) => template.id === defaultTemplate.id);
   const publishedTemplate = await templates.publishTemplate(currentTemplate.id, currentTemplate.revision);
-  assert.equal(publishedTemplate.currentVersion, 2);
+  assert.equal(publishedTemplate.currentVersion, initialTemplateVersion.version + 1);
   const templateVersion2 = (await templates.listTemplateVersions(defaultTemplate.id))[0];
   const syncPreview = await templates.previewBookSync(sampleBook.id, templateVersion2.id);
   assert.ok(syncPreview.additions.some((addition) => addition.typeKey === "event" && addition.fields.some((field) => field.key === "production_note")));

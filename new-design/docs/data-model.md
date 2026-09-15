@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -16,6 +16,12 @@
 card_spaces 1 ── n card_types 1 ── n card_type_versions
      │                 │                    │
      └────── 1 ── n cards 1 ── n card_versions
+
+card_type_categories 1 ── n card_types
+
+book_creation_sessions 1 ── n ai_generation_batches
+          │             └── n book_content_sources
+          └── 0..1 books 1 ── n card_field_origins
 ```
 
 ## `new_design.schema_migrations`
@@ -44,6 +50,7 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 |---|---|---|---|
 | `id` | `uuid` | 主键 | 元卡片类型身份 |
 | `space_id` | `uuid` | 外键、非空 | 所属空间 |
+| `category_id` | `uuid` | 外键、可空 | 管理目录位置，不参与字段继承 |
 | `type_key` | `text` | 空间内唯一 | 稳定类型标识 |
 | `name` | `text` | 非空 | 类型名称 |
 | `description` | `text` | 非空 | 用途说明 |
@@ -65,6 +72,26 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 > 🏠 **白话比喻**：语义能力像插座旁的功能图标，说明一件设备能否联网、定时或充电，但不决定设备外壳长什么样。对应到系统里：卡片字段仍可自由配置，组合表单只依据稳定能力判断它能参与哪些流程。
 
 > 🧠 **速记方法**：**类型管“是什么”，能力管“能做什么”，字段管“具体填什么”**。
+
+## `new_design.card_type_categories`
+
+| 字段 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `id` | `uuid` | 主键 | 分类节点身份 |
+| `category_key` | `text` | 唯一、非空 | 稳定分类标识 |
+| `name` | `text` | 非空 | 用户可见名称 |
+| `parent_id` | `uuid` | 自关联、可空 | 上级分类；当前六个系统分类均为根节点 |
+| `sort_order` | `integer` | 非空 | 同级显示顺序 |
+| `status` | `text` | `active/archived` | 分类状态 |
+| `is_system` | `boolean` | 非空 | 是否为系统内置分类 |
+| `revision` | `integer` | 正整数 | 并发写保护 |
+| `created_at` / `updated_at` | `timestamptz` | 非空 | 审计时间 |
+
+系统内置六类为创作策略、人物与组织、世界设定、剧情结构、篇章结构、参考资料。搜索树时保留命中叶子的祖先路径；分类节点不创建卡片实例，也不向子类型传递字段。
+
+> 🏠 **白话比喻**：分类像档案柜上的抽屉标签，类型像抽屉里的空白表格。对应到系统里：移动抽屉只改变查找位置，不会改写表格上的栏目。
+
+> 🧠 **速记方法**：**分类只导航，类型才定字段**。
 
 ## `new_design.card_type_versions`
 
@@ -133,6 +160,20 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 
 > 🧠 **速记方法**：**安装复制、书书隔离、升级只加不改**。
 
+## 统一开书与 AI 来源追踪
+
+`inspiration_candidates` 保存可跨机器初始化的“没有想法”候选；`book_creation_sessions` 保存一次开书从来源理解、方向确认、初始资料预览到书籍安装的状态；`ai_generation_batches` 保存每次 AI 调用的阶段、输入、输出、提示词版本、模型、重试来源和错误；`book_content_sources` 把完成后的书籍关联到真实入口与来源；`card_field_origins` 记录 AI 初始值或表单建议对应的卡片字段、生成批次和确认状态。
+
+`book_creation_sessions.method` 支持 `blank`、`template`、`idea`、`inspiration`、`market`、`reference`、`continuation`。这些值只描述入口，不改变模板结构。会话通过 `template_version_id` 锁定同一个不可变模板版本，最终通过 `book_id` 指向统一的书籍聚合根。
+
+`book_creation_sessions.status` 使用 `draft/generating/waiting_direction/review/creating/completed/failed`；`stage` 进一步标明理解来源、生成方向、等待确认、匹配字段、生成初始资料、预览和安装模板。失败保留 `last_failed_stage` 与 `error_message`，因此可以只重试当前阶段，也可以保留已有结果建立书籍。
+
+`card_field_origins` 以 `card_id + field_key` 唯一定位字段来源，并保存 `origin`、`generation_batch_id`、`confirmation_status` 和 `source_payload`。写入 AI 建议前仍检查卡片 `revision`，避免覆盖作者在另一个页面已经保存的修改。
+
+> 🏠 **白话比喻**：开书会话像医院挂号后的就诊单，入口只是“从哪个窗口来”；AI 批次像每次检查报告，最终都归入同一份病历。对应到系统里：七种入口共用一套书籍表单，生成记录和作者确认则分别留痕。
+
+> 🧠 **速记方法**：**入口记来源，会话记进度，批次记生成，字段记归属**。
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。
@@ -140,9 +181,11 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 3. 迁移默认只前进且非破坏。删列、改类型、清表或重建数据库必须先完成备份、恢复校验并取得明确授权。
 4. 确定性基础数据使用稳定主键和 `ON CONFLICT`，确保多机初始化结果一致。
 
-## 内置小说卡片
+## 内置小说资料规格
 
-`003_novel_card_catalog.sql` 将系统目录收敛为以下 19 种已发布核心类型：人物、组织／势力、地点、道具、世界规则、事件、目标／任务、冲突、秘密／真相、线索／证据、伏笔、悬念／问题、剧情线、剧情节点／节拍、弧线／变化线、主题／命题、卷、章节和场景。
+`003_novel_card_catalog.sql` 将系统目录收敛为 19 种已发布核心类型：人物、组织／势力、地点、道具、世界规则、事件、目标／任务、冲突、秘密／真相、线索／证据、伏笔、悬念／问题、剧情线、剧情节点／节拍、弧线／变化线、主题／命题、卷、章节和场景。`008_card_type_categories.sql` 在不修改这 19 种类型及既有书籍快照的前提下，新增题材策略、推进模式、写法配置、质量规则、世界总览、能力／科技／修炼体系、种族、文化、宗教和参考资料，使系统目录达到 29 种类型。
+
+迁移会为“通用长篇小说模板”发布一个新的不可变版本，把 29 种类型纳入后续新书；旧模板版本、旧书的 19 类型快照和《照骨山河》样例均保持原状。
 
 秘密／真相保存作者侧唯一答案；线索／证据保存人物在故事内可发现的信息；悬念／问题保存读者等待回答的信息差；伏笔保存作者提前布置并计划回收的叙事动作。目标、冲突、剧情线、事件、场景、剧情节点和弧线也分别承担完成条件、持续对抗、跨事件因果链、世界内发生事实、具体时空行动、结构作用和跨阶段变化，不能互相替代。
 

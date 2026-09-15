@@ -54,12 +54,27 @@ export interface CardTypeSummary {
   description: string;
   isSystem: boolean;
   sortOrder: number;
+  categoryId: string | null;
+  categoryKey: string | null;
   semanticCapabilities: CardTypeCapability[];
   status: "draft" | "published" | "archived";
   revision: number;
   currentVersion: number | null;
   currentVersionId: string | null;
   draftFields: FieldDefinition[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CardTypeCategory {
+  id: string;
+  key: string;
+  name: string;
+  parentId: string | null;
+  sortOrder: number;
+  status: "active" | "archived";
+  isSystem: boolean;
+  revision: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -260,6 +275,90 @@ export interface BookSummary {
   revision: number;
   cardCount: number;
   formCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const BOOK_CREATION_METHODS = [
+  "blank",
+  "template",
+  "idea",
+  "inspiration",
+  "market",
+  "reference",
+  "continuation",
+] as const;
+
+export type BookCreationMethod = (typeof BOOK_CREATION_METHODS)[number];
+
+export interface InspirationCandidate {
+  id: string;
+  title: string;
+  premise: string;
+  audience: string;
+  tone: string[];
+  sortOrder: number;
+}
+
+export interface BookDirectionCandidate {
+  id: string;
+  title: string;
+  premise: string;
+  protagonist: string;
+  centralConflict: string;
+  readerPromise: string;
+  styleKeywords: string[];
+}
+
+export interface InitialCardDraft {
+  typeKey: string;
+  title: string;
+  values: Record<string, unknown>;
+}
+
+export type BookCreationStatus =
+  | "draft"
+  | "generating"
+  | "waiting_direction"
+  | "review"
+  | "creating"
+  | "completed"
+  | "failed";
+
+export interface BookCreationSession {
+  id: string;
+  method: BookCreationMethod;
+  status: BookCreationStatus;
+  stage: string;
+  progress: number;
+  templateVersionId: string;
+  bookName: string;
+  description: string;
+  sourceReference: string;
+  inputPayload: Record<string, unknown>;
+  directionCandidates: BookDirectionCandidate[];
+  selectedDirectionId: string | null;
+  initialCards: InitialCardDraft[];
+  lastFailedStage: string | null;
+  errorMessage: string | null;
+  bookId: string | null;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiAssistBatch {
+  id: string;
+  bookId: string;
+  cardId: string;
+  formKey: string;
+  status: "running" | "review" | "applied" | "failed" | "discarded";
+  stage: string;
+  progress: number;
+  instruction: string;
+  suggestions: Record<string, unknown>;
+  baseRevision: number;
+  errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }

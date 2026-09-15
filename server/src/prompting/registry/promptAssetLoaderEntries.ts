@@ -22,6 +22,18 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/creation/creationIntent.prompts").creationIntentInterpretPrompt as UnknownPromptAsset,
   },
   {
+    key: "new_design.book_creation.directions@v1",
+    load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignBookDirectionsPrompt as UnknownPromptAsset,
+  },
+  {
+    key: "new_design.book_creation.initial_content@v1",
+    load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignInitialContentPrompt as UnknownPromptAsset,
+  },
+  {
+    key: "new_design.form.assist@v1",
+    load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignFormAssistPrompt as UnknownPromptAsset,
+  },
+  {
     key: "novel.short_story.plan@v2",
     load: () => require("../prompts/shortStory/shortStory.prompts").shortStoryPlanPrompt as UnknownPromptAsset,
   },

@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
+import type { NewDesignAiGateway } from "../ai/gateway";
 import {
   archiveCard,
   createCard,
@@ -41,17 +42,41 @@ import {
   saveRelationType,
 } from "../database/compositionStore";
 import { NewDesignError } from "../domain/errors";
+import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
+import {
+  applyFormAssist,
+  beginFormAssist,
+  beginSessionGeneration,
+  completeBookCreation,
+  createBookCreationSession,
+  failFormAssist,
+  failSessionGeneration,
+  getBookCreationSession,
+  getCardAssistContext,
+  getSessionAiContext,
+  listInspirationCandidates,
+  saveDirectionCandidates,
+  saveFormAssist,
+  saveInitialCards,
+  selectBookDirection,
+} from "../database/bookCreationStore";
 import {
   createCardSchema,
   createCardTypeSchema,
   cardGroupFormInputSchema,
+  cardTypeCategoryInputSchema,
+  applyFormAssistSchema,
   bookInputSchema,
+  bookCreationSessionInputSchema,
+  completeBookCreationSchema,
   dictionaryInputSchema,
   formInstanceInputSchema,
+  formAssistSchema,
   relationTypeInputSchema,
   syncPreviewSchema,
   templateInputSchema,
   revisionSchema,
+  selectDirectionSchema,
   updateCardSchema,
   updateCardTypeSchema,
 } from "../domain/validation";
@@ -77,7 +102,7 @@ function normalizeFields(fields: Array<Omit<FieldDefinition, "defaultValue"> & {
   return fields.map((field) => ({ ...field, defaultValue: field.defaultValue ?? null }));
 }
 
-export function createNewDesignRouter(): Router {
+export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } = {}): Router {
   const router = Router();
 
   router.get("/health", asyncRoute(async (_req, res) => {
@@ -85,6 +110,9 @@ export function createNewDesignRouter(): Router {
   }));
 
   router.get("/card-types", asyncRoute(async (req, res) => success(res, await listCardTypes(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
+  router.get("/card-type-categories", asyncRoute(async (_req, res) => success(res, await listCardTypeCategories())));
+  router.post("/card-type-categories", asyncRoute(async (req, res) => success(res, await saveCardTypeCategory(body(cardTypeCategoryInputSchema, req)), 201)));
+  router.patch("/card-type-categories/:id", asyncRoute(async (req, res) => success(res, await saveCardTypeCategory({ ...body(cardTypeCategoryInputSchema, req), id: String(req.params.id) }))));
   router.post("/card-types", asyncRoute(async (req, res) => {
     const input = body(createCardTypeSchema, req);
     success(res, await createCardType({ ...input, fields: normalizeFields(input.fields) }, input.spaceId), 201);
@@ -176,6 +204,72 @@ export function createNewDesignRouter(): Router {
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));
   }));
   router.post("/book-syncs/:id/apply", asyncRoute(async (req, res) => success(res, await applyBookSync(String(req.params.id)))));
+
+  router.get("/book-creation/inspirations", asyncRoute(async (_req, res) => success(res, await listInspirationCandidates())));
+  router.post("/book-creation/sessions", asyncRoute(async (req, res) => success(res, await createBookCreationSession(body(bookCreationSessionInputSchema, req)), 201)));
+  router.get("/book-creation/sessions/:id", asyncRoute(async (req, res) => success(res, await getBookCreationSession(String(req.params.id)))));
+  router.post("/book-creation/sessions/:id/directions", asyncRoute(async (req, res) => {
+    const sessionId = String(req.params.id);
+    const batchId = await beginSessionGeneration(sessionId, "directions");
+    try {
+      if (!dependencies.ai) throw new Error("AI 服务尚未连接，请检查模型设置后重试。");
+      const context = await getSessionAiContext(sessionId);
+      const candidates = await dependencies.ai.generateDirections({
+        method: context.session.method,
+        bookName: context.session.bookName,
+        sourceReference: context.session.sourceReference,
+        sourceText: context.sourceText,
+      });
+      success(res, await saveDirectionCandidates(sessionId, batchId, candidates));
+    } catch (error) {
+      await failSessionGeneration(sessionId, batchId, "generate_directions", error);
+      throw new NewDesignError(error instanceof Error ? error.message : "创作方向生成失败。", 502);
+    }
+  }));
+  router.post("/book-creation/sessions/:id/select-direction", asyncRoute(async (req, res) => {
+    const input = body(selectDirectionSchema, req);
+    success(res, await selectBookDirection(String(req.params.id), input.directionId));
+  }));
+  router.post("/book-creation/sessions/:id/initial-content", asyncRoute(async (req, res) => {
+    const sessionId = String(req.params.id);
+    const batchId = await beginSessionGeneration(sessionId, "initial_content");
+    try {
+      if (!dependencies.ai) throw new Error("AI 服务尚未连接，请检查模型设置后重试。");
+      const context = await getSessionAiContext(sessionId);
+      const direction = context.session.directionCandidates.find((item) => item.id === context.session.selectedDirectionId);
+      if (!direction) throw new NewDesignError("请先确认一个创作方向。", 422);
+      const cards = await dependencies.ai.generateInitialContent({ direction, sourceText: context.sourceText, schemaTypes: context.schemaTypes });
+      success(res, await saveInitialCards(sessionId, batchId, cards));
+    } catch (error) {
+      await failSessionGeneration(sessionId, batchId, "generate_initial_content", error);
+      if (error instanceof NewDesignError) throw error;
+      throw new NewDesignError(error instanceof Error ? error.message : "初始资料生成失败。", 502);
+    }
+  }));
+  router.post("/book-creation/sessions/:id/complete", asyncRoute(async (req, res) => {
+    success(res, await completeBookCreation(String(req.params.id), body(completeBookCreationSchema, req)));
+  }));
+
+  router.post("/books/:id/ai-assists", asyncRoute(async (req, res) => {
+    const input = body(formAssistSchema, req);
+    const context = await getCardAssistContext(String(req.params.id), input.cardId);
+    if (context.card.revision !== input.baseRevision) throw new NewDesignError("资料已被修改，请刷新后重试。", 409);
+    const batchId = await beginFormAssist({ bookId: String(req.params.id), cardId: input.cardId, formKey: input.formKey, instruction: input.instruction, baseRevision: input.baseRevision });
+    try {
+      if (!dependencies.ai) throw new Error("AI 服务尚未连接，请检查模型设置后重试。");
+      const output = await dependencies.ai.assistForm({ bookName: context.bookName, formName: input.formName, cardTitle: context.card.title, currentValues: context.card.values, fields: context.fields, instruction: input.instruction });
+      const allowed = new Set(context.fields.map((field) => field.key));
+      const suggestions = Object.fromEntries(Object.entries(output).filter(([key]) => allowed.has(key)));
+      success(res, await saveFormAssist(batchId, suggestions), 201);
+    } catch (error) {
+      await failFormAssist(batchId, error);
+      throw new NewDesignError(error instanceof Error ? error.message : "AI 表单建议生成失败。", 502);
+    }
+  }));
+  router.post("/ai-assists/:id/apply", asyncRoute(async (req, res) => {
+    const input = body(applyFormAssistSchema, req);
+    success(res, await applyFormAssist(String(req.params.id), input.fieldKeys, input.expectedRevision));
+  }));
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ZodError) {

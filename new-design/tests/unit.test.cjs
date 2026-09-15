@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookCreationSessionInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 
 const fields = [
   { key: "name", name: "姓名", description: "", type: "short_text", required: true, defaultValue: null, options: [], group: "基本信息", order: 0 },
@@ -19,4 +20,22 @@ test("published schema only accepts new optional fields", () => {
   assert.deepEqual(validatePublishedEvolution(fields, [...fields, optional]), {});
   assert.ok(validatePublishedEvolution(fields, fields.slice(0, 1)).fields);
   assert.ok(validatePublishedEvolution(fields, [...fields, { ...optional, required: true }]).secret);
+});
+
+test("book creation inputs keep entry method separate from template structure", () => {
+  const common = { templateVersionId: "40000000-0000-4000-8000-000000000002", description: "", sourceReference: "", inputPayload: {} };
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "" }).success, false);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "新书" }).success, true);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "idea", bookName: "", inputPayload: { idea: "一条真实灵感" } }).success, true);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "market", bookName: "" }).success, false);
+});
+
+test("card type tree keeps matching leaves with their ancestor path", () => {
+  const category = { id: "cat-world", key: "world", name: "世界设定", parentId: null, sortOrder: 10, status: "active", isSystem: true, revision: 1, createdAt: "", updatedAt: "" };
+  const type = { id: "type-power", categoryId: category.id, key: "power_system", name: "能力体系", description: "修炼与科技", sortOrder: 10 };
+  assert.equal(buildCardTypeTree([category], [type]).at(0).typeCount, 1);
+  const searched = buildCardTypeTree([category], [type], "修炼");
+  assert.equal(searched.length, 1);
+  assert.equal(searched[0].cardTypes[0].id, type.id);
+  assert.equal(buildCardTypeTree([category], [type], "人物").length, 0);
 });

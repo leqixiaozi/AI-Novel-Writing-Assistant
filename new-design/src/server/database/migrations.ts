@@ -28,4 +28,12 @@ export const migrations: Migration[] = [
     id: "006_template_books",
     fileName: "006_template_books.sql",
   },
+  {
+    id: "007_unified_book_creation",
+    fileName: "007_unified_book_creation.sql",
+  },
+  {
+    id: "008_card_type_categories",
+    fileName: "008_card_type_categories.sql",
+  },
 ];

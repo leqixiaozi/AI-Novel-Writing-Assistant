@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeSummary, type CardTypeVersion, type FieldDefinition } from "../common/contracts";
+import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeCategory, type CardTypeSummary, type CardTypeVersion, type FieldDefinition } from "../common/contracts";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 import FieldBuilder from "./FieldBuilder";
@@ -8,6 +8,7 @@ interface TypeDesignerProps {
   selected: CardTypeSummary | null;
   onSaved: (cardType: CardTypeSummary) => void;
   spaceId?: string;
+  categories?: CardTypeCategory[];
 }
 
 const SYSTEM_SPACE_ID = "00000000-0000-4000-8000-000000000001";
@@ -40,6 +41,8 @@ function blankType(spaceId = SYSTEM_SPACE_ID): CardTypeSummary {
     description: "",
     isSystem: false,
     sortOrder: 1_000,
+    categoryId: null,
+    categoryKey: null,
     semanticCapabilities: [],
     status: "draft",
     revision: 1,
@@ -51,7 +54,7 @@ function blankType(spaceId = SYSTEM_SPACE_ID): CardTypeSummary {
   };
 }
 
-export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID }: TypeDesignerProps) {
+export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID, categories = [] }: TypeDesignerProps) {
   const [draft, setDraft] = useState<CardTypeSummary>(() => selected ?? blankType(spaceId));
   const [versions, setVersions] = useState<CardTypeVersion[]>([]);
   const [busy, setBusy] = useState(false);
@@ -134,6 +137,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
               <input value={draft.description} placeholder="这类卡片帮助作者记录什么" onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
             </label>
           </div>
+          {categories.length>0&&<label className="nd-control"><span>所属分类</span><select value={draft.categoryId??""} onChange={(event)=>setDraft({...draft,categoryId:event.target.value||null,categoryKey:categories.find((item)=>item.id===event.target.value)?.key??null})}><option value="">未分类</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.parentId?"　":""}{category.name}</option>)}</select><small>分类只管理目录位置，不会让类型继承字段。</small></label>}
           {!draft.id && draft.draftFields.length === 0 && (
             <button className="nd-inline-action" type="button" onClick={() => setDraft({ ...draft, name: draft.name || "人物", description: draft.description || "记录故事人物的身份、职责与性格。", draftFields: personStarterFields() })}>
               使用人物字段示例开始

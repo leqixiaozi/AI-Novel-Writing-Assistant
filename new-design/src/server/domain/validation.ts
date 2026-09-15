@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
+import { BOOK_CREATION_METHODS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
 
 const optionSchema = z.object({
   value: z.string().trim().min(1, "选项值不能为空。"),
@@ -45,6 +45,7 @@ export const createCardTypeSchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "类型标识需以小写字母开头。"),
   name: z.string().trim().min(1, "类型名称不能为空。").max(80),
   description: z.string().trim().max(500).default(""),
+  categoryId: z.string().uuid().nullable().optional(),
   semanticCapabilities: z.array(z.enum(CARD_TYPE_CAPABILITIES)).default([]),
   fields: fieldsSchema.default([]),
 });
@@ -52,12 +53,21 @@ export const createCardTypeSchema = z.object({
 export const updateCardTypeSchema = z.object({
   name: z.string().trim().min(1, "类型名称不能为空。").max(80),
   description: z.string().trim().max(500).default(""),
+  categoryId: z.string().uuid().nullable().optional(),
   semanticCapabilities: z.array(z.enum(CARD_TYPE_CAPABILITIES)).default([]),
   fields: fieldsSchema,
   revision: z.number().int().positive(),
 });
 
 export const revisionSchema = z.object({ revision: z.number().int().positive() });
+
+export const cardTypeCategoryInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "分类标识需以小写字母开头。"),
+  name: z.string().trim().min(1).max(80),
+  parentId: z.string().uuid().nullable().optional(),
+  sortOrder: z.number().int().min(0).max(10_000).default(1000),
+  revision: z.number().int().positive().optional(),
+});
 
 export const createCardSchema = z.object({
   spaceId: z.string().uuid().optional(),
@@ -177,6 +187,37 @@ export const bookInputSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(800).default(""),
   templateVersionId: z.string().uuid(),
+});
+
+export const bookCreationSessionInputSchema = z.object({
+  method: z.enum(BOOK_CREATION_METHODS),
+  templateVersionId: z.string().uuid(),
+  bookName: z.string().trim().max(100).default(""),
+  description: z.string().trim().max(800).default(""),
+  sourceReference: z.string().trim().max(500).default(""),
+  inputPayload: z.record(z.string(), z.unknown()).default({}),
+}).superRefine((input, context) => {
+  if ((input.method === "blank" || input.method === "template") && !input.bookName) {
+    context.addIssue({ code: "custom", path: ["bookName"], message: "请填写书名。" });
+  }
+  if (!["blank", "template"].includes(input.method)) {
+    const hasSource = input.description || input.sourceReference || Object.values(input.inputPayload).some((value) => typeof value === "string" && value.trim());
+    if (!hasSource) context.addIssue({ code: "custom", path: ["inputPayload"], message: "请填写创作来源或选择一个灵感。" });
+  }
+});
+
+export const selectDirectionSchema = z.object({ directionId: z.string().trim().min(1).max(80) });
+export const completeBookCreationSchema = z.object({ keepCurrentResult: z.boolean().default(false) });
+export const formAssistSchema = z.object({
+  cardId: z.string().uuid(),
+  formKey: z.string().trim().min(1).max(80),
+  formName: z.string().trim().min(1).max(100),
+  instruction: z.string().trim().min(2, "请告诉 AI 希望补充或调整什么。").max(1000),
+  baseRevision: z.number().int().positive(),
+});
+export const applyFormAssistSchema = z.object({
+  fieldKeys: z.array(z.string().trim().min(1)).min(1).max(100),
+  expectedRevision: z.number().int().positive(),
 });
 
 export const syncPreviewSchema = z.object({ targetVersionId: z.string().uuid() });

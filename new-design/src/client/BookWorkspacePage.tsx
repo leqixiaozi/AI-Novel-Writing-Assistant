@@ -17,7 +17,7 @@ export default function BookWorkspacePage({bookId,view}:Props) {
   useEffect(()=>{void load().catch((error)=>setMessage(error instanceof Error?error.message:"书籍工作区加载失败。"));},[bookId]);
   if(message)return <div className="nd-shell nd-fatal"><h1>无法打开书籍</h1><p>{message}</p><a className="nd-button nd-button-primary" href="/new-design/books">返回我的书籍</a></div>;
   if(!book)return <div className="nd-shell nd-loading-screen"><div className="nd-loader"/><strong>正在打开书籍空间</strong></div>;
-  if(view==="forms")return <BookShell book={book} active="forms"><EventPlanningForm spaceId={book.spaceId} bookName={book.name}/></BookShell>;
+  if(view==="forms")return <BookShell book={book} active="forms"><EventPlanningForm bookId={book.id} spaceId={book.spaceId} bookName={book.name}/></BookShell>;
   if(view==="cards")return <BookShell book={book} active="cards"><CardWorkspace cardTypes={types} spaceId={book.spaceId}/></BookShell>;
   const selected=types.find((type)=>type.id===selectedId)??null;
   const saved=(next:CardTypeSummary)=>{setTypes((current)=>current.map((item)=>item.id===next.id?next:item));setSelectedId(next.id);};
