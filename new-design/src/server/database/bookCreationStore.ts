@@ -14,6 +14,7 @@ import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
 import { getStrategyResourceDrafts } from "./resourceStore";
 import { createBook, type TemplatePayload } from "./templateStore";
+import { getSessionResearchReuse, persistSessionResearchSelections, previewResearchReuse } from "./referencePackStore";
 
 function strategyResourceIds(payload: Record<string, unknown>): string[] {
   return Array.isArray(payload.strategyResourceIds)
@@ -37,6 +38,9 @@ function mapSession(row: Record<string, unknown>): BookCreationSession {
     description: String(row.description ?? ""),
     sourceReference: String(row.source_reference ?? ""),
     inputPayload: row.input_payload as Record<string, unknown>,
+    researchVersionIds: [],
+    researchPackVersionIds: [],
+    researchPreview: null,
     directionCandidates: row.direction_candidates as BookDirectionCandidate[],
     selectedDirectionId: row.selected_direction_id ? String(row.selected_direction_id) : null,
     initialCards: row.initial_cards as InitialCardDraft[],
@@ -82,18 +86,20 @@ export async function createBookCreationSession(input: {
   description: string;
   sourceReference: string;
   inputPayload: Record<string, unknown>;
+  researchVersionIds?: string[];
+  researchPackVersionIds?: string[];
 }): Promise<BookCreationSession> {
   const pool = await getNewDesignPool();
   const exists = await pool.query("SELECT 1 FROM new_design.template_group_versions WHERE id=$1", [input.templateVersionId]);
   if (!exists.rowCount) throw new NewDesignError("所选模板版本不存在。", 404);
-  const id = randomUUID();
-  await pool.query(`INSERT INTO new_design.book_creation_sessions (id,method,template_version_id,book_name,description,source_reference,input_payload) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [id, input.method, input.templateVersionId, input.bookName, input.description, input.sourceReference, JSON.stringify(input.inputPayload)]);
+  const id = randomUUID(),preview=await previewResearchReuse({templateVersionId:input.templateVersionId,researchVersionIds:input.researchVersionIds??[],packVersionIds:input.researchPackVersionIds??[],includeTemplateSeed:input.method==="template"}),client=await pool.connect();
+  try{await client.query("BEGIN");await client.query(`INSERT INTO new_design.book_creation_sessions (id,method,template_version_id,book_name,description,source_reference,input_payload) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [id, input.method, input.templateVersionId, input.bookName, input.description, input.sourceReference, JSON.stringify(input.inputPayload)]);await persistSessionResearchSelections(client,id,preview);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
   return getBookCreationSession(id);
 }
 
 export async function getBookCreationSession(id: string): Promise<BookCreationSession> {
   const row = (await (await getNewDesignPool()).query("SELECT * FROM new_design.book_creation_sessions WHERE id=$1", [id])).rows[0];
-  return mapSession(assertFound(row, "开书流程不存在。"));
+  const session=mapSession(assertFound(row, "开书流程不存在。")),reuse=await getSessionResearchReuse(id);return{...session,researchVersionIds:reuse.preview.researchVersionIds,researchPackVersionIds:reuse.preview.packVersionIds,researchPreview:reuse.references.length?reuse.preview:null};
 }
 
 export async function getSessionAiContext(id: string): Promise<{ session: BookCreationSession; sourceText: string; schemaTypes: AiSchemaType[] }> {
@@ -106,6 +112,7 @@ export async function getSessionAiContext(id: string): Promise<{ session: BookCr
     session.description,
     ...Object.values(session.inputPayload).filter((value): value is string => typeof value === "string"),
     strategies.length ? `选定创作策略：${JSON.stringify(strategies.map(({ typeKey, title, values }) => ({ typeKey, title, values })))}` : "",
+    session.researchPreview ? `选定研究资料（只作为参考并保持来源边界）：${JSON.stringify(session.researchPreview.compiledSnapshot)}` : "",
   ].filter(Boolean).join("\n");
   return {
     session,
@@ -166,10 +173,13 @@ export async function completeBookCreation(sessionId: string, options: { keepCur
     const latestBatch = (await pool.query("SELECT id FROM new_design.ai_generation_batches WHERE session_id=$1 AND operation='initial_content' AND status='review' ORDER BY created_at DESC LIMIT 1", [sessionId])).rows[0];
     const useAiCards = session.initialCards.length > 0;
     const resourceCards = await getStrategyResourceDrafts(strategyResourceIds(session.inputPayload));
+    const researchReuse=await getSessionResearchReuse(sessionId);
     const book = await createBook({ key: `book_${Date.now().toString(36)}_${session.id.slice(0, 6)}`, name, description, templateVersionId: session.templateVersionId }, {
       includeTemplateSeed: session.method === "template",
       initialCards: useAiCards ? session.initialCards : undefined,
       resourceCards,
+      researchCards:researchReuse.preview.suggestedCards,
+      researchReferences:researchReuse.references,
       origin: { sessionId, method: session.method, sourceReference: session.sourceReference, sourcePayload: session.inputPayload, generationBatchId: latestBatch?.id ? String(latestBatch.id) : undefined },
     });
     await pool.query("UPDATE new_design.book_creation_sessions SET status='completed',stage='ready',progress=100,book_id=$2,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, book.id]);

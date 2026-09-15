@@ -60,4 +60,8 @@ export const migrations: Migration[] = [
     id: "014_market_radar",
     fileName: "014_market_radar.sql",
   },
+  {
+    id: "015_research_reuse",
+    fileName: "015_research_reuse.sql",
+  },
 ];

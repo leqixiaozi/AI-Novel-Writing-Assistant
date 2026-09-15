@@ -29,6 +29,7 @@ test("book creation inputs keep entry method separate from template structure", 
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "新书" }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "idea", bookName: "", inputPayload: { idea: "一条真实灵感" } }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "market", bookName: "" }).success, false);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "reference", bookName: "", researchVersionIds:["10000000-0000-4000-8000-000000000001"] }).success, true);
 });
 
 test("card type tree keeps matching leaves with their ancestor path", () => {

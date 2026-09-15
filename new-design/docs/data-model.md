@@ -38,6 +38,7 @@ research_records 1 ── n research_record_versions 1 ── n research_evidenc
                                       │
                                       └─ n research_candidate_batches 1 ── n research_candidates
 research_reference_packs 1 ── n research_reference_pack_versions 1 ── n research_reference_pack_items
+book_creation_sessions 1 ── n book_creation_research_selections ── 1 research/pack exact version
 books 1 ── n book_research_references ── 1 research/pack exact version
 ```
 
@@ -47,7 +48,11 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 
 运行版本冻结来源范围、模板版本、预算、提示词快照、模型快照、输入、结构结果与可读报告。`research_evidence` 把结论字段回指到原文片段；候选结果先进入 `research_candidate_batches` / `research_candidates`，只有作者明确采用后才由 `research_candidate_adoptions` 记录正式去向。`market_source_snapshots` / `market_ranking_items` 独立保存每次公开榜单扫描，单个平台失败也不会删除以前成功的快照。
 
-`research_reference_packs` 只保存可编辑的包身份，发布时由 `research_reference_pack_versions` 和 `research_reference_pack_items` 冻结具体研究版本。一本书通过 `book_research_references` 锁定精确的研究记录版本或参考包版本，并保存当时编译出的输入快照；以后重跑研究不会偷偷改变已开书内容。
+`research_reference_packs` 只保存可编辑的包身份，发布时由 `research_reference_pack_versions` 和 `research_reference_pack_items` 冻结具体研究版本。`book_creation_research_selections` 在开书会话建立时锁定用户选择及完整预填快照；一本书再通过 `book_research_references` 固化精确的研究记录版本或参考包版本。以后重跑研究、重发参考包都不会偷偷改变既有会话或已开书内容。
+
+预填按“类型 key + 标题”定位已有资料，只允许把研究候选写入空字符串、空数组、`null` 或缺失字段；非空字段会生成冲突说明并保持原值。这个规则像给已经填写过的纸质表格补空栏：空格可以代填，写过的格子必须保留原笔迹。对应到数据层：研究预填只能追加缺失值，不能覆盖模板、AI 草稿或作者确认内容。
+
+> 🧠 **速记方法**：**选时冻结、空处可补、已有不动、建书留据**。
 
 > 🏠 **白话比喻**：研究资料像送到编辑部的原稿，研究运行像编辑针对某一版原稿写的批注报告，参考包像把若干份报告封进一个有编号的档案袋。对应到系统里：原文版本、运行版本和参考包版本各自冻结，新的分析只能新增一版，不能在旧报告上涂改。
 

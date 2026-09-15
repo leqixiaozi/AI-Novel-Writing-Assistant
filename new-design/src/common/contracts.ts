@@ -515,6 +515,14 @@ export interface BookAnalysisEvidenceDraft {fieldPath:string;excerpt:string;star
 export interface BookAnalysisCandidateDraft {targetTypeKey:string;title:string;values:Record<string,unknown>;evidenceIndexes:number[];confidence:number|null;}
 export interface BookAnalysisResult {overview:string;dimensions:BookAnalysisDimension[];evidence:BookAnalysisEvidenceDraft[];candidates:BookAnalysisCandidateDraft[];copyrightBoundary:string;}
 
+export interface ResearchReferencePackItem {researchVersionId:string;recordId:string;recordTitle:string;recordType:ResearchRecordType;recordVersion:number;purpose:string;weight:number;sortOrder:number;note:string;}
+export interface ResearchReferencePackVersion {id:string;packId:string;version:number;note:string;items:ResearchReferencePackItem[];createdAt:string;}
+export interface ResearchReferencePack {id:string;name:string;description:string;status:"draft"|"published"|"archived";revision:number;currentVersionId:string|null;currentVersion:number|null;versionCount:number;versions:ResearchReferencePackVersion[];createdAt:string;updatedAt:string;}
+export interface ResearchPrefillConflict {typeKey:string;title:string;fieldKey:string;existingValue:unknown;suggestedValue:unknown;reason:string;}
+export interface ResearchPrefillCard extends InitialCardDraft {researchVersionId:string;evidenceIds:string[];}
+export interface ResearchReusePreview {researchVersionIds:string[];packVersionIds:string[];compiledSnapshot:Record<string,unknown>;suggestedCards:ResearchPrefillCard[];conflicts:ResearchPrefillConflict[];}
+export interface BookResearchReference {id:string;bookId:string;researchVersionId:string|null;packVersionId:string|null;purpose:string;compiledSnapshot:Record<string,unknown>;createdAt:string;}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",
@@ -572,6 +580,9 @@ export interface BookCreationSession {
   description: string;
   sourceReference: string;
   inputPayload: Record<string, unknown>;
+  researchVersionIds: string[];
+  researchPackVersionIds: string[];
+  researchPreview: ResearchReusePreview | null;
   directionCandidates: BookDirectionCandidate[];
   selectedDirectionId: string | null;
   initialCards: InitialCardDraft[];

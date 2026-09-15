@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { BookSummary, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
+import type { BookSummary, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, ResearchPrefillCard, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
 import type { StrategyResourceDraft } from "./resourceStore";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
@@ -50,6 +50,8 @@ interface CreateBookOptions {
   includeTemplateSeed?: boolean;
   initialCards?: InitialCardDraft[];
   resourceCards?: StrategyResourceDraft[];
+  researchCards?: ResearchPrefillCard[];
+  researchReferences?: Array<{researchVersionId:string|null;packVersionId:string|null;purpose:string;compiledSnapshot:Record<string,unknown>}>;
   origin?: CreateBookOrigin;
 }
 
@@ -89,6 +91,7 @@ async function installPayload(
     ...(options.initialCards ?? []).map((card) => ({ card, sourceKind: "ai" as const, sourceId: null, sourceVersionId: null })),
     ...(options.resourceCards ?? []).map((card) => ({ card, sourceKind: "resource" as const, sourceId: card.sourceCardId, sourceVersionId: card.sourceVersionId })),
   ];
+  const installedCards=new Map<string,{id:string;typeVersionId:string;title:string;values:Record<string,unknown>;revision:number}>();
   for (const prepared of cards) {
     const { card, sourceKind } = prepared;
     const confirmation = sourceKind === "ai" ? "ai_draft" : sourceKind === "template" ? "template_suggestion" : "confirmed";
@@ -106,12 +109,18 @@ async function installPayload(
     await client.query(`INSERT INTO new_design.cards (id,space_id,card_type_id,title,status,revision,type_version_id,current_version_id,values) VALUES ($1,$2,$3,$4,'active',1,$5,NULL,$6::jsonb)`, [cardId, spaceId, type.typeId, card.title, type.versionId, JSON.stringify(values)]);
     await client.query(`INSERT INTO new_design.card_versions (id,card_id,revision,type_version_id,title,values,source) VALUES ($1,$2,1,$3,$4,$5::jsonb,'create')`, [versionId, cardId, type.versionId, card.title, JSON.stringify(values)]);
     await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1", [cardId, versionId]);
+    installedCards.set(`${card.typeKey}\u0000${card.title}`,{id:cardId,typeVersionId:type.versionId,title:card.title,values,revision:1});
     for (const [fieldKey, value] of [["$title", card.title] as const, ...Object.entries(values)]) {
       await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$8::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, prepared.sourceId, sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null, confirmation, JSON.stringify(value)]);
     }
     if (sourceKind === "resource" && prepared.sourceId && prepared.sourceVersionId) {
       await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [randomUUID(), prepared.sourceId, prepared.sourceVersionId, bookId, cardId, JSON.stringify({ typeKey: card.typeKey, title: card.title, values })]);
     }
+  }
+  for(const card of options.researchCards??[]){
+    const type=assertFound(typeIds.get(card.typeKey),`模板缺少卡片类型 ${card.typeKey}。`),definition=assertFound(payload.cardTypes.find((item)=>item.key===card.typeKey),`模板缺少类型定义 ${card.typeKey}。`),allowedKeys=new Set(definition.fields.map((field)=>field.key)),suggested=Object.fromEntries(Object.entries(card.values).filter(([key])=>allowedKeys.has(key))),key=`${card.typeKey}\u0000${card.title}`,existing=installedCards.get(key);
+    if(existing){const values={...existing.values};const adopted:string[]=[];for(const [fieldKey,value] of Object.entries(suggested))if(values[fieldKey]===null||values[fieldKey]===undefined||values[fieldKey]===""||(Array.isArray(values[fieldKey])&&values[fieldKey].length===0)){values[fieldKey]=value;adopted.push(fieldKey);}if(!adopted.length)continue;const nextRevision=existing.revision+1,versionId=randomUUID();await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,$3,$4,$5,$6::jsonb,'edit')",[versionId,existing.id,nextRevision,existing.typeVersionId,existing.title,JSON.stringify(values)]);await client.query("UPDATE new_design.cards SET values=$2::jsonb,revision=$3,current_version_id=$4,updated_at=now() WHERE id=$1",[existing.id,JSON.stringify(values),nextRevision,versionId]);for(const fieldKey of adopted)await client.query("INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value) VALUES($1,$2,$3,'research',$4,'confirmed',$5::jsonb,$5::jsonb) ON CONFLICT(card_id,field_key) DO UPDATE SET source_kind='research',source_id=EXCLUDED.source_id,confirmation_status='confirmed',original_value=EXCLUDED.original_value,current_value=EXCLUDED.current_value,updated_at=now()",[randomUUID(),existing.id,fieldKey,card.researchVersionId,JSON.stringify(values[fieldKey])]);installedCards.set(key,{...existing,values,revision:nextRevision});continue;}
+    const validated=validateCardValues(definition.fields,suggested);if(Object.keys(validated.issues).length)throw new NewDesignError(`研究建议“${card.title}”未满足模板字段要求。`,422,validated.issues);const cardId=randomUUID(),versionId=randomUUID();await client.query("INSERT INTO new_design.cards(id,space_id,card_type_id,title,status,revision,type_version_id,current_version_id,values) VALUES($1,$2,$3,$4,'active',1,$5,NULL,$6::jsonb)",[cardId,spaceId,type.typeId,card.title,type.versionId,JSON.stringify(validated.values)]);await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,1,$3,$4,$5::jsonb,'create')",[versionId,cardId,type.versionId,card.title,JSON.stringify(validated.values)]);await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1",[cardId,versionId]);for(const [fieldKey,value]of [["$title",card.title],...Object.entries(validated.values)])await client.query("INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value) VALUES($1,$2,$3,'research',$4,'confirmed',$5::jsonb,$5::jsonb)",[randomUUID(),cardId,fieldKey,card.researchVersionId,JSON.stringify(value)]);installedCards.set(key,{id:cardId,typeVersionId:type.versionId,title:card.title,values:validated.values,revision:1});
   }
 }
 
@@ -131,6 +140,7 @@ export async function createBook(
     await client.query("INSERT INTO new_design.card_spaces (id,space_key,name) VALUES ($1,$2,$3)", [spaceId, `book_${input.key}`, input.name]);
     await client.query(`INSERT INTO new_design.books (id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [id, spaceId, input.key, input.name, input.description, template.id, version.id, JSON.stringify(payload)]);
     await installPayload(client, id, spaceId, payload, options);
+    for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
     if (options.origin) {
       await client.query(`INSERT INTO new_design.book_content_sources (id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'confirmed')`, [randomUUID(), id, options.origin.sessionId ?? null, options.origin.method, options.origin.sourceReference, JSON.stringify(options.origin.sourcePayload)]);
     }

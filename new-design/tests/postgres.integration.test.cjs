@@ -20,6 +20,7 @@ const changeSets = require("../dist/server/database/changeSetStore.js");
 const research = require("../dist/server/database/researchStore.js");
 const market = require("../dist/server/database/marketStore.js");
 const bookAnalysis = require("../dist/server/database/bookAnalysisStore.js");
+const referencePacks = require("../dist/server/database/referencePackStore.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -210,6 +211,14 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   analysisRecord = await research.getResearchRecord(analysisRun.recordId);
   assert.deepEqual(new Set(analysisRecord.candidates.map((candidate)=>candidate.status)),new Set(["adopted","ignored"]));
 
+  const directResearchPreview=await referencePacks.previewResearchReuse({templateVersionId:(await templates.listTemplateVersions((await templates.listTemplates()).find((item)=>item.name==="通用长篇小说模板").id))[0].id,researchVersionIds:[analysisRun.versionId],packVersionIds:[],includeTemplateSeed:false});
+  assert.ok(directResearchPreview.suggestedCards.some((item)=>item.title==="可复用旧案策略"));
+  let referencePack=await referencePacks.publishReferencePack({name:"仙侠旧案研究包",description:"锁定可复用的结构研究版本。",note:"首次发布",items:[{researchVersionId:analysisRun.versionId,purpose:"book_creation",weight:1,note:"用于开书预填"}]});
+  const lockedPackVersionId=referencePack.currentVersionId;
+  referencePack=await referencePacks.publishReferencePack({id:referencePack.id,name:referencePack.name,description:referencePack.description,note:"第二版说明",revision:referencePack.revision,items:[{researchVersionId:analysisRun.versionId,purpose:"book_creation",weight:1.2,note:"提高参考权重"}]});
+  assert.equal(referencePack.versionCount,2);
+  assert.equal(referencePack.versions[1].id,lockedPackVersionId);
+
   const dictionaries = await composition.listDictionaries(sampleBook.spaceId);
   const relationTypes = await composition.listRelationTypes(sampleBook.spaceId);
   const forms = await composition.listCardGroupForms(sampleBook.spaceId);
@@ -380,6 +389,31 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(adoptionRows.rowCount, 2);
   assert.ok(adoptionRows.rows.every((row) => row.action === "install_snapshot"));
 
+  let researchSession=await bookCreation.createBookCreationSession({
+    method:"reference",
+    templateVersionId:initialTemplateVersion.id,
+    bookName:"研究复用样书",
+    description:"",
+    sourceReference:"",
+    inputPayload:{},
+    researchPackVersionIds:[lockedPackVersionId],
+  });
+  assert.deepEqual(researchSession.researchPackVersionIds,[lockedPackVersionId]);
+  assert.ok(researchSession.researchPreview.suggestedCards.some((item)=>item.title==="可复用旧案策略"));
+  const researchBatchId=await bookCreation.beginSessionGeneration(researchSession.id,"initial_content");
+  const authorConfirmedPromise="作者已经填写的主承诺，研究建议不能覆盖。";
+  researchSession=await bookCreation.saveInitialCards(researchSession.id,researchBatchId,[{typeKey:"genre_strategy",title:"可复用旧案策略",values:strategyValues(authorConfirmedPromise)}]);
+  researchSession=await bookCreation.completeBookCreation(researchSession.id);
+  const researchBook=await templates.getBook(researchSession.bookId);
+  const reusedCards=(await store.listCards({spaceId:researchBook.spaceId})).filter((item)=>item.title==="可复用旧案策略");
+  assert.equal(reusedCards.length,1);
+  assert.equal(reusedCards[0].values.core_promise,authorConfirmedPromise);
+  const researchOrigins=await (await runtime.getNewDesignPool()).query("SELECT DISTINCT source_kind FROM new_design.card_field_origins WHERE card_id=$1",[reusedCards[0].id]);
+  assert.deepEqual(researchOrigins.rows.map((row)=>row.source_kind),["ai"]);
+  const bookResearchReferences=await referencePacks.listBookResearchReferences(researchBook.id);
+  assert.equal(bookResearchReferences.length,1);
+  assert.equal(bookResearchReferences[0].packVersionId,lockedPackVersionId);
+
   let aiSession = await bookCreation.createBookCreationSession({
     method: "idea",
     templateVersionId: initialTemplateVersion.id,
@@ -527,4 +561,6 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const restartedAnalysisCard = await store.getCard(persistedAnalysisCardId);
   assert.equal(restartedAnalysisCard.values.personality,"谨慎追查铜铃旧案，并在每次选择后承担可见代价");
   assert.equal((await research.getResearchRecord(analysisRun.recordId)).currentVersion.report.startsWith("# 拆书报告"),true);
+  assert.equal((await referencePacks.getReferencePack(referencePack.id)).versionCount,2);
+  assert.equal((await referencePacks.listBookResearchReferences(researchBook.id))[0].packVersionId,lockedPackVersionId);
 });

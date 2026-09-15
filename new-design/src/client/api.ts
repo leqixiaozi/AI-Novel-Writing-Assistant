@@ -28,6 +28,9 @@ import type {
   BookAnalysisPlan,
   BookAnalysisPreset,
   BookAnalysisPurpose,
+  ResearchReferencePack,
+  ResearchReusePreview,
+  BookResearchReference,
   ResourceAdoption,
   StrategyResourceSummary,
   TemplateGroupSummary,
@@ -146,7 +149,7 @@ export const newDesignApi = {
     return request<StrategyResourceSummary[]>(`/resources/strategies${query?`?${query}`:""}`);
   },
   installStrategyResource: (resourceId:string,bookId:string) => request<{resource:StrategyResourceSummary;target:CardSummary;adoption:ResourceAdoption}>(`/resources/strategies/${resourceId}/install`,{method:"POST",body:JSON.stringify({bookId})}),
-  createBookCreationSession: (input: { method:BookCreationMethod;templateVersionId:string;bookName:string;description:string;sourceReference:string;inputPayload:Record<string,unknown> }) => request<BookCreationSession>("/book-creation/sessions", {method:"POST",body:JSON.stringify(input)}),
+  createBookCreationSession: (input: { method:BookCreationMethod;templateVersionId:string;bookName:string;description:string;sourceReference:string;inputPayload:Record<string,unknown>;researchVersionIds?:string[];researchPackVersionIds?:string[] }) => request<BookCreationSession>("/book-creation/sessions", {method:"POST",body:JSON.stringify(input)}),
   getBookCreationSession: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}`),
   generateBookDirections: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/directions`, {method:"POST",body:"{}"}),
   selectBookDirection: (id:string,directionId:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/select-direction`, {method:"POST",body:JSON.stringify({directionId})}),
@@ -175,4 +178,9 @@ export const newDesignApi = {
   startBookAnalysis:(input:{documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number})=>request<{recordId:string;versionId:string;version:number}>("/research/book-analyses",{method:"POST",body:JSON.stringify(input)}),
   retryBookAnalysis:(id:string)=>request<{recordId:string;versionId:string;version:number}>(`/research/book-analyses/${id}/retry`,{method:"POST",body:"{}"}),
   applyResearchCandidates:(id:string,decisions:Array<{candidateId:string;action:"create_card"|"merge_card"|"save_resource"|"reference_only"|"ignore";targetSpaceId?:string;targetCardId?:string;expectedRevision?:number}>)=>request<Array<{candidateId:string;action:string;cardId:string|null}>>(`/research/book-analyses/${id}/candidates/apply`,{method:"POST",body:JSON.stringify({decisions})}),
+  listReferencePacks:()=>request<ResearchReferencePack[]>("/research/reference-packs"),
+  getReferencePack:(id:string)=>request<ResearchReferencePack>(`/research/reference-packs/${id}`),
+  publishReferencePack:(input:{id?:string;name:string;description:string;note:string;revision?:number;items:Array<{researchVersionId:string;purpose:string;weight:number;note:string}>})=>request<ResearchReferencePack>("/research/reference-packs/publish",{method:"POST",body:JSON.stringify(input)}),
+  previewResearchReuse:(input:{templateVersionId:string;researchVersionIds:string[];packVersionIds:string[];includeTemplateSeed:boolean})=>request<ResearchReusePreview>("/research/reuse-preview",{method:"POST",body:JSON.stringify(input)}),
+  listBookResearchReferences:(bookId:string)=>request<BookResearchReference[]>(`/books/${bookId}/research-references`),
 };

@@ -251,6 +251,8 @@ export const bookAnalysisPurposeSchema=z.enum(["reference_learning","continuatio
 export const bookAnalysisPresetSchema=z.enum(["quick","standard","full"]);
 export const bookAnalysisInputSchema=z.object({documentVersionId:z.string().uuid(),purpose:bookAnalysisPurposeSchema,preset:bookAnalysisPresetSchema,rangeMode:z.enum(["full","range"]),startOffset:z.number().int().nonnegative().optional(),endOffset:z.number().int().positive().optional(),focus:z.string().trim().max(1000).default(""),budgetTokens:z.number().int().min(1000).max(12000)}).superRefine((value,ctx)=>{if(value.rangeMode==="range"&&(value.startOffset===undefined||value.endOffset===undefined||value.endOffset<=value.startOffset))ctx.addIssue({code:"custom",path:["endOffset"],message:"局部分析需要有效的起止位置。"});});
 export const candidateDecisionsSchema=z.object({decisions:z.array(z.object({candidateId:z.string().uuid(),action:z.enum(["create_card","merge_card","save_resource","reference_only","ignore"]),targetSpaceId:z.string().uuid().optional(),targetCardId:z.string().uuid().optional(),expectedRevision:z.number().int().positive().optional()})).min(1).max(30)});
+export const referencePackPublishSchema=z.object({id:z.string().uuid().optional(),name:z.string().trim().min(1).max(160),description:z.string().trim().max(1000).default(""),note:z.string().trim().max(500).default(""),revision:z.number().int().positive().optional(),items:z.array(z.object({researchVersionId:z.string().uuid(),purpose:z.string().trim().min(1).max(80).default("book_creation"),weight:z.number().positive().max(10).default(1),note:z.string().trim().max(500).default("")})).min(1).max(50)});
+export const researchReusePreviewSchema=z.object({templateVersionId:z.string().uuid(),researchVersionIds:z.array(z.string().uuid()).max(50).default([]),packVersionIds:z.array(z.string().uuid()).max(20).default([]),includeTemplateSeed:z.boolean().default(false)}).refine((value)=>value.researchVersionIds.length+value.packVersionIds.length>0,{message:"请至少选择一条研究记录或一个参考包。"});
 
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({
@@ -268,12 +270,14 @@ export const bookCreationSessionInputSchema = z.object({
   description: z.string().trim().max(800).default(""),
   sourceReference: z.string().trim().max(500).default(""),
   inputPayload: z.record(z.string(), z.unknown()).default({}),
+  researchVersionIds:z.array(z.string().uuid()).max(50).default([]),
+  researchPackVersionIds:z.array(z.string().uuid()).max(20).default([]),
 }).superRefine((input, context) => {
   if ((input.method === "blank" || input.method === "template") && !input.bookName) {
     context.addIssue({ code: "custom", path: ["bookName"], message: "请填写书名。" });
   }
   if (!["blank", "template"].includes(input.method)) {
-    const hasSource = input.description || input.sourceReference || Object.values(input.inputPayload).some((value) => typeof value === "string" && value.trim());
+    const hasSource = input.description || input.sourceReference || input.researchVersionIds.length > 0 || input.researchPackVersionIds.length > 0 || Object.values(input.inputPayload).some((value) => typeof value === "string" && value.trim());
     if (!hasSource) context.addIssue({ code: "custom", path: ["inputPayload"], message: "请填写创作来源或选择一个灵感。" });
   }
 });

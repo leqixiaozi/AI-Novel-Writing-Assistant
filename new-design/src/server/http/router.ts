@@ -49,6 +49,7 @@ import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetS
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
 import { applyCandidateDecisions } from "../database/bookAnalysisStore";
+import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -101,6 +102,8 @@ import {
   bookAnalysisPresetSchema,
   bookAnalysisPurposeSchema,
   candidateDecisionsSchema,
+  referencePackPublishSchema,
+  researchReusePreviewSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -245,6 +248,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
   router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id)),202);}));
   router.post("/research/book-analyses/:id/candidates/apply",asyncRoute(async(req,res)=>success(res,await applyCandidateDecisions(String(req.params.id),body(candidateDecisionsSchema,req).decisions))));
+  router.get("/research/reference-packs",asyncRoute(async(_req,res)=>success(res,await listReferencePacks())));
+  router.get("/research/reference-packs/:id",asyncRoute(async(req,res)=>success(res,await getReferencePack(String(req.params.id)))));
+  router.post("/research/reference-packs/publish",asyncRoute(async(req,res)=>success(res,await publishReferencePack(body(referencePackPublishSchema,req)),201)));
+  router.post("/research/reuse-preview",asyncRoute(async(req,res)=>success(res,await previewResearchReuse(body(researchReusePreviewSchema,req)))));
+  router.get("/books/:id/research-references",asyncRoute(async(req,res)=>success(res,await listBookResearchReferences(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));
