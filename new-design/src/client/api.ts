@@ -16,6 +16,7 @@ import type {
   CardTypeSummary,
   CardTypeVersion,
   CardVersion,
+  FormResolutionKind,
   DictionarySummary,
   InspirationCandidate,
   RelationTypeSummary,
@@ -194,7 +195,7 @@ type FormInstanceSaveInput = Pick<CardGroupFormInstance, "spaceId" | "formVersio
 };
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly issues: Record<string, string> = {}) {
+  constructor(message: string, public readonly issues: Record<string, string> = {}, public readonly status = 500) {
     super(message);
   }
 }
@@ -206,7 +207,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const envelope = await response.json() as ApiEnvelope<T>;
   if (!response.ok || !envelope.success || envelope.data === undefined) {
-    throw new ApiError(envelope.error ?? "请求失败，请稍后重试。", envelope.issues);
+    throw new ApiError(envelope.error ?? "请求失败，请稍后重试。", envelope.issues, response.status);
   }
   return envelope.data;
 }
@@ -230,11 +231,12 @@ export const newDesignApi = {
   }),
   listCardTypeVersions: (id: string) => request<CardTypeVersion[]>(`/card-types/${id}/versions`),
   listCards: (cardTypeId: string, archived: boolean, spaceId?: string) => request<CardSummary[]>(`/cards?cardTypeId=${encodeURIComponent(cardTypeId)}&archived=${archived}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ""}`),
-  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string }) => request<CardSummary>("/cards", {
+  getCard: (id: string) => request<CardSummary>(`/cards/${id}`),
+  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }) => request<CardSummary>("/cards", {
     method: "POST", body: JSON.stringify(input),
   }),
-  updateCard: (input: CardSummary) => request<CardSummary>(`/cards/${input.id}`, {
-    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, revision: input.revision }),
+  updateCard: (input: CardSummary & {formVersionId?:string|null;formResolutionKind?:FormResolutionKind}) => request<CardSummary>(`/cards/${input.id}`, {
+    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, revision: input.revision, formVersionId:input.formVersionId, formResolutionKind:input.formResolutionKind }),
   }),
   archiveCard: (id: string, revision: number) => request<CardSummary>(`/cards/${id}/archive`, {
     method: "POST", body: JSON.stringify({ revision }),

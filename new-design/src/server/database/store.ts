@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition } from "../../common/contracts";
+import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition, FormResolutionKind } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateBookTypeEvolution, validateCardValues, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
@@ -71,8 +71,32 @@ async function findCurrentTypeFields(queryable: Queryable, cardTypeId: string): 
     JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
     WHERE ct.id = $1 AND ct.status = 'published'
   `, [cardTypeId]);
-  const row = assertFound(result.rows[0], "元卡片类型尚未发布，不能创建或保存卡片。");
+  const row = assertFound(result.rows[0], "内容类型尚未发布，不能创建或保存资料。");
   return { id: String(row.id), version: Number(row.version), fields: row.fields as FieldDefinition[] };
+}
+
+async function validateFormProvenance(queryable: Queryable, input: {
+  formVersionId: string | null;
+  formResolutionKind: FormResolutionKind;
+  spaceId: string;
+  typeKey: string;
+  requireCurrent: boolean;
+}): Promise<void> {
+  if (input.formResolutionKind !== "installed_form") {
+    if (input.formVersionId) throw new NewDesignError("只有本书已发布创作表单可以记录表单版本。", 422);
+    return;
+  }
+  if (!input.formVersionId) throw new NewDesignError("缺少本次填写采用的创作表单版本。", 422);
+  const result = await queryable.query(`
+    SELECT 1
+    FROM new_design.card_group_form_versions version
+    JOIN new_design.card_group_forms form ON form.id=version.form_id
+    WHERE version.id=$1
+      AND form.space_id=$2
+      AND ($4::boolean=false OR (form.status='published' AND form.current_version_id=version.id))
+      AND version.definition->>'primaryTypeKey'=$3
+  `, [input.formVersionId, input.spaceId, input.typeKey, input.requireCurrent]);
+  if (!result.rows[0]) throw new NewDesignError("本次填写引用的创作表单版本不属于当前书籍、内容类型或已发布版本。", 422);
 }
 
 export async function listCardTypes(spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary[]> {
@@ -230,14 +254,14 @@ async function findCard(queryable: Queryable, id: string, lock = false): Promise
 }
 
 export async function getCard(id: string): Promise<CardSummary> {
-  return assertFound(await findCard(await getNewDesignPool(), id), "卡片不存在。");
+  return assertFound(await findCard(await getNewDesignPool(), id), "资料不存在。");
 }
 
-export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string }): Promise<CardSummary> {
+export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const typeVersion = await findCurrentTypeFields(pool, input.cardTypeId);
   const validated = validateCardValues(typeVersion.fields, input.values);
-  if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正卡片字段后再保存。", 422, validated.issues);
+  if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -245,21 +269,28 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     const versionId = randomUUID();
     const spaceId = input.spaceId ?? DEFAULT_SPACE_ID;
     const typeSpace = await client.query(`
-      SELECT 1
+      SELECT type.type_key
       FROM new_design.card_types type
       JOIN new_design.card_spaces target_space ON target_space.id=$2
       WHERE type.id=$1
         AND (type.space_id=$2 OR (type.space_id=$3 AND target_space.space_key LIKE 'resource_%'))
     `, [input.cardTypeId, spaceId, DEFAULT_SPACE_ID]);
-    if (!typeSpace.rows[0]) throw new NewDesignError("卡片类型不属于当前数据空间。", 422);
+    if (!typeSpace.rows[0]) throw new NewDesignError("内容类型不属于当前书籍空间。", 422);
+    await validateFormProvenance(client, {
+      formVersionId: input.formVersionId ?? null,
+      formResolutionKind: input.formResolutionKind ?? "legacy",
+      spaceId,
+      typeKey: String(typeSpace.rows[0].type_key),
+      requireCurrent: true,
+    });
     await client.query(`
       INSERT INTO new_design.cards (id, space_id, card_type_id, title, status, revision, type_version_id, values)
       VALUES ($1, $2, $3, $4, 'active', 1, $5, $6::jsonb)
     `, [cardId, spaceId, input.cardTypeId, input.title, typeVersion.id, JSON.stringify(validated.values)]);
     await client.query(`
-      INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source)
-      VALUES ($1, $2, 1, $3, $4, $5::jsonb, 'create')
-    `, [versionId, cardId, typeVersion.id, input.title, JSON.stringify(validated.values)]);
+      INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
+      VALUES ($1, $2, 1, $3, $4, $5::jsonb, 'create', $6, $7)
+    `, [versionId, cardId, typeVersion.id, input.title, JSON.stringify(validated.values), input.formVersionId??null, input.formResolutionKind??"legacy"]);
     await client.query("UPDATE new_design.cards SET current_version_id = $2 WHERE id = $1", [cardId, versionId]);
     await client.query("COMMIT");
     return assertFound(await findCard(pool, cardId), "卡片创建后读取失败。");
@@ -273,26 +304,31 @@ export async function createCard(input: { cardTypeId: string; title: string; val
 
 async function updateCardSnapshot(
   id: string,
-  input: { title?: string; values?: Record<string, unknown>; revision: number; source: CardVersion["source"] },
+  input: { title?: string; values?: Record<string, unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind },
 ): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const existing = assertFound(await findCard(client, id, true), "卡片不存在。");
+    const existing = assertFound(await findCard(client, id, true), "资料不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此卡片已在其他页面更新，请刷新后再保存。", 409);
     const typeVersion = await findCurrentTypeFields(client, existing.cardTypeId);
     const title = input.title ?? existing.title;
     const incomingValues = input.values ?? existing.values;
+    const previousProvenance=(await client.query("SELECT form_version_id,form_resolution_kind FROM new_design.card_versions WHERE card_id=$1 AND revision=$2",[id,existing.revision])).rows[0];
+    const formVersionId=input.formVersionId===undefined?(previousProvenance?.form_version_id??null):input.formVersionId;
+    const formResolutionKind=input.formResolutionKind??previousProvenance?.form_resolution_kind??"legacy";
+    const cardContext=(await client.query("SELECT card.space_id,type.type_key FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.id=$1",[id])).rows[0];
+    await validateFormProvenance(client,{formVersionId,formResolutionKind,spaceId:String(cardContext.space_id),typeKey:String(cardContext.type_key),requireCurrent:input.formVersionId!==undefined||input.formResolutionKind!==undefined});
     const validated = validateCardValues(typeVersion.fields, incomingValues);
-    if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正卡片字段后再保存。", 422, validated.issues);
+    if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
     const nextRevision = existing.revision + 1;
     const nextStatus = input.source === "archive" ? "archived" : input.source === "restore" ? "active" : existing.status;
     const versionId = randomUUID();
     await client.query(`
-      INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source)
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-    `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source]);
+      INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
+    `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source, formVersionId, formResolutionKind]);
     await client.query(`
       UPDATE new_design.cards
       SET title = $2, values = $3::jsonb, status = $4, revision = $5, type_version_id = $6,
@@ -309,7 +345,7 @@ async function updateCardSnapshot(
   }
 }
 
-export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; revision: number }): Promise<CardSummary> {
+export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
   return updateCardSnapshot(id, { ...input, source: "edit" });
 }
 
@@ -324,9 +360,10 @@ export async function restoreCard(id: string, revision: number): Promise<CardSum
 export async function listCardVersions(cardId: string): Promise<CardVersion[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
-    SELECT cv.*, ctv.version AS type_version
+    SELECT cv.*, ctv.version AS type_version, form_version.version AS form_version
     FROM new_design.card_versions cv
     JOIN new_design.card_type_versions ctv ON ctv.id = cv.type_version_id
+    LEFT JOIN new_design.card_group_form_versions form_version ON form_version.id=cv.form_version_id
     WHERE cv.card_id = $1
     ORDER BY cv.revision DESC
   `, [cardId]);
@@ -338,6 +375,9 @@ export async function listCardVersions(cardId: string): Promise<CardVersion[]> {
     title: String(row.title),
     values: row.values as Record<string, unknown>,
     source: row.source as CardVersion["source"],
+    formVersionId: row.form_version_id ? String(row.form_version_id) : null,
+    formVersion: row.form_version === null || row.form_version === undefined ? null : Number(row.form_version),
+    formResolutionKind: String(row.form_resolution_kind??"legacy") as FormResolutionKind,
     createdAt: asDate(row.created_at),
   }));
 }

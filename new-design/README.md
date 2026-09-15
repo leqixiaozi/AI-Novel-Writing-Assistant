@@ -42,9 +42,9 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/032_private_runtime_lifecycle.sql`、`docs/data-model.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与 `docs/p0-static-review.md`。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/033_business_form_provenance.sql`、`docs/data-model.md`、`docs/business-form-shell.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
-新设计不再接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—032。当前仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把当前状态描述为已经可安装发布。
+新设计不再接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—033。当前仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把当前状态描述为已经可安装发布。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
@@ -82,7 +82,7 @@ Outbox 是投递记录，不是另一份小说数据。业务表与小型事件�
 
 “研究参考包”可以选择已完成或部分完成的精确研究运行，发布后只新增版本。开书页既能直接选研究运行，也能锁定某个参考包版本；服务端会保存当时的编译快照。匹配到同类型、同标题资料时只补空白字段，任何非空值都保持不变并在预览中列为冲突。
 
-每本书提供章节、线索／伏笔、角色、事件／时间、世界和资源六种基础维护视图。页面使用共用资料检查器编辑同一张事实卡；事件的故事时间与正文章节分开保存，人物双方共用一条带双向称谓的关系，伏笔埋设／揭示位置与正文锚点只修订原记录。普通资料字段直接保存；上述跨对象修改会先展示原值、新值和保持不变项，确认后才在单个事务中统一应用。复杂自由关系图、拖拽时间线、热力图和版本对比仍不在当前阶段。
+每本书的创作概览、人物、世界、事件、章节、线索和本书资料入口统一使用动态业务表单外壳，只按任务切换默认内容范围。系统依次采用本书已发布创作表单、内容规格当前版本、系统业务布局和通用布局；空白、模板与 AI 提案进入正式资料后共享同一编辑与保存合同。每次修订会记录实际内容规格与创作表单版本，冲突时保留本地输入并显式比较。已有故事时间、人物关系、叙事位置和正文锚点本批只读展示；关系编辑、智能视图和跨对象影响操作仍待后续批次开放。
 
 章节正文现在有独立的版本正本：章节卡只负责章节资料，`ChapterDocument` 负责正文身份和逻辑顺序，`ChapterBodyVersion` 保存每次完整正文与 SHA-256 哈希。AI 生成只新增候选，必须由用户显式采用才切换正式指针；回退、再次采用、候选归档和幂等操作均保留历史。文本锚点记录字符起止、原片段与片段哈希，正文切版后旧锚点保留并标记陈旧。
 

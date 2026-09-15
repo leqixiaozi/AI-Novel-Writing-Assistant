@@ -1,0 +1,64 @@
+.nd-business-form-workspace { display: grid; gap: .9rem; min-width: 0; }
+.nd-business-form-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 1.1rem; background: var(--nd-paper); border-radius: var(--radius); }
+.nd-business-form-header h2, .nd-business-editor-heading h2 { margin: .15rem 0 .3rem; font-size: 1.08rem; font-weight: 620; }
+.nd-business-form-header p:last-child, .nd-business-editor-heading p:last-child { max-width: 46rem; margin: 0; color: var(--nd-muted); font-size: .69rem; line-height: 1.55; }
+.nd-business-form-layout { display: grid; gap: .8rem; min-width: 0; align-items: start; }
+.nd-business-form-browser, .nd-business-form-editor { min-width: 0; background: var(--nd-paper); border-radius: var(--radius); }
+.nd-business-form-browser { overflow: hidden; }
+.nd-business-type-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .25rem; padding: .45rem; background: var(--nd-soft); }
+.nd-business-type-list button { display: grid; gap: .1rem; min-width: 0; padding: .55rem .65rem; color: var(--nd-muted); text-align: left; background: transparent; border: 0; border-radius: calc(var(--radius) - .25rem); cursor: pointer; }
+.nd-business-type-list button:hover, .nd-business-type-list button.is-selected { color: var(--nd-ink); background: var(--nd-paper); }
+.nd-business-type-list button.is-selected { box-shadow: inset 0 -2px var(--nd-accent); }
+.nd-business-type-list strong, .nd-business-card-list strong { font-size: .71rem; font-weight: 600; }
+.nd-business-type-list small, .nd-business-card-list small { color: var(--nd-muted); font-size: .59rem; }
+.nd-business-card-list { display: grid; align-content: start; max-height: 60dvh; overflow-y: auto; }
+.nd-business-card-list > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .75rem .8rem .55rem; }
+.nd-business-card-list > div span, .nd-business-card-list > p { color: var(--nd-muted); font-size: .61rem; }
+.nd-business-card-list > p { margin: 0; padding: .75rem .8rem 1rem; line-height: 1.55; }
+.nd-business-card-list > button { display: grid; gap: .15rem; min-height: 56px; padding: .65rem .8rem; color: var(--nd-ink); text-align: left; background: transparent; border: 0; border-top: 1px solid var(--nd-line); cursor: pointer; }
+.nd-business-card-list > button:hover { background: var(--nd-soft); }
+.nd-business-card-list > button.is-selected { background: hsl(var(--primary) / .08); box-shadow: inset 3px 0 var(--nd-accent); }
+.nd-business-form-editor { display: grid; gap: .9rem; padding: 1rem; }
+.nd-business-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: .85rem; border-bottom: 1px solid var(--nd-line); }
+.nd-form-provenance { display: grid; justify-items: end; gap: .15rem; flex: 0 0 auto; }
+.nd-form-provenance span { padding: .28rem .5rem; color: var(--nd-accent); background: hsl(var(--primary) / .09); border-radius: 999px; font-size: .6rem; }
+.nd-form-provenance small { color: var(--nd-muted); font-size: .58rem; }
+.nd-form-provenance button { margin-top: .25rem; }
+.nd-field-capability { display: inline-flex; margin-left: .35rem; padding: .12rem .32rem; color: var(--nd-accent); background: hsl(var(--primary) / .08); border-radius: 999px; font-size: .54rem; font-style: normal; font-weight: 500; vertical-align: middle; }
+.nd-readonly-relations { display: grid; gap: .65rem; margin-top: .15rem; padding-top: .85rem; border-top: 1px solid var(--nd-line); }
+.nd-readonly-relations > div { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.nd-readonly-relations h3 { margin: 0; font-size: .78rem; font-weight: 600; }
+.nd-readonly-relations > div span { color: var(--nd-muted); font-size: .58rem; }
+.nd-readonly-relations > p { margin: 0; color: var(--nd-muted); font-size: .65rem; line-height: 1.5; }
+.nd-readonly-relations dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; margin: 0; }
+.nd-readonly-relations dl div { padding: .55rem .65rem; background: var(--nd-soft); border-radius: calc(var(--radius) - .25rem); }
+.nd-readonly-relations dt { color: var(--nd-muted); font-size: .57rem; }
+.nd-readonly-relations dd { margin: .18rem 0 0; font-size: .66rem; }
+.nd-revision-conflict { display: grid; gap: .55rem; padding: .8rem; color: var(--nd-ink); background: hsl(var(--destructive) / .07); border-left: 3px solid var(--nd-error); border-radius: 0 calc(var(--radius) - .2rem) calc(var(--radius) - .2rem) 0; }
+.nd-revision-conflict > strong { font-size: .72rem; font-weight: 600; }
+.nd-revision-conflict > p { margin: 0; color: var(--nd-muted); font-size: .65rem; line-height: 1.5; }
+.nd-revision-conflict > .nd-button { justify-self: start; }
+.nd-conflict-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; padding-top: .55rem; border-top: 1px solid var(--nd-line); }
+.nd-conflict-comparison > div { display: grid; gap: .15rem; padding: .55rem; background: var(--nd-paper); border-radius: calc(var(--radius) - .25rem); }
+.nd-conflict-comparison > div strong, .nd-conflict-comparison > div span { font-size: .62rem; }
+.nd-conflict-comparison > div span { color: var(--nd-muted); }
+.nd-conflict-comparison article { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(6rem, .35fr) repeat(2, minmax(0, 1fr)); gap: .4rem; padding-top: .4rem; border-top: 1px solid var(--nd-line); }
+.nd-conflict-comparison article strong, .nd-conflict-comparison article p { margin: 0; font-size: .6rem; line-height: 1.45; overflow-wrap: anywhere; }
+.nd-conflict-comparison article p { color: var(--nd-muted); }
+.nd-conflict-comparison > .nd-button { grid-column: 1 / -1; justify-self: start; }
+.nd-conflict-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .45rem; background: transparent !important; padding: 0 !important; }
+
+@container (min-width: 860px) {
+  .nd-business-form-layout { grid-template-columns: minmax(220px, .55fr) minmax(500px, 1.45fr); }
+  .nd-business-form-browser { position: sticky; top: 0; }
+  .nd-business-type-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .nd-business-type-list button { min-width: 0; }
+}
+
+@media (max-width: 680px) {
+  .nd-business-form-header, .nd-business-editor-heading { align-items: stretch; flex-direction: column; }
+  .nd-business-form-header .nd-button { width: 100%; }
+  .nd-form-provenance { justify-items: start; }
+  .nd-readonly-relations dl, .nd-conflict-comparison { grid-template-columns: 1fr; }
+  .nd-conflict-comparison article { grid-template-columns: 1fr; }
+}

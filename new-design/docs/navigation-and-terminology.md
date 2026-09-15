@@ -51,7 +51,7 @@
 | 本书资料 | `/new-design/books/:bookId/cards` |
 | 本书设置 | `/new-design/books/:bookId/fields` |
 
-`/new-design/books/:bookId/forms` 继续作为开书后的默认入口。原有 `/cards`、`/fields`、`/views/*` 深链保持不变，因此旧书签和刷新不会失效。
+`/new-design/books/:bookId/forms` 继续作为开书后的默认入口。原有 `/cards`、`/fields`、`/views/*` 深链保持不变，因此旧书签和刷新不会失效。除本书设置外，上述入口共用同一套业务表单外壳，仅默认资料范围不同；解析与保存合同见 `business-form-shell.md`。
 
 ## 资源边界
 
@@ -59,10 +59,10 @@
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/032_private_runtime_lifecycle.sql`，数据说明见 `docs/data-model.md`。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/033_business_form_provenance.sql`，数据说明见 `docs/data-model.md`。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 
 ## 当前未开放
 
-动态表单扩展、关联资料编辑器、智能视图和三章生产闭环不属于本批实现，不能以占位菜单伪装为可用功能。
+任意添加字段／信息、关联资料编辑器、智能视图和三章生产闭环不属于本批实现，不能以占位菜单伪装为可用功能。普通创作页已经使用已发布规格生成统一动态表单，但内容规格设计仍只在高级设置中完成。

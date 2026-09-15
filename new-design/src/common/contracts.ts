@@ -27,6 +27,12 @@ export interface FieldOption {
   label: string;
 }
 
+export interface FieldVisibilityRule {
+  fieldKey: string;
+  operator: "equals" | "not_equals" | "is_empty" | "is_not_empty" | "includes";
+  value?: unknown;
+}
+
 export interface FieldDefinition {
   key: string;
   name: string;
@@ -37,6 +43,9 @@ export interface FieldDefinition {
   options: FieldOption[];
   group: string;
   order: number;
+  visibleWhen?: FieldVisibilityRule;
+  aiSuggestible?: boolean;
+  stateSettlement?: "none" | "tracked" | "lifecycle";
 }
 
 export interface CardTypeVersion {
@@ -94,6 +103,8 @@ export interface CardSummary {
   archivedAt: string | null;
 }
 
+export type FormResolutionKind = "installed_form" | "type_schema" | "system_default" | "generic" | "legacy";
+
 export const STRATEGY_RESOURCE_TYPE_KEYS = [
   "genre_strategy",
   "progression_mode",
@@ -128,6 +139,9 @@ export interface CardVersion {
   title: string;
   values: Record<string, unknown>;
   source: "create" | "edit" | "archive" | "restore";
+  formVersionId: string | null;
+  formVersion: number | null;
+  formResolutionKind: FormResolutionKind;
   createdAt: string;
 }
 

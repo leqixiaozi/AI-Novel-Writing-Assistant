@@ -12,7 +12,7 @@ PowerShell / desktop host
   → PrivateRuntimeManager
   → manifest + layout + state + controlled command
   → PostgreSQL/AGE/pgvector
-  → 001—032 migrations
+  → 001—033 migrations
   → PostgreSQL Outbox runners
 ```
 

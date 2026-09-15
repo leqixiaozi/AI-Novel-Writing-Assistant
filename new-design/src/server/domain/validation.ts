@@ -7,6 +7,12 @@ const optionSchema = z.object({
   label: z.string().trim().min(1, "选项名称不能为空。"),
 });
 
+const visibilityRuleSchema = z.object({
+  fieldKey: z.string().trim().regex(/^[a-z][a-z0-9_]{1,62}$/),
+  operator: z.enum(["equals", "not_equals", "is_empty", "is_not_empty", "includes"]),
+  value: z.unknown().optional(),
+});
+
 export const fieldDefinitionSchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_]{1,62}$/, "字段标识需以小写字母开头，只能包含小写字母、数字和下划线。"),
   name: z.string().trim().min(1, "字段名称不能为空。").max(80),
@@ -17,6 +23,9 @@ export const fieldDefinitionSchema = z.object({
   options: z.array(optionSchema).default([]),
   group: z.string().trim().max(80).default("基本信息"),
   order: z.number().int().min(0).max(10_000),
+  visibleWhen: visibilityRuleSchema.optional(),
+  aiSuggestible: z.boolean().optional(),
+  stateSettlement: z.enum(["none", "tracked", "lifecycle"]).optional(),
 }).superRefine((field, context) => {
   const needsOptions = field.type === "select" || field.type === "multi_select";
   if (needsOptions && field.options.length === 0) {
@@ -75,12 +84,16 @@ export const createCardSchema = z.object({
   cardTypeId: z.string().uuid("元卡片类型无效。"),
   title: z.string().trim().min(1, "卡片标题不能为空。").max(160),
   values: z.record(z.string(), z.unknown()).default({}),
+  formVersionId: z.string().uuid().nullable().optional(),
+  formResolutionKind: z.enum(["installed_form", "type_schema", "system_default", "generic", "legacy"]).optional(),
 });
 
 export const updateCardSchema = z.object({
   title: z.string().trim().min(1, "卡片标题不能为空。").max(160),
   values: z.record(z.string(), z.unknown()).default({}),
   revision: z.number().int().positive(),
+  formVersionId: z.string().uuid().nullable().optional(),
+  formResolutionKind: z.enum(["installed_form", "type_schema", "system_default", "generic", "legacy"]).optional(),
 });
 
 export const dictionaryInputSchema = z.object({

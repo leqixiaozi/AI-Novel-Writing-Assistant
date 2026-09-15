@@ -70,7 +70,7 @@
     "app/scripts/backup.ps1",
     "app/scripts/upgrade.ps1",
     "app/migrations/001_card_kernel.sql",
-    "app/migrations/032_private_runtime_lifecycle.sql"
+    "app/migrations/033_business_form_provenance.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -85,7 +85,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "032_private_runtime_lifecycle.sql",
-    "count": 32
+    "last": "033_business_form_provenance.sql",
+    "count": 33
   }
 }

@@ -132,4 +132,8 @@ export const migrations: Migration[] = [
     id: "032_private_runtime_lifecycle",
     fileName: "032_private_runtime_lifecycle.sql",
   },
+  {
+    id: "033_business_form_provenance",
+    fileName: "033_business_form_provenance.sql",
+  },
 ];
