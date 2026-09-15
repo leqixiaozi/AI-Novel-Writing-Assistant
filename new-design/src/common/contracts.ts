@@ -750,7 +750,8 @@ export type DependencyResourceKind =
   | "chapter_body_version" | "chapter_text_anchor" | "canonical_fact" | "chapter_settlement"
   | "state_change" | "knowledge_state_change" | "story_event_timing" | "story_event_relation"
   | "planning_version" | "prompt_recipe_version" | "task_contract_version" | "context_manifest"
-  | "model_route_snapshot" | "ai_task_attempt" | "quality_audit_report" | "asset_version";
+  | "model_route_snapshot" | "ai_task_attempt" | "quality_audit_report" | "asset_version"
+  | "embedding_source_snapshot" | "embedding_chunk" | "embedding_result" | "embedding_index_generation";
 export type DependencyKind = "generated_from" | "planned_from" | "validated_against" | "evidenced_by" | "context_included" | "configured_by" | "settled_from" | "audited_from" | "derived_from";
 export type DependencyStrength = "hard" | "soft";
 export type DependencyResourceState = "fresh" | "stale" | "invalid" | "needs_review" | "recompute_pending" | "recomputing" | "recomputed" | "accepted_stale";
@@ -799,6 +800,22 @@ export interface GraphTraversalEdge extends GraphSourceRef {relationKind:string;
 export interface GraphTraversalPath {nodes:GraphSourceRef[];edges:GraphTraversalEdge[];hops:number;}
 export interface GraphTraversalResult {bookId:string;generationId:string;queryKind:GraphTraversalKind;paths:GraphTraversalPath[];truncated:boolean;}
 export interface GraphProjectionHealth {availability:GraphProjectionAvailability;config:GraphProjectionConfig|null;state:GraphProjectionBookState;pendingRequests:number;failedRequests:number;activeMappings:number;}
+
+export type EmbeddingSourceKind="card_version"|"chapter_body_version"|"canonical_fact"|"knowledge_state_change"|"state_change"|"story_event_timing"|"story_event_relation"|"planning_version"|"research_document_version"|"research_record_version"|"research_reference_pack_version"|"prompt_component"|"ai_task_attempt"|"quality_issue_evidence"|"asset_parsed_text";
+export type EmbeddingDistanceMetric="cosine"|"l2"|"inner_product";
+export interface EmbeddingProfileVersion {id:string;profileId:string;version:number;providerKey:string;modelKey:string;dimensions:number;distanceMetric:EmbeddingDistanceMetric;normalize:boolean;chunkerKey:string;chunkerVersion:string;maxChunkChars:number;overlapChars:number;allowedSourceKinds:EmbeddingSourceKind[];contentHash:string;createdBy:string;createdAt:string;}
+export interface EmbeddingProfile {id:string;profileKey:string;name:string;purpose:"semantic_retrieval"|"similarity"|"clustering";status:"active"|"archived";currentVersionId:string|null;revision:number;currentVersion:EmbeddingProfileVersion|null;createdBy:string;createdAt:string;updatedAt:string;}
+export interface EmbeddingSourceSnapshot {id:string;spaceId:string;bookId:string;profileVersionId:string;dependencySourceResourceId:string;sourceKind:EmbeddingSourceKind;sourceStableId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;title:string;contentText:string;chunkRecipeHash:string;status:"current"|"stale"|"archived";createdBy:string;createdAt:string;staleAt:string|null;}
+export interface EmbeddingChunk {id:string;bookId:string;sourceSnapshotId:string;profileVersionId:string;ordinal:number;anchorKind:"whole"|"character_range"|"json_pointer"|"text_anchor"|"section";anchor:Record<string,unknown>;chunkText:string;tokenEstimate:number;contentHash:string;chunkerVersion:string;status:"current"|"stale"|"archived";createdAt:string;staleAt:string|null;}
+export interface EmbeddingRequest {id:string;bookId:string;chunkId:string;profileVersionId:string;expectedSourceHash:string;expectedChunkHash:string;status:"pending"|"running"|"retry_scheduled"|"succeeded"|"failed"|"stale"|"cancelled";attemptCount:number;idempotencyKey:string;nextRetryAt:string|null;lastErrorCode:string;lastErrorDetail:string;retryable:boolean;createdAt:string;updatedAt:string;}
+export interface EmbeddingAttempt {id:string;requestId:string;attemptNumber:number;status:"running"|"succeeded"|"failed"|"discarded";providerRequestRef:string|null;errorCode:string;errorDetail:string;retryable:boolean;startedAt:string;endedAt:string|null;}
+export interface EmbeddingResult {id:string;requestId:string;attemptId:string;chunkId:string;profileVersionId:string;observedSourceHash:string;observedChunkHash:string;outcome:"applied"|"rejected_stale"|"failed";vectorHash:string|null;detail:string;createdAt:string;}
+export interface EmbeddingRequestDetail extends EmbeddingRequest {attempts:EmbeddingAttempt[];results:EmbeddingResult[];}
+export interface EmbeddingIndexGeneration {id:string;bookId:string;profileVersionId:string;generation:number;status:"building"|"verifying"|"ready"|"active"|"retired"|"failed"|"stale";indexName:string;expectedVectorCount:number;indexedVectorCount:number;coverage:number;checksum:string|null;errorCode:string;errorDetail:string;retryable:boolean;createdBy:string;createdAt:string;verifiedAt:string|null;activatedAt:string|null;retiredAt:string|null;}
+export interface EmbeddingCoverage {bookId:string;profileId:string;currentSources:number;currentChunks:number;embeddedChunks:number;missingChunks:number;staleArtifacts:number;failedRequests:number;activeGeneration:EmbeddingIndexGeneration|null;}
+export interface EmbeddingStaleReason {id:string;bookId:string;targetKind:"source_snapshot"|"chunk"|"embedding_result"|"index_generation";targetId:string;invalidationEventId:string|null;reasonCode:"source_changed"|"source_archived"|"profile_superseded"|"chunker_changed"|"late_receipt"|"dependency_invalidated"|"manual";detail:string;status:"open"|"resolved"|"accepted";createdAt:string;resolvedAt:string|null;}
+export interface SemanticRetrievalResult {rank:number;chunkId:string;sourceKind:EmbeddingSourceKind;sourceStableId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;vectorScore:number;ftsScore:number;trigramScore:number;finalScore:number;inclusionReason:string;}
+export interface SemanticRetrievalRun {id:string;bookId:string;callerKind:"user"|"ai_task"|"system"|"debug";callerId:string;profileVersionId:string;generationId:string;queryHash:string;querySummary:string;queryRef:string;filterSnapshot:Record<string,unknown>;sourceKinds:EmbeddingSourceKind[];topK:number;candidateLimit:number;similarityThreshold:number|null;timeoutMs:number;status:"running"|"succeeded"|"failed"|"timed_out";elapsedMs:number|null;resultCount:number;failureCode:string;createdAt:string;completedAt:string|null;results:SemanticRetrievalResult[];}
 
 export interface ApiEnvelope<T> {
   success: boolean;

@@ -562,6 +562,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**原文锁版本，运行锁输入，证据锁位置，采用才入库**。
 
+## pgvector 分块、嵌入与检索轨迹
+
+`029_pgvector_semantic_retrieval.sql` 新增独立的语义派生链，详细字段约束与运行边界见 [semantic-retrieval.md](./semantic-retrieval.md)。数据分为五层：`embedding_profiles / embedding_profile_versions` 冻结模型与分块规格；`embedding_source_snapshots` 锁定书籍和来源精确版本；`embedding_chunks` 保存不可变文本与锚点；`embedding_requests / embedding_attempts / embedding_results` 记录重试和迟到回执；`embedding_index_generations / embedding_vectors / embedding_index_states` 负责核验后切换当前索引。`semantic_retrieval_runs / semantic_retrieval_results` 只追加保存检索参数、耗时与逐条入选原因。
+
+这些表通过 `embedding_source_snapshot → embedding_chunk → embedding_result → embedding_index_generation` 接入统一依赖账本。来源变化时只把派生内容标为陈旧并排队重建，不删除历史，也不修改事实正本。
+
+> 🏠 **白话比喻**：语义索引像图书馆把原书复印成索引卡，再按主题摆入不同版本的目录柜。换新版目录柜前要先数清卡片，旧柜仍能继续用；原书内容永远不由索引卡修改。对应到数据库：来源表是正本，chunk/vector/generation 是可重建派生层。
+
+> 🧠 **速记方法**：**来源锁版本，分块锁锚点，向量锁规格；新柜先验数，检索全留痕**。
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。

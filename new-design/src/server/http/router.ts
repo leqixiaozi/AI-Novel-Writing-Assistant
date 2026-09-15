@@ -62,6 +62,7 @@ import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditRep
 import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdge, endDependencyEdge, getDependencyBookSummary, getDependencyInvalidation, listCurrentDependencyStates, listDependencyConflicts, listDependencyHistory, listDependencyReceipts, listDependencyRecomputeRequests, listResourceDependencies, previewDependencyChange, recordDependencyInvalidation, registerDependencyResource, resolveDependencyConflict, startDependencyRecompute } from "../database/dependencies";
 import { addAssetVersion, adoptAssetVersion, archiveAsset, completeAssetDerivation, createAsset, createAssetDerivation, createAssetMount, endAssetMount, getAsset, getAssetBookSummary, getAssetLineage, listAssetDerivations, listAssetMounts, listAssets, listAssetVersions, previewAssetAdoption, recordAssetIntegrityCheck, registerAssetContent, startAssetDerivation } from "../database/assets";
 import { getGraphProjectionBatch, getGraphProjectionHealth, getGraphProjectionState, listGraphProjectionBatches, listGraphProjectionFailures, listGraphProjectionGenerations, listGraphProjectionMappings, listGraphProjectionRequests, processGraphProjectionRequest, rebuildGraphProjection, traverseGraph } from "../database/graph";
+import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddingProfile, archiveEmbeddingSourceSnapshot, buildEmbeddingGeneration, completeChunking, completeEmbeddingAttempt, createEmbeddingProfile, createEmbeddingRequest, createEmbeddingSourceSnapshot, getEmbeddingCoverage, getEmbeddingProfile, getEmbeddingRequest, getSemanticRetrievalRun, listEmbeddingGenerations, listEmbeddingRequests, listEmbeddingStaleReasons, listSemanticRetrievalRuns, retrieveSemantic, startEmbeddingAttempt } from "../database/embeddings";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -220,6 +221,21 @@ import {
   graphProjectionMappingQuerySchema,
   graphProjectionRebuildSchema,
   graphTraversalSchema,
+  embeddingProfileCreateSchema,
+  embeddingProfileVersionSchema,
+  embeddingProfileArchiveSchema,
+  embeddingSourceSnapshotSchema,
+  chunkingCompletionSchema,
+  embeddingRequestCreateSchema,
+  embeddingAttemptStartSchema,
+  embeddingAttemptCompletionVerifiedSchema,
+  embeddingGenerationCreateSchema,
+  semanticRetrievalSchema,
+  embeddingListQuerySchema,
+  embeddingCoverageQuerySchema,
+  embeddingRequestListQuerySchema,
+  embeddingStaleListQuerySchema,
+  embeddingSourceArchiveSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -535,6 +551,26 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/books/:id/graph/failures",asyncRoute(async(req,res)=>success(res,await listGraphProjectionFailures(String(req.params.id),graphProjectionListQuerySchema.parse(req.query).limit))));
   router.get("/books/:id/graph/mappings",asyncRoute(async(req,res)=>success(res,await listGraphProjectionMappings({bookId:String(req.params.id),...graphProjectionMappingQuerySchema.parse(req.query)}))));
   router.post("/books/:id/graph/traverse",asyncRoute(async(req,res)=>success(res,await traverseGraph({bookId:String(req.params.id),...body(graphTraversalSchema,req)}))));
+  router.post("/embeddings/profiles",asyncRoute(async(req,res)=>success(res,await createEmbeddingProfile(body(embeddingProfileCreateSchema,req)),201)));
+  router.get("/embeddings/profiles/:id",asyncRoute(async(req,res)=>success(res,await getEmbeddingProfile(String(req.params.id)))));
+  router.post("/embeddings/profiles/:id/versions",asyncRoute(async(req,res)=>success(res,await addEmbeddingProfileVersion(String(req.params.id),body(embeddingProfileVersionSchema,req)),201)));
+  router.post("/embeddings/profiles/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveEmbeddingProfile(String(req.params.id),body(embeddingProfileArchiveSchema,req).expectedRevision))));
+  router.post("/embeddings/sources",asyncRoute(async(req,res)=>success(res,await createEmbeddingSourceSnapshot(body(embeddingSourceSnapshotSchema,req)),201)));
+  router.post("/embeddings/sources/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveEmbeddingSourceSnapshot(String(req.params.id),body(embeddingSourceArchiveSchema,req)))));
+  router.post("/embeddings/chunks/complete",asyncRoute(async(req,res)=>success(res,await completeChunking(body(chunkingCompletionSchema,req)),201)));
+  router.post("/embeddings/requests",asyncRoute(async(req,res)=>success(res,await createEmbeddingRequest(body(embeddingRequestCreateSchema,req)),201)));
+  router.get("/embeddings/requests/:id",asyncRoute(async(req,res)=>success(res,await getEmbeddingRequest(String(req.params.id)))));
+  router.get("/books/:id/embeddings/requests",asyncRoute(async(req,res)=>success(res,await listEmbeddingRequests({bookId:String(req.params.id),...embeddingRequestListQuerySchema.parse(req.query)}))));
+  router.post("/embeddings/attempts/start",asyncRoute(async(req,res)=>success(res,await startEmbeddingAttempt(body(embeddingAttemptStartSchema,req).requestId),201)));
+  router.post("/embeddings/attempts/complete",asyncRoute(async(req,res)=>success(res,await completeEmbeddingAttempt(body(embeddingAttemptCompletionVerifiedSchema,req)),201)));
+  router.post("/books/:id/embeddings/generations",asyncRoute(async(req,res)=>success(res,await buildEmbeddingGeneration({...body(embeddingGenerationCreateSchema,req),bookId:String(req.params.id)}),201)));
+  router.post("/embeddings/generations/:id/activate",asyncRoute(async(req,res)=>success(res,await activateEmbeddingGeneration(String(req.params.id)))));
+  router.get("/books/:id/embeddings/coverage",asyncRoute(async(req,res)=>success(res,await getEmbeddingCoverage(String(req.params.id),embeddingCoverageQuerySchema.parse(req.query).profileId))));
+  router.get("/books/:id/embeddings/generations",asyncRoute(async(req,res)=>success(res,await listEmbeddingGenerations(String(req.params.id),embeddingListQuerySchema.parse(req.query).limit))));
+  router.get("/books/:id/embeddings/stale-reasons",asyncRoute(async(req,res)=>success(res,await listEmbeddingStaleReasons({bookId:String(req.params.id),...embeddingStaleListQuerySchema.parse(req.query)}))));
+  router.post("/books/:id/semantic-retrieval",asyncRoute(async(req,res)=>success(res,await retrieveSemantic({bookId:String(req.params.id),...body(semanticRetrievalSchema,req)}),201)));
+  router.get("/semantic-retrieval/runs/:id",asyncRoute(async(req,res)=>success(res,await getSemanticRetrievalRun(String(req.params.id)))));
+  router.get("/books/:id/semantic-retrieval/runs",asyncRoute(async(req,res)=>success(res,await listSemanticRetrievalRuns(String(req.params.id),embeddingListQuerySchema.parse(req.query).limit))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

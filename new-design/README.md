@@ -33,16 +33,23 @@
 - `QualityAuditReport` / `QualityIssue` / `QualityFixCandidate` / `QualityRecheck`：冻结一次质量审计的正文、规划、事实和 AI 执行依据；证据、问题版本、修复候选、人工决定、正式采用引用与复检链只追加留痕。
 - `AssetContentObject` / `Asset` / `AssetVersion` / `AssetMount` / `AssetDerivation`：以校验和登记文件内容，以不可变版本保存附件历史，把确切版本挂到书籍生产对象，并记录缩略图、OCR、转码、抽帧、解析文本和封面变体的可重建派生链。
 - `GraphProjectionGeneration` / `GraphProjectionRequest` / `GraphProjectionSourceMapping`：把当前／采用／有效的关系正本投影到 Apache AGE，共享图按书籍和世代隔离，支持可诊断增量同步、墓碑、全量重建与固定关系遍历。
+- `EmbeddingSourceSnapshot` / `EmbeddingChunk` / `EmbeddingResult` / `EmbeddingIndexGeneration`：用 pgvector 保存按精确来源版本生成的可重建语义索引，支持多配置、多维度、分代核验、迟到回执拒绝、失效传播和检索轨迹。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/028_age_graph_projection.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/029_pgvector_semantic_retrieval.sql`、`docs/data-model.md` 与 `docs/semantic-retrieval.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
 > 🏠 **白话比喻**：PostgreSQL 关系表是档案馆的签字原件，AGE 是按原件重印的关系索引册。索引册损坏可以重新印，索引册上的批注不能反过来修改原件。对应到系统：关系表是唯一正本，AGE 只是按书籍和世代隔离的可重建查询投影。
 
 > 🧠 **速记方法**：**原件在表，索引在图；当前才投影，验数再换代；只走固定查询，不开任意 Cypher**。
+
+pgvector 同样不是小说正本。语义来源先锁定书籍、稳定对象、精确版本、修订和哈希，再生成不可变分块与向量；新 HNSW generation 覆盖率核对通过后才切换。检索只能使用服务端固定的书籍隔离、来源类型、上限、超时和混排算法，默认不保存原始查询文本。
+
+> 🏠 **白话比喻**：小说正文和卡片像档案原件，语义分块像复印后裁好的索引纸条，向量索引像图书馆的主题目录。目录可以重做，但不能据此改写原件。对应到系统：事实表保存真相，AGE 查关系，pgvector 查相似内容。
+
+> 🧠 **速记方法**：**事实在表，关系在图，相似在向量；先锁版本，再切分块，验数换代，召回留痕**。
 
 ## 内置创作资料规格
 
@@ -134,7 +141,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `028` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、通用任务账本、质量审计、统一依赖、附件资产与 AGE 图投影数据。028 要求数据库运行包同时提供与 PostgreSQL 主版本匹配的 Apache AGE；缺少扩展或无法 `LOAD` 时初始化会明确失败，不会回退到 SQLite、内存图或其他数据库。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `029` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、通用任务账本、质量审计、统一依赖、附件资产、AGE 图投影与 pgvector 语义检索数据。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图或其他数据库。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -156,4 +163,4 @@ pnpm --filter @ai-novel/client build
 
 ## 当前范围之外
 
-本模块当前不包含真实审稿模型、自动修文、质量门禁业务编排、质量热力图或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、pgvector、旧数据迁移、备份恢复 UI、图同步后台 worker 或数据库主版本升级。AGE 运行环境、真实迁移、agtype 解析、增量／双世代切换、跨书隔离、重启回读、大图限制、备份恢复和安装包升级仍是 Release Gate 验证债务；后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。
+本模块当前不包含真实审稿／Embedding 模型、自动修文、质量门禁业务编排、质量热力图、RAG 或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、旧数据迁移、备份恢复 UI、图／向量同步后台 worker 或数据库主版本升级。AGE 与 pgvector 运行环境、真实迁移、agtype 解析、中文分词、多维索引、增量／双世代切换、跨书隔离、迟到回执、重启回读、大数据限制、备份恢复和安装包升级仍是 Release Gate 验证债务；后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。

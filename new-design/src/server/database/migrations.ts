@@ -116,4 +116,8 @@ export const migrations: Migration[] = [
     id: "028_age_graph_projection",
     fileName: "028_age_graph_projection.sql",
   },
+  {
+    id: "029_pgvector_semantic_retrieval",
+    fileName: "029_pgvector_semantic_retrieval.sql",
+  },
 ];

@@ -40,6 +40,7 @@ Wiki 不记录单次提交改了什么，也不替代 release notes。它只记�
 ### RAG
 
 - [知识库与上下文组装](./rag/knowledge-and-context-assembly.md)
+- [新设计语义索引与检索边界](./rag/new-design-semantic-retrieval.md)
 
 ### Debugging
 
