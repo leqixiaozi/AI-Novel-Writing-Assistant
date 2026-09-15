@@ -58,6 +58,7 @@ import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationPropo
 import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
 import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
+import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -174,6 +175,15 @@ import {
   aiAttemptUsageSchema,
   aiTaskListQuerySchema,
   aiFailureCategorySchema,
+  qualityAuditReportCreateSchema,
+  qualityIssueRevisionSchema,
+  qualityIssueTransitionSchema,
+  qualityFixRevisionSchema,
+  qualityFixDecisionSchema,
+  qualityFixAdoptionSchema,
+  qualityRecheckSchema,
+  qualityReportListQuerySchema,
+  qualityIssueListQuerySchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -429,6 +439,19 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/ai-runtime/commands/approvals",asyncRoute(async(req,res)=>success(res,await requestAiApproval(body(aiApprovalRequestSchema,req)),201)));
   router.post("/ai-runtime/commands/approvals/:id/decisions",asyncRoute(async(req,res)=>success(res,await decideAiApproval({requestId:String(req.params.id),...body(aiApprovalDecisionSchema,req)}),201)));
   router.post("/ai-runtime/commands/usage",asyncRoute(async(req,res)=>success(res,await recordAiAttemptUsage(body(aiAttemptUsageSchema,req)),201)));
+  router.get("/quality/reports",asyncRoute(async(req,res)=>success(res,await listQualityAuditReports(qualityReportListQuerySchema.parse(req.query)))));
+  router.get("/quality/reports/:id",asyncRoute(async(req,res)=>success(res,await getQualityAuditReport(String(req.params.id)))));
+  router.get("/quality/issues",asyncRoute(async(req,res)=>success(res,await listQualityIssues(qualityIssueListQuerySchema.parse(req.query)))));
+  router.get("/quality/issues/:id",asyncRoute(async(req,res)=>success(res,await getQualityIssue(String(req.params.id)))));
+  router.get("/quality/issues/:id/rechecks",asyncRoute(async(req,res)=>success(res,await listQualityRechecks(String(req.params.id)))));
+  router.get("/quality/fix-candidates/:id",asyncRoute(async(req,res)=>success(res,await getQualityFixCandidate(String(req.params.id)))));
+  router.post("/quality/commands/reports",asyncRoute(async(req,res)=>success(res,await createQualityAuditReport(body(qualityAuditReportCreateSchema,req)),201)));
+  router.post("/quality/commands/issues/:id/versions",asyncRoute(async(req,res)=>success(res,await reviseQualityIssue(String(req.params.id),body(qualityIssueRevisionSchema,req)),201)));
+  router.post("/quality/commands/issues/:id/transitions",asyncRoute(async(req,res)=>success(res,await transitionQualityIssue(String(req.params.id),body(qualityIssueTransitionSchema,req)))));
+  router.post("/quality/commands/fix-candidates/:id/versions",asyncRoute(async(req,res)=>success(res,await reviseQualityFixCandidate(String(req.params.id),body(qualityFixRevisionSchema,req)),201)));
+  router.post("/quality/commands/fix-candidates/:id/decision",asyncRoute(async(req,res)=>success(res,await decideQualityFixCandidate(String(req.params.id),body(qualityFixDecisionSchema,req)))));
+  router.post("/quality/commands/fix-candidates/:id/adoption",asyncRoute(async(req,res)=>success(res,await recordQualityFixAdoption(String(req.params.id),body(qualityFixAdoptionSchema,req)),201)));
+  router.post("/quality/commands/rechecks",asyncRoute(async(req,res)=>success(res,await recordQualityRecheck(body(qualityRecheckSchema,req)),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

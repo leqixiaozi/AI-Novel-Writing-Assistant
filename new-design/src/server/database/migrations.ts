@@ -100,4 +100,8 @@ export const migrations: Migration[] = [
     id: "024_ai_task_ledger",
     fileName: "024_ai_task_ledger.sql",
   },
+  {
+    id: "025_quality_audit_ledger",
+    fileName: "025_quality_audit_ledger.sql",
+  },
 ];

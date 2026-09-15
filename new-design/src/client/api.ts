@@ -95,6 +95,16 @@ import type {
   AiTaskStatus,
   AiTaskSummary,
   AiUsageSummary,
+  QualityAuditPage,
+  QualityAuditReport,
+  QualityAuditReportSummary,
+  QualityEvidenceKind,
+  QualityFixCandidate,
+  QualityIssue,
+  QualityIssueStatus,
+  QualityIssueVersion,
+  QualityRecheck,
+  QualitySeverity,
   ResourceAdoption,
   StrategyResourceSummary,
   TemplateGroupSummary,
@@ -106,6 +116,10 @@ export type PromptRecipeVersionInput={source:"manual"|"ai"|"import"|"system";var
 export type TaskContractVersionInput=Pick<TaskContractVersion,"source"|"taskGroup"|"inputSchema"|"inputSchemaVersion"|"outputSchema"|"outputSchemaVersion"|"contextPolicyVersion"|"promptRecipeVersionId"|"requiredCapabilities"|"budgetPolicy"|"timeoutMs"|"retryPolicy"|"confirmationPolicy">&{baseVersionId?:string|null;createdBy?:string};
 export type ContextManifestInput={bookId:string;taskContractVersionId:string;nodeKey?:string|null;createdBy?:string;slots:Array<{slotKey:string;tokenBudget?:number|null;entries:Array<Omit<ContextManifestEntry,"id"|"slotId"|"sourceSpaceId"|"contentHash">>;exclusions:Array<Omit<ContextManifestExclusion,"id"|"slotId">>}>};
 export type ModelRouteVersionInput={source:"manual"|"import"|"system";provider?:string|null;model?:string|null;parameters?:Record<string,unknown>|null;requiredCapabilities?:string[]|null;credentialRefId?:string|null;budgetPolicy?:Record<string,unknown>|null;timeoutMs?:number|null;retryPolicy?:Record<string,unknown>|null;fallbackMode:"inherit"|"replace";fallbacks:Array<Omit<ModelRouteFallback,"hasCredential">&{credentialRefId?:string|null}>;baseVersionId?:string|null;createdBy?:string};
+export type QualityEvidenceInput={evidenceKind:QualityEvidenceKind;textAnchorId?:string|null;factId?:string|null;stateChangeId?:string|null;storyTimingId?:string|null;storyRelationId?:string|null;planningVersionId?:string|null;ruleKey?:string|null;ruleVersion?:string|null;note:string;isUnverifiedObservation?:boolean};
+export type QualityFixInput={targetChapterDocumentId:string;targetBodyVersionId:string;targetAnchorId?:string|null;patch:Record<string,unknown>;source:"ai"|"user";createdBy?:string};
+export type QualityIssueVersionInput=Pick<QualityIssueVersion,"categoryKey"|"severity"|"confidence"|"title"|"description"|"detectionSource"|"impactScope"|"suggestedAction"|"targetValue"|"observedValue"|"scaleVersion"|"interpretation"|"createdBy">&{evidence:QualityEvidenceInput[]};
+export type QualityAuditReportInput=Pick<QualityAuditReportSummary,"id"|"bookId"|"scopeKind"|"scopeId"|"taskId"|"stepId"|"attemptId"|"taskContractVersionId"|"promptRecipeVersionId"|"contextManifestId"|"modelRouteSnapshotId"|"ruleSetKey"|"ruleSetVersion"|"inputHash"|"policyMode"|"policyDecision"|"summary"|"createdBy">&{idempotencyKey:string;bodyVersions:QualityAuditReport["bodyVersions"];planningVersions:QualityAuditReport["planningVersions"];factIds:string[];issues:Array<QualityIssueVersionInput&{stableKey:string;isQualityDebt?:boolean;fixCandidate?:QualityFixInput|null}>};
 
 const API_ROOT = "/api/new-design";
 
@@ -359,4 +373,17 @@ export const newDesignApi = {
   requestAiApproval:(input:{taskId:string;stepId?:string|null;attemptId?:string|null;scopeKind:AiApprovalRequest["scopeKind"];scopeId:string;reasonCode:string;reasonDetail:string;requestedByKind:AiApprovalRequest["requestedByKind"];requestedBy?:string})=>request<AiApprovalRequest>("/ai-runtime/commands/approvals",{method:"POST",body:JSON.stringify(input)}),
   decideAiApproval:(requestId:string,input:{decision:AiApprovalDecision["decision"];decidedByKind:AiApprovalDecision["decidedByKind"];decidedBy:string;policyVersion?:string|null;reason?:string})=>request<AiApprovalRequest>(`/ai-runtime/commands/approvals/${requestId}/decisions`,{method:"POST",body:JSON.stringify(input)}),
   recordAiAttemptUsage:(input:{attemptId:string;inputTokens?:number|null;outputTokens?:number|null;cachedInputTokens?:number|null;durationMs?:number|null;estimatedCost?:number|null;currency?:string|null;fallbackCount?:number})=>request<AiAttemptUsage>("/ai-runtime/commands/usage",{method:"POST",body:JSON.stringify(input)}),
+  listQualityReports:(input:{bookId:string;chapterDocumentId?:string;categoryKey?:string;severity?:QualitySeverity;status?:QualityIssueStatus;staleOnly?:boolean;cursor?:string;limit?:number})=>request<QualityAuditPage>(`/quality/reports?${new URLSearchParams(Object.entries(input).filter((entry):entry is [string,string|number|boolean]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])).toString()}`),
+  getQualityReport:(id:string)=>request<QualityAuditReport>(`/quality/reports/${id}`),
+  listQualityIssues:(input:{bookId:string;bodyVersionId?:string;chapterDocumentId?:string;categoryKey?:string;severity?:QualitySeverity;status?:QualityIssueStatus;qualityDebtOnly?:boolean;limit?:number})=>request<QualityIssue[]>(`/quality/issues?${new URLSearchParams(Object.entries(input).filter((entry):entry is [string,string|number|boolean]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])).toString()}`),
+  getQualityIssue:(id:string)=>request<QualityIssue>(`/quality/issues/${id}`),
+  listQualityRechecks:(issueId:string)=>request<QualityRecheck[]>(`/quality/issues/${issueId}/rechecks`),
+  getQualityFixCandidate:(id:string)=>request<QualityFixCandidate>(`/quality/fix-candidates/${id}`),
+  createQualityReport:(input:QualityAuditReportInput)=>request<QualityAuditReport>("/quality/commands/reports",{method:"POST",body:JSON.stringify(input)}),
+  reviseQualityIssue:(id:string,input:QualityIssueVersionInput&{expectedRevision:number})=>request<QualityIssue>(`/quality/commands/issues/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  transitionQualityIssue:(id:string,input:{toStatus:Exclude<QualityIssueStatus,"verified"|"fixed">;expectedRevision:number;actorKind:"user"|"system"|"policy";actor?:string;reason:string})=>request<QualityIssue>(`/quality/commands/issues/${id}/transitions`,{method:"POST",body:JSON.stringify(input)}),
+  reviseQualityFixCandidate:(id:string,input:QualityFixInput&{expectedRevision:number})=>request<QualityFixCandidate>(`/quality/commands/fix-candidates/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  decideQualityFixCandidate:(id:string,input:{decision:"accept"|"reject";expectedRevision:number;actor:string;reason:string})=>request<QualityFixCandidate>(`/quality/commands/fix-candidates/${id}/decision`,{method:"POST",body:JSON.stringify(input)}),
+  recordQualityFixAdoption:(id:string,input:{candidateVersionId:string;chapterBodyAdoptionId:string;idempotencyKey:string;actor:string})=>request<QualityFixCandidate>(`/quality/commands/fix-candidates/${id}/adoption`,{method:"POST",body:JSON.stringify(input)}),
+  recordQualityRecheck:(input:{issueId:string;fixCandidateId?:string|null;recheckReportId:string;checkedBodyVersionId:string;outcome:QualityRecheck["outcome"];evidenceSummary:string;idempotencyKey:string;actor?:string})=>request<QualityRecheck>("/quality/commands/rechecks",{method:"POST",body:JSON.stringify(input)}),
 };

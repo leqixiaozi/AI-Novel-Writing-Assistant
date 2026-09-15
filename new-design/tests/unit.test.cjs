@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, qualityAuditReportCreateSchema, qualityRecheckSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -154,6 +154,15 @@ test("AI task ledger inputs keep frozen references and unknown usage explicit",(
   assert.equal(aiAttemptFailureSchema.safeParse({taskId:ids[0],stepId:ids[1],attemptId:ids[2],leaseToken:ids[3],expectedStepRevision:2,errorCategory:"quality_fallback",errorSummary:"错误回退"}).success,false);
   assert.equal(aiAttemptUsageSchema.safeParse({attemptId:ids[0],inputTokens:null,outputTokens:null,cachedInputTokens:null,durationMs:null}).success,true);
   assert.equal(aiAttemptUsageSchema.safeParse({attemptId:ids[0],estimatedCost:0.1}).success,false);
+});
+
+test("quality audit inputs keep targets, observations and evidence semantics separate",()=>{
+  const ids=Array.from({length:10},(_,index)=>`${String(index+1).padStart(8,"0")}-0000-4000-8000-000000000001`),base={id:ids[0],bookId:ids[1],scopeKind:"body",scopeId:ids[2],taskId:ids[3],stepId:ids[4],attemptId:ids[5],taskContractVersionId:ids[6],promptRecipeVersionId:ids[7],contextManifestId:ids[8],modelRouteSnapshotId:ids[9],ruleSetKey:"chapter.audit",ruleSetVersion:"2026-09",inputHash:"c".repeat(64),policyMode:"completion_first",policyDecision:"record_quality_debt",idempotencyKey:"quality-report-1",bodyVersions:[{chapterDocumentId:ids[2],bodyVersionId:ids[3]}],planningVersions:[],factIds:[],issues:[{stableKey:"pacing.custom_dimension",categoryKey:"pacing.scene_turn_density",severity:"medium",confidence:null,title:"场景转折偏少",description:"检测观察",detectionSource:"ai",impactScope:{chapter:1},targetValue:3,observedValue:0,scaleVersion:"turn-count-v2",evidence:[{evidenceKind:"observation",note:"模型观察，尚无正本证据",isUnverifiedObservation:true}]}]};
+  assert.equal(qualityAuditReportCreateSchema.safeParse(base).success,true);
+  assert.equal(qualityAuditReportCreateSchema.safeParse({...base,policyDecision:"pause_for_manual"}).success,false);
+  assert.equal(qualityAuditReportCreateSchema.safeParse({...base,issues:[{...base.issues[0],evidence:[{evidenceKind:"observation",note:"未标记"}]}]}).success,false);
+  assert.equal(qualityAuditReportCreateSchema.safeParse({...base,bodyVersions:[],planningVersions:[],factIds:[]}).success,false);
+  assert.equal(qualityRecheckSchema.safeParse({issueId:ids[0],recheckReportId:ids[1],checkedBodyVersionId:ids[2],outcome:"supports_verified",evidenceSummary:"复检报告已不再发现该问题。",idempotencyKey:"quality-recheck-1"}).success,true);
 });
 
 test("public ranking adapters only extract source metadata",()=>{
