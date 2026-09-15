@@ -52,7 +52,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `013` 顺序建立卡片、书籍、多视图、变更集与研究分析数据。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -70,7 +70,7 @@ pnpm --filter @ai-novel/new-design test:integration
 pnpm --filter @ai-novel/client build
 ```
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加、策略资源安装隔离、提示词组件去重与 CRUD、六视图的跨视图一致性、高影响修改的预览／原子应用／过期保护，以及停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加、策略资源安装隔离、提示词组件去重与 CRUD、六视图的跨视图一致性、高影响修改的预览／原子应用／过期保护，以及研究原文与研究记录在停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
 
 ## 当前范围之外
 

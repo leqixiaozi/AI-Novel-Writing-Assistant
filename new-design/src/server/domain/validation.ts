@@ -236,6 +236,16 @@ export const bookChangePreviewSchema=z.discriminatedUnion("operationKey",[
   z.object({operationKey:z.literal("clue_lifecycle"),input:clueLifecycleSchema}),
 ]);
 
+export const researchDocumentInputSchema=z.object({
+  title:z.string().trim().min(1,"请填写资料名称。").max(160),
+  content:z.string().trim().min(20,"参考文本至少需要 20 个字符。").max(2_000_000),
+  sourceKind:z.enum(["paste","file","public_url","book_export"]).default("paste"),
+  sourceUrl:z.string().trim().max(1000).default(""),
+});
+export const researchDocumentVersionSchema=z.object({content:z.string().trim().min(20,"参考文本至少需要 20 个字符。").max(2_000_000),revision:z.number().int().positive()});
+export const researchRecordTypeSchema=z.enum(["market_scan","market_analysis","book_analysis","diagnosis"]);
+export const researchRecordMetadataSchema=z.object({title:z.string().trim().min(1).max(160),tags:z.array(z.string().trim().min(1).max(40)).max(20),favorite:z.boolean(),notes:z.string().trim().max(3000),revision:z.number().int().positive(),status:z.enum(["active","archived"]).optional()});
+
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({
   config:z.object({

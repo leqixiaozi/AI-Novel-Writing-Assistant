@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录，`013_research_foundation.sql` 建立版本化研究资料、研究运行、证据、候选采用、参考包和市场来源快照；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -32,7 +32,26 @@ card 1 ── 0..1 story_time_positions
 card 1 ── n narrative_placements n ── 1 chapter/scene card
 card 1 ── n text_anchors n ── 1 chapter/scene card
 character card n ── n character card（经 card_relations 的单条关系）
+
+research_documents 1 ── n research_document_versions
+research_records 1 ── n research_record_versions 1 ── n research_evidence
+                                      │
+                                      └─ n research_candidate_batches 1 ── n research_candidates
+research_reference_packs 1 ── n research_reference_pack_versions 1 ── n research_reference_pack_items
+books 1 ── n book_research_references ── 1 research/pack exact version
 ```
+
+## 研究与分析固定对象
+
+`research_documents` 保存来源资料的稳定身份，`research_document_versions` 保存每次粘贴或导入后的不可变原文版本与内容哈希。`research_records` 保存用户可编辑的标题、标签、收藏、备注和归档状态；每次扫描、市场分析、拆书或稿件诊断都在 `research_record_versions` 新增运行版本，不覆盖上次报告。
+
+运行版本冻结来源范围、模板版本、预算、提示词快照、模型快照、输入、结构结果与可读报告。`research_evidence` 把结论字段回指到原文片段；候选结果先进入 `research_candidate_batches` / `research_candidates`，只有作者明确采用后才由 `research_candidate_adoptions` 记录正式去向。`market_source_snapshots` / `market_ranking_items` 独立保存每次公开榜单扫描，单个平台失败也不会删除以前成功的快照。
+
+`research_reference_packs` 只保存可编辑的包身份，发布时由 `research_reference_pack_versions` 和 `research_reference_pack_items` 冻结具体研究版本。一本书通过 `book_research_references` 锁定精确的研究记录版本或参考包版本，并保存当时编译出的输入快照；以后重跑研究不会偷偷改变已开书内容。
+
+> 🏠 **白话比喻**：研究资料像送到编辑部的原稿，研究运行像编辑针对某一版原稿写的批注报告，参考包像把若干份报告封进一个有编号的档案袋。对应到系统里：原文版本、运行版本和参考包版本各自冻结，新的分析只能新增一版，不能在旧报告上涂改。
+
+> 🧠 **速记方法**：**原文留底、运行增版、证据定位、采用过账、开书锁版**。分别对应资料版本、研究版本、证据锚点、候选采用记录和书籍引用快照。
 
 ## `new_design.schema_migrations`
 

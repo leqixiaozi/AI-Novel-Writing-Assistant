@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 
 const fields = [
@@ -59,4 +59,9 @@ test("high-impact book changes require a typed preview payload", () => {
     operationKey:"character_relation",
     input:{ cardId,startOrder:8,endOrder:10 },
   }).success,false);
+});
+
+test("research text intake rejects empty placeholders", () => {
+  assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"太短",sourceKind:"paste",sourceUrl:"" }).success,false);
+  assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"这是一段真实可分析的测试文本，长度足以形成不可变来源版本。",sourceKind:"paste",sourceUrl:"" }).success,true);
 });

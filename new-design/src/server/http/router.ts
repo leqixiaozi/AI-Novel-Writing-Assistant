@@ -46,6 +46,7 @@ import { listCardTypeCategories, saveCardTypeCategory } from "../database/catego
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
+import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -86,6 +87,10 @@ import {
   bookViewConfigSchema,
   bookViewKeySchema,
   bookChangePreviewSchema,
+  researchDocumentInputSchema,
+  researchDocumentVersionSchema,
+  researchRecordTypeSchema,
+  researchRecordMetadataSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -210,6 +215,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.put("/books/:id/view-config/:key",asyncRoute(async(req,res)=>success(res,await saveBookViewConfig(String(req.params.id),bookViewKeySchema.parse(req.params.key),body(bookViewConfigSchema,req)))));
   router.post("/books/:id/change-previews",asyncRoute(async(req,res)=>success(res,await previewBookChangeSet(String(req.params.id),body(bookChangePreviewSchema,req)),201)));
   router.post("/book-change-sets/:id/apply",asyncRoute(async(req,res)=>success(res,await applyBookChangeSet(String(req.params.id)))));
+  router.get("/research/documents",asyncRoute(async(_req,res)=>success(res,await listResearchDocuments())));
+  router.post("/research/documents",asyncRoute(async(req,res)=>success(res,await createResearchDocument(body(researchDocumentInputSchema,req)),201)));
+  router.post("/research/documents/:id/versions",asyncRoute(async(req,res)=>success(res,await addResearchDocumentVersion(String(req.params.id),body(researchDocumentVersionSchema,req)),201)));
+  router.get("/research/records",asyncRoute(async(req,res)=>success(res,await listResearchRecords({type:typeof req.query.type==="string"?researchRecordTypeSchema.parse(req.query.type):undefined,archived:req.query.archived==="true",favorite:req.query.favorite==="true",search:typeof req.query.search==="string"?req.query.search:undefined}))));
+  router.get("/research/records/:id",asyncRoute(async(req,res)=>success(res,await getResearchRecord(String(req.params.id)))));
+  router.patch("/research/records/:id",asyncRoute(async(req,res)=>success(res,await updateResearchRecord(String(req.params.id),body(researchRecordMetadataSchema,req)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

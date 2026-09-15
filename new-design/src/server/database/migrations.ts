@@ -52,4 +52,8 @@ export const migrations: Migration[] = [
     id: "012_book_change_sets",
     fileName: "012_book_change_sets.sql",
   },
+  {
+    id: "013_research_foundation",
+    fileName: "013_research_foundation.sql",
+  },
 ];

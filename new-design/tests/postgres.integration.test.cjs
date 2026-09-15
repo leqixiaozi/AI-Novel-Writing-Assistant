@@ -17,6 +17,7 @@ const categoriesStore = require("../dist/server/database/categoryStore.js");
 const resources = require("../dist/server/database/resourceStore.js");
 const bookViews = require("../dist/server/database/bookViewStore.js");
 const changeSets = require("../dist/server/database/changeSetStore.js");
+const research = require("../dist/server/database/researchStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -35,6 +36,28 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(status.mode, "bundled");
   assert.match(status.postgresVersion, /^17\./);
   assert.notEqual(status.port, 5432);
+
+  let researchDocument = await research.createResearchDocument({ title:"集成测试参考文本",sourceKind:"paste",sourceUrl:"user-owned-test",content:"第一章 山门夜雨。沈砚在旧钟楼发现一枚裂纹铜铃，由此卷入失踪案。" });
+  assert.equal(researchDocument.currentVersion.version,1);
+  researchDocument = await research.addResearchDocumentVersion(researchDocument.id,{content:"第一章 山门夜雨。沈砚在旧钟楼发现一枚裂纹铜铃。第二章 铜铃指向封存十年的失踪案。",revision:researchDocument.revision});
+  assert.equal(researchDocument.currentVersion.version,2);
+  assert.equal(researchDocument.versionCount,2);
+  const researchClient = await (await runtime.getNewDesignPool()).connect();
+  let foundationRun;
+  try {
+    await researchClient.query("BEGIN");
+    foundationRun = await research.createResearchRun(researchClient,{type:"book_analysis",title:"集成测试拆书记录",sourceDocumentVersionId:researchDocument.currentVersion.id,sourceScope:{mode:"full"},templateKey:"book_analysis.quick",templateVersion:1,budgetTokens:3000,inputSnapshot:{purpose:"reference"}});
+    await research.setResearchRunState(researchClient,foundationRun.versionId,{status:"completed",progress:100,usedTokens:180,structuredResult:{overview:"测试结论"},report:"# 测试拆书\n\n持久化报告。"});
+    await researchClient.query("COMMIT");
+  } catch (error) {
+    await researchClient.query("ROLLBACK");
+    throw error;
+  } finally { researchClient.release(); }
+  let foundationRecord = await research.getResearchRecord(foundationRun.recordId);
+  assert.equal(foundationRecord.currentVersion.runStatus,"completed");
+  foundationRecord = {...foundationRecord,...await research.updateResearchRecord(foundationRecord.id,{title:foundationRecord.title,tags:["测试","可恢复"],favorite:true,notes:"验证研究元数据。",revision:foundationRecord.revision})};
+  assert.equal(foundationRecord.favorite,true);
+  const persistedResearchId = foundationRecord.id;
 
   const builtInTypes = await store.listCardTypes();
   const systemTypes = builtInTypes.filter((cardType) => cardType.isSystem);
@@ -413,4 +436,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(restartedPrompt.status, "active");
   const persistedChangeSet = await (await runtime.getNewDesignPool()).query("SELECT status FROM new_design.book_change_sets WHERE id=$1", [timePreview.id]);
   assert.equal(persistedChangeSet.rows[0].status, "applied");
+  const restartedResearch = await research.getResearchRecord(persistedResearchId);
+  assert.equal(restartedResearch.currentVersion.report,"# 测试拆书\n\n持久化报告。");
+  assert.deepEqual(restartedResearch.tags,["测试","可恢复"]);
 });

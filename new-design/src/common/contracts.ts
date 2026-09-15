@@ -396,6 +396,105 @@ export interface BookChangeSet {
   appliedAt: string | null;
 }
 
+export type ResearchRecordType = "market_scan" | "market_analysis" | "book_analysis" | "diagnosis";
+export type ResearchRunStatus = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+
+export interface ResearchDocumentVersion {
+  id: string;
+  documentId: string;
+  version: number;
+  content: string;
+  contentHash: string;
+  characterCount: number;
+  createdAt: string;
+}
+
+export interface ResearchDocument {
+  id: string;
+  title: string;
+  sourceKind: "paste" | "file" | "public_url" | "book_export";
+  sourceUrl: string;
+  status: "active" | "archived";
+  revision: number;
+  currentVersion: ResearchDocumentVersion;
+  versionCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchRecordVersion {
+  id: string;
+  recordId: string;
+  version: number;
+  parentVersionId: string | null;
+  sourceScope: Record<string, unknown>;
+  templateKey: string;
+  templateVersion: number;
+  runStatus: ResearchRunStatus;
+  progress: number;
+  budgetTokens: number | null;
+  usedTokens: number;
+  promptSnapshot: Record<string, unknown>;
+  modelSnapshot: Record<string, unknown>;
+  inputSnapshot: Record<string, unknown>;
+  structuredResult: Record<string, unknown>;
+  report: string;
+  lastError: string;
+  cancelRequested: boolean;
+  runHash: string;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface ResearchRecordSummary {
+  id: string;
+  type: ResearchRecordType;
+  title: string;
+  sourceDocumentVersionId: string | null;
+  tags: string[];
+  favorite: boolean;
+  notes: string;
+  status: "active" | "archived";
+  revision: number;
+  currentVersion: ResearchRecordVersion;
+  versionCount: number;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  researchVersionId: string;
+  sourceDocumentVersionId: string | null;
+  fieldPath: string;
+  excerpt: string;
+  startOffset: number | null;
+  endOffset: number | null;
+  certainty: "explicit" | "inferred" | "low_confidence";
+  note: string;
+}
+
+export interface ResearchCandidate {
+  id: string;
+  batchId: string;
+  targetTypeKey: string;
+  title: string;
+  values: Record<string, unknown>;
+  relationCandidates: unknown[];
+  evidenceIds: string[];
+  mergeKey: string;
+  confidence: number | null;
+  status: "candidate" | "reference_only" | "ignored" | "adopted";
+  revision: number;
+}
+
+export interface ResearchRecordDetail extends ResearchRecordSummary {
+  versions: ResearchRecordVersion[];
+  evidence: ResearchEvidence[];
+  candidates: ResearchCandidate[];
+}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

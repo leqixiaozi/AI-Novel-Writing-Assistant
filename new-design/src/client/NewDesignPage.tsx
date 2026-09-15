@@ -7,6 +7,7 @@ import FormDesignerPage from "./FormDesignerPage";
 import NewDesignLanding from "./NewDesignLanding";
 import PromptComponentsPage from "./PromptComponentsPage";
 import ResourceCenterPage from "./ResourceCenterPage";
+import ResearchRecordsPage from "./ResearchRecordsPage";
 import StrategyResourcesPage from "./StrategyResourcesPage";
 import TemplateGroupsPage from "./TemplateGroupsPage";
 import "./new-design.css";
@@ -22,6 +23,7 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
   if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
   if(path==="/new-design/resources/ai/prompt-components")return <PromptComponentsPage/>;
+  if(path==="/new-design/research"||path==="/new-design/research/records")return <ResearchRecordsPage/>;
   const viewMatch=path.match(/^\/new-design\/books\/([^/]+)\/views\/(chapters|clues|characters|events|world|resources)$/);
   if(viewMatch)return <BookWorkspacePage bookId={decodeURIComponent(viewMatch[1])} view="views" viewKey={viewMatch[2] as BookViewKey}/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
