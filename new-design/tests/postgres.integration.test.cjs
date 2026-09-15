@@ -19,6 +19,8 @@ const bookViews = require("../dist/server/database/bookViewStore.js");
 const changeSets = require("../dist/server/database/changeSetStore.js");
 const research = require("../dist/server/database/researchStore.js");
 const market = require("../dist/server/database/marketStore.js");
+const bookAnalysis = require("../dist/server/database/bookAnalysisStore.js");
+const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -148,6 +150,64 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
     }
   }
 
+  const referencePlan = await bookAnalysisService.buildBookAnalysisPlan("reference_learning", "quick");
+  const continuationPlan = await bookAnalysisService.buildBookAnalysisPlan("continuation", "standard");
+  const diagnosisPlan = await bookAnalysisService.buildBookAnalysisPlan("diagnosis", "full");
+  assert.ok(referencePlan.plan.targets.some((target) => target.typeKey === "genre_strategy"));
+  assert.ok(referencePlan.plan.targets.every((target) => ["genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material"].includes(target.typeKey)));
+  assert.ok(continuationPlan.plan.targets.some((target) => target.typeKey === "character"));
+  assert.ok(!continuationPlan.plan.targets.some((target) => ["prompt_component", "market_signal"].includes(target.typeKey)));
+  assert.equal(diagnosisPlan.plan.candidateLimit, 0);
+  assert.deepEqual(diagnosisPlan.plan.targets, []);
+
+  const analysisRun = await bookAnalysis.beginBookAnalysisRun({
+    title:"集成测试证据化拆书",
+    type:"book_analysis",
+    sourceDocumentVersionId:researchDocument.currentVersion.id,
+    sourceScope:{documentId:researchDocument.id,documentVersionId:researchDocument.currentVersion.id,rangeMode:"range",startOffset:3,endOffset:researchDocument.currentVersion.characterCount},
+    plan:continuationPlan.plan,
+    focus:"提炼可复用的仙侠成长方法",
+    budgetTokens:3000,
+  });
+  const dimensionKeys = ["story_structure","characters","world","conflict","pacing","hooks_payoffs","writing_technique","quality_risks"];
+  const strategyValues = (promise) => ({genre:"仙侠成长",subgenres:["growth","mystery"],target_audience:"喜欢成长解谜的读者",core_promise:promise,market_position:"每次突破都解开一层旧案",forbidden_drift:"不复制原作专有名称"});
+  const analysisCharacterSeed = demoCards.find((card)=>bookTypes.find((type)=>type.id===card.cardTypeId)?.key==="character");
+  assert.ok(analysisCharacterSeed);
+  await bookAnalysis.completeBookAnalysis(analysisRun.versionId,{
+    overview:"以铜铃旧案承载成长兑现，结论仅提炼结构方法。",
+    dimensions:dimensionKeys.map((key,index)=>({key,title:`维度 ${index+1}`,summary:"根据所选文本形成的结构观察。",strengths:["线索与成长同步"],risks:["样本较短"],opportunities:["扩展可验证的阶段回报"]})),
+    evidence:[{fieldPath:"candidates[0].core_promise",excerpt:"铜铃指向封存十年的失踪案",startOffset:30,endOffset:44,certainty:"explicit",note:"原文直接支持旧案推进。"}],
+    candidates:[
+      {targetTypeKey:"character",title:"续写候选人物",values:{...analysisCharacterSeed.values},evidenceIndexes:[0],confidence:.86},
+      {targetTypeKey:"character",title:"续写人物合并补充",values:{...analysisCharacterSeed.values,personality:"谨慎追查铜铃旧案，并在每次选择后承担可见代价"},evidenceIndexes:[0],confidence:.8},
+      {targetTypeKey:"genre_strategy",title:"可复用旧案策略",values:strategyValues("局部答案与长期谜团交替兑现"),evidenceIndexes:[0],confidence:.78},
+      {targetTypeKey:"genre_strategy",title:"低置信度备选",values:strategyValues("只作备选，不进入正式资料"),evidenceIndexes:[0],confidence:.4},
+    ],
+    copyrightBoundary:"只学习抽象结构，不复制原文表达、角色和专有设定。",
+  },{usedTokens:360,promptSnapshot:{promptId:"new_design.research.book_analysis",promptVersion:"v1"},modelSnapshot:{provider:"test",model:"test-model"}});
+  let analysisRecord = await research.getResearchRecord(analysisRun.recordId);
+  assert.equal(analysisRecord.currentVersion.runStatus,"completed");
+  assert.equal(analysisRecord.evidence.length,1);
+  assert.equal(analysisRecord.candidates.length,4);
+  assert.ok(analysisRecord.candidates.every((candidate)=>candidate.researchVersionId===analysisRun.versionId));
+  const candidatesByTitle = new Map(analysisRecord.candidates.map((candidate)=>[candidate.title,candidate]));
+  const createOutput = await bookAnalysis.applyCandidateDecisions(analysisRecord.id,[{candidateId:candidatesByTitle.get("续写候选人物").id,action:"create_card",targetSpaceId:sampleBook.spaceId}]);
+  const persistedAnalysisCardId = createOutput[0].cardId;
+  assert.ok(persistedAnalysisCardId);
+  let analysisCard = await store.getCard(persistedAnalysisCardId);
+  await bookAnalysis.applyCandidateDecisions(analysisRecord.id,[{candidateId:candidatesByTitle.get("续写人物合并补充").id,action:"merge_card",targetCardId:analysisCard.id,expectedRevision:analysisCard.revision}]);
+  analysisCard = await store.getCard(persistedAnalysisCardId);
+  assert.equal(analysisCard.revision,2);
+  assert.equal(analysisCard.values.personality,"谨慎追查铜铃旧案，并在每次选择后承担可见代价");
+  const mergedOrigin = await (await runtime.getNewDesignPool()).query("SELECT source_kind,source_id FROM new_design.card_field_origins WHERE card_id=$1 AND field_key='personality'",[analysisCard.id]);
+  assert.deepEqual(mergedOrigin.rows[0],{source_kind:"research",source_id:analysisRun.versionId});
+  await bookAnalysis.applyCandidateDecisions(analysisRecord.id,[
+    {candidateId:candidatesByTitle.get("可复用旧案策略").id,action:"save_resource",targetSpaceId:"60000000-0000-4000-8000-000000000001"},
+    {candidateId:candidatesByTitle.get("低置信度备选").id,action:"ignore"},
+  ]);
+  analysisRecord = await research.getResearchRecord(analysisRun.recordId);
+  assert.deepEqual(new Set(analysisRecord.candidates.map((candidate)=>candidate.status)),new Set(["adopted","ignored"]));
+
   const dictionaries = await composition.listDictionaries(sampleBook.spaceId);
   const relationTypes = await composition.listRelationTypes(sampleBook.spaceId);
   const forms = await composition.listCardGroupForms(sampleBook.spaceId);
@@ -271,10 +331,10 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const inspirationCandidates = await bookCreation.listInspirationCandidates();
   assert.equal(inspirationCandidates.length, 6);
   const strategyResources = await resources.listStrategyResources();
-  assert.equal(strategyResources.length, 12);
+  assert.equal(strategyResources.length, 13);
   assert.deepEqual(
     Object.fromEntries(["genre_strategy", "progression_mode", "writing_config", "quality_rule"].map((typeKey) => [typeKey, strategyResources.filter((item) => item.typeKey === typeKey).length])),
-    { genre_strategy: 3, progression_mode: 3, writing_config: 2, quality_rule: 4 },
+    { genre_strategy: 4, progression_mode: 3, writing_config: 2, quality_rule: 4 },
   );
   let blankSession = await bookCreation.createBookCreationSession({
     method: "blank",
@@ -462,4 +522,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(restartedResearch.currentVersion.report,"# 测试拆书\n\n持久化报告。");
   assert.deepEqual(restartedResearch.tags,["测试","可恢复"]);
   assert.equal((await store.getCard(persistedMarketSignalId)).title,"仙侠成长解谜信号");
+  const restartedAnalysisCard = await store.getCard(persistedAnalysisCardId);
+  assert.equal(restartedAnalysisCard.values.personality,"谨慎追查铜铃旧案，并在每次选择后承担可见代价");
+  assert.equal((await research.getResearchRecord(analysisRun.recordId)).currentVersion.report.startsWith("# 拆书报告"),true);
 });

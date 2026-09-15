@@ -46,9 +46,11 @@ import { listCardTypeCategories, saveCardTypeCategory } from "../database/catego
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
-import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchRecords, updateResearchRecord } from "../database/researchStore";
+import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
+import { applyCandidateDecisions } from "../database/bookAnalysisStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
+import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -95,6 +97,10 @@ import {
   researchRecordMetadataSchema,
   marketScanInputSchema,
   marketAnalysisInputSchema,
+  bookAnalysisInputSchema,
+  bookAnalysisPresetSchema,
+  bookAnalysisPurposeSchema,
+  candidateDecisionsSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -223,6 +229,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/research/documents",asyncRoute(async(_req,res)=>success(res,await listResearchDocuments())));
   router.post("/research/documents",asyncRoute(async(req,res)=>success(res,await createResearchDocument(body(researchDocumentInputSchema,req)),201)));
   router.post("/research/documents/:id/versions",asyncRoute(async(req,res)=>success(res,await addResearchDocumentVersion(String(req.params.id),body(researchDocumentVersionSchema,req)),201)));
+  router.get("/research/documents/:id/versions",asyncRoute(async(req,res)=>success(res,await listResearchDocumentVersions(String(req.params.id)))));
   router.get("/research/records",asyncRoute(async(req,res)=>success(res,await listResearchRecords({type:typeof req.query.type==="string"?researchRecordTypeSchema.parse(req.query.type):undefined,archived:req.query.archived==="true",favorite:req.query.favorite==="true",search:typeof req.query.search==="string"?req.query.search:undefined}))));
   router.get("/research/records/:id",asyncRoute(async(req,res)=>success(res,await getResearchRecord(String(req.params.id)))));
   router.patch("/research/records/:id",asyncRoute(async(req,res)=>success(res,await updateResearchRecord(String(req.params.id),body(researchRecordMetadataSchema,req)))));
@@ -234,6 +241,10 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/research/market/analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await startMarketAnalysis(dependencies.ai,body(marketAnalysisInputSchema,req)),202);}));
   router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await retryMarketAnalysis(dependencies.ai,String(req.params.id)),202);}));
   router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
+  router.get("/research/book-analysis/plan",asyncRoute(async(req,res)=>success(res,(await buildBookAnalysisPlan(bookAnalysisPurposeSchema.parse(req.query.purpose),bookAnalysisPresetSchema.parse(req.query.preset))).plan)));
+  router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
+  router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id)),202);}));
+  router.post("/research/book-analyses/:id/candidates/apply",asyncRoute(async(req,res)=>success(res,await applyCandidateDecisions(String(req.params.id),body(candidateDecisionsSchema,req).decisions))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

@@ -295,6 +295,18 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 - 时间线由 `event` 的时间字段、章节／场景挂载和关系投影形成；本阶段不新增 `timeline` 或 `timeline_definition`。
 - 参考长文、RAG 分块、向量、召回轨迹、图片二进制、标题生成批次、运行／重试／错误日志都不是普通卡片。
 
+## 证据化拆书与候选采用
+
+拆书不新增第二套分析表，而是复用 `013_research_foundation.sql` 的版本化对象：`research_documents` / `research_document_versions` 冻结输入正文，`research_records` / `research_record_versions` 冻结每次运行，`research_evidence` 保存字段级原文锚点，`research_candidate_batches` / `research_candidates` 保存尚未进入正式资料的候选，`research_candidate_adoptions` 保存作者决定。
+
+每次运行的 `input_snapshot` 固定记录用途、深度、八个分析维度、目标表单、允许的发布类型与字段、证据要求和候选上限；`source_scope` 固定记录资料版本、全文或字符范围及来源 URL。重跑只追加 `research_record_versions`，旧报告、证据和候选不被覆盖。范围分析的 `start_offset` / `end_offset` 使用原始资料的绝对字符位置，摘录无法在所选文本中精确定位时必须改为 `low_confidence` 且位置留空。
+
+候选采用在单个 PostgreSQL 事务中支持五种动作：`create_card` 新建到有效书籍、`merge_card` 按修订号合并同类型资料、`save_resource` 保存四类可复用创作策略、`reference_only` 仅留作参考、`ignore` 忽略。新建与合并都会在 `card_field_origins` 写入 `source_kind=research` 和精确 `research_record_version`；批量动作有一项失败时整体回滚。
+
+> 🏠 **白话比喻**：拆书候选像编辑在样稿旁贴的便签，便签可以建议“新增人物”或“调整写法”，但没有主编签字就不能塞进正式书稿。对应到数据库：候选留在 `research_candidates`，作者动作写入 `research_candidate_adoptions` 后，才会创建或修订正式 `cards`。
+
+> 🧠 **速记方法**：**原文锁版本，运行锁输入，证据锁位置，采用才入库**。
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。

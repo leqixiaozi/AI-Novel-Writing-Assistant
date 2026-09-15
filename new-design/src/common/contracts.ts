@@ -478,6 +478,7 @@ export interface ResearchEvidence {
 export interface ResearchCandidate {
   id: string;
   batchId: string;
+  researchVersionId: string;
   targetTypeKey: string;
   title: string;
   values: Record<string, unknown>;
@@ -504,6 +505,15 @@ export interface MarketScanDetail {record:ResearchRecordDetail;version:ResearchR
 export interface MarketSignalDraft {title:string;signalType:"genre"|"protagonist"|"advantage"|"opening"|"relationship"|"title"|"payoff"|"crowding"|"differentiation";summary:string;heat:"low"|"medium"|"high";crowding:"low"|"medium"|"high";trend:"rising"|"stable"|"falling"|"uncertain";platforms:MarketPlatform[];audience:string;differentiation:string;sourceRefs:string;observedAt:string;effectiveUntil:string;}
 export interface MarketAnalysisResult {genre:string[];protagonistIdentities:string[];coreAdvantages:string[];openingPatterns:string[];relationshipHooks:string[];titlePatterns:string[];readerPayoffs:string[];crowdedTropes:string[];differentiationOpportunities:string[];evidenceBoundary:string;signals:MarketSignalDraft[];}
 export const RESEARCH_RESOURCE_SPACE_ID="70000000-0000-4000-8000-000000000001";
+
+export type BookAnalysisPurpose="reference_learning"|"continuation"|"diagnosis";
+export type BookAnalysisPreset="quick"|"standard"|"full";
+export interface BookAnalysisPlanTarget {typeKey:string;typeName:string;allowedFields:string[];maxCandidates:number;mergePolicy:"new_or_merge"|"reference_only";}
+export interface BookAnalysisPlan {purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;dimensions:string[];targetForms:Array<{key:string;name:string}>;targets:BookAnalysisPlanTarget[];evidenceRequired:boolean;candidateLimit:number;}
+export interface BookAnalysisDimension {key:string;title:string;summary:string;strengths:string[];risks:string[];opportunities:string[];}
+export interface BookAnalysisEvidenceDraft {fieldPath:string;excerpt:string;startOffset:number|null;endOffset:number|null;certainty:"explicit"|"inferred"|"low_confidence";note:string;}
+export interface BookAnalysisCandidateDraft {targetTypeKey:string;title:string;values:Record<string,unknown>;evidenceIndexes:number[];confidence:number|null;}
+export interface BookAnalysisResult {overview:string;dimensions:BookAnalysisDimension[];evidence:BookAnalysisEvidenceDraft[];candidates:BookAnalysisCandidateDraft[];copyrightBoundary:string;}
 
 export const BOOK_CREATION_METHODS = [
   "blank",

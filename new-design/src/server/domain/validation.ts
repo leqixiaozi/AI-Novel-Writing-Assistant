@@ -247,6 +247,10 @@ export const researchRecordTypeSchema=z.enum(["market_scan","market_analysis","b
 export const researchRecordMetadataSchema=z.object({title:z.string().trim().min(1).max(160),tags:z.array(z.string().trim().min(1).max(40)).max(20),favorite:z.boolean(),notes:z.string().trim().max(3000),revision:z.number().int().positive(),status:z.enum(["active","archived"]).optional()});
 export const marketScanInputSchema=z.object({sourceKeys:z.array(z.string().trim().min(1).max(80)).min(1).max(8)});
 export const marketAnalysisInputSchema=z.object({scanRecordId:z.string().uuid(),scanVersionId:z.string().uuid().optional(),itemIds:z.array(z.string().uuid()).min(1).max(80),focus:z.string().trim().max(500).default(""),budgetTokens:z.number().int().min(1000).max(12000).default(5000)});
+export const bookAnalysisPurposeSchema=z.enum(["reference_learning","continuation","diagnosis"]);
+export const bookAnalysisPresetSchema=z.enum(["quick","standard","full"]);
+export const bookAnalysisInputSchema=z.object({documentVersionId:z.string().uuid(),purpose:bookAnalysisPurposeSchema,preset:bookAnalysisPresetSchema,rangeMode:z.enum(["full","range"]),startOffset:z.number().int().nonnegative().optional(),endOffset:z.number().int().positive().optional(),focus:z.string().trim().max(1000).default(""),budgetTokens:z.number().int().min(1000).max(12000)}).superRefine((value,ctx)=>{if(value.rangeMode==="range"&&(value.startOffset===undefined||value.endOffset===undefined||value.endOffset<=value.startOffset))ctx.addIssue({code:"custom",path:["endOffset"],message:"局部分析需要有效的起止位置。"});});
+export const candidateDecisionsSchema=z.object({decisions:z.array(z.object({candidateId:z.string().uuid(),action:z.enum(["create_card","merge_card","save_resource","reference_only","ignore"]),targetSpaceId:z.string().uuid().optional(),targetCardId:z.string().uuid().optional(),expectedRevision:z.number().int().positive().optional()})).min(1).max(30)});
 
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({

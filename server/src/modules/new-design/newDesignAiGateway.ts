@@ -6,6 +6,7 @@ import {
   newDesignInitialContentPrompt,
   newDesignMarketAnalysisPrompt,
 } from "../../prompting/prompts/newDesign/newDesignBookCreation.prompts";
+import { newDesignBookAnalysisPrompt } from "../../prompting/prompts/newDesign/newDesignResearch.prompts";
 
 export const newDesignAiGateway: NewDesignAiGateway = {
   async generateDirections(input) {
@@ -46,5 +47,9 @@ export const newDesignAiGateway: NewDesignAiGateway = {
   async analyzeMarket(input) {
     const result=await runStructuredPrompt({asset:newDesignMarketAnalysisPrompt,promptInput:{itemsJson:JSON.stringify(input.items),focus:input.focus},options:{entrypoint:"new_design",stage:"market_analysis",temperature:0.35,maxTokens:input.budgetTokens}});
     return {output:result.output,promptSnapshot:{promptId:result.meta.invocation.promptId,promptVersion:result.meta.invocation.promptVersion},modelSnapshot:{provider:result.meta.provider??"configured-route",model:result.meta.model??"configured-route"},usedTokens:result.meta.tokenUsage?.totalTokens??0};
+  },
+  async analyzeBook(input){
+    const result=await runStructuredPrompt({asset:newDesignBookAnalysisPrompt,promptInput:{title:input.title,text:input.text,focus:input.focus,planJson:JSON.stringify(input.plan),schemaJson:JSON.stringify(input.schemaTypes)},options:{entrypoint:"new_design",stage:input.plan.purpose==="diagnosis"?"manuscript_diagnosis":"book_analysis",temperature:0.25,maxTokens:input.budgetTokens}});
+    return {output:result.output,promptSnapshot:{promptId:result.meta.invocation.promptId,promptVersion:result.meta.invocation.promptVersion},modelSnapshot:{provider:result.meta.provider??"configured-route",model:result.meta.model??"configured-route",usageReported:Boolean(result.meta.tokenUsage)},usedTokens:result.meta.tokenUsage?.totalTokens??0};
   },
 };
