@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`038` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照，以及书籍概览与规划中心的精确引用和幂等操作合同。运行时迁移范围以 `001_card_kernel.sql` 至 `038_book_overview_planning_center.sql` 为准。
+`031`—`039` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心，以及章节写作候选与采用准备合同。运行时迁移范围以 `001_card_kernel.sql` 至 `039_chapter_writing_workspace.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -660,6 +660,12 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 激活条件是带字段与运算符白名单的安全结构，最多 4 层、40 条；来源可来自明确版本、内容类型、标签、036 智能视图、关系、故事范围、研究包、提示词组件或 029 的既有检索轨迹。智能视图与检索只产生候选。预览冻结候选决定与来源集合哈希，但不等于正式运行；内部 finalize 才在同一事务中冻结合同、配方、路由、规则版本、确切来源与理由。必须事实超预算或确切必须来源不可用时失败关闭，只有参考资料可裁剪。
 
 `038_book_overview_planning_center.sql` 增加规划执行意图、计划版本精确资料引用和幂等操作回执。书籍概览保持为查询投影，不新增可写汇总表。计划修改只产生候选或采用回执，预期状态变化仍由后续事实／状态结算流程确认，不能因为写进计划就提前成为正式事实。
+
+### 039 章节写作候选与采用准备
+
+`039_chapter_writing_workspace.sql` 在既有 `chapter_body_versions` 上补充操作类型、采用计划、上下文清单、任务合同、提示词配方、模型路由、AI 任务／尝试、输入正文和选区来源。正文内容与来源写入后不可修改，只能软归档；旧版本按原来源回填通用操作类型，无法可靠恢复的旧运行来源保持为空。
+
+`chapter_body_operations` 保存人工保存、复制和归档的修订号、请求哈希与幂等回执。`chapter_writing_requests` 在模型执行前冻结计划和运行输入，并把通用 `ai_tasks` 作为执行账本；任务写入后继续由 `030` 的触发器登记 Outbox 作业。`chapter_adoption_preparations` 为 F4 固定候选正文、计划、上下文和依赖哈希，F3 不使用它切换正式正文或写事实／状态结算。
 
 > 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
 

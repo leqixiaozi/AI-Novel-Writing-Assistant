@@ -156,4 +156,8 @@ export const migrations: Migration[] = [
     id: "038_book_overview_planning_center",
     fileName: "038_book_overview_planning_center.sql",
   },
+  {
+    id: "039_chapter_writing_workspace",
+    fileName: "039_chapter_writing_workspace.sql",
+  },
 ];

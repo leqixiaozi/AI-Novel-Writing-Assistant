@@ -73,7 +73,8 @@
     "app/migrations/035_association_mount_versions.sql",
     "app/migrations/036_material_management_smart_views.sql",
     "app/migrations/037_context_binding_assembly_snapshots.sql",
-    "app/migrations/038_book_overview_planning_center.sql"
+    "app/migrations/038_book_overview_planning_center.sql",
+    "app/migrations/039_chapter_writing_workspace.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -88,7 +89,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "038_book_overview_planning_center.sql",
-    "count": 38
+    "last": "039_chapter_writing_workspace.sql",
+    "count": 39
   }
 }

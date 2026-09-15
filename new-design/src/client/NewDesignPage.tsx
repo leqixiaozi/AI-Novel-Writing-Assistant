@@ -15,6 +15,7 @@ import StrategyResourcesPage from "./StrategyResourcesPage";
 import TemplateGroupsPage from "./TemplateGroupsPage";
 import ContextManagementPage from "./ContextManagementPage";
 import { BookOverviewPage, PlanningCenterPage } from "./planningCenter";
+import { ChapterWritingPage } from "./chapterWriting";
 import "./new-design.css";
 import type { BookViewKey } from "../common/contracts";
 
@@ -36,6 +37,8 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(overviewMatch)return <BookOverviewPage bookId={decodeURIComponent(overviewMatch[1])}/>;
   const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
   if(planningMatch)return <PlanningCenterPage bookId={decodeURIComponent(planningMatch[1])}/>;
+  const writingMatch=path.match(/^\/new-design\/books\/([^/]+)\/(?:writing|chapters\/([^/]+)\/write)$/);
+  if(writingMatch)return <ChapterWritingPage bookId={decodeURIComponent(writingMatch[1])} initialChapterCardId={writingMatch[2]?decodeURIComponent(writingMatch[2]):undefined}/>;
   const viewMatch=path.match(/^\/new-design\/books\/([^/]+)\/views\/(chapters|clues|characters|events|world|resources)$/);
   if(viewMatch)return <BookWorkspacePage bookId={decodeURIComponent(viewMatch[1])} view="views" viewKey={viewMatch[2] as BookViewKey}/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
