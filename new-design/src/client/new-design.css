@@ -40,12 +40,15 @@
 .nd-market-radar { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: 1rem; align-items: start; }
 .nd-radar-source-panel,.nd-radar-history,.nd-radar-results,.nd-radar-analysis { border: 1px solid var(--nd-line); border-radius: var(--radius); background: var(--nd-paper); padding: 1rem; box-shadow: var(--nd-shadow); }
 .nd-radar-sources { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .7rem; }
+.nd-radar-sources::before { content: "旧雷达口径：新书榜 / 新晋作者榜是主要证据，成熟榜单仅作辅助验证。"; grid-column: 1 / -1; color: var(--nd-muted); font-size: .76rem; }
 .nd-radar-sources fieldset { min-width: 0; border: 1px solid var(--nd-line); border-radius: calc(var(--radius) - .2rem); padding: .7rem; }
 .nd-radar-sources legend { padding: 0 .35rem; color: var(--nd-ink); font-size: .78rem; }
 .nd-radar-sources label { display: flex; gap: .55rem; align-items: start; padding: .45rem; border-radius: .5rem; }
 .nd-radar-sources label:hover { background: var(--nd-soft); }
 .nd-radar-sources span,.nd-radar-sources strong,.nd-radar-sources small { display: block; }
 .nd-radar-sources small { color: var(--nd-muted); margin-top: .15rem; }
+.nd-radar-sources label span strong::after { content: "辅助验证"; display: inline-block; margin-left: .45rem; padding: .08rem .35rem; border: 1px solid var(--nd-line); border-radius: 999px; color: var(--nd-muted); font-size: .62rem; font-style: normal; font-weight: 500; vertical-align: .08rem; }
+.nd-radar-sources fieldset:nth-of-type(1) label:nth-of-type(2) span strong::after,.nd-radar-sources fieldset:nth-of-type(2) label:nth-of-type(3) span strong::after,.nd-radar-sources fieldset:nth-of-type(3) label:nth-of-type(3) span strong::after { content: "主要证据"; border-color: color-mix(in srgb,var(--nd-accent) 45%,var(--nd-line)); color: var(--nd-accent); background: color-mix(in srgb,var(--nd-accent) 10%,transparent); }
 .nd-radar-history { grid-column: 2; grid-row: 1 / span 3; position: sticky; top: 1rem; }
 .nd-radar-history>div:last-child { display: grid; gap: .35rem; max-height: 36rem; overflow: auto; }
 .nd-radar-history button { display: flex; justify-content: space-between; gap: .5rem; width: 100%; padding: .7rem; text-align: left; border: 1px solid transparent; border-radius: .55rem; color: var(--nd-ink); background: transparent; }

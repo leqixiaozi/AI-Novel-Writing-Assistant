@@ -137,6 +137,7 @@ export const newDesignMarketAnalysisPrompt:PromptAsset<MarketAnalysisPromptInput
   id:"new_design.research.market_analysis",version:"v1",taskType:"planner",mode:"structured",language:"zh",contextPolicy:{maxTokensBudget:0},outputSchema:marketAnalysisOutputSchema,repairPolicy:{maxAttempts:1},semanticRetryPolicy:{maxAttempts:1},
   render:(input)=>[new SystemMessage([
     "你是小说市场研究员，只分析用户明确选择的公开榜单元数据。",
+    "evidenceTier=primary 的新书榜、新晋作者榜是判断近期入场机会的主要证据；evidenceTier=supporting 的成熟榜单只能辅助验证持续需求和拥挤程度，不得混成同一种证据。",
     "不得把榜单名次当成销量，不得声称平台未公开的人群、收入或增长率；没有跨期样本时趋势必须为 uncertain。",
     "结论必须覆盖题材、主角身份、核心优势、开局方式、关系钩子、标题模式、读者满足、拥挤套路和差异化机会。",
     "每条 market signal 都要在 sourceRefs 写出所依据的平台、榜单和作品标题，并说明证据边界。",

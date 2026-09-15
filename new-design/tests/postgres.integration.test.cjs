@@ -84,6 +84,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const marketScan=await market.getMarketScan(marketRun.recordId);
   assert.equal(marketScan.record.currentVersion.runStatus,"completed");
   assert.equal(marketScan.snapshots[0].items[0].title,"问剑山河");
+  assert.equal(marketScan.snapshots[0].items[0].listLabel,"集成榜");
+  assert.equal(marketScan.snapshots[0].items[0].evidenceTier,"supporting");
   const failedRefresh=await market.beginMarketScan({sources:[scanSource],recordId:marketRun.recordId,parentVersionId:marketRun.versionId});
   await market.persistMarketSource(failedRefresh.versionId,scanSource,{error:"测试来源暂时不可用"},95);
   await market.finishMarketScan(failedRefresh.versionId);

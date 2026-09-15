@@ -5,6 +5,8 @@ import ResearchShell from "./ResearchShell";
 
 const statusLabel={queued:"等待开始",running:"采集中",completed:"已完成",partial:"部分完成",failed:"失败",cancelled:"已取消"} as const;
 const analysisSections:[keyof Omit<MarketAnalysisResult,"evidenceBoundary"|"signals">,string][]=[["genre","题材"],["protagonistIdentities","主角身份"],["coreAdvantages","核心优势"],["openingPatterns","开局方式"],["relationshipHooks","关系钩子"],["titlePatterns","标题模式"],["readerPayoffs","读者满足"],["crowdedTropes","拥挤套路"],["differentiationOpportunities","差异化机会"]];
+const isPrimaryList=(listKey:string)=>listKey==="new_book"||listKey==="new_author";
+const defaultAnalysisItems=(scan:MarketScanDetail)=>{const successful=scan.snapshots.filter((snapshot)=>snapshot.status==="succeeded"&&snapshot.items.length);const primary=successful.filter((snapshot)=>isPrimaryList(snapshot.listKey));return(primary.length?primary:successful).flatMap((snapshot)=>snapshot.items.slice(0,5).map((item)=>item.id));};
 
 export default function MarketRadarPage(){
   const [sources,setSources]=useState<MarketSourceDefinition[]>([]),[sourceKeys,setSourceKeys]=useState<string[]>([]),[records,setRecords]=useState<ResearchRecordSummary[]>([]);
@@ -14,7 +16,7 @@ export default function MarketRadarPage(){
   useEffect(()=>{void Promise.all([newDesignApi.listMarketSources(),loadRecords(),newDesignApi.listResearchRecords({type:"market_analysis"})]).then(([nextSources,nextRecords,analyses])=>{setSources(nextSources);setSourceKeys(nextSources.map((item)=>`${item.platform}:${item.listKey}`));if(nextRecords[0]){void newDesignApi.getMarketScan(nextRecords[0].id).then(setScan);const related=analyses.find((item)=>item.currentVersion.sourceScope.scanRecordId===nextRecords[0].id);if(related)void newDesignApi.getResearchRecord(related.id).then(setAnalysis);}}).catch((error)=>setMessage(error instanceof Error?error.message:"市场雷达加载失败。"));},[]);
   const scanRunning=scan&&["queued","running"].includes(scan.record.currentVersion.runStatus),analysisRunning=analysis&&["queued","running"].includes(analysis.currentVersion.runStatus);
   useEffect(()=>{if(!scanRunning&&!analysisRunning)return;const timer=window.setInterval(()=>{if(scanRunning&&scan)void newDesignApi.getMarketScan(scan.record.id).then(setScan);if(analysisRunning&&analysis)void newDesignApi.getResearchRecord(analysis.id).then(setAnalysis);void loadRecords();},1200);return()=>window.clearInterval(timer);},[scan?.record.id,scanRunning,analysis?.id,analysisRunning]);
-  useEffect(()=>{if(scan&&!scanRunning&&!selectedItems.length)setSelectedItems(scan.snapshots.flatMap((source)=>source.items.slice(0,5).map((item)=>item.id)));},[scan?.record.currentVersion.id,scanRunning]);
+  useEffect(()=>{if(scan&&!scanRunning&&!selectedItems.length)setSelectedItems(defaultAnalysisItems(scan));},[scan?.record.currentVersion.id,scanRunning]);
   const grouped=useMemo(()=>sources.reduce<Record<string,MarketSourceDefinition[]>>((all,item)=>{(all[item.platformLabel]??=[]).push(item);return all;},{}),[sources]);
   const result=analysis?.currentVersion.structuredResult as Partial<MarketAnalysisResult>|undefined;
   const beginScan=async()=>{setBusy(true);setMessage("");setAnalysis(null);setSelectedItems([]);try{const run=await newDesignApi.startMarketScan(sourceKeys);const detail=await newDesignApi.getMarketScan(run.recordId);setScan(detail);await loadRecords();setMessage("扫描已开始；只采集公开榜单元数据，不会调用 AI。");}catch(error){setMessage(error instanceof Error?error.message:"扫描启动失败。");}finally{setBusy(false);}};

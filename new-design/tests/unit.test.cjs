@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
-const { parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
+const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
 const fields = [
   { key: "name", name: "姓名", description: "", type: "short_text", required: true, defaultValue: null, options: [], group: "基本信息", order: 0 },
@@ -74,4 +74,13 @@ test("public ranking adapters only extract source metadata",()=>{
   assert.equal(parseFanqieRanking('<div class="rank-book-item"><div class="book-item-index"><h1>1</h1></div><div class="title"><a href="/page/1">山河问道</a></div><div class="author"><span>青石</span></div><div class="desc abstract">【仙侠＋成长】少年入山</div><div class="book-item-footer">10万人在读 连载中</div></div></main>',fanqie)[0].title,"山河问道");
   assert.equal(parseQidianRanking('<a href="/book/1"><h2 title="畅销榜第1位">星门</h2><p class="subTitle">作者甲 · 仙侠 · 热门</p></a>',qidian)[0].category,"仙侠");
   assert.equal(parseJinjiangRanking('<li><a href="/book2/123">长夜有灯</a></li>',jinjiang)[0].sourceUrl,"https://m.jjwxc.net/book2/123");
+});
+
+test("market radar keeps the old project's evidence hierarchy and Fanqie recovery",()=>{
+  assert.equal(isPrimaryMarketList("new_book"),true);
+  assert.equal(isPrimaryMarketList("new_author"),true);
+  assert.equal(isPrimaryMarketList("monthly_ticket"),false);
+  const recovered=parseFanqieDetail('<h1>问道长生</h1><a class="author-name-text">青山</a><div class="page-abstract-content"><p>【仙侠＋成长】少年守山。</p></div>',{rank:1,title:"\uE123\uE124",tags:[],sourceUrl:"https://fanqienovel.com/page/1"});
+  assert.equal(recovered.title,"问道长生");
+  assert.deepEqual(recovered.tags,["仙侠","成长"]);
 });
