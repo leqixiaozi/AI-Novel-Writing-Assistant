@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, planningObjectInputSchema, planningVersionInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -129,6 +129,19 @@ test("body-origin planning revisions require an exact adopted body version refer
   assert.equal(planningVersionInputSchema.safeParse(base).success,false);
   assert.equal(planningVersionInputSchema.safeParse({...base,sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,true);
   assert.equal(planningVersionInputSchema.safeParse({...base,source:"manual",sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,false);
+});
+
+test("AI execution contracts reject ambiguous slots, raw secrets and quality fallbacks",()=>{
+  const component={componentCardId:"10000000-0000-4000-8000-000000000001",componentVersionId:"20000000-0000-4000-8000-000000000001",sortOrder:0,required:true};
+  const recipe={recipeKey:"chapter.generate",name:"章节生成",source:"manual",variablesSchema:{type:"object",properties:{book_name:{type:"string"}}},slots:[{slotKey:"instructions",sortOrder:0,required:true,allowedContentTypes:["prompt_component"],variableContract:{required:["book_name"]},components:[component]}]};
+  assert.equal(promptRecipeCreateSchema.safeParse(recipe).success,true);
+  assert.equal(promptRecipeCreateSchema.safeParse({...recipe,slots:[...recipe.slots,{...recipe.slots[0]}]}).success,false);
+  assert.equal(modelCredentialRefSchema.safeParse({credentialKey:"openai.primary",provider:"openai",secretLocator:"env://OPENAI_API_KEY"}).success,true);
+  assert.equal(modelCredentialRefSchema.safeParse({credentialKey:"openai.primary",provider:"openai",secretLocator:"sk-raw-secret"}).success,false);
+  const route={scope:"system_default",name:"默认路由",source:"system",provider:"openai",model:"gpt",parameters:{},requiredCapabilities:[],budgetPolicy:{maxTokens:1000},timeoutMs:30000,retryPolicy:{maxAttempts:1},fallbackMode:"replace",fallbacks:[{provider:"openai",model:"backup",parameters:{},technicalFailureCategories:["timeout"],sortOrder:0}]};
+  assert.equal(modelRouteCreateSchema.safeParse(route).success,true);
+  assert.equal(modelRouteCreateSchema.safeParse({...route,fallbacks:[{...route.fallbacks[0],technicalFailureCategories:["content_quality"]}]}).success,false);
+  assert.equal(contextManifestCreateSchema.safeParse({bookId:"10000000-0000-4000-8000-000000000001",taskContractVersionId:"20000000-0000-4000-8000-000000000001",slots:[{slotKey:"sources",entries:[],exclusions:[{sourceType:"research_version",stableObjectId:null,exactVersionId:null,reasonCode:"unavailable",reasonDetail:"未选择研究资料",priority:null,tokenEstimate:null,sortOrder:0}]}]}).success,true);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

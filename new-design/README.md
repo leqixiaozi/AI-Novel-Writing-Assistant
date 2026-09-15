@@ -27,10 +27,12 @@
 - `EpistemicClaim` / `KnowledgeStateProposal` / `KnowledgeStateChange` / `CurrentKnowledgeState`：把客观命题、人物认知和读者认知分开；AI 提案自动入库且可修订，用户确认后才进入有效流水，按叙事位置查询不会读取未来信息。
 - `StoryTimeProposal` / `StoryEventTiming` / `StoryEventRelation` / `StoryNarrativeOccurrence`：保存独立于章节顺序的完整故事时间正本、跨章叙事出现、时序和因果关系；AI 先生成可编辑提案，确认后才进入有效时间线。
 - `PlanningObject` / `PlanningVersion` / `PlanningAdoption` / `PlanningImpact`：保存故事、卷、章、场景四层规划的稳定树、不可变内容版本、唯一采用指针和下游待复核影响；AI 候选自动入库但不会自动成为执行依据。
+- `PromptRecipe` / `TaskContract`：用稳定键和不可变版本冻结提示词组合、输入输出 Schema、上下文策略、能力、预算、超时、重试与确认规则；AI 草案自动保存为候选，不覆盖已发布版本。
+- `ContextManifest` / `ModelRouteSnapshot`：记录一次执行实际引用的精确对象版本、排除原因和五层模型路由解析结果；只保存来源 ID、哈希与安全密钥引用状态，不复制正本或泄漏密钥位置。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/022_planning_versions.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/023_ai_execution_contracts.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
 
 ## 内置创作资料规格
 
@@ -84,6 +86,12 @@
 
 > 🧠 **速记方法**：**节点留版本，采用只一份；父版一换，下游待审；正文只提示，不自动改**。
 
+AI 执行合同把“要做什么、用哪套提示词、实际看过什么、最终走哪个模型”分开冻结。提示词配方可组合精确版本的提示词组件；任务合同锁定 Schema、上下文策略与预算；上下文清单记录入选和排除来源；模型路由按系统、任务组、节点、书籍和单次覆盖逐层解析，并保存不可变快照。密钥只以独立安全定位引用保存，任何公开合同、清单、路由结果和快照都只返回是否已配置。
+
+> 🏠 **白话比喻**：这像印刷厂的一张生产工单：工艺单说明怎么印，领料单写清实际拿了哪批纸，机台单记录最终用了哪台机器。以后工艺或机器设置改变，旧工单仍能解释当时为什么得到那个结果。
+
+> 🧠 **速记方法**：**合同定规矩，配方排指令，清单记所见，快照锁模型；密钥另存不露面**。
+
 “我的书籍”内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。事件规划表单可装配人物、地点、道具与剧情线。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
 
 预置内容由版本化 SQL 管理并进入 Git，因此每台开发机器都能得到同一套基础数据。作者自行创建和填写的业务数据不进入 Git，仍需 PostgreSQL 备份与恢复。
@@ -100,7 +108,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `022` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间与四层规划版本数据。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `023` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本与 AI 执行合同数据。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`

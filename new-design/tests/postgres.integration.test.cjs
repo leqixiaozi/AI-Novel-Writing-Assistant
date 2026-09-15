@@ -27,6 +27,7 @@ const states = require("../dist/server/database/stateStore.js");
 const knowledge = require("../dist/server/database/knowledgeStore.js");
 const storyTimeline = require("../dist/server/database/storyTimeline/index.js");
 const planning = require("../dist/server/database/planning/index.js");
+const aiContracts = require("../dist/server/database/aiContracts/index.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -739,6 +740,47 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(assistedCard.revision, 2);
   assert.equal(assistContext.bookName, "守灯旧案");
 
+  const recipeInput={source:"ai",variablesSchema:{type:"object",properties:{book_name:{type:"string"}}},slots:[{slotKey:"instructions",sortOrder:0,required:true,allowedContentTypes:["prompt_component"],variableContract:{required:["book_name"]},components:[{componentCardId:customPrompt.id,componentVersionId:promptComponentVersionId,sortOrder:0,required:true}]},{slotKey:"sources",sortOrder:1,required:false,allowedContentTypes:["body_version","canonical_fact","planning_version","research_version"],variableContract:{},components:[]}],createdBy:"integration-ai"};
+  let promptRecipe=await aiContracts.createPromptRecipe({recipeKey:`chapter.generate.${Date.now()}`,name:"章节生成配方",description:"冻结章节生产提示词依赖。",...recipeInput});
+  assert.equal(promptRecipe.currentVersion.status,"proposed");
+  promptRecipe=await aiContracts.addPromptRecipeVersion(promptRecipe.id,{...recipeInput,source:"manual",baseVersionId:promptRecipe.currentVersionId,expectedRevision:promptRecipe.revision,createdBy:"integration-editor"});
+  await assert.rejects(()=>aiContracts.addPromptRecipeVersion(promptRecipe.id,{...recipeInput,source:"manual",expectedRevision:1}),error=>error.status===409);
+  promptRecipe=await aiContracts.publishPromptRecipeVersion(promptRecipe.id,{versionId:promptRecipe.currentVersionId,expectedRevision:promptRecipe.revision,idempotencyKey:`publish-recipe-${Date.now()}`,actor:"integration-test"});
+  assert.equal(promptRecipe.publishedVersion.status,"published");
+  const publishedRecipeVersionId=promptRecipe.publishedVersionId;
+  const taskInput={source:"ai",taskGroup:"chapter_production",inputSchema:{type:"object",required:["chapterId"]},inputSchemaVersion:"1",outputSchema:{type:"object",required:["content"]},outputSchemaVersion:"1",contextPolicyVersion:"chapter-context-v1",promptRecipeVersionId:publishedRecipeVersionId,requiredCapabilities:["structured_output"],budgetPolicy:{maxTokens:6000},timeoutMs:120000,retryPolicy:{maxAttempts:2},confirmationPolicy:"before_adopt",createdBy:"integration-ai"};
+  let taskContract=await aiContracts.createTaskContract({taskKey:`chapter.generate.${Date.now()}`,name:"章节生成合同",description:"冻结章节生成输入输出与运行策略。",...taskInput});
+  assert.equal(taskContract.currentVersion.status,"proposed");
+  taskContract=await aiContracts.publishTaskContractVersion(taskContract.id,{versionId:taskContract.currentVersionId,expectedRevision:taskContract.revision,idempotencyKey:`publish-task-${Date.now()}`,actor:"integration-test"});
+  const publishedTaskVersionId=taskContract.publishedVersionId;
+  assert.equal((await aiContracts.getPublishedTaskContract(taskContract.taskKey)).versions.length,1);
+  assert.equal((await aiContracts.listPromptRecipeDependencies(publishedRecipeVersionId)).taskContracts.length,1);
+
+  const manifest=await aiContracts.createContextManifest({bookId:sampleBook.id,taskContractVersionId:publishedTaskVersionId,nodeKey:"draft",createdBy:"integration-test",slots:[{slotKey:"instructions",tokenBudget:500,entries:[{sourceType:"prompt_component",stableObjectId:customPrompt.id,exactVersionId:promptComponentVersionId,inclusionReason:"章节写法约束",priority:100,tokenEstimate:80,transformStatus:"full",sortOrder:0}],exclusions:[]},{slotKey:"sources",tokenBudget:2000,entries:[{sourceType:"body_version",stableObjectId:chapterDocument.id,exactVersionId:candidateB.id,inclusionReason:"当前采用正文",priority:90,tokenEstimate:700,transformStatus:"full",sortOrder:0},{sourceType:"planning_version",stableObjectId:storyPlan.id,exactVersionId:storyPlan.adoptedVersionId,inclusionReason:"当前采用总计划",priority:80,tokenEstimate:300,transformStatus:"summarized",sortOrder:1}],exclusions:[{sourceType:"research_version",stableObjectId:null,exactVersionId:null,reasonCode:"unavailable",reasonDetail:"本次章节未选择研究资产。",priority:20,tokenEstimate:400,sortOrder:0}]}]});
+  assert.equal(manifest.status,"complete");
+  assert.equal(manifest.slots[1].exclusions[0].reasonCode,"unavailable");
+  assert.ok(manifest.slots.flatMap(slot=>slot.entries).every(entry=>entry.contentHash.length===64));
+  await assert.rejects(()=>aiContracts.createContextManifest({bookId:sampleBook.id,taskContractVersionId:publishedTaskVersionId,slots:[{slotKey:"instructions",entries:[{sourceType:"prompt_component",stableObjectId:customPrompt.id,exactVersionId:"10000000-0000-4000-8000-000000000001",inclusionReason:"错误版本",priority:1,tokenEstimate:1,transformStatus:"full",sortOrder:0}],exclusions:[]},{slotKey:"sources",entries:[],exclusions:[]}]}),error=>error.status===422);
+  await assert.rejects(()=>(async()=>{const pool=await runtime.getNewDesignPool();await pool.query("UPDATE new_design.context_manifests SET manifest_hash=$2 WHERE id=$1",[manifest.id,"0".repeat(64)]);})(),/immutable/);
+
+  const credential=await aiContracts.saveModelCredentialRef({credentialKey:`integration.${Date.now()}`,provider:"openai",secretLocator:"env://INTEGRATION_MODEL_KEY"});
+  assert.equal(credential.hasLocator,true);assert.equal(Object.hasOwn(credential,"secretLocator"),false);
+  const routeBase={source:"system",fallbackMode:"replace",createdBy:"integration-test"};
+  const createAndPublish=async(input)=>{let config=await aiContracts.createModelRouteConfig(input);config=await aiContracts.publishModelRouteVersion(config.id,{versionId:config.currentVersionId,expectedRevision:config.revision,idempotencyKey:`publish-route-${config.id}`,actor:"integration-test"});return config;};
+  const systemRoute=await createAndPublish({scope:"system_default",name:"系统默认",...routeBase,provider:"openai",model:"gpt-default",parameters:{temperature:0.7},requiredCapabilities:["text"],credentialRefId:credential.id,budgetPolicy:{maxTokens:5000},timeoutMs:90000,retryPolicy:{maxAttempts:1},fallbacks:[{provider:"openai",model:"gpt-backup",parameters:{},credentialRefId:credential.id,technicalFailureCategories:["timeout","rate_limit"],sortOrder:0}]});
+  await createAndPublish({scope:"task_group",taskGroup:"chapter_production",name:"章节任务组",...routeBase,source:"manual",model:"gpt-group",parameters:{temperature:0.6},fallbackMode:"inherit",fallbacks:[]});
+  await createAndPublish({scope:"node",taskGroup:"chapter_production",nodeKey:"draft",name:"正文节点",...routeBase,source:"manual",parameters:{temperature:0.5},fallbackMode:"inherit",fallbacks:[]});
+  let bookRoute=await createAndPublish({scope:"book",bookId:sampleBook.id,name:"本书路由",...routeBase,source:"manual",model:"gpt-book",fallbackMode:"inherit",fallbacks:[]});
+  await createAndPublish({scope:"one_time",bookId:sampleBook.id,overrideKey:"run-once",name:"单次覆盖",...routeBase,source:"manual",parameters:{temperature:0.2},budgetPolicy:{maxTokens:7000},fallbackMode:"inherit",fallbacks:[]});
+  const resolvedRoute=await aiContracts.resolveModelRoute({bookId:sampleBook.id,taskContractVersionId:publishedTaskVersionId,nodeKey:"draft",oneTimeOverrideKey:"run-once"});
+  assert.equal(resolvedRoute.sourceLayers.length,5);assert.equal(resolvedRoute.model,"gpt-book");assert.equal(resolvedRoute.parameters.temperature,0.2);assert.equal(resolvedRoute.hasCredential,true);assert.equal(JSON.stringify(resolvedRoute).includes("INTEGRATION_MODEL_KEY"),false);
+  const routeSnapshot=await aiContracts.createModelRouteSnapshot({bookId:sampleBook.id,taskContractVersionId:publishedTaskVersionId,nodeKey:"draft",oneTimeOverrideKey:"run-once"});
+  assert.equal(routeSnapshot.sourceLayers.length,5);assert.equal(JSON.stringify(routeSnapshot).includes("INTEGRATION_MODEL_KEY"),false);
+  bookRoute=await aiContracts.addModelRouteVersion(bookRoute.id,{source:"manual",model:"gpt-book-v2",fallbackMode:"inherit",fallbacks:[],expectedRevision:bookRoute.revision,createdBy:"integration-test"});
+  bookRoute=await aiContracts.publishModelRouteVersion(bookRoute.id,{versionId:bookRoute.currentVersionId,expectedRevision:bookRoute.revision,idempotencyKey:`publish-route-v2-${bookRoute.id}`,actor:"integration-test"});
+  assert.equal((await aiContracts.resolveModelRoute({bookId:sampleBook.id,taskContractVersionId:publishedTaskVersionId,nodeKey:"draft"})).model,"gpt-book-v2");
+  assert.equal((await aiContracts.getModelRouteSnapshot(routeSnapshot.id)).model,"gpt-book");
+
   const secondBook = await templates.createBook({
     key: `parallel_${Date.now().toString(36)}`,
     name: "并行样书",
@@ -867,4 +909,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const restartedStoryPlan=await planning.getPlanningObject(persistedStoryPlanId);
   assert.equal(restartedStoryPlan.versions.length,2);
   assert.ok((await planning.getPlanningVersionContext(persistedScenePlanVersionId)).ancestors.length===3);
+  assert.equal((await aiContracts.getContextManifest(manifest.id)).manifestHash,manifest.manifestHash);
+  assert.equal((await aiContracts.getModelRouteSnapshot(routeSnapshot.id)).snapshotHash,routeSnapshot.snapshotHash);
+  assert.equal((await aiContracts.getPublishedTaskContract(taskContract.taskKey)).publishedVersionId,publishedTaskVersionId);
+  await assert.rejects(()=>aiContracts.createContextManifest({bookId:secondBook.id,taskContractVersionId:publishedTaskVersionId,slots:[{slotKey:"instructions",entries:[{sourceType:"prompt_component",stableObjectId:customPrompt.id,exactVersionId:promptComponentVersionId,inclusionReason:"公共提示词",priority:1,tokenEstimate:1,transformStatus:"full",sortOrder:0}],exclusions:[]},{slotKey:"sources",entries:[{sourceType:"body_version",stableObjectId:chapterDocument.id,exactVersionId:candidateB.id,inclusionReason:"错误书籍正文",priority:1,tokenEstimate:1,transformStatus:"full",sortOrder:0}],exclusions:[]}]}),error=>error.status===422);
 });

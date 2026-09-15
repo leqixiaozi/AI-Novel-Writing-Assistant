@@ -56,6 +56,7 @@ import { commitChapterSettlement, createStateMilestone, editStateChangeProposal,
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
 import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
+import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -150,6 +151,17 @@ import {
   planningVersionRejectSchema,
   planningVersionAdoptSchema,
   planningImpactStatusSchema,
+  promptRecipeCreateSchema,
+  promptRecipeVersionSchema,
+  taskContractCreateSchema,
+  taskContractVersionSchema,
+  contractPublishSchema,
+  contractRejectSchema,
+  contextManifestCreateSchema,
+  modelCredentialRefSchema,
+  modelRouteCreateSchema,
+  modelRouteVersionSchema,
+  modelRouteResolveSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -367,6 +379,29 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/planning-objects/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptPlanningVersion(String(req.params.id),body(planningVersionAdoptSchema,req)))));
   router.get("/planning-objects/:id/adoptions",asyncRoute(async(req,res)=>success(res,await listPlanningAdoptions(String(req.params.id)))));
   router.get("/planning-versions/:id/context",asyncRoute(async(req,res)=>success(res,await getPlanningVersionContext(String(req.params.id)))));
+  router.post("/prompt-recipes",asyncRoute(async(req,res)=>success(res,await createPromptRecipe(body(promptRecipeCreateSchema,req)),201)));
+  router.get("/prompt-recipes/:id",asyncRoute(async(req,res)=>success(res,await getPromptRecipe(String(req.params.id)))));
+  router.post("/prompt-recipes/:id/versions",asyncRoute(async(req,res)=>success(res,await addPromptRecipeVersion(String(req.params.id),body(promptRecipeVersionSchema,req)),201)));
+  router.post("/prompt-recipes/:id/publish",asyncRoute(async(req,res)=>success(res,await publishPromptRecipeVersion(String(req.params.id),body(contractPublishSchema,req)))));
+  router.post("/prompt-recipes/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectPromptRecipeVersion(String(req.params.id),body(contractRejectSchema,req)))));
+  router.get("/prompt-recipe-versions/:id/dependencies",asyncRoute(async(req,res)=>success(res,await listPromptRecipeDependencies(String(req.params.id)))));
+  router.get("/task-contracts/by-key/:taskKey",asyncRoute(async(req,res)=>success(res,await getPublishedTaskContract(String(req.params.taskKey)))));
+  router.post("/task-contracts",asyncRoute(async(req,res)=>success(res,await createTaskContract(body(taskContractCreateSchema,req)),201)));
+  router.get("/task-contracts/:id",asyncRoute(async(req,res)=>success(res,await getTaskContract(String(req.params.id)))));
+  router.post("/task-contracts/:id/versions",asyncRoute(async(req,res)=>success(res,await addTaskContractVersion(String(req.params.id),body(taskContractVersionSchema,req)),201)));
+  router.post("/task-contracts/:id/publish",asyncRoute(async(req,res)=>success(res,await publishTaskContractVersion(String(req.params.id),body(contractPublishSchema,req)))));
+  router.post("/task-contracts/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectTaskContractVersion(String(req.params.id),body(contractRejectSchema,req)))));
+  router.post("/context-manifests",asyncRoute(async(req,res)=>success(res,await createContextManifest(body(contextManifestCreateSchema,req)),201)));
+  router.get("/context-manifests/:id",asyncRoute(async(req,res)=>success(res,await getContextManifest(String(req.params.id)))));
+  router.put("/model-credential-refs",asyncRoute(async(req,res)=>success(res,await saveModelCredentialRef(body(modelCredentialRefSchema,req)))));
+  router.get("/model-credential-refs/:id",asyncRoute(async(req,res)=>success(res,await getModelCredentialRef(String(req.params.id)))));
+  router.post("/model-routes",asyncRoute(async(req,res)=>success(res,await createModelRouteConfig(body(modelRouteCreateSchema,req)),201)));
+  router.get("/model-routes/:id",asyncRoute(async(req,res)=>success(res,await getModelRouteConfig(String(req.params.id)))));
+  router.post("/model-routes/:id/versions",asyncRoute(async(req,res)=>success(res,await addModelRouteVersion(String(req.params.id),body(modelRouteVersionSchema,req)),201)));
+  router.post("/model-routes/:id/publish",asyncRoute(async(req,res)=>success(res,await publishModelRouteVersion(String(req.params.id),body(contractPublishSchema,req)))));
+  router.post("/model-routes/resolve",asyncRoute(async(req,res)=>success(res,await resolveModelRoute(body(modelRouteResolveSchema,req)))));
+  router.post("/model-route-snapshots",asyncRoute(async(req,res)=>success(res,await createModelRouteSnapshot(body(modelRouteResolveSchema,req)),201)));
+  router.get("/model-route-snapshots/:id",asyncRoute(async(req,res)=>success(res,await getModelRouteSnapshot(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

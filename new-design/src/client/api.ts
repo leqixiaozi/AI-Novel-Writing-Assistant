@@ -72,12 +72,30 @@ import type {
   PlanningTreeNode,
   PlanningVersionContext,
   PlanningVersionSource,
+  PromptRecipe,
+  PromptRecipeComponentBinding,
+  TaskContract,
+  TaskContractVersion,
+  ContextManifest,
+  ContextManifestEntry,
+  ContextManifestExclusion,
+  ModelCredentialRef,
+  ModelRouteConfig,
+  ModelRouteFallback,
+  ModelRouteScope,
+  ModelRouteSnapshot,
+  ResolvedModelRoute,
   ResourceAdoption,
   StrategyResourceSummary,
   TemplateGroupSummary,
   TemplateGroupVersion,
   TemplateSyncPreview,
 } from "../common/contracts";
+
+export type PromptRecipeVersionInput={source:"manual"|"ai"|"import"|"system";variablesSchema:Record<string,unknown>;slots:Array<{slotKey:string;sortOrder:number;required:boolean;allowedContentTypes:string[];variableContract:Record<string,unknown>;components:Array<Pick<PromptRecipeComponentBinding,"componentCardId"|"componentVersionId"|"sortOrder"|"required">>}>;baseVersionId?:string|null;createdBy?:string};
+export type TaskContractVersionInput=Pick<TaskContractVersion,"source"|"taskGroup"|"inputSchema"|"inputSchemaVersion"|"outputSchema"|"outputSchemaVersion"|"contextPolicyVersion"|"promptRecipeVersionId"|"requiredCapabilities"|"budgetPolicy"|"timeoutMs"|"retryPolicy"|"confirmationPolicy">&{baseVersionId?:string|null;createdBy?:string};
+export type ContextManifestInput={bookId:string;taskContractVersionId:string;nodeKey?:string|null;createdBy?:string;slots:Array<{slotKey:string;tokenBudget?:number|null;entries:Array<Omit<ContextManifestEntry,"id"|"slotId"|"sourceSpaceId"|"contentHash">>;exclusions:Array<Omit<ContextManifestExclusion,"id"|"slotId">>}>};
+export type ModelRouteVersionInput={source:"manual"|"import"|"system";provider?:string|null;model?:string|null;parameters?:Record<string,unknown>|null;requiredCapabilities?:string[]|null;credentialRefId?:string|null;budgetPolicy?:Record<string,unknown>|null;timeoutMs?:number|null;retryPolicy?:Record<string,unknown>|null;fallbackMode:"inherit"|"replace";fallbacks:Array<Omit<ModelRouteFallback,"hasCredential">&{credentialRefId?:string|null}>;baseVersionId?:string|null;createdBy?:string};
 
 const API_ROOT = "/api/new-design";
 
@@ -293,4 +311,27 @@ export const newDesignApi = {
   getPlanningVersionContext:(id:string)=>request<PlanningVersionContext>(`/planning-versions/${id}/context`),
   listStalePlanningVersions:(bookId:string)=>request<PlanningObject["versions"]>(`/books/${bookId}/stale-planning-versions`),
   listPlanningImpacts:(bookId:string,status?:PlanningImpact["status"])=>request<PlanningImpact[]>(`/books/${bookId}/planning-impacts${status?`?${new URLSearchParams({status}).toString()}`:""}`),
+  createPromptRecipe:(input:{recipeKey:string;name:string;description?:string}&PromptRecipeVersionInput)=>request<PromptRecipe>("/prompt-recipes",{method:"POST",body:JSON.stringify(input)}),
+  getPromptRecipe:(id:string)=>request<PromptRecipe>(`/prompt-recipes/${id}`),
+  addPromptRecipeVersion:(id:string,input:PromptRecipeVersionInput&{expectedRevision:number})=>request<PromptRecipe>(`/prompt-recipes/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  publishPromptRecipeVersion:(id:string,input:{versionId:string;expectedRevision:number;idempotencyKey:string;actor?:string})=>request<PromptRecipe>(`/prompt-recipes/${id}/publish`,{method:"POST",body:JSON.stringify(input)}),
+  rejectPromptRecipeVersion:(id:string,input:{versionId:string;expectedRevision:number})=>request<PromptRecipe>(`/prompt-recipes/${id}/reject`,{method:"POST",body:JSON.stringify(input)}),
+  getPromptRecipeDependencies:(versionId:string)=>request<{taskContracts:TaskContractVersion[];components:PromptRecipeComponentBinding[]}>(`/prompt-recipe-versions/${versionId}/dependencies`),
+  createTaskContract:(input:{taskKey:string;name:string;description?:string}&TaskContractVersionInput)=>request<TaskContract>("/task-contracts",{method:"POST",body:JSON.stringify(input)}),
+  getTaskContract:(id:string)=>request<TaskContract>(`/task-contracts/${id}`),
+  getPublishedTaskContract:(taskKey:string)=>request<TaskContract>(`/task-contracts/by-key/${encodeURIComponent(taskKey)}`),
+  addTaskContractVersion:(id:string,input:TaskContractVersionInput&{expectedRevision:number})=>request<TaskContract>(`/task-contracts/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  publishTaskContractVersion:(id:string,input:{versionId:string;expectedRevision:number;idempotencyKey:string;actor?:string})=>request<TaskContract>(`/task-contracts/${id}/publish`,{method:"POST",body:JSON.stringify(input)}),
+  rejectTaskContractVersion:(id:string,input:{versionId:string;expectedRevision:number})=>request<TaskContract>(`/task-contracts/${id}/reject`,{method:"POST",body:JSON.stringify(input)}),
+  createContextManifest:(input:ContextManifestInput)=>request<ContextManifest>("/context-manifests",{method:"POST",body:JSON.stringify(input)}),
+  getContextManifest:(id:string)=>request<ContextManifest>(`/context-manifests/${id}`),
+  saveModelCredentialRef:(input:{credentialKey:string;provider:string;secretLocator:string;status?:"active"|"disabled"})=>request<ModelCredentialRef>("/model-credential-refs",{method:"PUT",body:JSON.stringify(input)}),
+  getModelCredentialRef:(id:string)=>request<ModelCredentialRef>(`/model-credential-refs/${id}`),
+  createModelRoute:(input:{scope:ModelRouteScope;taskGroup?:string|null;nodeKey?:string|null;bookId?:string|null;overrideKey?:string|null;name:string}&ModelRouteVersionInput)=>request<ModelRouteConfig>("/model-routes",{method:"POST",body:JSON.stringify(input)}),
+  getModelRoute:(id:string)=>request<ModelRouteConfig>(`/model-routes/${id}`),
+  addModelRouteVersion:(id:string,input:ModelRouteVersionInput&{expectedRevision:number})=>request<ModelRouteConfig>(`/model-routes/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  publishModelRouteVersion:(id:string,input:{versionId:string;expectedRevision:number;idempotencyKey:string;actor?:string})=>request<ModelRouteConfig>(`/model-routes/${id}/publish`,{method:"POST",body:JSON.stringify(input)}),
+  resolveModelRoute:(input:{bookId:string;taskContractVersionId:string;nodeKey?:string|null;oneTimeOverrideKey?:string|null})=>request<ResolvedModelRoute>("/model-routes/resolve",{method:"POST",body:JSON.stringify(input)}),
+  createModelRouteSnapshot:(input:{bookId:string;taskContractVersionId:string;nodeKey?:string|null;oneTimeOverrideKey?:string|null})=>request<ModelRouteSnapshot>("/model-route-snapshots",{method:"POST",body:JSON.stringify(input)}),
+  getModelRouteSnapshot:(id:string)=>request<ModelRouteSnapshot>(`/model-route-snapshots/${id}`),
 };
