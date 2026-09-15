@@ -43,8 +43,8 @@
 
 ## F5 换稿边界
 
-只要章节存在稳定检查点，或目标正文与当前采用正文不同，本阶段不切换正文，也不失效旧事实。`GET /chapter-adoption-sessions/:id/impact-contract` 只返回旧／新正文、旧结算、旧检查点和下游依赖，且固定 `executionAllowed: false`。F5 在这个合同上实现影响预览、选择性重算和确认执行。
+只要章节存在稳定检查点，或目标正文与当前采用正文不同，F4 不直接切换正文，也不失效旧事实。`GET /chapter-adoption-sessions/:id/impact-contract` 返回旧／新正文、旧结算、旧检查点和下游依赖，且固定 `executionAllowed: false`。F5 在这个边界上持久化冻结预览、逐项处置计划和二次确认，从前一稳定检查点选择性重算；后续正文只建立人工复核标记。完整合同见 [chapter-revision-recompute.md](./chapter-revision-recompute.md)。
 
 ## 跨机器同步
 
-迁移 `040_chapter_adoption_settlement.sql`、接口代码、运行包规格和本文随 Git 同步。作者的采用会话、提案决定、正式变化与稳定检查点属于 PostgreSQL 业务数据，必须通过项目逻辑备份／恢复合同同步；仅拉取代码不会带走写作进度，也不能复制运行中的数据目录代替一致性备份。
+迁移 `040_chapter_adoption_settlement.sql`、`041_chapter_revision_recompute.sql`、接口代码、运行包规格和本文随 Git 同步。作者的采用会话、提案决定、正式变化、稳定检查点、换稿预览与处置计划属于 PostgreSQL 业务数据，必须通过项目逻辑备份／恢复合同同步；仅拉取代码不会带走写作进度，也不能复制运行中的数据目录代替一致性备份。

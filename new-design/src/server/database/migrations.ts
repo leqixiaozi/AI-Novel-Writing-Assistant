@@ -164,4 +164,8 @@ export const migrations: Migration[] = [
     id: "040_chapter_adoption_settlement",
     fileName: "040_chapter_adoption_settlement.sql",
   },
+  {
+    id: "041_chapter_revision_recompute",
+    fileName: "041_chapter_revision_recompute.sql",
+  },
 ];

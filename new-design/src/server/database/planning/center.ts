@@ -22,16 +22,19 @@ export async function getPlanningCenterWorkspace(bookId:string):Promise<Planning
       WHERE contract.status='active' AND version.task_group='planning'
         AND contract.published_version_id=version.id
       ORDER BY version.created_at DESC LIMIT 1`),
-    pool.query(`SELECT count(DISTINCT checkpoint.chapter_document_id) FILTER(WHERE checkpoint.status='stable') stable,
+    pool.query(`SELECT
+      (SELECT count(DISTINCT checkpoint.chapter_document_id) FROM new_design.chapter_stable_checkpoints checkpoint WHERE checkpoint.book_id=$1 AND checkpoint.status='stable') stable,
       count(*) FILTER(WHERE session.status IN ('reviewing','adopted_pending_proposals','pending_review','partially_confirmed','settling')) pending,
-      count(*) FILTER(WHERE session.status='failed') failed,count(*) FILTER(WHERE session.status='impact_review_required') impact_review
-      FROM new_design.chapter_adoption_sessions session
-      LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.session_id=session.id
-      WHERE session.book_id=$1`,[bookId]),
+      count(*) FILTER(WHERE session.status='failed') failed,
+      count(*) FILTER(WHERE session.status='impact_review_required') impact_review,
+      (SELECT count(*) FROM new_design.chapter_revision_executions execution WHERE execution.book_id=$1 AND execution.status IN ('queued','running','awaiting_review')) revision_running,
+      (SELECT count(*) FROM new_design.chapter_revision_executions execution WHERE execution.book_id=$1 AND execution.status IN ('partially_failed','failed','dead_letter')) revision_failed,
+      (SELECT count(*) FROM new_design.chapter_revision_review_flags flag WHERE flag.book_id=$1 AND flag.status IN ('pending_review','in_review')) downstream_review
+      FROM new_design.chapter_adoption_sessions session WHERE session.book_id=$1`,[bookId]),
   ]);
   const objects:PlanningObject[]=await Promise.all(objectRows.rows.map(row=>getPlanningObject(String(row.id))));
   const capability=contract.rows[0];
-  const settlement=settlements.rows[0];return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review)},aiCapability:capability?{configured:true,taskKey:String(capability.task_key),taskContractVersionId:String(capability.version_id),message:"已识别规划任务合同；AI 候选执行入口仍待接入，可先人工填写计划。"}:{configured:false,taskKey:null,taskContractVersionId:null,message:"规划任务尚未配置。可先人工填写，或到高级设置完成任务合同与模型分工。"},updatedAt:new Date().toISOString()};
+  const settlement=settlements.rows[0];return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review),revisionRunning:Number(settlement.revision_running),revisionFailed:Number(settlement.revision_failed),downstreamReview:Number(settlement.downstream_review)},aiCapability:capability?{configured:true,taskKey:String(capability.task_key),taskContractVersionId:String(capability.version_id),message:"已识别规划任务合同；AI 候选执行入口仍待接入，可先人工填写计划。"}:{configured:false,taskKey:null,taskContractVersionId:null,message:"规划任务尚未配置。可先人工填写，或到高级设置完成任务合同与模型分工。"},updatedAt:new Date().toISOString()};
 }
 
 export async function getBookOverview(bookId:string):Promise<BookOverview>{
@@ -47,6 +50,8 @@ export async function getBookOverview(bookId:string):Promise<BookOverview>{
     pool.query("SELECT count(*) FILTER(WHERE status='active') document_total,count(*) FILTER(WHERE status='active' AND adopted_version_id IS NOT NULL) written_total,max(updated_at) updated_at FROM new_design.chapter_documents WHERE book_id=$1",[bookId]),
     pool.query(`SELECT count(DISTINCT checkpoint.chapter_document_id) FILTER(WHERE checkpoint.status='stable') stable_total,
       count(*) FILTER(WHERE session.status IN ('reviewing','adopted_pending_proposals','pending_review','partially_confirmed','settling','failed','impact_review_required')) attention_total,
+      (SELECT count(*) FROM new_design.chapter_revision_executions execution WHERE execution.book_id=$1 AND execution.status IN ('queued','running','awaiting_review','partially_failed','failed','dead_letter')) revision_attention,
+      (SELECT count(*) FROM new_design.chapter_revision_review_flags flag WHERE flag.book_id=$1 AND flag.status IN ('pending_review','in_review')) review_attention,
       max(session.updated_at) updated_at FROM new_design.chapter_adoption_sessions session LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.session_id=session.id WHERE session.book_id=$1`,[bookId]),
     pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.canonical_facts WHERE book_id=$1 AND status='proposed'",[bookId]),
     pool.query(`SELECT count(*) count,max(item.updated_at) updated_at FROM new_design.chapter_settlement_items item JOIN new_design.chapter_adoption_sessions session ON session.id=item.session_id WHERE session.book_id=$1 AND item.decision IN ('pending','defer')`,[bookId]),
@@ -66,7 +71,8 @@ export async function getBookOverview(bookId:string):Promise<BookOverview>{
     metric("volume_plans","卷规划",Number(pc.volume_adopted),`/${Number(pc.volume_total)}`,Number(pc.volume_total)>0&&Number(pc.volume_adopted)===Number(pc.volume_total)?"ready":"attention","采用后的卷计划才会约束章节规划。","规划版本账本",`/new-design/books/${bookId}/planning`,pc.updated_at),
     metric("chapter_plans","章节规划",Number(pc.chapter_adopted),`/${Number(pc.chapter_total)}`,Number(pc.chapter_total)>=3&&Number(pc.chapter_adopted)>=3?"ready":"attention","前三章各自需要一个明确采用的计划版本。","规划版本账本",`/new-design/books/${bookId}/planning`,pc.updated_at),
     metric("written_chapters","已写章节",Number(bc.written_total),`/${Number(bc.document_total)}`,Number(bc.written_total)>0?"ready":"attention","只统计存在采用正文版本的章节。","正文版本账本",`/new-design/books/${bookId}/views/chapters`,bc.updated_at),
-    metric("stable_chapters","稳定章节",Number(settlement.stable_total)," 章",Number(settlement.attention_total)>0?"attention":Number(settlement.stable_total)>0?"ready":"unknown","下一章只读取完成正文采用和变化确认的稳定检查点。","章节结算账本",`/new-design/books/${bookId}/writing`,settlement.updated_at),
+    metric("stable_chapters","稳定章节",Number(settlement.stable_total)," 章",Number(settlement.attention_total)+Number(settlement.revision_attention)+Number(settlement.review_attention)>0?"attention":Number(settlement.stable_total)>0?"ready":"unknown","下一章只读取完成正文采用、变化确认和换稿复核的稳定检查点。","章节结算账本",`/new-design/books/${bookId}/writing`,settlement.updated_at),
+    metric("revision_attention","换稿后续",Number(settlement.revision_attention)+Number(settlement.review_attention)," 项",Number(settlement.revision_attention)+Number(settlement.review_attention)>0?"attention":"ready","汇总选择性重算、失败恢复和后续章节正文复核。","换稿重算账本",`/new-design/books/${bookId}/writing`,settlement.updated_at),
     metric("pending_facts","待确认事实",Number(fact.count)," 条",Number(fact.count)>0?"attention":"ready","候选事实需要确认后才进入正式事实。","事实账本",`/new-design/books/${bookId}/views/events`,fact.updated_at),
     metric("pending_changes","待确认变化",Number(change.count)," 条",Number(change.count)>0?"attention":"ready","汇总章节采用清单中的待确认和稍后处理内容。","章节结算账本",`/new-design/books/${bookId}/writing`,change.updated_at),
     metric("continuity_issues","连续性与质量问题",Number(issue.count)," 项",Number(issue.count)>0?"attention":"ready","包括待处理、已知悉和已有修复候选的问题。","质量审查账本",`/new-design/books/${bookId}/planning?panel=issues`,issue.updated_at),

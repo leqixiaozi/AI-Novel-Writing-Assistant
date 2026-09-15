@@ -59,6 +59,7 @@ import { getReferencePack, listBookResearchReferences, listReferencePacks, previ
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
 import { createChapterWritingRequest, getChapterAdoptionPreparation, getChapterWritingRequest, getChapterWritingWorkspace, ingestChapterWritingResult, listChapterWritingRequests, prepareChapterAdoption, saveChapterCandidate } from "../database/chapterWriting";
 import { addChapterSettlementItem, createChapterProposalExtractionRequest, decideChapterSettlementItems, getChapterBodySwitchImpactContract, getChapterSettlementWorkspace, getNextChapterStableContext, ingestChapterProposalExtractionResult, settleChapterAdoptionSession, startChapterAdoptionSession, updateChapterSettlementItem } from "../database/chapterSettlement";
+import { createChapterRevisionPreview, executeChapterRevisionPlan, getChapterRevisionStableReadContract, getChapterRevisionWorkspace, resolveChapterRevisionReviewFlag, saveChapterRevisionPlan } from "../database/chapterRevision";
 import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
 import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
@@ -148,6 +149,10 @@ import {
   chapterSettlementCommitSchema,
   chapterProposalExtractionRequestSchema,
   chapterProposalExtractionResultSchema,
+  chapterRevisionPreviewSchema,
+  chapterRevisionPlanSchema,
+  chapterRevisionExecuteSchema,
+  chapterRevisionReviewResolutionSchema,
   chapterBodyArchiveSchema,
   chapterTextAnchorInputSchema,
   canonicalFactInputSchema,
@@ -518,6 +523,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/chapter-adoption-sessions/:id/extraction-requests",asyncRoute(async(req,res)=>success(res,await createChapterProposalExtractionRequest(String(req.params.id),body(chapterProposalExtractionRequestSchema,req)),202)));
   router.post("/chapter-proposal-extraction-requests/:id/result",asyncRoute(async(req,res)=>success(res,await ingestChapterProposalExtractionResult(String(req.params.id),body(chapterProposalExtractionResultSchema,req)),201)));
   router.get("/books/:bookId/chapters/:chapterCardId/stable-context",asyncRoute(async(req,res)=>success(res,await getNextChapterStableContext(String(req.params.bookId),String(req.params.chapterCardId)))));
+  router.post("/chapter-adoption-sessions/:id/revision-previews",asyncRoute(async(req,res)=>success(res,await createChapterRevisionPreview(String(req.params.id),body(chapterRevisionPreviewSchema,req)),201)));
+  router.get("/chapter-revision-previews/:id",asyncRoute(async(req,res)=>success(res,await getChapterRevisionWorkspace(String(req.params.id)))));
+  router.post("/chapter-revision-previews/:id/plan",asyncRoute(async(req,res)=>success(res,await saveChapterRevisionPlan(String(req.params.id),body(chapterRevisionPlanSchema,req)),201)));
+  router.post("/chapter-revision-plans/:id/execute",asyncRoute(async(req,res)=>success(res,await executeChapterRevisionPlan(String(req.params.id),body(chapterRevisionExecuteSchema,req)),202)));
+  router.post("/chapter-revision-review-flags/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveChapterRevisionReviewFlag(String(req.params.id),body(chapterRevisionReviewResolutionSchema,req)))));
+  router.get("/books/:bookId/chapter-revision-state",asyncRoute(async(req,res)=>{const chapterDocumentId=req.query.chapterDocumentId===undefined?null:z.string().uuid().parse(req.query.chapterDocumentId);success(res,await getChapterRevisionStableReadContract(String(req.params.bookId),chapterDocumentId));}));
   router.get("/chapter-writing-requests/:id",asyncRoute(async(req,res)=>success(res,await getChapterWritingRequest(String(req.params.id)))));
   router.post("/chapter-writing-requests/:id/result",asyncRoute(async(req,res)=>success(res,await ingestChapterWritingResult(String(req.params.id),body(chapterWritingResultSchema,req)),201)));
   router.get("/chapter-adoption-preparations/:id",asyncRoute(async(req,res)=>success(res,await getChapterAdoptionPreparation(String(req.params.id)))));

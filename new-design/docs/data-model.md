@@ -677,6 +677,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**正文先采用，变化再确认，原件各归位，检查点才放行。** 详细合同见 [chapter-adoption-settlement.md](./chapter-adoption-settlement.md)。
 
+### 041 旧章换稿与选择性重算
+
+`041_chapter_revision_recompute.sql` 新增冻结影响预览、逐项处置计划、执行步骤、后续正文复核、人工保护和只追加事件账本。它以 040 的旧结算／稳定检查点为起点，复用 026 的统一依赖失效和 030 的后台作业，不复制正文、事实、知识、状态、AGE 图或 pgvector 语义正本。
+
+预览按采用会话保证至多一个 `ready` 版本，过期和已消费预览保留审计并允许重新生成。执行前同时核对文档修订、采用正文和依赖 generation；执行后旧检查点转为 `superseded`，新正文必须重新完成 F4 结算。后续正文只写 `chapter_revision_review_flags`，不会被后台覆盖。
+
+> 🏠 **白话比喻**：041 像旧楼改造前的管线勘察和施工签字单。原始图纸不销毁，每条水电线路决定重接、复核或保留人工绕线，住户房间不能被施工队擅自改动。对应到数据库：历史版本保留，派生依赖可重算，人工保护和后续正文复核都有独立账本。
+
+> 🧠 **速记方法**：**冻、选、确、算、审、稳。** 冻结影响，选择动作，二次确认，重算派生，人工复核，稳定检查点放行。详细合同见 [chapter-revision-recompute.md](./chapter-revision-recompute.md)。
+
 > 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
 
 > 🧠 **速记方法**：**规则选候选，预览算预算，运行冻小票；必需缺一项就关门，来源换版不改旧账。** 详细边界见 [context-management-and-assembly.md](./context-management-and-assembly.md)。
