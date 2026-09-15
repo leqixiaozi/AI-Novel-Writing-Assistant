@@ -22,10 +22,11 @@
 - `ResearchDocumentVersion` / `ResearchRecordVersion`：分别冻结待分析文本与每次拆书运行；报告、证据、候选和采用动作都锁定运行版本。
 - `ResearchReferencePackVersion` / `BookCreationResearchSelection`：把多个精确研究运行组合成不可变参考包，并在开书会话中冻结预填快照；研究建议只填空白字段，不覆盖模板、AI 草稿或作者已有值。
 - `ChapterDocument` / `ChapterBodyVersion` / `ChapterTextAnchor`：用章节档案保存逻辑顺序和唯一正式正文指针；人工稿、AI 候选、修订与导入均新增不可变版本，精确锚点始终绑定某个正文版本。
+- `CanonicalFact` / `CanonicalFactEvidence` / `CanonicalFactConflict`：把已确认小说事实与卡片描述分开；新事实先进入提案，证据、冲突、人工审核和修正取代链全程留痕。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/016_chapter_body_versions.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/017_canonical_facts.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
 
 ## 内置创作资料规格
 
@@ -47,6 +48,8 @@
 
 章节正文现在有独立的版本正本：章节卡只负责章节资料，`ChapterDocument` 负责正文身份和逻辑顺序，`ChapterBodyVersion` 保存每次完整正文与 SHA-256 哈希。AI 生成只新增候选，必须由用户显式采用才切换正式指针；回退、再次采用、候选归档和幂等操作均保留历史。文本锚点记录字符起止、原片段与片段哈希，正文切版后旧锚点保留并标记陈旧。
 
+统一事实存储把“卡片里如何描述”与“小说已经确认发生什么”分开。文本、数值、布尔、JSON 和卡片引用事实都先以 `proposed` 写入，AI 抽取不能直接确认；证据必须且只能指向正文锚点、卡片版本或研究证据之一。重叠时间范围内的不同值会生成冲突记录，人工可确认、驳回或提交修正事实；修正确认后旧事实才进入 `superseded`。
+
 “我的书籍”内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。事件规划表单可装配人物、地点、道具与剧情线。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
 
 预置内容由版本化 SQL 管理并进入 Git，因此每台开发机器都能得到同一套基础数据。作者自行创建和填写的业务数据不进入 Git，仍需 PostgreSQL 备份与恢复。
@@ -63,7 +66,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `016` 顺序建立卡片、书籍、多视图、变更集、研究分析、研究复用与章节正文版本数据。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `017` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本与统一事实数据。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -81,7 +84,7 @@ pnpm --filter @ai-novel/new-design test:integration
 pnpm --filter @ai-novel/client build
 ```
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加、策略资源安装隔离、提示词组件去重与 CRUD、六视图的跨视图一致性、高影响修改的预览／原子应用／过期保护，以及研究复用、章节多候选、显式采用／回退、精确锚点陈旧判断和停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、高影响修改保护，以及研究复用、章节多候选、显式采用／回退、精确锚点、事实提案／冲突／确认／驳回／修正取代、正文切版陈旧传播和停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
 
 ## 当前范围之外
 

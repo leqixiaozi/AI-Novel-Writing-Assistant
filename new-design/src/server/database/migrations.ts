@@ -68,4 +68,8 @@ export const migrations: Migration[] = [
     id: "016_chapter_body_versions",
     fileName: "016_chapter_body_versions.sql",
   },
+  {
+    id: "017_canonical_facts",
+    fileName: "017_canonical_facts.sql",
+  },
 ];

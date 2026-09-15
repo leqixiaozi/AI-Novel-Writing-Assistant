@@ -43,6 +43,9 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 books 1 ── n chapter_documents 1 ── n chapter_body_versions
 chapter_documents 1 ── n chapter_body_adoptions
 chapter_body_versions 1 ── n chapter_text_anchors
+books 1 ── n canonical_facts 1 ── n canonical_fact_evidence
+canonical_facts n ── n canonical_fact_conflicts
+canonical_facts 1 ── n canonical_fact_review_actions
 ```
 
 ## 研究与分析固定对象
@@ -72,6 +75,18 @@ chapter_body_versions 1 ── n chapter_text_anchors
 > 🏠 **白话比喻**：一章的多个正文版本像编辑桌上的几份校样，只有盖章那份才拿去印刷；便签贴在某一份校样的第几行，不会偷偷飞到新校样上。对应到系统里：候选版本只追加，正式采用靠唯一指针，文本锚点锁定具体版本。
 
 > 🧠 **速记方法**：**多稿并存，一稿盖章；锚点跟稿，不跟章漂**。
+
+### 统一事实、证据、冲突与修正链
+
+`canonical_facts` 保存书籍范围内的主体、谓词、类型化值、可选对象卡片、有效故事时间、置信度、来源方式和审核状态。所有入口都只创建 `proposed`；AI 抽取不会直接产生 `confirmed`。事实值不原地编辑，需要修正时新增一条带 `supersedes_fact_id` 的提案，人工确认后旧事实才写入 `superseded_by_fact_id` 并转为 `superseded`。
+
+`canonical_fact_evidence` 每行只能指向正文精确锚点、卡片版本或研究证据之一，并记录提取方式。章节采用其他正文版本时，旧正文上的证据写入 `stale_at/stale_reason`，相关未确认事实转为 `stale`，同时追加 `mark_stale` 审核记录；历史证据不删除。`canonical_fact_review_actions` 保存提案、确认、驳回、取代和陈旧传播，确认与驳回使用幂等键。
+
+`canonical_fact_conflicts` 保存同一主体和谓词在重叠有效时间中出现不同值的冲突，任何一方都不会因此被自动覆盖。冲突只能由人工选择已确认事实解决，或明确忽略；修正事实正式确认时，可把它与被修正旧事实之间的冲突结清。
+
+> 🏠 **白话比喻**：卡片像人物档案里的简介，事实库像法庭确认的案情记录；证词先登记，互相矛盾就挂起冲突，法官确认后才成为有效结论，后来翻案也要留下原判和新判。对应到系统里：卡片描述不是正典，AI 只提交证词，人工审核决定事实状态，修正通过新记录取代旧记录。
+
+> 🧠 **速记方法**：**描述归卡片，事实先进提案；证据要挂号，冲突不覆盖，修正另开单**。
 
 ### 市场雷达快照与市场信号
 

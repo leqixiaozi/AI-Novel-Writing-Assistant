@@ -51,6 +51,7 @@ import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from 
 import { applyCandidateDecisions } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
+import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -110,6 +111,10 @@ import {
   chapterBodyAdoptionSchema,
   chapterBodyArchiveSchema,
   chapterTextAnchorInputSchema,
+  canonicalFactInputSchema,
+  canonicalFactReviewSchema,
+  canonicalFactConflictReviewSchema,
+  canonicalFactStatusSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -266,6 +271,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/chapter-documents/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptChapterBodyVersion(String(req.params.id),body(chapterBodyAdoptionSchema,req)))));
   router.post("/chapter-body-versions/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveChapterBodyVersion(String(req.params.id),body(chapterBodyArchiveSchema,req)))));
   router.post("/chapter-body-versions/:id/anchors",asyncRoute(async(req,res)=>success(res,await createChapterTextAnchor({bodyVersionId:String(req.params.id),...body(chapterTextAnchorInputSchema,req)}),201)));
+  router.get("/books/:id/facts",asyncRoute(async(req,res)=>success(res,await listCanonicalFacts(String(req.params.id),typeof req.query.status==="string"?canonicalFactStatusSchema.parse(req.query.status):undefined))));
+  router.post("/books/:id/facts",asyncRoute(async(req,res)=>success(res,await proposeCanonicalFact({bookId:String(req.params.id),...body(canonicalFactInputSchema,req)}),201)));
+  router.get("/facts/:id",asyncRoute(async(req,res)=>success(res,await getCanonicalFact(String(req.params.id)))));
+  router.post("/facts/:id/review",asyncRoute(async(req,res)=>success(res,await reviewCanonicalFact(String(req.params.id),body(canonicalFactReviewSchema,req)))));
+  router.get("/books/:id/fact-conflicts",asyncRoute(async(req,res)=>success(res,await listFactConflicts(String(req.params.id)))));
+  router.post("/fact-conflicts/:id/review",asyncRoute(async(req,res)=>success(res,await resolveFactConflict(String(req.params.id),body(canonicalFactConflictReviewSchema,req)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

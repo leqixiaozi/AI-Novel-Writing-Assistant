@@ -531,6 +531,14 @@ export interface ChapterTextAnchor {id:string;bookId:string;chapterDocumentId:st
 export interface ChapterDocumentSummary {id:string;bookId:string;chapterCardId:string;logicalOrder:number;title:string;status:"active"|"archived";adoptedVersionId:string|null;revision:number;createdAt:string;updatedAt:string;}
 export interface ChapterDocumentDetail extends ChapterDocumentSummary {versions:ChapterBodyVersion[];adoptions:ChapterBodyAdoption[];anchors:ChapterTextAnchor[];}
 
+export type CanonicalFactStatus="proposed"|"confirmed"|"rejected"|"superseded"|"stale";
+export type CanonicalFactValueKind="text"|"number"|"boolean"|"json"|"card_reference";
+export type CanonicalFactSourceMethod="manual"|"ai_extract"|"import"|"system";
+export interface CanonicalFactEvidence {id:string;factId:string;chapterTextAnchorId:string|null;cardVersionId:string|null;researchEvidenceId:string|null;extractionMethod:CanonicalFactSourceMethod;note:string;staleAt:string|null;staleReason:string;createdAt:string;}
+export interface CanonicalFactReviewAction {id:string;factId:string;action:"propose"|"confirm"|"reject"|"supersede"|"mark_stale";fromStatus:CanonicalFactStatus|null;toStatus:CanonicalFactStatus;idempotencyKey:string|null;actor:string;note:string;createdAt:string;}
+export interface CanonicalFact {id:string;bookId:string;subjectCardId:string;predicate:string;valueKind:CanonicalFactValueKind;value:unknown;valueHash:string;objectCardId:string|null;validStoryStart:number|null;validStoryEnd:number|null;status:CanonicalFactStatus;confidence:number|null;sourceMethod:CanonicalFactSourceMethod;supersedesFactId:string|null;supersededByFactId:string|null;revision:number;createdBy:string;createdAt:string;updatedAt:string;evidence:CanonicalFactEvidence[];reviewActions:CanonicalFactReviewAction[];}
+export interface CanonicalFactConflict {id:string;bookId:string;factAId:string;factBId:string;predicate:string;reason:string;status:"open"|"resolved"|"dismissed";resolutionFactId:string|null;revision:number;createdAt:string;resolvedAt:string|null;}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

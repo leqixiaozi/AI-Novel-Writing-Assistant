@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -73,6 +73,15 @@ test("chapter body versions and exact anchors require explicit immutable inputs"
   assert.equal(chapterBodyVersionInputSchema.safeParse({content:"",source:"ai_candidate",createdByKind:"ai"}).success,false);
   assert.equal(chapterBodyAdoptionSchema.safeParse({versionId:"10000000-0000-4000-8000-000000000001",expectedRevision:1,idempotencyKey:"adopt-chapter-1"}).success,true);
   assert.equal(chapterTextAnchorInputSchema.safeParse({startOffset:5,endOffset:3,label:"错误锚点"}).success,false);
+});
+
+test("canonical facts always enter through a typed evidence-backed proposal",()=>{
+  const common={subjectCardId:"10000000-0000-4000-8000-000000000001",predicate:"current_location",valueKind:"text",value:"白水驿",sourceMethod:"ai_extract",evidence:[{chapterTextAnchorId:"20000000-0000-4000-8000-000000000001",extractionMethod:"ai_extract"}]};
+  assert.equal(canonicalFactInputSchema.safeParse(common).success,true);
+  assert.equal(canonicalFactInputSchema.safeParse({...common,value:undefined}).success,false);
+  assert.equal(canonicalFactInputSchema.safeParse({...common,evidence:[]}).success,false);
+  assert.equal(canonicalFactInputSchema.safeParse({...common,evidence:[{...common.evidence[0],researchEvidenceId:"30000000-0000-4000-8000-000000000001"}]}).success,false);
+  assert.equal(canonicalFactReviewSchema.safeParse({action:"confirm",expectedRevision:1,idempotencyKey:"confirm-fact-1"}).success,true);
 });
 
 test("public ranking adapters only extract source metadata",()=>{
