@@ -59,6 +59,7 @@ import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdop
 import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
+import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdge, endDependencyEdge, getDependencyBookSummary, getDependencyInvalidation, listCurrentDependencyStates, listDependencyConflicts, listDependencyHistory, listDependencyReceipts, listDependencyRecomputeRequests, listResourceDependencies, previewDependencyChange, recordDependencyInvalidation, registerDependencyResource, resolveDependencyConflict, startDependencyRecompute } from "../database/dependencies";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -184,6 +185,19 @@ import {
   qualityRecheckSchema,
   qualityReportListQuerySchema,
   qualityIssueListQuerySchema,
+  dependencyResourceRegisterSchema,
+  dependencyEdgeCreateSchema,
+  dependencyEdgeEndSchema,
+  dependencyPreviewSchema,
+  dependencyInvalidationSchema,
+  dependencyGraphQuerySchema,
+  dependencyStateQuerySchema,
+  dependencyRecomputeQuerySchema,
+  dependencyHistoryQuerySchema,
+  dependencyConflictQuerySchema,
+  dependencyConflictResolutionSchema,
+  dependencyRecomputeCompletionSchema,
+  dependencyStaleAcceptanceSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -452,6 +466,23 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/quality/commands/fix-candidates/:id/decision",asyncRoute(async(req,res)=>success(res,await decideQualityFixCandidate(String(req.params.id),body(qualityFixDecisionSchema,req)))));
   router.post("/quality/commands/fix-candidates/:id/adoption",asyncRoute(async(req,res)=>success(res,await recordQualityFixAdoption(String(req.params.id),body(qualityFixAdoptionSchema,req)),201)));
   router.post("/quality/commands/rechecks",asyncRoute(async(req,res)=>success(res,await recordQualityRecheck(body(qualityRecheckSchema,req)),201)));
+  router.post("/dependencies/resources",asyncRoute(async(req,res)=>success(res,await registerDependencyResource(body(dependencyResourceRegisterSchema,req)),201)));
+  router.post("/dependencies/edges",asyncRoute(async(req,res)=>success(res,await createDependencyEdge(body(dependencyEdgeCreateSchema,req)),201)));
+  router.post("/dependencies/edges/:id/end",asyncRoute(async(req,res)=>success(res,await endDependencyEdge(String(req.params.id),body(dependencyEdgeEndSchema,req).reason))));
+  router.post("/dependencies/previews",asyncRoute(async(req,res)=>success(res,await previewDependencyChange(body(dependencyPreviewSchema,req)),201)));
+  router.post("/dependencies/invalidations",asyncRoute(async(req,res)=>success(res,await recordDependencyInvalidation(body(dependencyInvalidationSchema,req)),201)));
+  router.get("/dependencies/invalidations/:id",asyncRoute(async(req,res)=>success(res,await getDependencyInvalidation(String(req.params.id),typeof req.query.bookId==="string"?String(req.query.bookId):undefined))));
+  router.get("/books/:id/dependencies/resources/:resourceId",asyncRoute(async(req,res)=>success(res,await listResourceDependencies({bookId:String(req.params.id),resourceId:String(req.params.resourceId),...dependencyGraphQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/dependencies/states",asyncRoute(async(req,res)=>success(res,await listCurrentDependencyStates({bookId:String(req.params.id),...dependencyStateQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/dependencies/recomputes",asyncRoute(async(req,res)=>success(res,await listDependencyRecomputeRequests({bookId:String(req.params.id),...dependencyRecomputeQuerySchema.parse(req.query)}))));
+  router.post("/dependencies/recomputes/:id/start",asyncRoute(async(req,res)=>success(res,await startDependencyRecompute(String(req.params.id)))));
+  router.post("/dependencies/recomputes/:id/complete",asyncRoute(async(req,res)=>success(res,await completeDependencyRecompute({requestId:String(req.params.id),...body(dependencyRecomputeCompletionSchema,req)}),201)));
+  router.post("/dependencies/accept-stale",asyncRoute(async(req,res)=>success(res,await acceptStaleDependency(body(dependencyStaleAcceptanceSchema,req)),201)));
+  router.get("/books/:id/dependencies/history",asyncRoute(async(req,res)=>success(res,await listDependencyHistory({bookId:String(req.params.id),...dependencyHistoryQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/dependencies/receipts",asyncRoute(async(req,res)=>success(res,await listDependencyReceipts({bookId:String(req.params.id),...dependencyHistoryQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/dependencies/conflicts",asyncRoute(async(req,res)=>success(res,await listDependencyConflicts({bookId:String(req.params.id),...dependencyConflictQuerySchema.parse(req.query)}))));
+  router.post("/dependencies/conflicts/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveDependencyConflict(String(req.params.id),body(dependencyConflictResolutionSchema,req)))));
+  router.get("/books/:id/dependencies/summary",asyncRoute(async(req,res)=>success(res,await getDependencyBookSummary(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

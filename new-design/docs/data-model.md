@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -233,6 +233,20 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：质量账本像医院的检查、处方和复诊档案。检查报告必须写清是哪次片子，处方只是建议，病人真正治疗后还要拿新片复诊；如果后来换了一张片子，旧诊断不能冒充当前结论，只能保留并标成过期。
 
 > 🧠 **速记方法**：**报告锁快照，问题加版本，证据指正本；补丁先候选，正文另采用，复检才验证，依赖一换就陈旧**。
+
+### 统一依赖、失效传播与重算账本
+
+`dependency_resources` 把卡片／关系、研究版本、正文／锚点、事实、结算、状态、知情、时间／因果、规划、上下文、AI 尝试和质量报告统一登记成可验证资源。资源引用必须同时给出稳定对象 ID 和确切版本 ID，数据库会回到原表验证所属空间、书籍并计算或读取内容哈希；布局、折叠和视图偏好不属于生产依赖。全局模板、提示词和任务合同允许作为无书籍来源，但每条实际依赖边必须落在明确书籍空间，下游不能跨书。
+
+`dependency_edges` 只追加历史：依赖变化只能结束旧边并新增边，自环、重复有效边、跨书引用和循环都会被阻止。循环预检还会写入 `dependency_conflicts` 供人工处理。变更前，`dependency_change_previews` 冻结递归影响清单并可关联既有 `book_change_sets`；变更后，`dependency_invalidation_events` 与 `dependency_invalidation_impacts` 保存真实直接／间接传播深度和完整路径，后续依赖变化不会改写旧快照。
+
+每个受影响资源会保留独立 `dependency_stale_reasons`，并进入 stale、invalid、needs_review、recompute_pending 或 recomputing 等明确状态。系统自动建立 `dependency_recompute_requests`，只保存目标、当前直接上游版本集合、优先级、原因、策略与可选任务合同，本层不执行重算。`dependency_recompute_receipts` 追加保存输入依赖快照和输出版本／哈希；迟到结果若不再匹配当前上游或出现更新的失效原因，只能记为 `rejected_stale`，不能清除新陈旧项。用户也可以通过 `dependency_stale_acceptances` 明确接受单个风险并保留决定历史。
+
+正文采用、规划采用、事实确认／失效、章节结算、知情确认／失效、故事时间／因果确认、提示词／任务合同发布和质量报告陈旧均接到同一数据库桥接函数。查询覆盖上下游、预览、实际传播路径、当前陈旧项、待重算队列、回执历史、循环冲突和书籍汇总。AGE 后续只能从这些正本重建查询投影，不能成为第二份人工事实。
+
+> 🏠 **白话比喻**：依赖账本像建筑档案室。每张施工图都写明“依据哪一版总图”，总图换版后，档案员会沿目录找到所有受影响图纸并贴上复核标签；旧图和旧标签继续归档，迟到的施工回执不能把新标签撕掉。对应到数据库：资源注册是图纸编号，依赖边是依据目录，失效事件是换版通知，重算回执是复核签字。
+
+> 🧠 **速记方法**：**先登记版本，再连依赖；变更前预览，变更后冻结；旧结果不消新陈旧，接受风险必须留签字**。
 
 > 🏠 **白话比喻**：总计划像建筑总图，卷、章、场景像楼层图、房间图和施工单。总图换版时，施工单不会被人偷偷重画，而是盖上“依据旧图，待复核”的章；采用哪一版则像档案室门口唯一生效的蓝图编号。
 

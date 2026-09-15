@@ -744,6 +744,31 @@ export interface TemplateSyncPreview {
   status: "previewed" | "applied" | "dismissed";
 }
 
+export type DependencyResourceKind =
+  | "card_type_version" | "template_group_version" | "card_version" | "card_relation"
+  | "research_document_version" | "research_record_version" | "research_reference_pack_version"
+  | "chapter_body_version" | "chapter_text_anchor" | "canonical_fact" | "chapter_settlement"
+  | "state_change" | "knowledge_state_change" | "story_event_timing" | "story_event_relation"
+  | "planning_version" | "prompt_recipe_version" | "task_contract_version" | "context_manifest"
+  | "model_route_snapshot" | "ai_task_attempt" | "quality_audit_report";
+export type DependencyKind = "generated_from" | "planned_from" | "validated_against" | "evidenced_by" | "context_included" | "configured_by" | "settled_from" | "audited_from" | "derived_from";
+export type DependencyStrength = "hard" | "soft";
+export type DependencyResourceState = "fresh" | "stale" | "invalid" | "needs_review" | "recompute_pending" | "recomputing" | "recomputed" | "accepted_stale";
+
+export interface DependencyResource {id:string;resourceKind:DependencyResourceKind;spaceId:string|null;bookId:string|null;stableObjectId:string;exactVersionId:string;contentHash:string;registeredAt:string;}
+export interface DependencyEdge {id:string;spaceId:string;bookId:string;source:DependencyResource;derived:DependencyResource;dependencyKind:DependencyKind;dependencyStrength:DependencyStrength;originKind:"adoption"|"confirmation"|"settlement"|"contract_publication"|"context_build"|"ai_result"|"audit"|"manual"|"import"|"system";originId:string|null;idempotencyKey:string|null;status:"active"|"ended";createdAt:string;endedAt:string|null;endReason:string;}
+export interface DependencyConflict {id:string;bookId:string;conflictKind:"cycle"|"cross_book"|"invalid_reference";sourceResourceId:string|null;derivedResourceId:string|null;dependencyKind:string|null;detectedPath:string[];status:"needs_review"|"resolved"|"dismissed";detail:string;idempotencyKey:string;createdAt:string;resolvedAt:string|null;resolutionNote:string;}
+export interface DependencyImpact {id:string;eventId:string;resourceId:string;depth:number;propagationPath:string[];dependencyStrength:DependencyStrength;impactState:"stale"|"invalid"|"needs_review";createdAt:string;}
+export interface DependencyChangePreview {id:string;bookId:string;bookChangeSetId:string|null;oldResourceId:string;newResourceId:string|null;reason:string;impacts:DependencyImpact[];snapshotHash:string;idempotencyKey:string;createdBy:string;createdAt:string;}
+export interface DependencyInvalidationEvent {id:string;spaceId:string;bookId:string;oldResourceId:string;newResourceId:string|null;changePreviewId:string|null;bookChangeSetId:string|null;reason:string;triggerSource:"body_adoption"|"planning_adoption"|"fact_review"|"settlement"|"knowledge_review"|"story_time_review"|"story_relation_review"|"contract_publication"|"quality_stale"|"manual"|"system";requestedState:"stale"|"invalid"|"needs_review";triggerId:string|null;idempotencyKey:string;createdAt:string;impacts:DependencyImpact[];}
+export interface DependencyStaleReason {id:string;bookId:string;resourceId:string;eventId:string;impactId:string;state:"stale"|"invalid"|"needs_review";reason:string;createdAt:string;resolvedAt:string|null;resolutionKind:"recomputed"|"accepted_stale"|"superseded"|null;resolutionReceiptId:string|null;}
+export interface DependencyResourceStatus {resourceId:string;bookId:string;state:DependencyResourceState;revision:number;lastEventId:string|null;updatedAt:string;reasons:DependencyStaleReason[];}
+export interface DependencyRecomputeRequest {id:string;bookId:string;targetResourceId:string;invalidationEventId:string;requiredUpstreamVersions:Array<{resourceId:string;kind:DependencyResourceKind;stableObjectId:string;exactVersionId:string;contentHash:string}>;priority:number;status:"pending"|"recomputing"|"completed"|"failed"|"superseded"|"cancelled";reason:string;strategyKey:string;taskContractVersionId:string|null;idempotencyKey:string;createdAt:string;startedAt:string|null;completedAt:string|null;}
+export interface DependencyRecomputeReceipt {id:string;requestId:string;bookId:string;inputDependencySnapshot:DependencyRecomputeRequest["requiredUpstreamVersions"];inputSnapshotHash:string;outputResourceId:string|null;outputVersionId:string|null;outputHash:string|null;outcome:"applied"|"rejected_stale"|"failed";detail:string;idempotencyKey:string;createdAt:string;}
+export interface DependencyStaleAcceptance {id:string;bookId:string;resourceId:string;invalidationEventId:string;riskSummary:string;reason:string;actor:string;idempotencyKey:string;createdAt:string;}
+export interface DependencyBookSummary {bookId:string;activeEdges:number;staleResources:number;pendingRecomputes:number;openConflicts:number;invalidations:number;}
+export interface DependencyPage<T> {items:T[];nextCursor:string|null;}
+
 export interface ApiEnvelope<T> {
   success: boolean;
   data?: T;
