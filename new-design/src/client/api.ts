@@ -1,6 +1,26 @@
-import type { ApiEnvelope, CardSummary, CardTypeSummary, CardTypeVersion, CardVersion } from "../common/contracts";
+import type {
+  ApiEnvelope,
+  BookSummary,
+  CardGroupFormInstance,
+  CardGroupFormSummary,
+  CardGroupFormVersion,
+  CardSummary,
+  CardTypeSummary,
+  CardTypeVersion,
+  CardVersion,
+  DictionarySummary,
+  RelationTypeSummary,
+  TemplateGroupSummary,
+  TemplateGroupVersion,
+  TemplateSyncPreview,
+} from "../common/contracts";
 
 const API_ROOT = "/api/new-design";
+
+type FormInstanceSaveInput = Pick<CardGroupFormInstance, "spaceId" | "formVersionId" | "primaryCardId" | "title"> & {
+  revision?: number;
+  mounts: Array<Pick<CardGroupFormInstance["mounts"][number], "slotKey" | "cardId" | "sortOrder" | "localValues">>;
+};
 
 export class ApiError extends Error {
   constructor(message: string, public readonly issues: Record<string, string> = {}) {
@@ -22,10 +42,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const newDesignApi = {
   health: () => request<{ mode: "bundled" | "external"; postgresVersion: string; port: number }>("/health"),
-  listCardTypes: () => request<CardTypeSummary[]>("/card-types"),
-  createCardType: (input: Pick<CardTypeSummary, "key" | "name" | "description" | "semanticCapabilities" | "draftFields">) => request<CardTypeSummary>("/card-types", {
+  listCardTypes: (spaceId?: string) => request<CardTypeSummary[]>(`/card-types${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ""}`),
+  createCardType: (input: Pick<CardTypeSummary, "key" | "name" | "description" | "semanticCapabilities" | "draftFields"> & { spaceId?: string }) => request<CardTypeSummary>("/card-types", {
     method: "POST",
-    body: JSON.stringify({ key: input.key, name: input.name, description: input.description, semanticCapabilities: input.semanticCapabilities, fields: input.draftFields }),
+    body: JSON.stringify({ spaceId: input.spaceId, key: input.key, name: input.name, description: input.description, semanticCapabilities: input.semanticCapabilities, fields: input.draftFields }),
   }),
   updateCardType: (input: CardTypeSummary) => request<CardTypeSummary>(`/card-types/${input.id}`, {
     method: "PATCH",
@@ -36,8 +56,8 @@ export const newDesignApi = {
     body: JSON.stringify({ revision }),
   }),
   listCardTypeVersions: (id: string) => request<CardTypeVersion[]>(`/card-types/${id}/versions`),
-  listCards: (cardTypeId: string, archived: boolean) => request<CardSummary[]>(`/cards?cardTypeId=${encodeURIComponent(cardTypeId)}&archived=${archived}`),
-  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown> }) => request<CardSummary>("/cards", {
+  listCards: (cardTypeId: string, archived: boolean, spaceId?: string) => request<CardSummary[]>(`/cards?cardTypeId=${encodeURIComponent(cardTypeId)}&archived=${archived}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ""}`),
+  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string }) => request<CardSummary>("/cards", {
     method: "POST", body: JSON.stringify(input),
   }),
   updateCard: (input: CardSummary) => request<CardSummary>(`/cards/${input.id}`, {
@@ -50,4 +70,46 @@ export const newDesignApi = {
     method: "POST", body: JSON.stringify({ revision }),
   }),
   listCardVersions: (id: string) => request<CardVersion[]>(`/cards/${id}/versions`),
+  listDictionaries: (spaceId?:string) => request<DictionarySummary[]>(`/dictionaries${spaceId?`?spaceId=${encodeURIComponent(spaceId)}`:""}`),
+  createDictionary: (input: Omit<DictionarySummary, "id" | "status" | "revision" | "createdAt" | "updatedAt">) => request<DictionarySummary>("/dictionaries", {
+    method: "POST", body: JSON.stringify(input),
+  }),
+  updateDictionary: (input: DictionarySummary) => request<DictionarySummary>(`/dictionaries/${input.id}`, {
+    method: "PATCH", body: JSON.stringify(input),
+  }),
+  listRelationTypes: (spaceId?:string) => request<RelationTypeSummary[]>(`/relation-types${spaceId?`?spaceId=${encodeURIComponent(spaceId)}`:""}`),
+  createRelationType: (input: Omit<RelationTypeSummary, "id" | "status" | "revision" | "createdAt" | "updatedAt">) => request<RelationTypeSummary>("/relation-types", {
+    method: "POST", body: JSON.stringify(input),
+  }),
+  updateRelationType: (input: RelationTypeSummary) => request<RelationTypeSummary>(`/relation-types/${input.id}`, {
+    method: "PATCH", body: JSON.stringify(input),
+  }),
+  listCardGroupForms: (spaceId?:string) => request<CardGroupFormSummary[]>(`/card-group-forms${spaceId?`?spaceId=${encodeURIComponent(spaceId)}`:""}`),
+  createCardGroupForm: (input: Pick<CardGroupFormSummary, "key" | "name" | "description" | "draftDefinition">) => request<CardGroupFormSummary>("/card-group-forms", {
+    method: "POST", body: JSON.stringify({ key: input.key, name: input.name, description: input.description, definition: input.draftDefinition }),
+  }),
+  updateCardGroupForm: (input: CardGroupFormSummary) => request<CardGroupFormSummary>(`/card-group-forms/${input.id}`, {
+    method: "PATCH", body: JSON.stringify({ key: input.key, name: input.name, description: input.description, definition: input.draftDefinition, revision: input.revision }),
+  }),
+  publishCardGroupForm: (id: string, revision: number) => request<CardGroupFormSummary>(`/card-group-forms/${id}/publish`, {
+    method: "POST", body: JSON.stringify({ revision }),
+  }),
+  listCardGroupFormVersions: (id: string) => request<CardGroupFormVersion[]>(`/card-group-forms/${id}/versions`),
+  listFormInstances: (spaceId: string, formId?: string) => request<CardGroupFormInstance[]>(`/form-instances?spaceId=${encodeURIComponent(spaceId)}${formId ? `&formId=${encodeURIComponent(formId)}` : ""}`),
+  createFormInstance: (input: FormInstanceSaveInput) => request<CardGroupFormInstance>("/form-instances", {
+    method: "POST", body: JSON.stringify(input),
+  }),
+  updateFormInstance: (id: string, input: FormInstanceSaveInput) => request<CardGroupFormInstance>(`/form-instances/${id}`, {
+    method: "PATCH", body: JSON.stringify(input),
+  }),
+  listTemplates: () => request<TemplateGroupSummary[]>("/templates"),
+  createTemplate: (input: Pick<TemplateGroupSummary, "key" | "name" | "description" | "draftConfig">) => request<TemplateGroupSummary>("/templates", { method:"POST",body:JSON.stringify(input) }),
+  updateTemplate: (input: TemplateGroupSummary) => request<TemplateGroupSummary>(`/templates/${input.id}`, { method:"PATCH",body:JSON.stringify(input) }),
+  publishTemplate: (id: string, revision: number) => request<TemplateGroupSummary>(`/templates/${id}/publish`, { method:"POST",body:JSON.stringify({revision}) }),
+  listTemplateVersions: (id: string) => request<TemplateGroupVersion[]>(`/templates/${id}/versions`),
+  listBooks: () => request<BookSummary[]>("/books"),
+  getBook: (id: string) => request<BookSummary>(`/books/${id}`),
+  createBook: (input: {key:string;name:string;description:string;templateVersionId:string}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
+  previewBookSync: (bookId:string,targetVersionId:string) => request<TemplateSyncPreview>(`/books/${bookId}/sync-preview`,{method:"POST",body:JSON.stringify({targetVersionId})}),
+  applyBookSync: (syncId:string) => request<TemplateSyncPreview>(`/book-syncs/${syncId}/apply`,{method:"POST",body:"{}"}),
 };

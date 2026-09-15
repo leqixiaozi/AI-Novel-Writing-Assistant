@@ -33,6 +33,8 @@ export const MOBILE_ROUTE_PATTERNS: MobileRoutePattern[] = [
   { key: "book-analysis", pattern: /^\/book-analysis\/?$/, title: "拆书", group: "creation" },
   { key: "market-radar", pattern: /^\/market-radar\/?$/, title: "热门题材雷达", group: "creation" },
   { key: "new-design", pattern: /^\/new-design\/?$/, title: "新设计", group: "more" },
+  { key: "new-design-books", pattern: /^\/new-design\/books(?:\/[^/]+(?:\/(?:forms|cards|fields))?)?\/?$/, title: "我的书籍", group: "more" },
+  { key: "new-design-structure", pattern: /^\/new-design\/structure\//, title: "结构设计中心", group: "more" },
   { key: "tasks", pattern: /^\/tasks\/?$/, title: "任务", group: "tasks" },
   { key: "auto-director-follow-ups", pattern: /^\/auto-director\/follow-ups\/?$/, title: "导演跟进", group: "tasks" },
   { key: "knowledge", pattern: /^\/knowledge\/?$/, title: "知识库", group: "more" },
@@ -99,7 +101,12 @@ const moreNavGroups: MobileNavGroup[] = [
   {
     title: "新设计",
     items: [
-      { key: "new-design", label: "新设计", to: "/new-design", group: "more" },
+      { key: "new-design", label: "新设计首页", to: "/new-design", group: "more" },
+      { key: "new-design-books", label: "我的书籍", to: "/new-design/books", group: "more" },
+      { key: "new-design-card-types", label: "元卡片类型", to: "/new-design/structure/card-types", group: "more" },
+      { key: "new-design-dictionaries", label: "字典与关系", to: "/new-design/structure/dictionaries-relations", group: "more" },
+      { key: "new-design-forms", label: "卡片组表单", to: "/new-design/structure/forms", group: "more" },
+      { key: "new-design-templates", label: "模板组", to: "/new-design/structure/templates", group: "more" },
     ],
   },
 ];

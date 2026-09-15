@@ -1,24 +1,27 @@
 # 新设计卡片内核
 
-`new-design/` 是小说系统新增能力的独立演进边界。第一阶段只实现基础卡片纵向切片，并通过旧产品外壳挂载一个“新设计”入口。
+`new-design/` 是小说系统新增能力的独立演进边界，通过旧产品外壳挂载“新设计”入口，同时保持旧小说页面和 SQLite 业务不变。
 
 ## 当前职责
 
-- `CardSpace`：用默认空间隔离第一阶段数据，为后续书籍与模板空间预留边界。
+- `CardSpace` / `Book`：系统定义使用默认空间，每本书使用独立 PostgreSQL 空间。
 - `CardType`：保存元卡片类型身份、说明、草稿字段与当前发布版本。
 - `CardTypeVersion`：保存不可变的字段和表单展示定义。
 - `Card`：保存固定标题、状态、并发修订号和 PostgreSQL JSONB 动态值。
 - `CardVersion`：保存每次创建、编辑、归档和恢复后的完整快照。
+- `Dictionary` / `RelationType` / `CardRelation`：保存稳定选项和带类型、方向、数量约束的关系。
+- `CardGroupForm` / `CardMount`：用不可变表单版本组合多张卡片，局部字段不污染来源卡片。
+- `TemplateGroup`：冻结类型、字典、关系、表单和菜单快照，并以只增不改规则同步到书籍。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql`、`migrations/002_builtin_novel_cards.sql`、`migrations/003_novel_card_catalog.sql`、`migrations/004_xianxia_production_demo.sql` 与 `docs/data-model.md`。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/006_template_books.sql` 与 `docs/data-model.md`。
 
 ## 内置创作卡片
 
 首次初始化会得到 19 种已发布的通用小说卡片类型：人物、组织／势力、地点、道具、世界规则、事件、目标／任务、冲突、秘密／真相、线索／证据、伏笔、悬念／问题、剧情线、剧情节点／节拍、弧线／变化线、主题／命题、卷、章节和场景。类型还可声明正文承载、时间定位、状态变化、关系主体、生命周期、创作目标和正典事实七种组合能力，字段表单仍保持动态可扩展。
 
-页面内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
+“我的书籍”内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。事件规划表单可装配人物、地点、道具与剧情线。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
 
 预置内容由版本化 SQL 管理并进入 Git，因此每台开发机器都能得到同一套基础数据。作者自行创建和填写的业务数据不进入 Git，仍需 PostgreSQL 备份与恢复。
 
@@ -32,7 +35,7 @@
 pnpm dev
 ```
 
-浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧“创作 → 新设计”进入。API 统一挂载在 `/api/new-design`。
+浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
 首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件。默认数据位置：
 
@@ -52,8 +55,8 @@ pnpm --filter @ai-novel/new-design test:integration
 pnpm --filter @ai-novel/client build
 ```
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、可选字段演进、归档/恢复及停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加及停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
 
-## 第一阶段之外
+## 当前范围之外
 
-本模块当前不包含卡片组表单、拖拽、模板组、书籍开书、卡片关系、AGE、pgvector、旧数据迁移、备份恢复 UI 或数据库主版本升级。后续能力只能依赖本模块公开契约继续扩展。
+本模块当前不包含关系图可视化、AGE、pgvector、旧数据迁移、备份恢复 UI 或数据库主版本升级。后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。

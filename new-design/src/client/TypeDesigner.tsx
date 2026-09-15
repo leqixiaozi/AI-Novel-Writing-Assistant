@@ -7,7 +7,10 @@ import FieldBuilder from "./FieldBuilder";
 interface TypeDesignerProps {
   selected: CardTypeSummary | null;
   onSaved: (cardType: CardTypeSummary) => void;
+  spaceId?: string;
 }
+
+const SYSTEM_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
 const CAPABILITY_LABELS: Record<CardTypeCapability, { name: string; description: string }> = {
   body_text: { name: "承载正文", description: "可以挂接正式叙事文本" },
@@ -28,9 +31,10 @@ function personStarterFields(): FieldDefinition[] {
   ];
 }
 
-function blankType(): CardTypeSummary {
+function blankType(spaceId = SYSTEM_SPACE_ID): CardTypeSummary {
   return {
     id: "",
+    spaceId,
     key: `type_${Date.now().toString(36)}`,
     name: "",
     description: "",
@@ -47,21 +51,21 @@ function blankType(): CardTypeSummary {
   };
 }
 
-export default function TypeDesigner({ selected, onSaved }: TypeDesignerProps) {
-  const [draft, setDraft] = useState<CardTypeSummary>(() => selected ?? blankType());
+export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID }: TypeDesignerProps) {
+  const [draft, setDraft] = useState<CardTypeSummary>(() => selected ?? blankType(spaceId));
   const [versions, setVersions] = useState<CardTypeVersion[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    setDraft(selected ?? blankType());
+    setDraft(selected ?? blankType(spaceId));
     setMessage(null);
     if (!selected?.id) {
       setVersions([]);
       return;
     }
     void newDesignApi.listCardTypeVersions(selected.id).then(setVersions).catch(() => setVersions([]));
-  }, [selected]);
+  }, [selected, spaceId]);
 
   const publishedKeys = useMemo(() => new Set((versions[0]?.fields ?? []).map((field) => field.key)), [versions]);
   const toggleCapability = (capability: CardTypeCapability) => {
@@ -155,7 +159,7 @@ export default function TypeDesigner({ selected, onSaved }: TypeDesignerProps) {
           </div>
         </section>
 
-        <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />
+        <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />
 
         <footer className="nd-sticky-actions">
           <div>

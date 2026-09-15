@@ -5,13 +5,14 @@ import DynamicForm from "./DynamicForm";
 
 interface CardWorkspaceProps {
   cardTypes: CardTypeSummary[];
+  spaceId?: string;
 }
 
 function sourceLabel(source: CardVersion["source"]): string {
   return { create: "创建", edit: "编辑", archive: "归档", restore: "恢复" }[source];
 }
 
-export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
+export default function CardWorkspace({ cardTypes, spaceId }: CardWorkspaceProps) {
   const publishedTypes = cardTypes.filter((item) => item.status === "published" && item.currentVersionId);
   const [cardTypeId, setCardTypeId] = useState("");
   const [typeVersions, setTypeVersions] = useState<CardTypeVersion[]>([]);
@@ -35,7 +36,7 @@ export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
 
   const reloadCards = async () => {
     if (!cardTypeId) { setCards([]); return; }
-    setCards(await newDesignApi.listCards(cardTypeId, archived));
+    setCards(await newDesignApi.listCards(cardTypeId, archived, spaceId));
   };
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
     setCreating(false);
     setMessage("");
     if (!cardTypeId) { setTypeVersions([]); setCards([]); return; }
-    void Promise.all([newDesignApi.listCardTypeVersions(cardTypeId), newDesignApi.listCards(cardTypeId, archived)])
+    void Promise.all([newDesignApi.listCardTypeVersions(cardTypeId), newDesignApi.listCards(cardTypeId, archived, spaceId)])
       .then(([versions, nextCards]) => {
         setTypeVersions(versions);
         setCards(nextCards);
@@ -56,7 +57,7 @@ export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
         }
       })
       .catch((error) => setMessage(error instanceof Error ? error.message : "卡片加载失败。"));
-  }, [cardTypeId, archived]);
+  }, [cardTypeId, archived, spaceId]);
 
   const beginCreate = () => {
     setCreating(true); setEditing(null); setTitle(""); setValues({}); setIssues({}); setMessage("");
@@ -70,7 +71,7 @@ export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
     try {
       const saved = editing
         ? await newDesignApi.updateCard({ ...editing, title, values })
-        : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values });
+        : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values, spaceId });
       setEditing(saved); setCreating(false); setTitle(saved.title); setValues(saved.values);
       await reloadCards();
       setMessage(`“${saved.title}”已保存为修订 ${saved.revision}。`);

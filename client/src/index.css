@@ -941,6 +941,14 @@ body {
     flex: 1 1 100%;
   }
 
+  .mobile-route-market-radar,
+  .mobile-route-settings-models,
+  .mobile-route-settings-director,
+  .mobile-route-settings-knowledge,
+  .mobile-route-settings-maintenance,
+  .mobile-route-new-design,
+  .mobile-route-new-design-books,
+  .mobile-route-new-design-structure,
   .mobile-route-style-engine {
     height: auto;
     min-height: auto;

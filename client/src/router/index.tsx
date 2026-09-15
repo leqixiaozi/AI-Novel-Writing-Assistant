@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import type { RouteObject } from "react-router-dom";
-import { Navigate, useRoutes } from "react-router-dom";
+import { Navigate, useLocation, useRoutes } from "react-router-dom";
 import AppLayout from "@/components/layout/AppLayout";
 import { featureFlags } from "@/config/featureFlags";
 
@@ -44,6 +44,11 @@ const WorldWorkspace = lazy(() => import("@/pages/worlds/WorldWorkspace"));
 const WritingFormulaPage = lazy(() => import("@/pages/writingFormula/WritingFormulaPage"));
 const CharacterLibrary = lazy(() => import("@/pages/characters/CharacterLibrary"));
 const NewDesignPage = lazy(() => import("@ai-novel/new-design/client"));
+
+function NewDesignRoute() {
+  const location = useLocation();
+  return <NewDesignPage pathname={location.pathname} />;
+}
 
 const routes: RouteObject[] = [
   {
@@ -99,7 +104,7 @@ const routes: RouteObject[] = [
       { path: "style-engine", element: <WritingFormulaPage /> },
       { path: "writing-formula", element: <Navigate to="/style-engine" replace /> },
       { path: "base-characters", element: <CharacterLibrary /> },
-      { path: "new-design", element: <NewDesignPage /> },
+      { path: "new-design/*", element: <NewDesignRoute /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

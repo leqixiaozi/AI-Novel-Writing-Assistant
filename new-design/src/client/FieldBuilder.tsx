@@ -13,6 +13,7 @@ const TYPE_OPTIONS: Array<{ value: FieldType; label: string }> = [
 interface FieldBuilderProps {
   fields: FieldDefinition[];
   publishedKeys: Set<string>;
+  allowPublishedPresentationEdits?: boolean;
   onChange: (fields: FieldDefinition[]) => void;
 }
 
@@ -44,7 +45,7 @@ function parseDefaultValue(field: FieldDefinition, raw: string): unknown {
   return raw;
 }
 
-export default function FieldBuilder({ fields, publishedKeys, onChange }: FieldBuilderProps) {
+export default function FieldBuilder({ fields, publishedKeys, allowPublishedPresentationEdits = false, onChange }: FieldBuilderProps) {
   const patch = (index: number, next: Partial<FieldDefinition>) => {
     onChange(fields.map((field, fieldIndex) => fieldIndex === index ? { ...field, ...next } : field));
   };
@@ -82,7 +83,7 @@ export default function FieldBuilder({ fields, publishedKeys, onChange }: FieldB
                   <div className="nd-grid-2">
                     <label className="nd-control">
                       <span>字段名称</span>
-                      <input value={field.name} disabled={locked} onChange={(event) => patch(index, { name: event.target.value })} />
+                      <input value={field.name} disabled={locked && !allowPublishedPresentationEdits} onChange={(event) => patch(index, { name: event.target.value })} />
                     </label>
                     <label className="nd-control">
                       <span>字段类型</span>
@@ -93,21 +94,21 @@ export default function FieldBuilder({ fields, publishedKeys, onChange }: FieldB
                   </div>
                   <label className="nd-control">
                     <span>解释</span>
-                    <input value={field.description} disabled={locked} placeholder="告诉填写者这项信息有什么用" onChange={(event) => patch(index, { description: event.target.value })} />
+                    <input value={field.description} disabled={locked && !allowPublishedPresentationEdits} placeholder="告诉填写者这项信息有什么用" onChange={(event) => patch(index, { description: event.target.value })} />
                   </label>
                   <div className="nd-grid-3">
                     <label className="nd-control">
                       <span>分组</span>
-                      <input value={field.group} disabled={locked} onChange={(event) => patch(index, { group: event.target.value })} />
+                      <input value={field.group} disabled={locked && !allowPublishedPresentationEdits} onChange={(event) => patch(index, { group: event.target.value })} />
                     </label>
                     <label className="nd-control">
                       <span>默认值</span>
                       {field.type === "boolean" ? (
-                        <select value={defaultValueFor(field)} disabled={locked} onChange={(event) => patch(index, { defaultValue: parseDefaultValue(field, event.target.value) })}>
+                        <select value={defaultValueFor(field)} disabled={locked && !allowPublishedPresentationEdits} onChange={(event) => patch(index, { defaultValue: parseDefaultValue(field, event.target.value) })}>
                           <option value="">不预填</option><option value="true">是</option><option value="false">否</option>
                         </select>
                       ) : (
-                        <input value={defaultValueFor(field)} disabled={locked} inputMode={field.type === "number" ? "decimal" : undefined} onChange={(event) => patch(index, { defaultValue: parseDefaultValue(field, event.target.value) })} />
+                        <input value={defaultValueFor(field)} disabled={locked && !allowPublishedPresentationEdits} inputMode={field.type === "number" ? "decimal" : undefined} onChange={(event) => patch(index, { defaultValue: parseDefaultValue(field, event.target.value) })} />
                       )}
                     </label>
                     <label className="nd-check-control">
@@ -120,19 +121,19 @@ export default function FieldBuilder({ fields, publishedKeys, onChange }: FieldB
                       <span>选项（每行一个）</span>
                       <textarea
                         rows={3}
-                        disabled={locked}
+                        disabled={locked && !allowPublishedPresentationEdits}
                         value={field.options.map((option) => option.label).join("\n")}
                         onChange={(event) => patch(index, {
-                          options: event.target.value.split("\n").map((label) => label.trim()).filter(Boolean).map((label, optionIndex) => ({ value: `option_${optionIndex + 1}`, label })),
+                          options: event.target.value.split("\n").map((label) => label.trim()).filter(Boolean).map((label, optionIndex) => ({ value: field.options[optionIndex]?.value ?? `option_${optionIndex + 1}`, label })),
                         })}
                       />
                     </label>
                   )}
-                  {locked && <p className="nd-lock-note">已发布字段保持稳定；如需扩展，请添加新的非必填字段。</p>}
+                  {locked && <p className="nd-lock-note">{allowPublishedPresentationEdits ? "稳定标识与数据类型保持不变；本书可以独立调整名称、说明、分组和选项显示。" : "已发布字段保持稳定；如需扩展，请添加新的非必填字段。"}</p>}
                 </div>
                 <div className="nd-field-actions">
-                  <button type="button" title="上移" disabled={index === 0 || locked} onClick={() => move(index, -1)}>↑</button>
-                  <button type="button" title="下移" disabled={index === fields.length - 1 || locked} onClick={() => move(index, 1)}>↓</button>
+                  <button type="button" title="上移" disabled={index === 0 || (locked && !allowPublishedPresentationEdits)} onClick={() => move(index, -1)}>↑</button>
+                  <button type="button" title="下移" disabled={index === fields.length - 1 || (locked && !allowPublishedPresentationEdits)} onClick={() => move(index, 1)}>↓</button>
                   <button type="button" title="删除" disabled={locked} onClick={() => onChange(fields.filter((_, fieldIndex) => fieldIndex !== index).map((item, order) => ({ ...item, order })))}>×</button>
                 </div>
               </article>

@@ -21,6 +21,7 @@ const routedPaths = [
   "/drama",
   "/chat-legacy",
   "/book-analysis",
+  "/market-radar",
   "/tasks",
   "/auto-director/follow-ups",
   "/knowledge",
@@ -28,6 +29,7 @@ const routedPaths = [
   "/story-modes",
   "/titles",
   "/prompt-workbench",
+  "/settings/model-routes",
   "/settings/models",
   "/settings/director",
   "/settings/knowledge",
@@ -39,6 +41,9 @@ const routedPaths = [
   "/style-engine",
   "/anti-ai-rules",
   "/base-characters",
+  "/new-design",
+  "/new-design/books/demo/forms",
+  "/new-design/structure/card-types",
 ];
 
 test("mobile route metadata covers every registered page", () => {
@@ -73,7 +78,7 @@ test("mobile more menu contains all non-primary registered pages", () => {
       "/help",
       "/drama",
       "/book-analysis",
-      "/auto-director/follow-ups",
+      "/market-radar",
       "/chat-legacy",
       "/knowledge",
       "/genres",
@@ -82,10 +87,18 @@ test("mobile more menu contains all non-primary registered pages", () => {
       "/style-engine",
       "/anti-ai-rules",
       "/base-characters",
+      "/tasks",
+      "/auto-director/follow-ups",
       "/worlds",
       "/worlds/generator",
       "/prompt-workbench",
       "/settings",
+      "/new-design",
+      "/new-design/books",
+      "/new-design/structure/card-types",
+      "/new-design/structure/dictionaries-relations",
+      "/new-design/structure/forms",
+      "/new-design/structure/templates",
     ],
   );
 });

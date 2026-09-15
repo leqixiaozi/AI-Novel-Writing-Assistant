@@ -43,6 +43,7 @@ interface NavItem {
   icon: LucideIcon;
   action?: "visual_asset_library";
   disabled?: boolean;
+  end?: boolean;
 }
 
 interface NavGroup {
@@ -90,7 +91,12 @@ const navGroups: NavGroup[] = [
   {
     title: "新设计",
     items: [
-      { to: "/new-design", label: "新设计", icon: Layers3 },
+      { to: "/new-design", label: "新设计首页", icon: Layers3, end: true },
+      { to: "/new-design/books", label: "我的书籍", icon: BookOpenText },
+      { to: "/new-design/structure/card-types", label: "元卡片类型", icon: SquareStack },
+      { to: "/new-design/structure/dictionaries-relations", label: "字典与关系", icon: Workflow },
+      { to: "/new-design/structure/forms", label: "卡片组表单", icon: SquarePen },
+      { to: "/new-design/structure/templates", label: "模板组", icon: LayoutDashboard },
     ],
   },
 ];
@@ -293,7 +299,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               }
 
               return (
-                <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined}>
+                <NavLink key={item.to} to={item.to} end={item.end} title={collapsed ? item.label : undefined}>
                   {({ isActive }) => (
                     <div
                       className={cn(
