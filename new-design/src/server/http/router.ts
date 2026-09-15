@@ -18,6 +18,7 @@ import {
   updateCardType,
 } from "../database/store";
 import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics } from "../database/runtime";
+import { archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
 import { getPrivateRuntimeManager } from "../runtime";
 import { scrub } from "../runtime/command";
 import {
@@ -107,6 +108,11 @@ import {
   selectDirectionSchema,
   updateCardSchema,
   updateCardTypeSchema,
+  archiveScopedFieldSchema,
+  createBookFieldExtensionSchema,
+  createLocalFieldSchema,
+  fieldExtensionPreviewSchema,
+  reviseLocalFieldSchema,
   bookViewConfigSchema,
   bookViewKeySchema,
   bookChangePreviewSchema,
@@ -322,6 +328,18 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
     success(res, await restoreCard(String(req.params.id), input.revision));
   }));
   router.get("/cards/:id/versions", asyncRoute(async (req, res) => success(res, await listCardVersions(String(req.params.id)))));
+
+  router.get("/books/:bookId/field-definitions", asyncRoute(async(req,res)=>{
+    const cardTypeId=typeof req.query.cardTypeId==="string"?req.query.cardTypeId:"";
+    if(!cardTypeId)throw new NewDesignError("缺少内容类型。",422);
+    success(res,await listScopedFields(String(req.params.bookId),cardTypeId,typeof req.query.cardId==="string"?req.query.cardId:undefined));
+  }));
+  router.get("/books/:bookId/field-definitions/:fieldId/history",asyncRoute(async(req,res)=>success(res,await listScopedFieldHistory(String(req.params.bookId),String(req.params.fieldId)))));
+  router.post("/books/:bookId/field-extensions/preview",asyncRoute(async(req,res)=>success(res,await previewFieldExtension(String(req.params.bookId),body(fieldExtensionPreviewSchema,req)))));
+  router.post("/books/:bookId/field-extensions",asyncRoute(async(req,res)=>success(res,await createBookFieldExtension(String(req.params.bookId),body(createBookFieldExtensionSchema,req)),201)));
+  router.post("/books/:bookId/cards/:cardId/local-fields",asyncRoute(async(req,res)=>success(res,await createCardLocalField(String(req.params.bookId),String(req.params.cardId),body(createLocalFieldSchema,req)),201)));
+  router.patch("/books/:bookId/field-definitions/:fieldId",asyncRoute(async(req,res)=>success(res,await reviseCardLocalField(String(req.params.bookId),String(req.params.fieldId),body(reviseLocalFieldSchema,req)))));
+  router.post("/books/:bookId/field-definitions/:fieldId/archive",asyncRoute(async(req,res)=>success(res,await archiveScopedField(String(req.params.bookId),String(req.params.fieldId),body(archiveScopedFieldSchema,req)))));
 
   router.get("/dictionaries", asyncRoute(async (req, res) => success(res, await listDictionaries(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
   router.post("/dictionaries", asyncRoute(async (req, res) => success(res, await saveDictionary(body(dictionaryInputSchema, req)), 201)));

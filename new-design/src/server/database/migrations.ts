@@ -136,4 +136,8 @@ export const migrations: Migration[] = [
     id: "033_business_form_provenance",
     fileName: "033_business_form_provenance.sql",
   },
+  {
+    id: "034_scoped_field_definitions",
+    fileName: "034_scoped_field_definitions.sql",
+  },
 ];

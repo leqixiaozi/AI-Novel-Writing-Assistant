@@ -34,4 +34,6 @@
 - `new-design/src/client/DynamicForm.tsx`：Schema 驱动控件、条件显示和能力提示。
 - `new-design/src/server/database/store.ts`：当前规格校验、不可变资料修订与表单来源记录。
 - `new-design/migrations/033_business_form_provenance.sql`：保存每次填写实际采用的表单版本与解析来源。
+- `new-design/migrations/034_scoped_field_definitions.sql`：保存字段稳定身份、来源／作用域、不可变版本、选项身份和局部值。
+- `new-design/docs/field-scope-and-versioning.md`：“＋ 添加信息”、影响预览和跨机器同步合同。
 - `new-design/docs/business-form-shell.md`：路由、状态和保存合同。

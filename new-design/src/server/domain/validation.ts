@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { BOOK_CREATION_METHODS, BOOK_VIEW_KEYS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
 
 const optionSchema = z.object({
+  id: z.string().uuid().optional(),
   value: z.string().trim().min(1, "选项值不能为空。"),
   label: z.string().trim().min(1, "选项名称不能为空。"),
 });
@@ -26,6 +27,7 @@ export const fieldDefinitionSchema = z.object({
   visibleWhen: visibilityRuleSchema.optional(),
   aiSuggestible: z.boolean().optional(),
   stateSettlement: z.enum(["none", "tracked", "lifecycle"]).optional(),
+  hidden: z.boolean().optional(),
 }).superRefine((field, context) => {
   const needsOptions = field.type === "select" || field.type === "multi_select";
   if (needsOptions && field.options.length === 0) {
@@ -94,6 +96,64 @@ export const updateCardSchema = z.object({
   revision: z.number().int().positive(),
   formVersionId: z.string().uuid().nullable().optional(),
   formResolutionKind: z.enum(["installed_form", "type_schema", "system_default", "generic", "legacy"]).optional(),
+  localValues: z.record(z.string(), z.unknown()).optional(),
+});
+
+const addInformationFieldSchema = z.object({
+  name: z.string().trim().min(1, "字段名称不能为空。").max(80),
+  description: z.string().trim().max(300).default(""),
+  type: z.enum(FIELD_TYPES),
+  options: z.array(z.object({ id: z.string().uuid().optional(), label: z.string().trim().min(1).max(80) })).max(50).default([]),
+  required: z.boolean().default(false),
+  group: z.string().trim().min(1).max(80).default("补充信息"),
+  defaultValue: z.unknown().optional().nullable(),
+  aiSuggestible: z.boolean().default(false),
+  stateSettlement: z.enum(["none", "tracked", "lifecycle"]).default("none"),
+  visibleWhen: visibilityRuleSchema.optional(),
+}).superRefine((field, context) => {
+  const needsOptions = field.type === "select" || field.type === "multi_select";
+  if (needsOptions && field.options.length === 0) context.addIssue({ code:"custom", path:["options"], message:"单选或多选至少需要一个可选内容。" });
+  if (!needsOptions && field.options.length > 0) context.addIssue({ code:"custom", path:["options"], message:"只有单选或多选字段可以设置可选内容。" });
+  if (new Set(field.options.map((option)=>option.label)).size !== field.options.length) context.addIssue({ code:"custom", path:["options"], message:"可选内容不能重复。" });
+});
+
+export const fieldExtensionPreviewSchema = z.object({
+  cardTypeId: z.string().uuid(),
+  scope: z.enum(["book_type", "card", "card_mount"]),
+  cardId: z.string().uuid().nullable().optional(),
+  cardMountId: z.string().uuid().nullable().optional(),
+  field: addInformationFieldSchema,
+});
+
+export const createBookFieldExtensionSchema = z.object({
+  cardTypeId: z.string().uuid(),
+  expectedTypeRevision: z.number().int().positive(),
+  field: addInformationFieldSchema,
+  backfillStrategy: z.enum(["none", "default"]),
+  idempotencyKey: z.string().trim().min(8).max(160),
+  createdBy: z.string().trim().max(160).default("user"),
+});
+
+export const createLocalFieldSchema = z.object({
+  expectedCardRevision: z.number().int().positive(),
+  field: addInformationFieldSchema,
+  initialValue: z.unknown().optional().nullable(),
+  idempotencyKey: z.string().trim().min(8).max(160),
+  createdBy: z.string().trim().max(160).default("user"),
+});
+
+export const reviseLocalFieldSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  field: addInformationFieldSchema,
+  idempotencyKey: z.string().trim().min(8).max(160),
+  createdBy: z.string().trim().max(160).default("user"),
+});
+
+export const archiveScopedFieldSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  expectedTypeRevision: z.number().int().positive().optional(),
+  idempotencyKey: z.string().trim().min(8).max(160),
+  createdBy: z.string().trim().max(160).default("user"),
 });
 
 export const dictionaryInputSchema = z.object({
@@ -446,6 +506,10 @@ function validateValue(field: FieldDefinition, value: unknown): string | null {
         ? null
         : `${field.name}包含无效选项。`;
   }
+}
+
+export function validateFieldValue(field: FieldDefinition, value: unknown): string | null {
+  return validateValue(field, value);
 }
 
 export function validateCardValues(

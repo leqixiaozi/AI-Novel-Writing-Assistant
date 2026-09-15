@@ -17,6 +17,11 @@ import type {
   CardTypeVersion,
   CardVersion,
   FormResolutionKind,
+  AddInformationFieldInput,
+  FieldExtensionPreview,
+  ScopedFieldBundle,
+  ScopedFieldDefinition,
+  ScopedFieldVersion,
   DictionarySummary,
   InspirationCandidate,
   RelationTypeSummary,
@@ -235,8 +240,8 @@ export const newDesignApi = {
   createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }) => request<CardSummary>("/cards", {
     method: "POST", body: JSON.stringify(input),
   }),
-  updateCard: (input: CardSummary & {formVersionId?:string|null;formResolutionKind?:FormResolutionKind}) => request<CardSummary>(`/cards/${input.id}`, {
-    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, revision: input.revision, formVersionId:input.formVersionId, formResolutionKind:input.formResolutionKind }),
+  updateCard: (input: CardSummary & {localValues?:Record<string,unknown>;formVersionId?:string|null;formResolutionKind?:FormResolutionKind}) => request<CardSummary>(`/cards/${input.id}`, {
+    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, localValues:input.localValues, revision: input.revision, formVersionId:input.formVersionId, formResolutionKind:input.formResolutionKind }),
   }),
   archiveCard: (id: string, revision: number) => request<CardSummary>(`/cards/${id}/archive`, {
     method: "POST", body: JSON.stringify({ revision }),
@@ -245,6 +250,13 @@ export const newDesignApi = {
     method: "POST", body: JSON.stringify({ revision }),
   }),
   listCardVersions: (id: string) => request<CardVersion[]>(`/cards/${id}/versions`),
+  listScopedFields:(bookId:string,cardTypeId:string,cardId?:string)=>request<ScopedFieldBundle>(`/books/${bookId}/field-definitions?cardTypeId=${encodeURIComponent(cardTypeId)}${cardId?`&cardId=${encodeURIComponent(cardId)}`:""}`),
+  listScopedFieldHistory:(bookId:string,fieldId:string)=>request<ScopedFieldVersion[]>(`/books/${bookId}/field-definitions/${fieldId}/history`),
+  previewFieldExtension:(bookId:string,input:{cardTypeId:string;scope:"book_type"|"card"|"card_mount";cardId?:string|null;cardMountId?:string|null;field:AddInformationFieldInput})=>request<FieldExtensionPreview>(`/books/${bookId}/field-extensions/preview`,{method:"POST",body:JSON.stringify(input)}),
+  createBookFieldExtension:(bookId:string,input:{cardTypeId:string;expectedTypeRevision:number;field:AddInformationFieldInput;backfillStrategy:"none"|"default";idempotencyKey:string;createdBy?:string})=>request<ScopedFieldDefinition>(`/books/${bookId}/field-extensions`,{method:"POST",body:JSON.stringify(input)}),
+  createCardLocalField:(bookId:string,cardId:string,input:{expectedCardRevision:number;field:AddInformationFieldInput;initialValue?:unknown;idempotencyKey:string;createdBy?:string})=>request<ScopedFieldDefinition>(`/books/${bookId}/cards/${cardId}/local-fields`,{method:"POST",body:JSON.stringify(input)}),
+  reviseCardLocalField:(bookId:string,fieldId:string,input:{expectedRevision:number;field:AddInformationFieldInput;idempotencyKey:string;createdBy?:string})=>request<ScopedFieldDefinition>(`/books/${bookId}/field-definitions/${fieldId}`,{method:"PATCH",body:JSON.stringify(input)}),
+  archiveScopedField:(bookId:string,fieldId:string,input:{expectedRevision:number;expectedTypeRevision?:number;idempotencyKey:string;createdBy?:string})=>request<ScopedFieldDefinition>(`/books/${bookId}/field-definitions/${fieldId}/archive`,{method:"POST",body:JSON.stringify(input)}),
   listDictionaries: (spaceId?:string) => request<DictionarySummary[]>(`/dictionaries${spaceId?`?spaceId=${encodeURIComponent(spaceId)}`:""}`),
   createDictionary: (input: Omit<DictionarySummary, "id" | "status" | "revision" | "createdAt" | "updatedAt">) => request<DictionarySummary>("/dictionaries", {
     method: "POST", body: JSON.stringify(input),

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition, FormResolutionKind } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
-import { validateBookTypeEvolution, validateCardValues, validatePublishedEvolution } from "../domain/validation";
+import { validateBookTypeEvolution, validateCardValues, validateFieldValue, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 
 export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
@@ -304,7 +304,7 @@ export async function createCard(input: { cardTypeId: string; title: string; val
 
 async function updateCardSnapshot(
   id: string,
-  input: { title?: string; values?: Record<string, unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind },
+  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind },
 ): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
@@ -322,6 +322,19 @@ async function updateCardSnapshot(
     await validateFormProvenance(client,{formVersionId,formResolutionKind,spaceId:String(cardContext.space_id),typeKey:String(cardContext.type_key),requireCurrent:input.formVersionId!==undefined||input.formResolutionKind!==undefined});
     const validated = validateCardValues(typeVersion.fields, incomingValues);
     if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
+    const localDefinitions=await client.query(`SELECT definition.id,definition.field_key,definition.current_version_id,version.field_schema
+      FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id
+      WHERE definition.card_id=$1 AND definition.scope='card' AND definition.status='active'`,[id]);
+    const previousLocalRows=await client.query(`SELECT definition.field_key,local.value FROM new_design.cards card
+      JOIN new_design.card_version_local_values local ON local.card_version_id=card.current_version_id
+      JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE card.id=$1`,[id]);
+    const previousLocalValues=Object.fromEntries(previousLocalRows.rows.map((row)=>[String(row.field_key),row.value]));
+    const incomingLocalValues=input.localValues??previousLocalValues;
+    const localByKey=new Map(localDefinitions.rows.map((row)=>[String(row.field_key),row]));
+    const localIssues:Record<string,string>={};
+    for(const key of Object.keys(incomingLocalValues))if(!localByKey.has(key))localIssues[key]=`补充信息“${key}”不属于当前资料。`;
+    for(const [key,row] of localByKey){const message=validateFieldValue(row.field_schema as FieldDefinition,incomingLocalValues[key]);if(message)localIssues[key]=message;}
+    if(Object.keys(localIssues).length>0)throw new NewDesignError("请修正当前资料的补充信息后再保存。",422,localIssues);
     const nextRevision = existing.revision + 1;
     const nextStatus = input.source === "archive" ? "archived" : input.source === "restore" ? "active" : existing.status;
     const versionId = randomUUID();
@@ -329,6 +342,7 @@ async function updateCardSnapshot(
       INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
     `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source, formVersionId, formResolutionKind]);
+    for(const [key,row] of localByKey){const value=incomingLocalValues[key];if(value===undefined||value===null||value===""||(Array.isArray(value)&&value.length===0))continue;await client.query(`INSERT INTO new_design.card_version_local_values(card_version_id,field_definition_id,field_definition_version_id,value) VALUES($1,$2,$3,$4::jsonb)`,[versionId,row.id,row.current_version_id,JSON.stringify(value)]);}
     await client.query(`
       UPDATE new_design.cards
       SET title = $2, values = $3::jsonb, status = $4, revision = $5, type_version_id = $6,
@@ -345,7 +359,7 @@ async function updateCardSnapshot(
   }
 }
 
-export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
+export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
   return updateCardSnapshot(id, { ...input, source: "edit" });
 }
 
@@ -360,7 +374,8 @@ export async function restoreCard(id: string, revision: number): Promise<CardSum
 export async function listCardVersions(cardId: string): Promise<CardVersion[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
-    SELECT cv.*, ctv.version AS type_version, form_version.version AS form_version
+    SELECT cv.*, ctv.version AS type_version, form_version.version AS form_version,
+      COALESCE((SELECT jsonb_object_agg(definition.field_key,local.value) FROM new_design.card_version_local_values local JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE local.card_version_id=cv.id),'{}'::jsonb) AS local_values
     FROM new_design.card_versions cv
     JOIN new_design.card_type_versions ctv ON ctv.id = cv.type_version_id
     LEFT JOIN new_design.card_group_form_versions form_version ON form_version.id=cv.form_version_id
@@ -374,6 +389,7 @@ export async function listCardVersions(cardId: string): Promise<CardVersion[]> {
     typeVersion: Number(row.type_version),
     title: String(row.title),
     values: row.values as Record<string, unknown>,
+    localValues: row.local_values as Record<string,unknown>,
     source: row.source as CardVersion["source"],
     formVersionId: row.form_version_id ? String(row.form_version_id) : null,
     formVersion: row.form_version === null || row.form_version === undefined ? null : Number(row.form_version),

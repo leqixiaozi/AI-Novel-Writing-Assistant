@@ -23,6 +23,7 @@ export const CARD_TYPE_CAPABILITIES = [
 export type CardTypeCapability = (typeof CARD_TYPE_CAPABILITIES)[number];
 
 export interface FieldOption {
+  id?: string;
   value: string;
   label: string;
 }
@@ -46,6 +47,7 @@ export interface FieldDefinition {
   visibleWhen?: FieldVisibilityRule;
   aiSuggestible?: boolean;
   stateSettlement?: "none" | "tracked" | "lifecycle";
+  hidden?: boolean;
 }
 
 export interface CardTypeVersion {
@@ -105,6 +107,80 @@ export interface CardSummary {
 
 export type FormResolutionKind = "installed_form" | "type_schema" | "system_default" | "generic" | "legacy";
 
+export type FieldOrigin = "core" | "template" | "book_extension" | "local_supplement";
+export type FieldScope = "book_type" | "card" | "card_mount";
+
+export interface ScopedFieldVersion {
+  id: string;
+  version: number;
+  field: FieldDefinition;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ScopedFieldDefinition {
+  id: string;
+  spaceId: string;
+  cardTypeId: string | null;
+  cardId: string | null;
+  cardMountId: string | null;
+  fieldKey: string;
+  origin: FieldOrigin;
+  scope: FieldScope;
+  status: "active" | "archived";
+  revision: number;
+  sourceTemplateVersionId: string | null;
+  sourceTypeVersionId: string | null;
+  sourceFormVersionId: string | null;
+  currentVersion: ScopedFieldVersion;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScopedFieldBundle {
+  definitions: ScopedFieldDefinition[];
+  values: Record<string, unknown>;
+}
+
+export interface FieldExtensionPreview {
+  scope: FieldScope;
+  affectedCardCount: number;
+  requiredNeedsDefault: boolean;
+  canApply: boolean;
+  messages: string[];
+  expectedTypeRevision: number;
+}
+
+export interface AddInformationFieldInput {
+  name: string;
+  description: string;
+  type: FieldType;
+  options: Array<{ id?: string; label: string }>;
+  required: boolean;
+  group: string;
+  defaultValue?: unknown;
+  aiSuggestible: boolean;
+  stateSettlement: "none" | "tracked" | "lifecycle";
+  visibleWhen?: FieldVisibilityRule;
+}
+
+export interface FieldAdoptionReceipt {
+  id: string;
+  fieldDefinitionId: string;
+  action: "create" | "revise" | "archive" | "template_addition";
+  idempotencyKey: string;
+  fromVersionId: string | null;
+  toVersionId: string | null;
+  createdAt: string;
+}
+
+export interface FieldSourceSummary {
+  originLabel: "核心信息" | "模板信息" | "本书新增" | "仅此处补充";
+  scopeLabel: "本书所有同类资料" | "当前资料" | "当前关联";
+  sourceDetail: string;
+}
+
 export const STRATEGY_RESOURCE_TYPE_KEYS = [
   "genre_strategy",
   "progression_mode",
@@ -138,6 +214,7 @@ export interface CardVersion {
   typeVersion: number;
   title: string;
   values: Record<string, unknown>;
+  localValues: Record<string, unknown>;
   source: "create" | "edit" | "archive" | "restore";
   formVersionId: string | null;
   formVersion: number | null;

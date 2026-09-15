@@ -612,6 +612,14 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**类型版管字段，表单版管组合，修订只记引用、不抄空表。**
 
+### 034 字段作用域与局部值
+
+`034_scoped_field_definitions.sql` 把字段稳定身份与每版展示／校验规格拆开，并为选项建立独立稳定身份。`field_definitions` 记录 `field_key`、来源、作用域、来源模板／类型／表单版本和当前指针；`field_definition_versions`、`field_option_versions`、`field_scope_adoptions` 与局部值历史只追加。`card_version_local_values` 绑定当前资料修订，`card_mount_local_value_versions` 只预留 U4 合同。
+
+> 🏠 **白话比喻**：字段 key 像居民身份证号，显示名称像姓名；改名换证不会变成另一个人。对应到系统：标签可以出新版本，稳定 key 和 option ID 始终用于识别历史值。
+
+> 🧠 **速记方法**：**key 认身份，label 管显示；同类发新版，单条随修订。** 详细作用域、事务和 API 见 [field-scope-and-versioning.md](./field-scope-and-versioning.md)。
+
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。
 2. 已发布迁移文件不可改写；结构变化必须新增迁移。
 3. 迁移默认只前进且非破坏。删列、改类型、清表或重建数据库必须先完成备份、恢复校验并取得明确授权。

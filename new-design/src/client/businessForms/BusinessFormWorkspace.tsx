@@ -9,9 +9,13 @@ import type {
   CardTypeVersion,
   CardVersion,
   FieldDefinition,
+  ScopedFieldBundle,
+  ScopedFieldDefinition,
+  ScopedFieldVersion,
 } from "../../common/contracts";
 import { ApiError, newDesignApi } from "../api";
 import DynamicForm from "../DynamicForm";
+import AddInformationDialog from "./AddInformationDialog";
 import {
   SCOPE_COPY,
   cardsForType,
@@ -49,8 +53,12 @@ function changedKeys(local: Record<string, unknown>, latest: Record<string, unkn
   return [...new Set([...Object.keys(local), ...Object.keys(latest)])].filter((key) => JSON.stringify(local[key]) !== JSON.stringify(latest[key]));
 }
 
+const TYPE_LABELS:Record<string,string>={short_text:"短文本",long_text:"长文本",number:"数字",boolean:"是／否",select:"单选",multi_select:"多选",date:"日期"};
+function fieldSourceDetail(item:ScopedFieldDefinition){if(item.origin==="core")return "系统核心规格";if(item.origin==="template")return `随模板安装${item.sourceTemplateVersionId?` · 来源版本 ${item.sourceTemplateVersionId.slice(0,8)}`:""}`;if(item.origin==="book_extension")return `本书独立规格 · 字段版本 ${item.currentVersion.version}`;return `当前资料独立补充 · 字段版本 ${item.currentVersion.version}`;}
+
 export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props) {
-  const availableTypes = useMemo(() => typesForScope(cardTypes, scope), [cardTypes, scope]);
+  const [liveCardTypes,setLiveCardTypes]=useState(cardTypes);
+  const availableTypes = useMemo(() => typesForScope(liveCardTypes, scope), [liveCardTypes, scope]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
   const [workspace, setWorkspace] = useState<BookViewWorkspace | null>(null);
   const [forms, setForms] = useState<CardGroupFormSummary[]>([]);
@@ -60,6 +68,11 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [localValues,setLocalValues]=useState<Record<string,unknown>>({});
+  const [scopedFields,setScopedFields]=useState<ScopedFieldBundle>({definitions:[],values:{}});
+  const [addingInformation,setAddingInformation]=useState(false);
+  const [editingField,setEditingField]=useState<ScopedFieldDefinition|null>(null);
+  const [fieldHistory,setFieldHistory]=useState<{definition:ScopedFieldDefinition;versions:ScopedFieldVersion[]}|null>(null);
   const [issues, setIssues] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -73,8 +86,13 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const resolution = selectedType && currentTypeVersion
     ? resolveBusinessForm(selectedType, currentTypeVersion.fields, forms, formVersions)
     : null;
+  const localFieldKeys=new Set(scopedFields.definitions.filter((item)=>item.scope==="card"&&item.status==="active").map((item)=>item.fieldKey));
+  const combinedFields=resolution?[...resolution.fields,...scopedFields.definitions.filter((item)=>item.scope==="card"&&item.status==="active"&&!resolution.fields.some((field)=>field.key===item.fieldKey)).map((item)=>item.currentVersion.field)]:[];
+  const scopeLabelByKey=Object.fromEntries(scopedFields.definitions.map((item)=>[item.fieldKey,item.origin==="core"?"核心信息":item.origin==="template"?"模板信息":item.origin==="book_extension"?"本书新增":"仅此处补充"]));
   const cards = selectedType && workspace ? cardsForType(workspace.cards, selectedType) : [];
   const copy = SCOPE_COPY[scope];
+
+  useEffect(()=>setLiveCardTypes(cardTypes),[cardTypes]);
 
   const loadWorkspace = async () => {
     const [nextWorkspace, nextForms] = await Promise.all([
@@ -113,6 +131,12 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "内容规格暂时无法读取。"));
   }, [selectedType?.id]);
 
+  useEffect(()=>{
+    setScopedFields({definitions:[],values:{}});setLocalValues({});
+    if(!selectedType)return;
+    void newDesignApi.listScopedFields(book.id,selectedType.id,editing?.id).then((bundle)=>{setScopedFields(bundle);setLocalValues(bundle.values);}).catch((loadError)=>setError(loadError instanceof Error?loadError.message:"信息来源暂时无法读取。"));
+  },[book.id,selectedType?.id,editing?.id]);
+
   useEffect(() => {
     if (creating || editing || !resolution) return;
     const first = cards[0];
@@ -134,6 +158,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     setCreating(false);
     setTitle(card.title);
     setValues(card.values);
+    setLocalValues({});
     setIssues({});
     setError("");
     setNotice("");
@@ -146,6 +171,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     setCreating(true);
     setTitle("");
     setValues(defaultValues(resolution.fields));
+    setLocalValues({});
     setIssues({});
     setError("");
     setNotice("");
@@ -164,13 +190,14 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
         ? forms.find((form) => form.id === resolution.formId)?.currentVersionId ?? null
         : null;
       const saved = editing
-        ? await newDesignApi.updateCard({ ...editing, title, values, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source })
+        ? await newDesignApi.updateCard({ ...editing, title, values, localValues, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source })
         : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values, spaceId: book.spaceId, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source });
       await loadWorkspace();
       setEditing(saved);
       setCreating(false);
       setTitle(saved.title);
       setValues(saved.values);
+      if(editing){const bundle=await newDesignApi.listScopedFields(book.id,selectedType.id,saved.id);setScopedFields(bundle);setLocalValues(bundle.values);}
       setNotice(`已保存，当前为修订 ${saved.revision}。`);
     } catch (saveError) {
       if (saveError instanceof ApiError) {
@@ -229,6 +256,17 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     }
   };
 
+  const refreshAfterFieldCreate=async()=>{
+    if(!selectedType)return;
+    const [nextTypes,nextWorkspace,nextVersions]=await Promise.all([newDesignApi.listCardTypes(book.spaceId),newDesignApi.getBookViewWorkspace(book.id),newDesignApi.listCardTypeVersions(selectedType.id)]);
+    setLiveCardTypes(nextTypes);setWorkspace(nextWorkspace);setTypeVersions(nextVersions);
+    if(editing){const latest=nextWorkspace.cards.find((card)=>card.id===editing.id)??editing;setEditing(latest);setTitle(latest.title);setValues(latest.values);const bundle=await newDesignApi.listScopedFields(book.id,selectedType.id,latest.id);setScopedFields(bundle);setLocalValues(bundle.values);}else{setScopedFields(await newDesignApi.listScopedFields(book.id,selectedType.id));}
+    setNotice("信息已加入当前填写表单。");
+  };
+
+  const openFieldHistory=async(definition:ScopedFieldDefinition)=>{setBusy(true);try{setFieldHistory({definition,versions:await newDesignApi.listScopedFieldHistory(book.id,definition.id)});}catch(loadError){setError(loadError instanceof Error?loadError.message:"信息版本暂时无法读取。");}finally{setBusy(false);}};
+  const archiveField=async(definition:ScopedFieldDefinition)=>{if(!selectedType)return;setBusy(true);setError("");try{await newDesignApi.archiveScopedField(book.id,definition.id,{expectedRevision:definition.revision,expectedTypeRevision:definition.scope==="book_type"?selectedType.revision:undefined,idempotencyKey:crypto.randomUUID()});await refreshAfterFieldCreate();setNotice(`“${definition.currentVersion.field.name}”已从填写表单隐藏，历史资料仍保留。`);}catch(archiveError){setError(archiveError instanceof Error?archiveError.message:"暂时无法隐藏这项信息。");}finally{setBusy(false);}};
+
   const relatedItems = useMemo(() => {
     if (!editing || !workspace) return [];
     const cardName = (id: string) => workspace.cards.find((card) => card.id === id)?.title ?? "已移除资料";
@@ -268,7 +306,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
         {!resolution ? <div className="nd-empty nd-empty-page"><strong>没有可用的已发布填写规格</strong><span>发布内容规格后即可在这里填写，不会生成另一份配置。</span></div> : !creating && !editing ? <div className="nd-empty nd-empty-page"><strong>选择一条资料，或新建内容</strong><span>空白填写、模板生成和 AI 提案进入本书后，都使用同一套编辑页面。</span></div> : <>
           <div className="nd-business-editor-heading">
             <div><p className="nd-kicker">{creating ? "新建内容" : `修订 ${editing?.revision}`}</p><h2>{resolution.title}</h2><p>{selectedType?.description}</p></div>
-            <div className="nd-form-provenance" aria-label="当前填写规格"><span>{resolution.sourceLabel}</span><small>内容规格 v{resolution.typeVersion}</small>{editing && <button className="nd-text-button" type="button" onClick={() => void openHistory(editing)}>查看修改记录</button>}</div>
+            <div className="nd-form-provenance" aria-label="当前填写规格"><span>{resolution.sourceLabel}</span><small>内容规格 v{resolution.typeVersion}</small><button className="nd-text-button" type="button" onClick={()=>setAddingInformation(true)}>＋ 添加信息</button>{editing && <button className="nd-text-button" type="button" onClick={() => void openHistory(editing)}>查看修改记录</button>}</div>
           </div>
           <label className={`nd-control${issues.title ? " has-error" : ""}`}>
             <span>资料标题 <b aria-label="必填">*</b></span>
@@ -276,7 +314,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
             <input value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
             {issues.title && <em>{issues.title}</em>}
           </label>
-          <DynamicForm fields={resolution.fields} values={values} issues={issues} onChange={setValues}/>
+          <DynamicForm fields={combinedFields} values={{...values,...localValues}} issues={issues} scopeLabelByKey={scopeLabelByKey} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
+
+          <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
 
           <section className="nd-readonly-relations" aria-labelledby="nd-relation-summary-title">
             <div><h3 id="nd-relation-summary-title">关联资料</h3><span>只读</span></div>
@@ -290,6 +330,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
       </section>
     </div>
 
-    {history && <div className="nd-dialog-backdrop" role="presentation" onMouseDown={() => setHistory(null)}><section className="nd-history-dialog" role="dialog" aria-modal="true" aria-labelledby="nd-business-history-title" onMouseDown={(event) => event.stopPropagation()}><div className="nd-section-heading"><div><p className="nd-kicker">只读修改记录</p><h2 id="nd-business-history-title">{historyTitle}</h2></div><button className="nd-dialog-close" type="button" aria-label="关闭修改记录" onClick={() => setHistory(null)}>×</button></div><div className="nd-history-list">{history.map((version) => <article key={version.id}><div><strong>修订 {version.revision}</strong><span>{historySource(version.source)} · 内容规格 v{version.typeVersion}{version.formVersion ? ` · 创作表单 v${version.formVersion}` : ""}</span></div><time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time><h3>{version.title}</h3><dl>{Object.entries(version.values).map(([key, value]) => <div key={key}><dt>{resolution?.fields.find((field) => field.key === key)?.name ?? key}</dt><dd>{displayValue(value, resolution?.fields.find((field) => field.key === key))}</dd></div>)}</dl></article>)}</div></section></div>}
+    {history && <div className="nd-dialog-backdrop" role="presentation" onMouseDown={() => setHistory(null)}><section className="nd-history-dialog" role="dialog" aria-modal="true" aria-labelledby="nd-business-history-title" onMouseDown={(event) => event.stopPropagation()}><div className="nd-section-heading"><div><p className="nd-kicker">只读修改记录</p><h2 id="nd-business-history-title">{historyTitle}</h2></div><button className="nd-dialog-close" type="button" aria-label="关闭修改记录" onClick={() => setHistory(null)}>×</button></div><div className="nd-history-list">{history.map((version) => <article key={version.id}><div><strong>修订 {version.revision}</strong><span>{historySource(version.source)} · 内容规格 v{version.typeVersion}{version.formVersion ? ` · 创作表单 v${version.formVersion}` : ""}</span></div><time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time><h3>{version.title}</h3><dl>{Object.entries({...version.values,...version.localValues}).map(([key, value]) => <div key={key}><dt>{combinedFields.find((field) => field.key === key)?.name ?? key}</dt><dd>{displayValue(value, combinedFields.find((field) => field.key === key))}</dd></div>)}</dl></article>)}</div></section></div>}
+    {addingInformation&&selectedType&&<AddInformationDialog bookId={book.id} cardType={selectedType} card={editing} onClose={()=>setAddingInformation(false)} onCreated={refreshAfterFieldCreate}/>}
+    {editingField&&selectedType&&<AddInformationDialog bookId={book.id} cardType={selectedType} card={editing} definition={editingField} initialValue={localValues[editingField.fieldKey]} onClose={()=>setEditingField(null)} onCreated={refreshAfterFieldCreate}/>}
+    {fieldHistory&&<div className="nd-dialog-backdrop" role="presentation" onMouseDown={()=>setFieldHistory(null)}><section className="nd-history-dialog nd-field-history-dialog" role="dialog" aria-modal="true" aria-labelledby="nd-field-history-title" onMouseDown={(event)=>event.stopPropagation()}><div className="nd-section-heading"><div><p className="nd-kicker">{scopeLabelByKey[fieldHistory.definition.fieldKey]}</p><h2 id="nd-field-history-title">{fieldHistory.definition.currentVersion.field.name}</h2><p>稳定标识 {fieldHistory.definition.fieldKey} · 改名不会改变资料身份</p></div><button className="nd-dialog-close" type="button" aria-label="关闭信息版本" onClick={()=>setFieldHistory(null)}>×</button></div><div className="nd-history-list">{fieldHistory.versions.map((version)=><article key={version.id}><div><strong>版本 {version.version}</strong><span>{version.field.group} · {TYPE_LABELS[version.field.type]??version.field.type}</span></div><time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time><h3>{version.field.name}</h3><p>{version.field.description||"没有填写说明。"}</p></article>)}</div></section></div>}
   </div>;
 }

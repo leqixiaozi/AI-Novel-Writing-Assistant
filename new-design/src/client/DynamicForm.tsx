@@ -7,6 +7,7 @@ interface DynamicFormProps {
   issues?: Record<string, string>;
   disabled?: boolean;
   preview?: boolean;
+  scopeLabelByKey?: Record<string, string>;
   onChange?: (values: Record<string, unknown>) => void;
 }
 
@@ -29,11 +30,11 @@ function isVisible(field: FieldDefinition, values: Record<string, unknown>): boo
   return Array.isArray(actual) && actual.includes(rule.value);
 }
 
-export default function DynamicForm({ fields, values, issues = {}, disabled, preview, onChange }: DynamicFormProps) {
+export default function DynamicForm({ fields, values, issues = {}, disabled, preview, scopeLabelByKey = {}, onChange }: DynamicFormProps) {
   const formId = useId().replace(/:/g, "");
   const patch = (field: FieldDefinition, value: unknown) => onChange?.({ ...values, [field.key]: value });
   const groups = new Map<string, FieldDefinition[]>();
-  for (const field of [...fields].sort((a, b) => a.order - b.order)) {
+  for (const field of [...fields].filter((item)=>!item.hidden).sort((a, b) => a.order - b.order)) {
     if (!isVisible(field, values)) continue;
     const group = field.group.trim() || "基本信息";
     groups.set(group, [...(groups.get(group) ?? []), field]);
@@ -55,7 +56,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
             const describedBy = [helpId, errorId].filter(Boolean).join(" ") || undefined;
             return (
               <div className={`nd-control${issues[field.key] ? " has-error" : ""}`} key={field.key}>
-                <span id={labelId}>{field.name}{field.required && <b aria-label="必填"> *</b>}{field.aiSuggestible && <i className="nd-field-capability">可由 AI 建议</i>}{field.stateSettlement === "tracked" && <i className="nd-field-capability">跟踪变化</i>}{field.stateSettlement === "lifecycle" && <i className="nd-field-capability">生命周期</i>}</span>
+                <span id={labelId}>{field.name}{field.required && <b aria-label="必填"> *</b>}{scopeLabelByKey[field.key] && <i className="nd-field-capability is-scope">{scopeLabelByKey[field.key]}</i>}{field.aiSuggestible && <i className="nd-field-capability">可由 AI 建议</i>}{field.stateSettlement === "tracked" && <i className="nd-field-capability">跟踪变化</i>}{field.stateSettlement === "lifecycle" && <i className="nd-field-capability">生命周期</i>}</span>
                 {field.description && <small id={helpId}>{field.description}</small>}
                 {field.type === "long_text" ? (
                   <textarea rows={4} disabled={inputDisabled} value={String(value ?? "")} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={Boolean(issues[field.key])} onChange={(event) => patch(field, event.target.value)} />

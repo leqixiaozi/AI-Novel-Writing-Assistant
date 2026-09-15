@@ -39,12 +39,13 @@
 - `OutboxEvent` / `BackgroundJob` / `BackgroundJobAttempt` / `InboxReceipt`：用同一 PostgreSQL 事务把专业请求交给受控后台运行器，提供至少一次投递、幂等回执、SKIP LOCKED 领取、租约／fencing、重试、死信、取消和恢复历史。
 - `TransferOperation` / `TransferManifest` / `TransferArtifact` / `TransferStagingScope`：统一登记整库备份、单书／模板／资源导入导出、兼容快照、归档清单、冲突、ID 映射与隔离发布；复用同一 Outbox，不接受客户端路径或命令。
 - `RuntimeInstallation` / `RuntimeLifecycleEvent` / `RuntimeUpgradePlan`：记录私有 PostgreSQL 运行包、数据世代、启停健康和升级审计；未连库前只使用带 checksum 的本机 bootstrap 状态。
+- `FieldDefinition` / `FieldDefinitionVersion` / `FieldScopeAdoption`：让作者从业务表单添加“本书所有同类资料”或“仅当前资料”的信息；稳定 key、选项 ID、来源版本、影响预览和局部值历史不会被显示名称变化覆盖。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/033_business_form_provenance.sql`、`docs/data-model.md`、`docs/business-form-shell.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/034_scoped_field_definitions.sql`、`docs/data-model.md`、`docs/business-form-shell.md`、`docs/field-scope-and-versioning.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的字段扩展、局部值和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
-新设计不再接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—033。当前仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把当前状态描述为已经可安装发布。
+新设计不再接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—034。当前仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把当前状态描述为已经可安装发布。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
