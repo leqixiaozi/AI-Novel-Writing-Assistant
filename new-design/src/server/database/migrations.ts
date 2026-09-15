@@ -40,4 +40,8 @@ export const migrations: Migration[] = [
     id: "009_strategy_resources",
     fileName: "009_strategy_resources.sql",
   },
+  {
+    id: "010_prompt_components",
+    fileName: "010_prompt_components.sql",
+  },
 ];

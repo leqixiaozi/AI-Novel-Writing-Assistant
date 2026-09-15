@@ -103,6 +103,8 @@ export const STRATEGY_RESOURCE_TYPE_KEYS = [
 
 export type StrategyResourceTypeKey = (typeof STRATEGY_RESOURCE_TYPE_KEYS)[number];
 
+export const PROMPT_COMPONENT_RESOURCE_SPACE_ID = "63000000-0000-4000-8000-000000000001";
+
 export interface StrategyResourceSummary extends CardSummary {
   typeKey: StrategyResourceTypeKey;
 }

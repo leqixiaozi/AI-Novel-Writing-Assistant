@@ -244,7 +244,13 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     const cardId = randomUUID();
     const versionId = randomUUID();
     const spaceId = input.spaceId ?? DEFAULT_SPACE_ID;
-    const typeSpace = await client.query("SELECT 1 FROM new_design.card_types WHERE id=$1 AND space_id=$2", [input.cardTypeId, spaceId]);
+    const typeSpace = await client.query(`
+      SELECT 1
+      FROM new_design.card_types type
+      JOIN new_design.card_spaces target_space ON target_space.id=$2
+      WHERE type.id=$1
+        AND (type.space_id=$2 OR (type.space_id=$3 AND target_space.space_key LIKE 'resource_%'))
+    `, [input.cardTypeId, spaceId, DEFAULT_SPACE_ID]);
     if (!typeSpace.rows[0]) throw new NewDesignError("卡片类型不属于当前数据空间。", 422);
     await client.query(`
       INSERT INTO new_design.cards (id, space_id, card_type_id, title, status, revision, type_version_id, values)

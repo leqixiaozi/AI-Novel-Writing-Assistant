@@ -103,6 +103,7 @@ const moreNavGroups: MobileNavGroup[] = [
     items: [
       { key: "new-design", label: "新设计首页", to: "/new-design", group: "more" },
       { key: "new-design-books", label: "我的书籍", to: "/new-design/books", group: "more" },
+      { key: "new-design-resources", label: "我的卡片", to: "/new-design/resources", group: "more" },
       { key: "new-design-card-types", label: "元卡片类型", to: "/new-design/structure/card-types", group: "more" },
       { key: "new-design-dictionaries", label: "字典与关系", to: "/new-design/structure/dictionaries-relations", group: "more" },
       { key: "new-design-forms", label: "卡片组表单", to: "/new-design/structure/forms", group: "more" },

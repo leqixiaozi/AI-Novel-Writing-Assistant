@@ -93,6 +93,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/new-design", label: "新设计首页", icon: Layers3, end: true },
       { to: "/new-design/books", label: "我的书籍", icon: BookOpenText },
+      { to: "/new-design/resources", label: "我的卡片", icon: Database },
       { to: "/new-design/structure/card-types", label: "元卡片类型", icon: SquareStack },
       { to: "/new-design/structure/dictionaries-relations", label: "字典与关系", icon: Workflow },
       { to: "/new-design/structure/forms", label: "卡片组表单", icon: SquarePen },

@@ -36,12 +36,14 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   const builtInTypes = await store.listCardTypes();
   const systemTypes = builtInTypes.filter((cardType) => cardType.isSystem);
-  assert.equal(systemTypes.length, 29);
-  for (const key of ["character", "organization", "world_rule", "event", "volume", "scene", "genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material", "world_overview", "power_system", "race", "culture", "religion"]) {
+  assert.equal(systemTypes.length, 30);
+  assert.equal(new Set(systemTypes.map((cardType) => cardType.key)).size, 30);
+  for (const key of ["character", "organization", "world_rule", "event", "volume", "scene", "genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material", "world_overview", "power_system", "race", "culture", "religion", "prompt_component"]) {
     assert.ok(systemTypes.some((cardType) => cardType.key === key), `missing built-in type ${key}`);
   }
+  assert.ok(!systemTypes.some((cardType) => ["base_character", "historical_event", "timeline"].includes(cardType.key)));
   const categories = await categoriesStore.listCardTypeCategories();
-  assert.deepEqual(categories.map((category) => category.name), ["创作策略", "人物与组织", "世界设定", "剧情结构", "篇章结构", "参考资料"]);
+  assert.deepEqual(categories.map((category) => category.name), ["创作策略", "人物与组织", "世界设定", "剧情结构", "篇章结构", "参考资料", "AI 资源"]);
   assert.ok(systemTypes.every((cardType) => cardType.categoryId));
   assert.deepEqual(
     systemTypes.find((cardType) => cardType.key === "event").semanticCapabilities,
@@ -51,6 +53,28 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
     systemTypes.find((cardType) => cardType.key === "scene").semanticCapabilities,
     ["body_text", "timeline", "state_change", "creative_goal"],
   );
+  const promptType = systemTypes.find((cardType) => cardType.key === "prompt_component");
+  assert.ok(promptType);
+  assert.deepEqual(promptType.draftFields.map((field) => field.key), ["component_key", "component_type", "content", "task_families", "binding_status", "edit_policy", "trust_level", "enabled", "notes"]);
+  assert.deepEqual(promptType.draftFields.find((field) => field.key === "component_type").options.map((option) => option.value), ["system_role", "task_instruction", "business_constraint", "creative_strategy_reference", "writing_reference", "quality_rule_reference", "context_instruction", "output_requirement", "example", "optional_addition"]);
+
+  const promptSpaceId = "63000000-0000-4000-8000-000000000001";
+  const promptSeeds = await store.listCards({ cardTypeId: promptType.id, spaceId: promptSpaceId });
+  assert.deepEqual(promptSeeds.map((card) => card.title).sort(), ["严格依据已确认事实", "只返回表单 Schema", "避免擅自新增设定", "长篇小说创作助手角色"].sort());
+  const promptVersion = (await store.listCardTypeVersions(promptType.id))[0];
+  assert.ok(promptSeeds.every((card) => Object.keys(validateCardValues(promptVersion.fields, card.values).issues).length === 0));
+  let customPrompt = await store.createCard({
+    cardTypeId: promptType.id,
+    spaceId: promptSpaceId,
+    title: "集成测试组件",
+    values: { component_key: "test.integration_component", component_type: "example", content: "仅用于验证动态表单持久化。", task_families: ["form_card"], binding_status: "not_applicable", edit_policy: "editable", trust_level: "editor_trusted", enabled: true, notes: "测试后随临时数据库销毁。" },
+  });
+  customPrompt = await store.updateCard(customPrompt.id, { ...customPrompt, values: { ...customPrompt.values, content: "已完成一次版本修订。" } });
+  customPrompt = await store.archiveCard(customPrompt.id, customPrompt.revision);
+  assert.equal(customPrompt.status, "archived");
+  assert.equal((await store.listCardVersions(customPrompt.id)).length, 3);
+  customPrompt = await store.restoreCard(customPrompt.id, customPrompt.revision);
+  assert.equal(customPrompt.status, "active");
 
   const starterCards = await store.listCards({});
   for (const title of ["主世界观", "主线时间规则", "新书创作约定", "核心故事构思"]) {
@@ -140,6 +164,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.ok(defaultTemplate);
   const initialTemplateVersion = (await templates.listTemplateVersions(defaultTemplate.id))[0];
   assert.equal(initialTemplateVersion.payload.cardTypes.length, 29);
+  assert.ok(!initialTemplateVersion.payload.cardTypes.some((cardType) => cardType.key === "prompt_component"));
 
   const inspirationCandidates = await bookCreation.listInspirationCandidates();
   assert.equal(inspirationCandidates.length, 6);
@@ -324,4 +349,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(restarted.title, "林雾（成年）");
   assert.equal(restarted.values.secret, "来自旧城");
   assert.equal(restarted.status, "active");
+  const restartedPrompt = await store.getCard(customPrompt.id);
+  assert.equal(restartedPrompt.values.content, "已完成一次版本修订。");
+  assert.equal(restartedPrompt.status, "active");
 });

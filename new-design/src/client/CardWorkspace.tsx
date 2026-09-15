@@ -8,13 +8,27 @@ interface CardWorkspaceProps {
   cardTypes: CardTypeSummary[];
   categories: CardTypeCategory[];
   spaceId?: string;
+  workspaceLabel?: string;
+  treeAriaLabel?: string;
+  contextLabel?: string;
+  createLabel?: string;
+  entityLabel?: string;
 }
 
 function sourceLabel(source: CardVersion["source"]): string {
   return { create: "创建", edit: "编辑", archive: "归档", restore: "恢复" }[source];
 }
 
-export default function CardWorkspace({ cardTypes, categories, spaceId }: CardWorkspaceProps) {
+export default function CardWorkspace({
+  cardTypes,
+  categories,
+  spaceId,
+  workspaceLabel = "卡片库",
+  treeAriaLabel = "本书资料类型",
+  contextLabel = "本书资料",
+  createLabel = "＋ 新建卡片",
+  entityLabel = "卡片",
+}: CardWorkspaceProps) {
   const publishedTypes = useMemo(() => cardTypes.filter((item) => item.status === "published" && item.currentVersionId), [cardTypes]);
   const [cardTypeId, setCardTypeId] = useState("");
   const [typeQuery, setTypeQuery] = useState("");
@@ -88,7 +102,7 @@ export default function CardWorkspace({ cardTypes, categories, spaceId }: CardWo
               onClick={() => setCardTypeId(item.id)}
             >
               <span>└</span>
-              <div><strong>{item.name}</strong><small>本书资料 · v{item.currentVersion}</small></div>
+              <div><strong>{item.name}</strong><small>{contextLabel} · v{item.currentVersion}</small></div>
             </button>
           ))}
         </div>}
@@ -171,10 +185,10 @@ export default function CardWorkspace({ cardTypes, categories, spaceId }: CardWo
     <div className="nd-card-workspace">
       <section className="nd-card-list-pane">
         <div className="nd-section-heading">
-          <div><p className="nd-kicker">卡片库</p><h1>{selectedType?.name ?? "选择类型"}</h1></div>
-          <button className="nd-button nd-button-primary" type="button" onClick={beginCreate}>＋ 新建卡片</button>
+          <div><p className="nd-kicker">{workspaceLabel}</p><h1>{selectedType?.name ?? "选择类型"}</h1></div>
+          <button className="nd-button nd-button-primary" type="button" onClick={beginCreate}>{createLabel}</button>
         </div>
-        <div className="nd-card-type-navigation" aria-label="本书资料类型">
+        <div className="nd-card-type-navigation" aria-label={treeAriaLabel}>
           <label className="nd-type-search">
             <span className="nd-visually-hidden">查找资料类型</span>
             <input value={typeQuery} placeholder="查找资料类型" onChange={(event) => setTypeQuery(event.target.value)} />
@@ -211,23 +225,23 @@ export default function CardWorkspace({ cardTypes, categories, spaceId }: CardWo
 
       <section className="nd-card-editor-pane">
         {!editorVisible ? (
-          <div className="nd-empty nd-empty-page"><strong>选择一张卡片继续编辑</strong><span>也可以新建一张{selectedType?.name}卡片。</span></div>
+          <div className="nd-empty nd-empty-page"><strong>选择一项{entityLabel}继续编辑</strong><span>也可以新建一项{selectedType?.name}{entityLabel}。</span></div>
         ) : (
           <>
             <div className="nd-section-heading">
-              <div><p className="nd-kicker">{editing ? `修订 ${editing.revision}` : "新卡片"}</p><h2>{editing ? editing.title : `新建${selectedType?.name ?? "卡片"}`}</h2></div>
+              <div><p className="nd-kicker">{editing ? `修订 ${editing.revision}` : `新${entityLabel}`}</p><h2>{editing ? editing.title : `新建${selectedType?.name ?? entityLabel}`}</h2></div>
               {editing && <button className="nd-text-button" type="button" onClick={() => void showHistory(editing)}>查看版本</button>}
             </div>
             <label className={`nd-control${issues.title ? " has-error" : ""}`}>
-              <span>卡片标题 <b>*</b></span>
-              <input value={title} placeholder={`输入${selectedType?.name ?? "卡片"}标题`} onChange={(event) => setTitle(event.target.value)} />
+              <span>{entityLabel}标题 <b>*</b></span>
+              <input value={title} placeholder={`输入${selectedType?.name ?? entityLabel}标题`} onChange={(event) => setTitle(event.target.value)} />
               {issues.title && <em>{issues.title}</em>}
             </label>
             <DynamicForm fields={fields} values={values} issues={issues} onChange={setValues} />
             {message && <p className={`nd-message${Object.keys(issues).length ? " is-error" : " is-success"}`}>{message}</p>}
             <div className="nd-editor-actions">
               <button className="nd-button nd-button-secondary" type="button" onClick={() => { setEditing(null); setCreating(false); }}>取消</button>
-              <button className="nd-button nd-button-primary" type="button" disabled={busy || !title.trim()} onClick={() => void save()}>{busy ? "保存中…" : "保存卡片"}</button>
+              <button className="nd-button nd-button-primary" type="button" disabled={busy || !title.trim()} onClick={() => void save()}>{busy ? "保存中…" : `保存${entityLabel}`}</button>
             </div>
           </>
         )}
