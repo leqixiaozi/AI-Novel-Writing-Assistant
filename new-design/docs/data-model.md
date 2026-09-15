@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`039` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心，以及章节写作候选与采用准备合同。运行时迁移范围以 `001_card_kernel.sql` 至 `039_chapter_writing_workspace.sql` 为准。
+`031`—`042` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心、章节写作候选与采用准备、章节稳定结算、旧章选择性重算、研究采用和统一 AI 运行预览合同。运行时迁移范围以 `001_card_kernel.sql` 至 `042_research_prompt_runtime_orchestration.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -575,7 +575,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 每次运行的 `input_snapshot` 固定记录用途、深度、八个分析维度、目标表单、允许的发布类型与字段、证据要求和候选上限；`source_scope` 固定记录资料版本、全文或字符范围及来源 URL。重跑只追加 `research_record_versions`，旧报告、证据和候选不被覆盖。范围分析的 `start_offset` / `end_offset` 使用原始资料的绝对字符位置，摘录无法在所选文本中精确定位时必须改为 `low_confidence` 且位置留空。
 
-候选采用在单个 PostgreSQL 事务中支持五种动作：`create_card` 新建到有效书籍、`merge_card` 按修订号合并同类型资料、`save_resource` 保存四类可复用创作策略、`reference_only` 仅留作参考、`ignore` 忽略。新建与合并都会在 `card_field_origins` 写入 `source_kind=research` 和精确 `research_record_version`；批量动作有一项失败时整体回滚。
+研究域内仍可用 `save_resource` 保存四类可复用创作策略，也可选择 `reference_only` 或 `ignore`。研究候选进入书籍时不能直接执行 `create_card` 或向书内 `merge_card`；必须先建立 042 的本书采用预览，在可编辑候选中逐条决定后，由采用事务写入正式卡片和 `card_field_origins`。批量动作有一项失败时整体回滚。
 
 > 🏠 **白话比喻**：拆书候选像编辑在样稿旁贴的便签，便签可以建议“新增人物”或“调整写法”，但没有主编签字就不能塞进正式书稿。对应到数据库：候选留在 `research_candidates`，作者动作写入 `research_candidate_adoptions` 后，才会创建或修订正式 `cards`。
 
@@ -686,6 +686,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：041 像旧楼改造前的管线勘察和施工签字单。原始图纸不销毁，每条水电线路决定重接、复核或保留人工绕线，住户房间不能被施工队擅自改动。对应到数据库：历史版本保留，派生依赖可重算，人工保护和后续正文复核都有独立账本。
 
 > 🧠 **速记方法**：**冻、选、确、算、审、稳。** 冻结影响，选择动作，二次确认，重算派生，人工复核，稳定检查点放行。详细合同见 [chapter-revision-recompute.md](./chapter-revision-recompute.md)。
+
+### 042 研究采用与统一 AI 运行预览
+
+`042_research_prompt_runtime_orchestration.sql` 新增本书研究采用批次、可编辑条目和事件流水，并新增统一运行预览、提示词分区和提交回执。研究版本或参考包版本可以为多本书分别生成候选；每本书的标题、字段和决定互不影响，来源新版本只产生提示，不覆盖旧批次。
+
+模型路由增加具体任务层，解析顺序为系统默认、任务组、具体任务、兼容节点、本书和本次覆盖。运行预览冻结任务合同、提示词配方、上下文 manifest、模型路由、输入、预算、安全检查点和换稿阻断项；提交时重新核对可变化来源，不一致返回 409。成功提交只创建通用 AI task，继续由 030 的触发器登记 Outbox；章节写作输出仍为正文候选，变化提取输出仍为待确认提案。
+
+> 🏠 **白话比喻**：研究采用像把公共剪报放进某本书的选稿篮，统一运行预览像 AI 开工前的签字工单。选稿篮可以编辑，工单一旦签字就不能涂改。对应到数据库：采用条目属于书籍，运行预览属于一次执行，两者都不会改写共享来源。
+
+> 🧠 **速记方法**：**研究先选稿，运行先验单；入书要采用，排队要冻结。** 详细合同见 [research-prompt-runtime-orchestration.md](./research-prompt-runtime-orchestration.md)。
 
 > 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
 

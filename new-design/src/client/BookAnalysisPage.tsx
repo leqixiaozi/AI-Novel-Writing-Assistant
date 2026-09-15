@@ -5,8 +5,6 @@ import type {
   BookAnalysisPurpose,
   BookAnalysisResult,
   BookSummary,
-  CardSummary,
-  CardTypeSummary,
   ResearchDocument,
   ResearchDocumentVersion,
   ResearchRecordDetail,
@@ -56,9 +54,6 @@ export default function BookAnalysisPage() {
     [result, setResult] = useState<ResearchRecordDetail | null>(null),
     [books, setBooks] = useState<BookSummary[]>([]),
     [bookId, setBookId] = useState(""),
-    [bookTypes, setBookTypes] = useState<CardTypeSummary[]>([]),
-    [bookCards, setBookCards] = useState<CardSummary[]>([]),
-    [mergeTargets, setMergeTargets] = useState<Record<string, string>>({}),
     [selectedCandidates, setSelectedCandidates] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
@@ -123,27 +118,6 @@ export default function BookAnalysisPage() {
         ),
       );
   }, [purpose, preset]);
-  useEffect(() => {
-    const book = books.find((item) => item.id === bookId);
-    if (!book) {
-      setBookTypes([]);
-      setBookCards([]);
-      return;
-    }
-    void newDesignApi.listCardTypes(book.spaceId).then(async (types) => {
-      const cards = (
-        await Promise.all(
-          types
-            .filter((item) => item.currentVersionId)
-            .map((item) =>
-              newDesignApi.listCards(item.id, false, book.spaceId),
-            ),
-        )
-      ).flat();
-      setBookTypes(types);
-      setBookCards(cards);
-    });
-  }, [bookId, books]);
   const running =
     result && ["queued", "running"].includes(result.currentVersion.runStatus);
   useEffect(() => {
@@ -226,12 +200,7 @@ export default function BookAnalysisPage() {
   const apply = async (
     decisions: Array<{
       candidateId: string;
-      action:
-        | "create_card"
-        | "merge_card"
-        | "save_resource"
-        | "reference_only"
-        | "ignore";
+      action: "save_resource" | "reference_only" | "ignore";
       targetSpaceId?: string;
       targetCardId?: string;
       expectedRevision?: number;
@@ -243,21 +212,6 @@ export default function BookAnalysisPage() {
       await newDesignApi.applyResearchCandidates(result.id, decisions);
       setResult(await newDesignApi.getResearchRecord(result.id));
       setSelectedCandidates([]);
-      if (bookId) {
-        const book = books.find((item) => item.id === bookId);
-        if (book)
-          setBookCards(
-            (
-              await Promise.all(
-                bookTypes
-                  .filter((item) => item.currentVersionId)
-                  .map((item) =>
-                    newDesignApi.listCards(item.id, false, book.spaceId),
-                  ),
-              )
-            ).flat(),
-          );
-      }
       setMessage(
         `已处理 ${decisions.length} 条候选，采用记录与来源版本已保存。`,
       );
@@ -268,6 +222,25 @@ export default function BookAnalysisPage() {
     }
   };
   const targetBook = books.find((item) => item.id === bookId);
+  const prepareBookAdoption = async (candidateIds: string[]) => {
+    if (!result || !targetBook || !candidateIds.length) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const batch = await newDesignApi.createBookResearchAdoptionPreview({
+        bookId: targetBook.id,
+        sourceKind: "research_version",
+        sourceId: result.currentVersion.id,
+        candidateIds,
+        idempotencyKey: crypto.randomUUID(),
+        createdBy: "user",
+      });
+      window.location.href = `/new-design/research/reference-packs?book=${targetBook.id}&adoption=${batch.id}`;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "本书采用预览生成失败。");
+      setBusy(false);
+    }
+  };
   return (
     <ResearchShell active="analysis">
       <main className="nd-book-analysis">
@@ -642,30 +615,14 @@ export default function BookAnalysisPage() {
                           busy || !targetBook || !selectedCandidates.length
                         }
                         onClick={() =>
-                          void apply(
-                            selectedCandidates.map((candidateId) => ({
-                              candidateId,
-                              action: "create_card",
-                              targetSpaceId: targetBook!.spaceId,
-                            })),
-                          )
+                          void prepareBookAdoption(selectedCandidates)
                         }
                         type="button"
                       >
-                        批量新建到本书
+                        生成本书采用预览
                       </button>
                     </div>
-                    {currentCandidates.map((candidate) => {
-                      const targetTypeId = bookTypes.find(
-                          (item) => item.key === candidate.targetTypeKey,
-                        )?.id,
-                        targets = bookCards.filter(
-                          (item) => item.cardTypeId === targetTypeId,
-                        );
-                      const mergeTarget = targets.find(
-                        (item) => item.id === mergeTargets[candidate.id],
-                      );
-                      return (
+                    {currentCandidates.map((candidate) => (
                         <article
                           className={`nd-candidate-card is-${candidate.status}`}
                           key={candidate.id}
@@ -719,19 +676,10 @@ export default function BookAnalysisPage() {
                             <aside>
                               <button
                                 disabled={busy || !targetBook}
-                                onClick={() =>
-                                  targetBook &&
-                                  void apply([
-                                    {
-                                      candidateId: candidate.id,
-                                      action: "create_card",
-                                      targetSpaceId: targetBook.spaceId,
-                                    },
-                                  ])
-                                }
+                                onClick={() => void prepareBookAdoption([candidate.id])}
                                 type="button"
                               >
-                                新建到本书
+                                生成采用预览
                               </button>
                               {reusable.has(candidate.targetTypeKey) && (
                                 <button
@@ -750,40 +698,6 @@ export default function BookAnalysisPage() {
                                   保存为方法资源
                                 </button>
                               )}
-                              <select
-                                aria-label={`${candidate.title} 合并目标`}
-                                value={mergeTargets[candidate.id] ?? ""}
-                                onChange={(event) =>
-                                  setMergeTargets((current) => ({
-                                    ...current,
-                                    [candidate.id]: event.target.value,
-                                  }))
-                                }
-                              >
-                                <option value="">选择同类资料合并</option>
-                                {targets.map((item) => (
-                                  <option value={item.id} key={item.id}>
-                                    {item.title} · r{item.revision}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                disabled={busy || !mergeTarget}
-                                onClick={() =>
-                                  mergeTarget &&
-                                  void apply([
-                                    {
-                                      candidateId: candidate.id,
-                                      action: "merge_card",
-                                      targetCardId: mergeTarget.id,
-                                      expectedRevision: mergeTarget.revision,
-                                    },
-                                  ])
-                                }
-                                type="button"
-                              >
-                                合并
-                              </button>
                               <button
                                 disabled={busy}
                                 onClick={() =>
@@ -815,8 +729,7 @@ export default function BookAnalysisPage() {
                             </aside>
                           )}
                         </article>
-                      );
-                    })}
+                    ))}
                   </div>
                 )}
                 <article className="nd-analysis-boundary">

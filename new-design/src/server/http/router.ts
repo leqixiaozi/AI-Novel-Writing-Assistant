@@ -77,6 +77,8 @@ import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
+import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
+import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, submitAiRunPreview } from "../database/aiRunOrchestration";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -135,6 +137,9 @@ import {
   researchCandidateUpdateSchema,
   referencePackPublishSchema,
   researchReusePreviewSchema,
+  bookResearchAdoptionPreviewSchema,
+  bookResearchAdoptionItemSchema,
+  bookResearchAdoptionCommitSchema,
   chapterDocumentInputSchema,
   chapterBodyVersionInputSchema,
   chapterBodyAdoptionSchema,
@@ -201,6 +206,8 @@ import {
   modelRouteCreateSchema,
   modelRouteVersionSchema,
   modelRouteResolveSchema,
+  aiRunPreviewCreateSchema,
+  aiRunPreviewSubmitSchema,
   aiTaskCreateSchema,
   aiAttemptStartSchema,
   aiStepHeartbeatSchema,
@@ -503,6 +510,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/research/reference-packs",asyncRoute(async(_req,res)=>success(res,await listReferencePacks())));
   router.get("/research/reference-packs/:id",asyncRoute(async(req,res)=>success(res,await getReferencePack(String(req.params.id)))));
   router.post("/research/reference-packs/publish",asyncRoute(async(req,res)=>success(res,await publishReferencePack(body(referencePackPublishSchema,req)),201)));
+  router.post("/research/book-adoptions/preview",asyncRoute(async(req,res)=>success(res,await createBookResearchAdoptionPreview(body(bookResearchAdoptionPreviewSchema,req)),201)));
+  router.get("/books/:id/research-adoptions",asyncRoute(async(req,res)=>success(res,await listBookResearchAdoptionBatches(String(req.params.id)))));
+  router.get("/books/:id/research-adoptions/:batchId",asyncRoute(async(req,res)=>success(res,await getBookResearchAdoptionBatch(String(req.params.batchId),String(req.params.id)))));
+  router.put("/research/book-adoption-items/:id",asyncRoute(async(req,res)=>success(res,await reviseBookResearchAdoptionItem(String(req.params.id),body(bookResearchAdoptionItemSchema,req)))));
+  router.post("/research/book-adoptions/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptBookResearchBatch(String(req.params.id),body(bookResearchAdoptionCommitSchema,req)))));
   router.post("/research/reuse-preview",asyncRoute(async(req,res)=>success(res,await previewResearchReuse(body(researchReusePreviewSchema,req)))));
   router.get("/books/:id/research-references",asyncRoute(async(req,res)=>success(res,await listBookResearchReferences(String(req.params.id)))));
   router.get("/books/:id/chapter-documents",asyncRoute(async(req,res)=>success(res,await listChapterDocuments(String(req.params.id)))));
@@ -641,6 +653,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/model-routes/resolve",asyncRoute(async(req,res)=>success(res,await resolveModelRoute(body(modelRouteResolveSchema,req)))));
   router.post("/model-route-snapshots",asyncRoute(async(req,res)=>success(res,await createModelRouteSnapshot(body(modelRouteResolveSchema,req)),201)));
   router.get("/model-route-snapshots/:id",asyncRoute(async(req,res)=>success(res,await getModelRouteSnapshot(String(req.params.id)))));
+  router.post("/ai-runtime/run-previews",asyncRoute(async(req,res)=>success(res,await createAiRunPreview(body(aiRunPreviewCreateSchema,req)),201)));
+  router.get("/ai-runtime/run-previews/:id",asyncRoute(async(req,res)=>success(res,await getAiRunPreview(String(req.params.id),typeof req.query.bookId==="string"?String(req.query.bookId):undefined))));
+  router.get("/books/:id/ai-runtime/run-previews",asyncRoute(async(req,res)=>success(res,await listAiRunPreviews(String(req.params.id),typeof req.query.limit==="string"?Number(req.query.limit):30))));
+  router.get("/books/:id/ai-runtime/stable-contract",asyncRoute(async(req,res)=>success(res,await getAiRunStableReadContract(String(req.params.id)))));
+  router.post("/ai-runtime/run-previews/:id/submit",asyncRoute(async(req,res)=>success(res,await submitAiRunPreview(String(req.params.id),body(aiRunPreviewSubmitSchema,req)))));
   router.get("/ai-runtime/tasks",asyncRoute(async(req,res)=>success(res,await listAiTasks(aiTaskListQuerySchema.parse(req.query)))));
   router.get("/ai-runtime/tasks/recoverable",asyncRoute(async(req,res)=>success(res,await listRecoverableAiTasks({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,limit:typeof req.query.limit==="string"?Number(req.query.limit):undefined}))));
   router.get("/ai-runtime/tasks/failed-attempts",asyncRoute(async(req,res)=>success(res,await listFailedAiAttempts({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,category:typeof req.query.category==="string"?aiFailureCategorySchema.parse(req.query.category):undefined,limit:typeof req.query.limit==="string"?Number(req.query.limit):undefined}))));

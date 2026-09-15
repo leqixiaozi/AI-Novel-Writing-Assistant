@@ -48,9 +48,9 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/041_chapter_revision_recompute.sql`、`docs/data-model.md`、`docs/book-overview-and-planning-center.md`、`docs/chapter-writing-workspace.md`、`docs/chapter-adoption-settlement.md`、`docs/chapter-revision-recompute.md`、`docs/context-management-and-assembly.md`、`docs/business-form-shell.md`、`docs/field-scope-and-versioning.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md` 与对应静态审查。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的规划候选、采用会话、结算决定、稳定检查点、换稿预览、处置计划、字段扩展、上下文规则、运行快照、局部值和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/042_research_prompt_runtime_orchestration.sql`、`docs/data-model.md`、`docs/research-prompt-runtime-orchestration.md`、`docs/research-prompt-runtime-orchestration-static-review.md`、`docs/book-overview-and-planning-center.md`、`docs/chapter-writing-workspace.md`、`docs/chapter-adoption-settlement.md`、`docs/chapter-revision-recompute.md`、`docs/context-management-and-assembly.md`、`docs/business-form-shell.md`、`docs/field-scope-and-versioning.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md`、`docs/transfer-backup-import-export.md`、`docs/private-runtime-runbook.md`。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的研究采用批次、运行预览、规划候选、采用会话、结算决定、稳定检查点、换稿预览、处置计划、字段扩展、上下文规则、运行快照、局部值和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
-新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—041。仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把此状态描述为可安装发布。
+新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—042。仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把此状态描述为可安装发布。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
@@ -124,7 +124,7 @@ Outbox 是投递记录，不是另一份小说数据。业务表与小型事件�
 
 > 🧠 **速记方法**：**节点留版本，采用只一份；父版一换，下游待审；正文只提示，不自动改**。
 
-AI 执行合同把“要做什么、用哪套提示词、实际看过什么、最终走哪个模型”分开冻结。提示词配方可组合精确版本的提示词组件；任务合同锁定 Schema、上下文策略与预算；上下文清单记录入选和排除来源；模型路由按系统、任务组、节点、书籍和单次覆盖逐层解析，并保存不可变快照。密钥只以独立安全定位引用保存，任何公开合同、清单、路由结果和快照都只返回是否已配置。
+AI 执行合同把“要做什么、用哪套提示词、实际看过什么、最终走哪个模型”分开冻结。提示词配方可组合精确版本的提示词组件；任务合同锁定 Schema、上下文策略与预算；上下文清单记录入选和排除来源；模型路由按系统、任务组、具体任务、兼容节点、书籍和单次覆盖逐层解析，并保存不可变快照。密钥只以独立安全定位引用保存，任何公开合同、清单、路由结果和快照都只返回是否已配置。
 
 > 🏠 **白话比喻**：这像印刷厂的一张生产工单：工艺单说明怎么印，领料单写清实际拿了哪批纸，机台单记录最终用了哪台机器。以后工艺或机器设置改变，旧工单仍能解释当时为什么得到那个结果。
 
@@ -168,7 +168,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `041` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索、Outbox／后台作业、可移植传输账本、资料组织、上下文装配、规划中心引用、章节写作候选、稳定检查点与旧章选择性重算账本。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `042` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索、Outbox／后台作业、可移植传输账本、资料组织、上下文装配、规划中心引用、章节写作候选、稳定检查点、旧章选择性重算、研究采用与统一运行预览账本。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`

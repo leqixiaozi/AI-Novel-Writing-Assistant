@@ -168,4 +168,8 @@ export const migrations: Migration[] = [
     id: "041_chapter_revision_recompute",
     fileName: "041_chapter_revision_recompute.sql",
   },
+  {
+    id: "042_research_prompt_runtime_orchestration",
+    fileName: "042_research_prompt_runtime_orchestration.sql",
+  },
 ];
