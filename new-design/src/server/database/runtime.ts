@@ -69,7 +69,7 @@ function resolveRuntimeRoot(): string {
   if (explicit) return path.resolve(explicit);
   const appDataRoot = process.env.AI_NOVEL_APP_DATA_DIR?.trim();
   if (appDataRoot) return path.join(path.resolve(appDataRoot), "new-design");
-  return path.resolve(process.cwd(), "new-design", ".data");
+  return path.resolve(__dirname, "../../..", ".data");
 }
 
 async function canListen(port: number): Promise<boolean> {
