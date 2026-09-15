@@ -160,4 +160,8 @@ export const migrations: Migration[] = [
     id: "039_chapter_writing_workspace",
     fileName: "039_chapter_writing_workspace.sql",
   },
+  {
+    id: "040_chapter_adoption_settlement",
+    fileName: "040_chapter_adoption_settlement.sql",
+  },
 ];
