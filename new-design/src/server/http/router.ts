@@ -50,6 +50,7 @@ import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, 
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
 import { applyCandidateDecisions } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
+import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -104,6 +105,11 @@ import {
   candidateDecisionsSchema,
   referencePackPublishSchema,
   researchReusePreviewSchema,
+  chapterDocumentInputSchema,
+  chapterBodyVersionInputSchema,
+  chapterBodyAdoptionSchema,
+  chapterBodyArchiveSchema,
+  chapterTextAnchorInputSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -253,6 +259,13 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/research/reference-packs/publish",asyncRoute(async(req,res)=>success(res,await publishReferencePack(body(referencePackPublishSchema,req)),201)));
   router.post("/research/reuse-preview",asyncRoute(async(req,res)=>success(res,await previewResearchReuse(body(researchReusePreviewSchema,req)))));
   router.get("/books/:id/research-references",asyncRoute(async(req,res)=>success(res,await listBookResearchReferences(String(req.params.id)))));
+  router.get("/books/:id/chapter-documents",asyncRoute(async(req,res)=>success(res,await listChapterDocuments(String(req.params.id)))));
+  router.post("/books/:id/chapter-documents",asyncRoute(async(req,res)=>success(res,await createChapterDocument({bookId:String(req.params.id),...body(chapterDocumentInputSchema,req)}),201)));
+  router.get("/chapter-documents/:id",asyncRoute(async(req,res)=>success(res,await getChapterDocument(String(req.params.id)))));
+  router.post("/chapter-documents/:id/versions",asyncRoute(async(req,res)=>success(res,await addChapterBodyVersion(String(req.params.id),body(chapterBodyVersionInputSchema,req)),201)));
+  router.post("/chapter-documents/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptChapterBodyVersion(String(req.params.id),body(chapterBodyAdoptionSchema,req)))));
+  router.post("/chapter-body-versions/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveChapterBodyVersion(String(req.params.id),body(chapterBodyArchiveSchema,req)))));
+  router.post("/chapter-body-versions/:id/anchors",asyncRoute(async(req,res)=>success(res,await createChapterTextAnchor({bodyVersionId:String(req.params.id),...body(chapterTextAnchorInputSchema,req)}),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

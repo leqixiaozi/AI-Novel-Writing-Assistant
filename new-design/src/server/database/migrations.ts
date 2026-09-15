@@ -64,4 +64,8 @@ export const migrations: Migration[] = [
     id: "015_research_reuse",
     fileName: "015_research_reuse.sql",
   },
+  {
+    id: "016_chapter_body_versions",
+    fileName: "016_chapter_body_versions.sql",
+  },
 ];

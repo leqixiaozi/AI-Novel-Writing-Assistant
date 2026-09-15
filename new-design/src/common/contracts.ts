@@ -523,6 +523,14 @@ export interface ResearchPrefillCard extends InitialCardDraft {researchVersionId
 export interface ResearchReusePreview {researchVersionIds:string[];packVersionIds:string[];compiledSnapshot:Record<string,unknown>;suggestedCards:ResearchPrefillCard[];conflicts:ResearchPrefillConflict[];}
 export interface BookResearchReference {id:string;bookId:string;researchVersionId:string|null;packVersionId:string|null;purpose:string;compiledSnapshot:Record<string,unknown>;createdAt:string;}
 
+export type ChapterBodySource="manual"|"ai_candidate"|"revision"|"import";
+export type ChapterBodyCreatorKind="user"|"ai"|"system"|"import";
+export interface ChapterBodyVersion {id:string;chapterDocumentId:string;version:number;parentVersionId:string|null;baseVersionId:string|null;source:ChapterBodySource;sourceRunId:string|null;createdByKind:ChapterBodyCreatorKind;createdBy:string;content:string;contentHash:string;archivedAt:string|null;isAdopted:boolean;createdAt:string;}
+export interface ChapterBodyAdoption {id:string;chapterDocumentId:string;fromVersionId:string|null;toVersionId:string;action:"adopt"|"rollback"|"readopt";documentRevision:number;idempotencyKey:string;actor:string;createdAt:string;}
+export interface ChapterTextAnchor {id:string;bookId:string;chapterDocumentId:string;bodyVersionId:string;subjectCardId:string|null;role:string;label:string;startOffset:number;endOffset:number;excerpt:string;fragmentHash:string;status:"active"|"archived";revision:number;isStale:boolean;createdAt:string;updatedAt:string;}
+export interface ChapterDocumentSummary {id:string;bookId:string;chapterCardId:string;logicalOrder:number;title:string;status:"active"|"archived";adoptedVersionId:string|null;revision:number;createdAt:string;updatedAt:string;}
+export interface ChapterDocumentDetail extends ChapterDocumentSummary {versions:ChapterBodyVersion[];adoptions:ChapterBodyAdoption[];anchors:ChapterTextAnchor[];}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

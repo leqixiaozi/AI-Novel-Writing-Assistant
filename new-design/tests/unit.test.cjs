@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -66,6 +66,13 @@ test("high-impact book changes require a typed preview payload", () => {
 test("research text intake rejects empty placeholders", () => {
   assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"太短",sourceKind:"paste",sourceUrl:"" }).success,false);
   assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"这是一段真实可分析的测试文本，长度足以形成不可变来源版本。",sourceKind:"paste",sourceUrl:"" }).success,true);
+});
+
+test("chapter body versions and exact anchors require explicit immutable inputs",()=>{
+  assert.equal(chapterBodyVersionInputSchema.safeParse({content:"第一章正文",source:"ai_candidate",createdByKind:"ai"}).success,true);
+  assert.equal(chapterBodyVersionInputSchema.safeParse({content:"",source:"ai_candidate",createdByKind:"ai"}).success,false);
+  assert.equal(chapterBodyAdoptionSchema.safeParse({versionId:"10000000-0000-4000-8000-000000000001",expectedRevision:1,idempotencyKey:"adopt-chapter-1"}).success,true);
+  assert.equal(chapterTextAnchorInputSchema.safeParse({startOffset:5,endOffset:3,label:"错误锚点"}).success,false);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

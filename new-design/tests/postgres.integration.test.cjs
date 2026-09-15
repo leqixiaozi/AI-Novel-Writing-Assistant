@@ -21,6 +21,7 @@ const research = require("../dist/server/database/researchStore.js");
 const market = require("../dist/server/database/marketStore.js");
 const bookAnalysis = require("../dist/server/database/bookAnalysisStore.js");
 const referencePacks = require("../dist/server/database/referencePackStore.js");
+const chapterBodies = require("../dist/server/database/chapterBodyStore.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -272,6 +273,30 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const viewCharacters = viewWorkspace.cards.filter((card) => card.typeKey === "character");
   const viewClue = viewWorkspace.cards.find((card) => ["clue_evidence", "foreshadow"].includes(card.typeKey));
   assert.ok(viewEvent && viewChapters.length >= 2 && viewCharacters.length >= 2 && viewClue);
+
+  let chapterDocument=await chapterBodies.createChapterDocument({bookId:sampleBook.id,chapterCardId:viewChapters[0].id,logicalOrder:1,title:"第一章正文"});
+  const manualBody=await chapterBodies.addChapterBodyVersion(chapterDocument.id,{content:"沈照微在白水驿点亮照骨灯。",source:"manual",createdByKind:"user",createdBy:"integration-test"});
+  const firstAdoptionKey=`chapter-adopt-${Date.now()}-manual`;
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:manualBody.id,expectedRevision:chapterDocument.revision,idempotencyKey:firstAdoptionKey,actor:"integration-test"});
+  const manualAnchor=await chapterBodies.createChapterTextAnchor({bodyVersionId:manualBody.id,startOffset:0,endOffset:3,excerpt:"沈照微",label:"主角首次出现",role:"character_appearance",subjectCardId:viewCharacters[0].id});
+  assert.equal(manualAnchor.isStale,false);
+  const candidateA=await chapterBodies.addChapterBodyVersion(chapterDocument.id,{content:"沈照微在夜雨中的白水驿点亮照骨灯，灯火映出旧案残痕。",source:"ai_candidate",parentVersionId:manualBody.id,baseVersionId:manualBody.id,createdByKind:"ai",createdBy:"integration-model-a"});
+  const candidateB=await chapterBodies.addChapterBodyVersion(chapterDocument.id,{content:"白水驿夜雨如幕，沈照微点灯后看见了父亲留下的旧案残痕。",source:"ai_candidate",parentVersionId:manualBody.id,baseVersionId:manualBody.id,createdByKind:"ai",createdBy:"integration-model-b"});
+  assert.equal((await chapterBodies.getChapterDocument(chapterDocument.id)).adoptedVersionId,manualBody.id);
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateA.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-a`,actor:"integration-test"});
+  const adoptionCount=chapterDocument.adoptions.length,adoptCandidateKey=chapterDocument.adoptions[0].idempotencyKey;
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateA.id,expectedRevision:1,idempotencyKey:adoptCandidateKey,actor:"integration-test"});
+  assert.equal(chapterDocument.adoptions.length,adoptionCount);
+  assert.equal(chapterDocument.anchors.find((item)=>item.id===manualAnchor.id).isStale,true);
+  const candidateAnchor=await chapterBodies.createChapterTextAnchor({bodyVersionId:candidateA.id,startOffset:8,endOffset:11,label:"地点落点",role:"location",subjectCardId:location.id});
+  assert.equal(candidateAnchor.excerpt,"白水驿");
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:manualBody.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-rollback`,actor:"integration-test"});
+  assert.equal(chapterDocument.adoptions[0].action,"rollback");
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateB.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-b`,actor:"integration-test"});
+  chapterDocument=await chapterBodies.archiveChapterBodyVersion(candidateA.id,{expectedRevision:chapterDocument.revision});
+  assert.ok(chapterDocument.versions.find((item)=>item.id===candidateA.id).archivedAt);
+  await assert.rejects(()=>chapterBodies.archiveChapterBodyVersion(candidateB.id,{expectedRevision:chapterDocument.revision}),(error)=>error.status===409&&/当前采用版本/.test(error.message));
+  const persistedChapterDocumentId=chapterDocument.id;
 
   let narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"首次出场" });
   let storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:10,endOrder:12,startLabel:"宗门历七月初三",endLabel:"宗门历七月初五",uncertainty:"" });
@@ -563,4 +588,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal((await research.getResearchRecord(analysisRun.recordId)).currentVersion.report.startsWith("# 拆书报告"),true);
   assert.equal((await referencePacks.getReferencePack(referencePack.id)).versionCount,2);
   assert.equal((await referencePacks.listBookResearchReferences(researchBook.id))[0].packVersionId,lockedPackVersionId);
+  const restartedChapterDocument=await chapterBodies.getChapterDocument(persistedChapterDocumentId);
+  assert.equal(restartedChapterDocument.versions.length,3);
+  assert.equal(restartedChapterDocument.adoptedVersionId,candidateB.id);
+  assert.equal(restartedChapterDocument.anchors.find((item)=>item.id===manualAnchor.id).isStale,true);
 });

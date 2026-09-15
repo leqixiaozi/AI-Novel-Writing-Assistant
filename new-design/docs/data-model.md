@@ -40,6 +40,9 @@ research_records 1 ── n research_record_versions 1 ── n research_evidenc
 research_reference_packs 1 ── n research_reference_pack_versions 1 ── n research_reference_pack_items
 book_creation_sessions 1 ── n book_creation_research_selections ── 1 research/pack exact version
 books 1 ── n book_research_references ── 1 research/pack exact version
+books 1 ── n chapter_documents 1 ── n chapter_body_versions
+chapter_documents 1 ── n chapter_body_adoptions
+chapter_body_versions 1 ── n chapter_text_anchors
 ```
 
 ## 研究与分析固定对象
@@ -57,6 +60,18 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 > 🏠 **白话比喻**：研究资料像送到编辑部的原稿，研究运行像编辑针对某一版原稿写的批注报告，参考包像把若干份报告封进一个有编号的档案袋。对应到系统里：原文版本、运行版本和参考包版本各自冻结，新的分析只能新增一版，不能在旧报告上涂改。
 
 > 🧠 **速记方法**：**原文留底、运行增版、证据定位、采用过账、开书锁版**。分别对应资料版本、研究版本、证据锚点、候选采用记录和书籍引用快照。
+
+### 章节正文版本与精确锚点
+
+`chapter_documents` 是章节正文的稳定身份，绑定一本书中的章节卡并保存唯一逻辑顺序、并发修订号和 `adopted_version_id`。`chapter_body_versions` 只追加人工稿、AI 候选、修订或导入正文，保存父版本、生成所用基础版本、可选 AI 运行引用、创建者、完整正文和 SHA-256 哈希；正文内容写入后不更新。
+
+采用正文时必须锁定章节档案并校验 `expectedRevision`，再在同一事务里切换正式版本指针并写入 `chapter_body_adoptions`。幂等键阻止重试产生重复采用；切回较早版本记作 `rollback`，再次指向同一版本记作 `readopt`。候选版本可以归档，但当前正式版本必须先切走。
+
+`chapter_text_anchors` 绑定精确 `body_version_id`，同时保存字符起止、当时摘录和片段哈希。锚点不会随着正文切版漂移；当它绑定的版本不再是正式正文时，读取结果标记 `isStale=true`，但历史坐标仍可审计。
+
+> 🏠 **白话比喻**：一章的多个正文版本像编辑桌上的几份校样，只有盖章那份才拿去印刷；便签贴在某一份校样的第几行，不会偷偷飞到新校样上。对应到系统里：候选版本只追加，正式采用靠唯一指针，文本锚点锁定具体版本。
+
+> 🧠 **速记方法**：**多稿并存，一稿盖章；锚点跟稿，不跟章漂**。
 
 ### 市场雷达快照与市场信号
 
