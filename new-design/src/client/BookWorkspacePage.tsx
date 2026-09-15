@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import type { BookSummary, CardTypeCategory, CardTypeSummary } from "../common/contracts";
+import type { BookSummary, BookViewKey, CardTypeCategory, CardTypeSummary } from "../common/contracts";
 import { newDesignApi } from "./api";
 import BookShell from "./BookShell";
 import CardWorkspace from "./CardWorkspace";
 import EventPlanningForm from "./EventPlanningForm";
 import TypeDesigner from "./TypeDesigner";
+import BookViewsPage from "./BookViewsPage";
 
-interface Props { bookId:string; view:"forms"|"cards"|"fields"; }
+interface Props { bookId:string; view:"forms"|"views"|"cards"|"fields"; viewKey?:BookViewKey; }
 
-export default function BookWorkspacePage({bookId,view}:Props) {
+export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props) {
   const [book,setBook]=useState<BookSummary|null>(null);
   const [types,setTypes]=useState<CardTypeSummary[]>([]);
   const [categories,setCategories]=useState<CardTypeCategory[]>([]);
@@ -19,6 +20,7 @@ export default function BookWorkspacePage({bookId,view}:Props) {
   if(message)return <div className="nd-shell nd-fatal"><h1>无法打开书籍</h1><p>{message}</p><a className="nd-button nd-button-primary" href="/new-design/books">返回我的书籍</a></div>;
   if(!book)return <div className="nd-shell nd-loading-screen"><div className="nd-loader"/><strong>正在打开书籍空间</strong></div>;
   if(view==="forms")return <BookShell book={book} active="forms"><EventPlanningForm bookId={book.id} spaceId={book.spaceId} bookName={book.name}/></BookShell>;
+  if(view==="views")return <BookShell book={book} active="views"><BookViewsPage book={book} initialView={viewKey}/></BookShell>;
   if(view==="cards")return <BookShell book={book} active="cards"><CardWorkspace cardTypes={types} categories={categories} spaceId={book.spaceId}/></BookShell>;
   const selected=types.find((type)=>type.id===selectedId)??null;
   const saved=(next:CardTypeSummary)=>{setTypes((current)=>current.map((item)=>item.id===next.id?next:item));setSelectedId(next.id);};

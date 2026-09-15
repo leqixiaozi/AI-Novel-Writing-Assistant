@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -25,6 +25,12 @@ book_creation_sessions 1 ── n ai_generation_batches
 
 resource card/version 1 ── n resource_adoptions n ── 1 books
                                       └──────────── 1 target card
+
+books 1 ── n book_view_configs
+card 1 ── 0..1 story_time_positions
+card 1 ── n narrative_placements n ── 1 chapter/scene card
+card 1 ── n text_anchors n ── 1 chapter/scene card
+character card n ── n character card（经 card_relations 的单条关系）
 ```
 
 ## `new_design.schema_migrations`
@@ -211,6 +217,23 @@ resource card/version 1 ── n resource_adoptions n ── 1 books
 > 🏠 **白话比喻**：提示词组件像工具墙上的螺丝刀、扳手和量尺，每件工具有固定编号和用途，但把哪些工具按什么顺序装进作业箱，要由另一张受控清单决定。对应到系统里：组件卡保存可复用指令零件；任务合同、提示词配方、槽位顺序、模型路由和运行快照仍是固定系统对象。
 
 > 🧠 **速记方法**：**组件是零件，配方是装配单，任务合同是验收标准**。
+
+## 书籍基础多视图
+
+`011_book_multiview.sql` 为每本书安装章节、线索／伏笔、角色、事件／时间、世界和资源六种基础视图。视图不拥有作品事实：右侧共用检查器继续编辑 `cards`，人物连线继续写入 `card_relations`，其余投影使用下列固定对象：
+
+| 表 | 唯一口径 | 保存内容 |
+|---|---|---|
+| `story_time_positions` | `space_id + card_id` | 事件在故事世界中的开始／结束顺序、显示名称和不确定性 |
+| `narrative_placements` | 活跃的 `space_id + subject_card_id + role` | 事件、线索或伏笔在哪一章／场景出现、埋设或揭示 |
+| `text_anchors` | `space_id + subject_card_id + role` | 对象在正文内的可读落点说明 |
+| `book_view_configs` | `book_id + view_key` | 只保存分组、排序、显示、展开和默认范围等界面配置 |
+
+人物关系使用 `character_relationship` 关系类型。一对人物只保存一条 `card_relations`，属性内分别记录正向与反向称谓；从另一人物进入角色视图时交换显示称谓，不创建反向重复行。所有写入都校验书籍空间、卡片状态、允许类型与 `revision`。归档对象、跨书对象、非法类型、过期修订和结束早于开始的故事时间会返回可直接理解的错误。
+
+> 🏠 **白话比喻**：同一场足球赛可以出现在赛程表、球队页面和球员履历里，但不能为了每个页面各记一场比赛。对应到系统里：事件卡是比赛事实，故事时间是开赛时间，叙事位置是它被写进哪一章；六个页面只换观察角度。
+
+> 🧠 **速记方法**：**卡片管“是什么”，时间管“何时发生”，叙事位置管“何时讲”，锚点管“文中哪里”，视图配置只管“怎么摆”**。
 
 ### 类型去重口径
 

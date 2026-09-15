@@ -305,6 +305,77 @@ export interface BookSummary {
   updatedAt: string;
 }
 
+export const BOOK_VIEW_KEYS = ["chapters", "clues", "characters", "events", "world", "resources"] as const;
+export type BookViewKey = (typeof BOOK_VIEW_KEYS)[number];
+
+export interface BookViewCard extends CardSummary {
+  typeKey: string;
+  typeFields: FieldDefinition[];
+}
+
+export interface StoryTimePosition {
+  id: string;
+  cardId: string;
+  startOrder: number | null;
+  endOrder: number | null;
+  startLabel: string;
+  endLabel: string;
+  uncertainty: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface NarrativePlacement {
+  id: string;
+  subjectCardId: string;
+  chapterCardId: string;
+  sceneCardId: string | null;
+  role: "appears" | "plant" | "reinforce" | "misdirect" | "reveal" | "recover";
+  note: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface TextAnchor {
+  id: string;
+  subjectCardId: string;
+  chapterCardId: string;
+  sceneCardId: string | null;
+  role: "plant" | "reveal" | "evidence" | "mention";
+  anchorLabel: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface CharacterRelation {
+  id: string;
+  sourceCardId: string;
+  targetCardId: string;
+  sourceLabel: string;
+  inverseLabel: string;
+  note: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface BookViewConfig {
+  id: string;
+  key: BookViewKey;
+  config: Record<string, unknown>;
+  revision: number;
+}
+
+export interface BookViewWorkspace {
+  bookId: string;
+  spaceId: string;
+  cards: BookViewCard[];
+  storyTimePositions: StoryTimePosition[];
+  narrativePlacements: NarrativePlacement[];
+  textAnchors: TextAnchor[];
+  characterRelations: CharacterRelation[];
+  viewConfigs: BookViewConfig[];
+}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

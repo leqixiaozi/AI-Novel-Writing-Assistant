@@ -44,4 +44,8 @@ export const migrations: Migration[] = [
     id: "010_prompt_components",
     fileName: "010_prompt_components.sql",
   },
+  {
+    id: "011_book_multiview",
+    fileName: "011_book_multiview.sql",
+  },
 ];

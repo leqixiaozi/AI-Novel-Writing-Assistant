@@ -15,6 +15,7 @@ const templates = require("../dist/server/database/templateStore.js");
 const bookCreation = require("../dist/server/database/bookCreationStore.js");
 const categoriesStore = require("../dist/server/database/categoryStore.js");
 const resources = require("../dist/server/database/resourceStore.js");
+const bookViews = require("../dist/server/database/bookViewStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -105,7 +106,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const relationTypes = await composition.listRelationTypes(sampleBook.spaceId);
   const forms = await composition.listCardGroupForms(sampleBook.spaceId);
   assert.equal(dictionaries.length, 3);
-  assert.equal(relationTypes.length, 4);
+  assert.equal(relationTypes.length, 5);
+  assert.ok(relationTypes.some((item) => item.key === "character_relationship"));
   assert.equal(forms.length, 1);
   const eventForm = forms[0];
   const formVersions = await composition.listCardGroupFormVersions(eventForm.id);
@@ -146,6 +148,41 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
     (error) => Boolean(error.status === 422),
   );
 
+  let viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
+  assert.deepEqual(viewWorkspace.viewConfigs.map((item) => item.key).sort(), ["chapters", "characters", "clues", "events", "resources", "world"]);
+  const viewEvent = viewWorkspace.cards.find((card) => card.typeKey === "event");
+  const viewChapters = viewWorkspace.cards.filter((card) => card.typeKey === "chapter");
+  const viewCharacters = viewWorkspace.cards.filter((card) => card.typeKey === "character");
+  const viewClue = viewWorkspace.cards.find((card) => ["clue_evidence", "foreshadow"].includes(card.typeKey));
+  assert.ok(viewEvent && viewChapters.length >= 2 && viewCharacters.length >= 2 && viewClue);
+
+  let narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"首次出场" });
+  let storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:10,endOrder:12,startLabel:"宗门历七月初三",endLabel:"宗门历七月初五",uncertainty:"" });
+  narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[1].id,role:"appears",note:"改到下一章",revision:narrative.revision });
+  viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
+  assert.equal(viewWorkspace.narrativePlacements.find((item) => item.id === narrative.id).chapterCardId, viewChapters[1].id);
+  assert.equal(viewWorkspace.storyTimePositions.find((item) => item.id === storyTime.id).startOrder, 10);
+  storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:20,endOrder:21,startLabel:"宗门历八月",endLabel:"宗门历八月",uncertainty:"约",revision:storyTime.revision });
+  viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
+  assert.equal(viewWorkspace.narrativePlacements.find((item) => item.id === narrative.id).chapterCardId, viewChapters[1].id);
+
+  const relationship = await bookViews.saveCharacterRelation(sampleBook.id, { sourceCardId:viewCharacters[0].id,targetCardId:viewCharacters[1].id,sourceLabel:"师父",inverseLabel:"弟子",note:"共同守护山门" });
+  const reversePerspective = relationship.sourceCardId === viewCharacters[1].id ? relationship.sourceLabel : relationship.inverseLabel;
+  assert.equal(reversePerspective, "弟子");
+  assert.equal((await (await runtime.getNewDesignPool()).query("SELECT count(*)::int AS count FROM new_design.card_relations relation JOIN new_design.relation_types type ON type.id=relation.relation_type_id WHERE relation.space_id=$1 AND type.relation_key='character_relationship' AND relation.status='active'", [sampleBook.spaceId])).rows[0].count, 1);
+
+  await bookViews.saveClueLifecycle(sampleBook.id, { clueCardId:viewClue.id,plantChapterId:viewChapters[0].id,revealChapterId:viewChapters[1].id,plantAnchor:"开场第三段",revealAnchor:"章末灯纹" });
+  viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
+  const plantPlacement = viewWorkspace.narrativePlacements.find((item) => item.subjectCardId === viewClue.id && item.role === "plant");
+  const revealPlacement = viewWorkspace.narrativePlacements.find((item) => item.subjectCardId === viewClue.id && item.role === "reveal");
+  const plantAnchor = viewWorkspace.textAnchors.find((item) => item.subjectCardId === viewClue.id && item.role === "plant");
+  const revealAnchor = viewWorkspace.textAnchors.find((item) => item.subjectCardId === viewClue.id && item.role === "reveal");
+  await bookViews.saveClueLifecycle(sampleBook.id, { clueCardId:viewClue.id,plantChapterId:viewChapters[1].id,revealChapterId:viewChapters[0].id,plantAnchor:"中段铜铃",revealAnchor:"结尾回响",plantPlacementRevision:plantPlacement.revision,revealPlacementRevision:revealPlacement.revision,plantAnchorRevision:plantAnchor.revision,revealAnchorRevision:revealAnchor.revision });
+  const lifecycleCounts = await (await runtime.getNewDesignPool()).query("SELECT (SELECT count(*) FROM new_design.narrative_placements WHERE subject_card_id=$1 AND role IN ('plant','reveal') AND status='active')::int AS placements,(SELECT count(*) FROM new_design.text_anchors WHERE subject_card_id=$1 AND role IN ('plant','reveal'))::int AS anchors", [viewClue.id]);
+  assert.deepEqual(lifecycleCounts.rows[0], { placements:2, anchors:2 });
+  await assert.rejects(() => bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:30,endOrder:20,startLabel:"",endLabel:"",uncertainty:"",revision:storyTime.revision }), (error) => error.status === 422 && /不能早于/.test(error.message));
+  await assert.rejects(() => bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"过期写入",revision:1 }), (error) => error.status === 409 && /其他视图/.test(error.message));
+
   const priorVersionId = formInstance.formVersionId;
   let changedForm = await composition.saveCardGroupForm({
     id: eventForm.id,
@@ -165,6 +202,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const initialTemplateVersion = (await templates.listTemplateVersions(defaultTemplate.id))[0];
   assert.equal(initialTemplateVersion.payload.cardTypes.length, 29);
   assert.ok(!initialTemplateVersion.payload.cardTypes.some((cardType) => cardType.key === "prompt_component"));
+  assert.deepEqual(initialTemplateVersion.payload.viewConfigs.map((view) => view.key), ["chapters", "clues", "characters", "events", "world", "resources"]);
+  assert.ok(initialTemplateVersion.payload.relationTypes.some((relation) => relation.key === "character_relationship"));
 
   const inspirationCandidates = await bookCreation.listInspirationCandidates();
   assert.equal(inspirationCandidates.length, 6);
@@ -187,6 +226,8 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const blankBook = await templates.getBook(blankSession.bookId);
   assert.equal((await store.listCards({ spaceId: blankBook.spaceId })).length, 0);
   assert.equal((await composition.listCardGroupForms(blankBook.spaceId)).length, 1);
+  assert.equal((await composition.listRelationTypes(blankBook.spaceId)).length, 5);
+  assert.equal((await bookViews.getBookViewWorkspace(blankBook.id)).viewConfigs.length, 6);
 
   const publicGenre = strategyResources.find((item) => item.typeKey === "genre_strategy");
   assert.ok(publicGenre);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BOOK_CREATION_METHODS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
+import { BOOK_CREATION_METHODS, BOOK_VIEW_KEYS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
 
 const optionSchema = z.object({
   value: z.string().trim().min(1, "选项值不能为空。"),
@@ -187,6 +187,55 @@ export const bookInputSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(800).default(""),
   templateVersionId: z.string().uuid(),
+});
+
+export const storyTimePositionSchema = z.object({
+  cardId: z.string().uuid(),
+  startOrder: z.number().nullable(),
+  endOrder: z.number().nullable(),
+  startLabel: z.string().trim().max(120).default(""),
+  endLabel: z.string().trim().max(120).default(""),
+  uncertainty: z.string().trim().max(300).default(""),
+  revision: z.number().int().positive().optional(),
+});
+
+export const narrativePlacementSchema = z.object({
+  subjectCardId: z.string().uuid(),
+  chapterCardId: z.string().uuid(),
+  sceneCardId: z.string().uuid().nullable().optional(),
+  role: z.enum(["appears","plant","reinforce","misdirect","reveal","recover"]),
+  note: z.string().trim().max(500).default(""),
+  revision: z.number().int().positive().optional(),
+});
+
+export const characterRelationSchema = z.object({
+  sourceCardId: z.string().uuid(),
+  targetCardId: z.string().uuid(),
+  sourceLabel: z.string().trim().min(1,"请填写正向关系称谓。").max(80),
+  inverseLabel: z.string().trim().min(1,"请填写反向关系称谓。").max(80),
+  note: z.string().trim().max(500).default(""),
+  revision: z.number().int().positive().optional(),
+});
+
+export const clueLifecycleSchema = z.object({
+  clueCardId: z.string().uuid(),
+  plantChapterId: z.string().uuid(),
+  revealChapterId: z.string().uuid(),
+  plantAnchor: z.string().trim().max(160).default(""),
+  revealAnchor: z.string().trim().max(160).default(""),
+  plantPlacementRevision: z.number().int().positive().optional(),
+  revealPlacementRevision: z.number().int().positive().optional(),
+  plantAnchorRevision: z.number().int().positive().optional(),
+  revealAnchorRevision: z.number().int().positive().optional(),
+});
+
+export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
+export const bookViewConfigSchema = z.object({
+  config:z.object({
+    layout:z.unknown().optional(),filter:z.unknown().optional(),groupBy:z.unknown().optional(),sort:z.unknown().optional(),
+    display:z.unknown().optional(),expanded:z.unknown().optional(),defaultRange:z.unknown().optional(),
+  }).strict(),
+  revision:z.number().int().positive(),
 });
 
 export const bookCreationSessionInputSchema = z.object({

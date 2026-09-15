@@ -44,6 +44,7 @@ import {
 import { NewDesignError } from "../domain/errors";
 import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
+import { getBookViewWorkspace, saveBookViewConfig, saveCharacterRelation, saveClueLifecycle, saveNarrativePlacement, saveStoryTimePosition } from "../database/bookViewStore";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -81,6 +82,12 @@ import {
   selectDirectionSchema,
   updateCardSchema,
   updateCardTypeSchema,
+  storyTimePositionSchema,
+  narrativePlacementSchema,
+  characterRelationSchema,
+  clueLifecycleSchema,
+  bookViewConfigSchema,
+  bookViewKeySchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -201,6 +208,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/books", asyncRoute(async (_req, res) => success(res, await listBooks())));
   router.post("/books", asyncRoute(async (req, res) => success(res, await createBook(body(bookInputSchema, req)), 201)));
   router.get("/books/:id", asyncRoute(async (req, res) => success(res, await getBook(String(req.params.id)))));
+  router.get("/books/:id/view-workspace", asyncRoute(async (req,res)=>success(res,await getBookViewWorkspace(String(req.params.id)))));
+  router.put("/books/:id/story-time",asyncRoute(async(req,res)=>success(res,await saveStoryTimePosition(String(req.params.id),body(storyTimePositionSchema,req)))));
+  router.put("/books/:id/narrative-placement",asyncRoute(async(req,res)=>success(res,await saveNarrativePlacement(String(req.params.id),body(narrativePlacementSchema,req)))));
+  router.put("/books/:id/character-relation",asyncRoute(async(req,res)=>success(res,await saveCharacterRelation(String(req.params.id),body(characterRelationSchema,req)))));
+  router.put("/books/:id/clue-lifecycle",asyncRoute(async(req,res)=>success(res,await saveClueLifecycle(String(req.params.id),body(clueLifecycleSchema,req)))));
+  router.put("/books/:id/view-config/:key",asyncRoute(async(req,res)=>success(res,await saveBookViewConfig(String(req.params.id),bookViewKeySchema.parse(req.params.key),body(bookViewConfigSchema,req)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

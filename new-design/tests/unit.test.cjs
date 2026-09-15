@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookCreationSessionInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookCreationSessionInputSchema, bookViewConfigSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 
 const fields = [
@@ -38,4 +38,9 @@ test("card type tree keeps matching leaves with their ancestor path", () => {
   assert.equal(searched.length, 1);
   assert.equal(searched[0].cardTypes[0].id, type.id);
   assert.equal(buildCardTypeTree([category], [type], "人物").length, 0);
+});
+
+test("book view config accepts presentation state but rejects fact copies", () => {
+  assert.equal(bookViewConfigSchema.safeParse({ config:{ groupBy:"story_time",sort:"start_order",expanded:[] },revision:1 }).success,true);
+  assert.equal(bookViewConfigSchema.safeParse({ config:{ copiedEvent:{ title:"不应进入视图配置" } },revision:1 }).success,false);
 });

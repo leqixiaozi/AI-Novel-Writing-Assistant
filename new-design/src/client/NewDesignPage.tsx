@@ -10,6 +10,7 @@ import ResourceCenterPage from "./ResourceCenterPage";
 import StrategyResourcesPage from "./StrategyResourcesPage";
 import TemplateGroupsPage from "./TemplateGroupsPage";
 import "./new-design.css";
+import type { BookViewKey } from "../common/contracts";
 
 interface NewDesignPageProps { pathname?:string; }
 
@@ -21,6 +22,8 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
   if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
   if(path==="/new-design/resources/ai/prompt-components")return <PromptComponentsPage/>;
+  const viewMatch=path.match(/^\/new-design\/books\/([^/]+)\/views\/(chapters|clues|characters|events|world|resources)$/);
+  if(viewMatch)return <BookWorkspacePage bookId={decodeURIComponent(viewMatch[1])} view="views" viewKey={viewMatch[2] as BookViewKey}/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
   if(bookMatch)return <BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={(bookMatch[2] as "forms"|"cards"|"fields"|undefined)??"forms"}/>;
   if(path==="/new-design/structure/card-types")return <CardTypeCatalogPage/>;
