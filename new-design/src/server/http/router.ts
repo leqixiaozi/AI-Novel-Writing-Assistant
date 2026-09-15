@@ -54,6 +54,7 @@ import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersi
 import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
 import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
+import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -133,6 +134,16 @@ import {
   knowledgeStateStatusSchema,
   knowledgeStateAtQuerySchema,
   knowledgeHolderKindSchema,
+  storyTimeProposalInputSchema,
+  storyTimeProposalEditSchema,
+  storyProposalReviewSchema,
+  storyProposalStatusSchema,
+  storyTimingRangeQuerySchema,
+  storyNarrativeOccurrenceSchema,
+  storyRelationProposalInputSchema,
+  storyRelationProposalEditSchema,
+  causalGraphQuerySchema,
+  storyRelationFamilySchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -323,6 +334,23 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/books/:id/current-knowledge",asyncRoute(async(req,res)=>success(res,await listCurrentKnowledgeState(String(req.params.id),typeof req.query.holderKind==="string"?knowledgeHolderKindSchema.parse(req.query.holderKind):undefined,typeof req.query.holderKey==="string"?req.query.holderKey:undefined))));
   router.get("/books/:id/knowledge-at",asyncRoute(async(req,res)=>success(res,await listKnowledgeStateAt(String(req.params.id),knowledgeStateAtQuerySchema.parse(req.query)))));
   router.post("/books/:id/current-knowledge/rebuild",asyncRoute(async(req,res)=>success(res,await rebuildKnowledgeState(String(req.params.id)))));
+  router.get("/books/:id/story-time-proposals",asyncRoute(async(req,res)=>success(res,await listStoryTimeProposals(String(req.params.id),typeof req.query.status==="string"?storyProposalStatusSchema.parse(req.query.status):undefined))));
+  router.post("/books/:id/story-time-proposals",asyncRoute(async(req,res)=>success(res,await proposeStoryTime({bookId:String(req.params.id),...body(storyTimeProposalInputSchema,req)}),201)));
+  router.get("/story-time-proposals/:id",asyncRoute(async(req,res)=>success(res,await getStoryTimeProposal(String(req.params.id)))));
+  router.put("/story-time-proposals/:id",asyncRoute(async(req,res)=>success(res,await editStoryTimeProposal(String(req.params.id),body(storyTimeProposalEditSchema,req)))));
+  router.post("/story-time-proposals/:id/review",asyncRoute(async(req,res)=>success(res,await reviewStoryTimeProposal(String(req.params.id),body(storyProposalReviewSchema,req)))));
+  router.get("/books/:id/story-timings",asyncRoute(async(req,res)=>success(res,Object.keys(req.query).length?await listStoryTimingsInRange(String(req.params.id),storyTimingRangeQuerySchema.parse(req.query)):await listCurrentStoryTimings(String(req.params.id)))));
+  router.put("/books/:id/story-occurrences",asyncRoute(async(req,res)=>success(res,await saveStoryNarrativeOccurrence({bookId:String(req.params.id),...body(storyNarrativeOccurrenceSchema,req)}),201)));
+  router.get("/books/:id/story-occurrences/by-chapter/:chapterCardId",asyncRoute(async(req,res)=>success(res,await listStoryOccurrencesByChapter(String(req.params.id),String(req.params.chapterCardId)))));
+  router.get("/books/:id/story-relations/proposals",asyncRoute(async(req,res)=>success(res,await listStoryRelationProposals(String(req.params.id),typeof req.query.status==="string"?storyProposalStatusSchema.parse(req.query.status):undefined))));
+  router.post("/books/:id/story-relations/proposals",asyncRoute(async(req,res)=>success(res,await proposeStoryRelation({bookId:String(req.params.id),...body(storyRelationProposalInputSchema,req)}),201)));
+  router.get("/story-relation-proposals/:id",asyncRoute(async(req,res)=>success(res,await getStoryRelationProposal(String(req.params.id)))));
+  router.put("/story-relation-proposals/:id",asyncRoute(async(req,res)=>success(res,await editStoryRelationProposal(String(req.params.id),body(storyRelationProposalEditSchema,req)))));
+  router.post("/story-relation-proposals/:id/review",asyncRoute(async(req,res)=>success(res,await reviewStoryRelationProposal(String(req.params.id),body(storyProposalReviewSchema,req)))));
+  router.get("/books/:id/story-relations",asyncRoute(async(req,res)=>success(res,await listStoryEventRelations(String(req.params.id),typeof req.query.family==="string"?storyRelationFamilySchema.parse(req.query.family):undefined))));
+  router.get("/books/:id/story-events/:eventId/concurrent",asyncRoute(async(req,res)=>success(res,await listConcurrentEvents(String(req.params.id),String(req.params.eventId)))));
+  router.get("/books/:id/story-events/:eventId/temporal",asyncRoute(async(req,res)=>success(res,await listTemporalNeighbors(String(req.params.id),String(req.params.eventId)))));
+  router.get("/books/:id/story-events/:eventId/causal",asyncRoute(async(req,res)=>{const query=causalGraphQuerySchema.parse(req.query);success(res,await listCausalGraph(String(req.params.id),String(req.params.eventId),query.direction,query.maxDepth));}));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

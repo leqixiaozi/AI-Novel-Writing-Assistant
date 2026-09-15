@@ -25,6 +25,7 @@ const chapterBodies = require("../dist/server/database/chapterBodyStore.js");
 const facts = require("../dist/server/database/factStore.js");
 const states = require("../dist/server/database/stateStore.js");
 const knowledge = require("../dist/server/database/knowledgeStore.js");
+const storyTimeline = require("../dist/server/database/storyTimeline/index.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -276,11 +277,12 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   let viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
   assert.deepEqual(viewWorkspace.viewConfigs.map((item) => item.key).sort(), ["chapters", "characters", "clues", "events", "resources", "world"]);
-  const viewEvent = viewWorkspace.cards.find((card) => card.typeKey === "event");
+  const viewEvents = viewWorkspace.cards.filter((card) => card.typeKey === "event");
+  const viewEvent = viewEvents[0];
   const viewChapters = viewWorkspace.cards.filter((card) => card.typeKey === "chapter");
   const viewCharacters = viewWorkspace.cards.filter((card) => card.typeKey === "character");
   const viewClue = viewWorkspace.cards.find((card) => ["clue_evidence", "foreshadow"].includes(card.typeKey));
-  assert.ok(viewEvent && viewChapters.length >= 2 && viewCharacters.length >= 2 && viewClue);
+  assert.ok(viewEvents.length >= 4 && viewChapters.length >= 2 && viewCharacters.length >= 2 && viewClue);
 
   let chapterDocument=await chapterBodies.createChapterDocument({bookId:sampleBook.id,chapterCardId:viewChapters[0].id,logicalOrder:1,title:"第一章正文"});
   const manualBody=await chapterBodies.addChapterBodyVersion(chapterDocument.id,{content:"沈照微在白水驿点亮照骨灯。",source:"manual",createdByKind:"user",createdBy:"integration-test"});
@@ -359,6 +361,50 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const staleTimePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"story_time",input:{ cardId:viewEvent.id,startOrder:30,endOrder:31,startLabel:"宗门历九月",endLabel:"宗门历九月",uncertainty:"",revision:storyTime.revision } });
   storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:40,endOrder:41,startLabel:"宗门历十月",endLabel:"宗门历十月",uncertainty:"",revision:storyTime.revision });
   await assert.rejects(() => changeSets.applyBookChangeSet(staleTimePreview.id), (error) => error.status === 409 && /其他视图/.test(error.message));
+  assert.equal((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===viewEvent.id).normalizedStart,40);
+
+  const parallelEventA=viewEvents[1],parallelEventB=viewEvents[2],unknownTimeEvent=viewEvents[3];
+  let plannedTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:parallelEventA.id,proposalSource:"ai",lifecycle:"planned",timeMode:"custom_calendar",startCertainty:"known",endCertainty:"known",calendarKey:"jinghe",startLabel:"景和二十二年七月十四日",endLabel:"景和二十二年七月十五日",normalizedStart:20,normalizedEnd:21,durationValue:2,durationUnit:"day",evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,reason:"正文给出白水封镇的起止范围。",editor:"integration-model"});
+  assert.equal(plannedTimingProposal.status,"proposed");
+  assert.ok((await storyTimeline.listStoryTimeProposals(sampleBook.id,"proposed")).some((item)=>item.id===plannedTimingProposal.id));
+  plannedTimingProposal=await storyTimeline.editStoryTimeProposal(plannedTimingProposal.id,{...plannedTimingProposal.currentVersion,normalizedEnd:22,endLabel:"景和二十二年七月十六日",durationValue:3,reason:"用户把封镇范围校订为三日。",expectedRevision:plannedTimingProposal.revision,actor:"integration-test",note:"校订结束时间。"});
+  assert.equal(plannedTimingProposal.versions.length,2);
+  await assert.rejects(()=>storyTimeline.editStoryTimeProposal(plannedTimingProposal.id,{...plannedTimingProposal.currentVersion,expectedRevision:1,actor:"integration-test"}),(error)=>error.status===409&&/已更新/.test(error.message));
+  plannedTimingProposal=await storyTimeline.reviewStoryTimeProposal(plannedTimingProposal.id,{action:"confirm",expectedRevision:plannedTimingProposal.revision,idempotencyKey:`story-time-plan-${Date.now()}`,actor:"integration-test"});
+  const plannedTiming=(await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===parallelEventA.id);
+  assert.equal(plannedTiming.lifecycle,"planned");
+  assert.equal(plannedTiming.normalizedEnd,22);
+
+  let parallelTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:parallelEventB.id,proposalSource:"ai",lifecycle:"planned",timeMode:"custom_calendar",startCertainty:"known",endCertainty:"known",calendarKey:"jinghe",startLabel:"景和二十二年七月十五日",endLabel:"景和二十二年七月十七日",normalizedStart:21,normalizedEnd:23,evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,reason:"另一事件与封镇并行。",editor:"integration-model"});
+  parallelTimingProposal=await storyTimeline.reviewStoryTimeProposal(parallelTimingProposal.id,{action:"confirm",expectedRevision:parallelTimingProposal.revision,idempotencyKey:`story-time-parallel-${Date.now()}`,actor:"integration-test"});
+  assert.deepEqual(new Set((await storyTimeline.listStoryTimingsInRange(sampleBook.id,{normalizedStart:20.5,normalizedEnd:21.5})).map((item)=>item.eventCardId)),new Set([parallelEventA.id,parallelEventB.id]));
+  assert.ok((await storyTimeline.listConcurrentEvents(sampleBook.id,parallelEventA.id)).some((item)=>item.eventCardId===parallelEventB.id));
+  assert.deepEqual(new Set((await storyTimeline.listStoryOccurrencesByChapter(sampleBook.id,viewChapters[0].id)).filter((item)=>[parallelEventA.id,parallelEventB.id].includes(item.eventCardId)).map((item)=>item.eventCardId)),new Set([parallelEventA.id,parallelEventB.id]));
+
+  const secondChapterOccurrence=await storyTimeline.saveStoryNarrativeOccurrence({bookId:sampleBook.id,eventCardId:parallelEventA.id,chapterCardId:viewChapters[1].id,role:"retell",narrativeOrder:2,sourceKind:"manual",note:"第二章再次讲述封镇经过。"});
+  assert.equal((await storyTimeline.listStoryOccurrencesByChapter(sampleBook.id,viewChapters[0].id)).filter((item)=>item.eventCardId===parallelEventA.id).length,1);
+  assert.equal((await storyTimeline.listStoryOccurrencesByChapter(sampleBook.id,viewChapters[1].id)).find((item)=>item.id===secondChapterOccurrence.id).role,"retell");
+
+  let temporalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"ai",relationFamily:"temporal",relationType:"after",sourceEventCardId:parallelEventB.id,targetEventCardId:parallelEventA.id,evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,confidence:.9,reason:"并行事件在封镇开始后进入高潮。",editor:"integration-model"});
+  temporalProposal=await storyTimeline.reviewStoryRelationProposal(temporalProposal.id,{action:"confirm",expectedRevision:temporalProposal.revision,idempotencyKey:`story-temporal-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await storyTimeline.listTemporalNeighbors(sampleBook.id,parallelEventA.id))[0].relationType,"before");
+  let causalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"ai",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventB.id,evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,confidence:.86,reason:"封镇迫使队伍进入无灯观。",editor:"integration-model"});
+  causalProposal=await storyTimeline.reviewStoryRelationProposal(causalProposal.id,{action:"confirm",expectedRevision:causalProposal.revision,idempotencyKey:`story-causal-${Date.now()}`,actor:"integration-test"});
+  assert.ok((await storyTimeline.listCausalGraph(sampleBook.id,parallelEventB.id,"upstream")).some((item)=>item.id===causalProposal.confirmedRelationId));
+  let duplicateCausalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"manual",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventB.id,evidenceKind:"manual",reason:"用于验证重复关系保护。",editor:"integration-test"});
+  await assert.rejects(()=>storyTimeline.reviewStoryRelationProposal(duplicateCausalProposal.id,{action:"confirm",expectedRevision:duplicateCausalProposal.revision,idempotencyKey:`story-causal-duplicate-${Date.now()}`,actor:"integration-test"}),(error)=>error.status===409&&/已经生效/.test(error.message));
+  await assert.rejects(()=>storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"manual",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventA.id,evidenceKind:"manual",reason:"非法自环"}),(error)=>error.status===422&&/自己/.test(error.message));
+
+  let occurredTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:parallelEventA.id,proposalSource:"manual",lifecycle:"occurred",timeMode:"custom_calendar",startCertainty:"known",endCertainty:"known",calendarKey:"jinghe",startLabel:"景和二十二年七月十四日",endLabel:"景和二十二年七月十六日",normalizedStart:20,normalizedEnd:22,durationValue:3,durationUnit:"day",evidenceKind:"fact",factId:correctedFact.id,replacesTimingId:plannedTiming.id,reason:"用户依据已确认事实把计划转为实际发生。",editor:"integration-test"});
+  occurredTimingProposal=await storyTimeline.reviewStoryTimeProposal(occurredTimingProposal.id,{action:"confirm",expectedRevision:occurredTimingProposal.revision,idempotencyKey:`story-time-occurred-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===parallelEventA.id).lifecycle,"occurred");
+  assert.equal((await (await runtime.getNewDesignPool()).query("SELECT status FROM new_design.story_event_timings WHERE id=$1",[plannedTiming.id])).rows[0].status,"superseded");
+
+  let unknownTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:unknownTimeEvent.id,proposalSource:"manual",lifecycle:"planned",timeMode:"unknown",startCertainty:"unknown",endCertainty:"unknown",evidenceKind:"manual",reason:"事件存在，但具体发生时间尚未决定。",editor:"integration-test"});
+  unknownTimingProposal=await storyTimeline.reviewStoryTimeProposal(unknownTimingProposal.id,{action:"confirm",expectedRevision:unknownTimingProposal.revision,idempotencyKey:`story-time-unknown-${Date.now()}`,actor:"integration-test"});
+  assert.ok((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).some((item)=>item.eventCardId===unknownTimeEvent.id&&item.normalizedStart===null));
+  assert.ok(!(await storyTimeline.listStoryTimingsInRange(sampleBook.id,{normalizedStart:-100,normalizedEnd:100})).some((item)=>item.eventCardId===unknownTimeEvent.id));
+  const persistedParallelTimeProposalId=parallelTimingProposal.id,persistedCausalProposalId=causalProposal.id,persistedOccurredTimeProposalId=occurredTimingProposal.id;
 
   const relationship = await bookViews.saveCharacterRelation(sampleBook.id, { sourceCardId:viewCharacters[0].id,targetCardId:viewCharacters[1].id,sourceLabel:"师父",inverseLabel:"弟子",note:"共同守护山门" });
   const reversePerspective = relationship.sourceCardId === viewCharacters[1].id ? relationship.sourceLabel : relationship.inverseLabel;
@@ -440,6 +486,11 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.ok(supersededSettlement.changes.every((change)=>change.status==="invalidated"));
   assert.ok((await states.listStateMilestones(sampleBook.id)).some((item)=>item.kind==="body_switch"));
   assert.equal((await states.listCurrentState(sampleBook.id)).find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
+  assert.equal((await storyTimeline.getStoryTimeProposal(persistedParallelTimeProposalId)).status,"stale");
+  assert.equal((await storyTimeline.getStoryRelationProposal(persistedCausalProposalId)).status,"stale");
+  assert.equal((await storyTimeline.getStoryTimeProposal(persistedOccurredTimeProposalId)).status,"confirmed");
+  assert.equal((await storyTimeline.listStoryOccurrencesByChapter(sampleBook.id,viewChapters[0].id)).filter((item)=>item.eventCardId===parallelEventA.id).length,0);
+  assert.equal((await storyTimeline.listStoryOccurrencesByChapter(sampleBook.id,viewChapters[1].id)).find((item)=>item.id===secondChapterOccurrence.id).status,"active");
   chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateB.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-state-return`,actor:"integration-test"});
   assert.equal((await states.getSettlement(persistedSupersededSettlementId)).status,"superseded");
 
@@ -751,4 +802,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const restartedKnowledge=await knowledge.getKnowledgeStateProposal(persistedKnowledgeProposalId);
   assert.equal(restartedKnowledge.status,"invalidated");
   assert.equal(restartedKnowledge.versions.length,2);
+  assert.equal((await storyTimeline.getStoryTimeProposal(persistedParallelTimeProposalId)).status,"stale");
+  assert.equal((await storyTimeline.getStoryTimeProposal(persistedOccurredTimeProposalId)).status,"confirmed");
+  assert.equal((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===parallelEventA.id).lifecycle,"occurred");
 });

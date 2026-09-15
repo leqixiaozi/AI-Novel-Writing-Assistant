@@ -10,6 +10,7 @@ import type {
 } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
+import { saveLegacyStoryTimeFromView } from "./storyTimeline";
 
 const VIEW_KEYS: BookViewKey[] = ["chapters", "clues", "characters", "events", "world", "resources"];
 export type StoryTimeInput={cardId:string;startOrder:number|null;endOrder:number|null;startLabel:string;endLabel:string;uncertainty:string;revision?:number};
@@ -67,10 +68,10 @@ export async function getBookViewWorkspace(bookId:string):Promise<BookViewWorksp
 export async function applyStoryTimePosition(client:PoolClient,bookId:string,input:StoryTimeInput):Promise<StoryTimePosition>{
   if(input.startOrder!==null&&input.endOrder!==null&&input.endOrder<input.startOrder)throw new NewDesignError("故事结束时间不能早于开始时间。请调整时间顺序后再保存。",422,{endOrder:"结束顺序不能小于开始顺序。"});
   const book=await findBook(client,bookId);await requireCards(client,String(book.space_id),[{id:input.cardId,types:["event"],name:"事件"}]);
-  const current=(await client.query("SELECT * FROM new_design.story_time_positions WHERE space_id=$1 AND card_id=$2 FOR UPDATE",[book.space_id,input.cardId])).rows[0];let result;
-  if(current){if(Number(current.revision)!==input.revision)throw new NewDesignError("故事时间已在其他视图更新，请刷新后重试。",409);result=await client.query(`UPDATE new_design.story_time_positions SET start_order=$3,end_order=$4,start_label=$5,end_label=$6,uncertainty=$7,revision=revision+1,updated_at=now() WHERE space_id=$1 AND card_id=$2 RETURNING *`,[book.space_id,input.cardId,input.startOrder,input.endOrder,input.startLabel,input.endLabel,input.uncertainty]);}
-  else{result=await client.query(`INSERT INTO new_design.story_time_positions(id,space_id,card_id,start_order,end_order,start_label,end_label,uncertainty) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[randomUUID(),book.space_id,input.cardId,input.startOrder,input.endOrder,input.startLabel,input.endLabel,input.uncertainty]);}
-  return mapTime(result.rows[0]);
+  const current=(await client.query("SELECT * FROM new_design.story_time_positions WHERE space_id=$1 AND card_id=$2 FOR UPDATE",[book.space_id,input.cardId])).rows[0];
+  if(current&&Number(current.revision)!==input.revision)throw new NewDesignError("故事时间已在其他视图更新，请刷新后重试。",409);
+  await saveLegacyStoryTimeFromView(client,bookId,{eventCardId:input.cardId,startOrder:input.startOrder,endOrder:input.endOrder,startLabel:input.startLabel,endLabel:input.endLabel,uncertainty:input.uncertainty});
+  return mapTime(assertFound((await client.query("SELECT * FROM new_design.story_time_positions WHERE space_id=$1 AND card_id=$2",[book.space_id,input.cardId])).rows[0],"故事时间保存失败。"));
 }
 
 export async function saveStoryTimePosition(bookId:string,input:StoryTimeInput):Promise<StoryTimePosition>{

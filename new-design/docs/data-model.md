@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -59,6 +59,13 @@ books 1 ── n epistemic_claims
 epistemic_claims 1 ── n knowledge_state_proposals 1 ── n knowledge_state_proposal_versions
 knowledge_state_proposals 1 ── 0..1 knowledge_state_changes
 active knowledge_state_changes ──> current_knowledge_state_projections
+
+books 1 ── n story_time_proposals 1 ── n story_time_proposal_versions
+story_time_proposals 1 ── 0..1 story_event_timings
+event cards 1 ── n story_event_narrative_occurrences ── 1 chapter cards
+books 1 ── n story_relation_proposals 1 ── n story_relation_proposal_versions
+story_relation_proposals 1 ── 0..1 story_event_relations
+story_event_timings ──> story_time_positions（旧事件视图兼容投影）
 ```
 
 ## 研究与分析固定对象
@@ -140,6 +147,34 @@ active knowledge_state_changes ──> current_knowledge_state_projections
 > 🏠 **白话比喻**：案卷真相、证人口供和观众看到的监控片段是三本账。对应到数据层：`canonical_facts` 管客观真相，人物 `knowledge_state_changes` 管角色口供，读者持有者管当前已揭示信息；即使证人说错，也不能改掉案卷真相。
 
 > 🧠 **速记方法**：**真相一册，角色各册，读者另册；按章翻页，不看后页；时间不明，不替它编**。
+
+### 完整故事时间、叙事位置、时序与因果
+
+`story_time_proposals` 是事件时间的待审身份，`story_time_proposal_versions` 只追加每次修改。版本分别记录生命周期、时间模式、开始／结束确定度、绝对时刻、时区、自定义历法、可读标签、排序坐标、时长和相对事件。`absolute` 使用真实时刻，`custom_calendar` 使用作品历法与标签，`relative` 指向另一事件，`partial` 只保存目前知道的部分，`unknown` 不允许夹带伪造坐标。所有空缺保留为 `NULL`，不会被解释成 0、1970 年或任何默认日期。
+
+提案来源与证据来源分开：`proposal_source` 说明 AI、人工、导入或系统产生了草案；`evidence_kind` 说明正式判断依据来自人工确认、当前正文版本与精确锚点、已确认事实、上游计划版本或状态提案。AI 生成后立即创建 `proposed` 和不可变第一个版本，但不会创建有效时间。用户可继续编辑，确认时服务端重新检查修订号、证据归属和正文采用指针，随后才复制到只追加的 `story_event_timings`。
+
+`story_event_timings.lifecycle` 区分 `planned / occurred / cancelled / invalidated`，`status` 区分当前记录是否仍为 `active / superseded / stale / invalidated`。计划转实际通过新提案的 `replaces_timing_id` 指向原计划；确认后旧计划保留并转为被取代。取消与失效同样新增一条业务结论，而不是删除原时间。每个事件最多只有一条有效时间，避免两个页面各认一套当前值。
+
+`story_event_narrative_occurrences` 单独保存事件在哪一章、场景和正文锚点被提及、演出、揭示、复述或倒叙。它允许同一事件跨多章，也允许同一章出现多个不同故事时间点；`narrative_order` 只描述讲述顺序，不改写事件的世界时间。正文证据确认时间后会自动建立一次叙事出现，人工还可增加其他章节出现。
+
+`story_relation_proposals` / `story_relation_proposal_versions` 对关系使用同样的草案、修改、确认和驳回链。确认后写入 `story_event_relations`：时间关系支持 `before / simultaneous / overlaps / contains`，输入的 `after` 会规范化为反向 `before`；因果关系支持 `causes / enables / blocks / depends_on`。服务层和数据库共同拒绝自环、时间／因果类型混用以及同一关系重复生效。
+
+查询分为五类：确定排序坐标或绝对时刻的范围查询、按叙事章节查询、区间重叠或明确同时关系的并发查询、事件前后邻居查询、因果上游／下游遍历。完全未知或只有标签但没有可比较坐标的事件仍可在当前时间列表中看到，但不会混进确定范围和排序结论。章节采用其他正文版本时，依赖旧正文的时间、关系和叙事出现标记为 `stale`，旧审核和版本历史保留。
+
+旧 `story_time_positions` 继续服务当前事件视图，但只保存 `story_event_timings` 的轻量兼容投影，并通过 `canonical_timing_id` 指回正式记录。旧页面完成影响预览和用户确认后，也会在同一事务中生成正式时间版本，再刷新投影；它不能成为第二份时间正本。
+
+| 维度 | 关键取值 | 规则 |
+|---|---|---|
+| 时间模式 | `absolute / custom_calendar / relative / partial / unknown` | 未知值保持空，不补默认时间 |
+| 生命周期 | `planned / occurred / cancelled / invalidated` | 计划转实际通过新版本替换，不覆盖旧计划 |
+| 时间关系 | `before / after / simultaneous / overlaps / contains` | `after` 规范化为反向 `before` |
+| 因果关系 | `causes / enables / blocks / depends_on` | 可查询直接和多级上下游 |
+| 证据 | 人工／正文锚点／确认事实／计划版本／状态提案 | 确认时重新校验来源 |
+
+> 🏠 **白话比喻**：案件发生在某天，新闻可能当天简报、下周复盘、半年后纪录片再讲一次。对应到数据层：`story_event_timings` 是案件发生时间，`story_event_narrative_occurrences` 是哪一期节目讲了它；同一案件可以出现多次，但发生时间只有一份当前正本。
+
+> 🧠 **速记方法**：**世界时间定发生，章节位置定讲述；AI 先写便签，人签字归档；未知不排队，换稿只作废引用**。
 
 ### 市场雷达快照与市场信号
 

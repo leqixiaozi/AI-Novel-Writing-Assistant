@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -99,6 +99,22 @@ test("AI knowledge proposals require a holder and exact adopted-body evidence",(
   assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,textAnchorId:null}).success,false);
   assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,holderCardId:null}).success,false);
   assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,holderKind:"reader",holderCardId:null,holderKey:"default"}).success,true);
+});
+
+test("complete story time keeps unknown values null and rejects illegal ranges",()=>{
+  const base={eventCardId:"10000000-0000-4000-8000-000000000001",proposalSource:"manual",lifecycle:"planned",startCertainty:"unknown",endCertainty:"unknown",evidenceKind:"manual",reason:"时间待定"};
+  assert.equal(storyTimeProposalInputSchema.safeParse({...base,timeMode:"unknown"}).success,true);
+  assert.equal(storyTimeProposalInputSchema.safeParse({...base,timeMode:"unknown",normalizedStart:0}).success,false);
+  assert.equal(storyTimeProposalInputSchema.safeParse({...base,timeMode:"custom_calendar",startCertainty:"known",endCertainty:"known",calendarKey:"jinghe",startLabel:"初十",endLabel:"初八",normalizedStart:10,normalizedEnd:8}).success,false);
+  assert.equal(storyTimeProposalInputSchema.safeParse({...base,timeMode:"relative",relativeToEventCardId:"20000000-0000-4000-8000-000000000001",relativeRelation:"after"}).success,true);
+});
+
+test("story relations separate temporal and causal semantics",()=>{
+  const base={proposalSource:"ai",sourceEventCardId:"10000000-0000-4000-8000-000000000001",targetEventCardId:"20000000-0000-4000-8000-000000000001",evidenceKind:"body",chapterDocumentId:"30000000-0000-4000-8000-000000000001",bodyVersionId:"40000000-0000-4000-8000-000000000001",textAnchorId:"50000000-0000-4000-8000-000000000001",reason:"正文关系"};
+  assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"temporal",relationType:"before"}).success,true);
+  assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"causes"}).success,true);
+  assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"overlaps"}).success,false);
+  assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"causes",targetEventCardId:base.sourceEventCardId}).success,false);
 });
 
 test("public ranking adapters only extract source metadata",()=>{
