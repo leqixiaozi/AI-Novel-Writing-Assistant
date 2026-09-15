@@ -10,6 +10,18 @@ export const FIELD_TYPES = [
 
 export type FieldType = (typeof FIELD_TYPES)[number];
 
+export const CARD_TYPE_CAPABILITIES = [
+  "body_text",
+  "timeline",
+  "state_change",
+  "relation_subject",
+  "lifecycle",
+  "creative_goal",
+  "canonical_fact",
+] as const;
+
+export type CardTypeCapability = (typeof CARD_TYPE_CAPABILITIES)[number];
+
 export interface FieldOption {
   value: string;
   label: string;
@@ -41,6 +53,7 @@ export interface CardTypeSummary {
   description: string;
   isSystem: boolean;
   sortOrder: number;
+  semanticCapabilities: CardTypeCapability[];
   status: "draft" | "published" | "archived";
   revision: number;
   currentVersion: number | null;

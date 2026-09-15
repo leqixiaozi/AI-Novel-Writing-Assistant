@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { CardSummary, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition } from "../../common/contracts";
+import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
@@ -21,6 +21,7 @@ function mapCardType(row: Record<string, unknown>): CardTypeSummary {
     description: String(row.description ?? ""),
     isSystem: Boolean(row.is_system),
     sortOrder: Number(row.sort_order ?? 1_000),
+    semanticCapabilities: (row.semantic_capabilities ?? []) as CardTypeCapability[],
     status: row.status as CardTypeSummary["status"],
     revision: Number(row.revision),
     currentVersion: row.current_version === null || row.current_version === undefined ? null : Number(row.current_version),
@@ -86,15 +87,15 @@ export async function getCardType(id: string): Promise<CardTypeSummary> {
   return assertFound(await findCardType(await getNewDesignPool(), id), "元卡片类型不存在。");
 }
 
-export async function createCardType(input: { key: string; name: string; description: string; fields: FieldDefinition[] }): Promise<CardTypeSummary> {
+export async function createCardType(input: { key: string; name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[] }): Promise<CardTypeSummary> {
   const pool = await getNewDesignPool();
   const id = randomUUID();
   try {
     const result = await pool.query(`
-      INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, draft_fields)
-      VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb)
+      INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields)
+      VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb)
       RETURNING *
-    `, [id, DEFAULT_SPACE_ID, input.key, input.name, input.description, JSON.stringify(input.fields)]);
+    `, [id, DEFAULT_SPACE_ID, input.key, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
     return mapCardType({ ...result.rows[0], current_version: null });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") throw new NewDesignError("类型标识已存在，请换一个标识。", 409, { key: "类型标识已存在。" });
@@ -104,7 +105,7 @@ export async function createCardType(input: { key: string; name: string; descrip
 
 export async function updateCardType(
   id: string,
-  input: { name: string; description: string; fields: FieldDefinition[]; revision: number },
+  input: { name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[]; revision: number },
 ): Promise<CardTypeSummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
@@ -119,10 +120,10 @@ export async function updateCardType(
     }
     const result = await client.query(`
       UPDATE new_design.card_types
-      SET name = $2, description = $3, draft_fields = $4::jsonb, revision = revision + 1, updated_at = now()
+      SET name = $2, description = $3, semantic_capabilities = $4::jsonb, draft_fields = $5::jsonb, revision = revision + 1, updated_at = now()
       WHERE id = $1
       RETURNING *
-    `, [id, input.name, input.description, JSON.stringify(input.fields)]);
+    `, [id, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
     await client.query("COMMIT");
     return mapCardType({ ...result.rows[0], current_version: existing.currentVersion });
   } catch (error) {

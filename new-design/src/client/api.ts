@@ -23,13 +23,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const newDesignApi = {
   health: () => request<{ mode: "bundled" | "external"; postgresVersion: string; port: number }>("/health"),
   listCardTypes: () => request<CardTypeSummary[]>("/card-types"),
-  createCardType: (input: Pick<CardTypeSummary, "key" | "name" | "description" | "draftFields">) => request<CardTypeSummary>("/card-types", {
+  createCardType: (input: Pick<CardTypeSummary, "key" | "name" | "description" | "semanticCapabilities" | "draftFields">) => request<CardTypeSummary>("/card-types", {
     method: "POST",
-    body: JSON.stringify({ key: input.key, name: input.name, description: input.description, fields: input.draftFields }),
+    body: JSON.stringify({ key: input.key, name: input.name, description: input.description, semanticCapabilities: input.semanticCapabilities, fields: input.draftFields }),
   }),
   updateCardType: (input: CardTypeSummary) => request<CardTypeSummary>(`/card-types/${input.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ name: input.name, description: input.description, fields: input.draftFields, revision: input.revision }),
+    body: JSON.stringify({ name: input.name, description: input.description, semanticCapabilities: input.semanticCapabilities, fields: input.draftFields, revision: input.revision }),
   }),
   publishCardType: (id: string, revision: number) => request<CardTypeSummary>(`/card-types/${id}/publish`, {
     method: "POST",

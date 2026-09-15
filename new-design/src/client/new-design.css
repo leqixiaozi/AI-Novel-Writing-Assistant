@@ -86,6 +86,15 @@
 .nd-check-control { display: flex; align-items: center; gap: .5rem; min-height: 42px; align-self: end; }
 .nd-check-control input, .nd-option input { width: 17px; height: 17px; accent-color: var(--nd-accent); }
 .nd-inline-action, .nd-text-button { min-height: 40px; padding: 0; color: var(--nd-accent); background: transparent; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: .22rem; }
+.nd-capability-section { display: grid; gap: .65rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--nd-line); }
+.nd-help-text { margin: .18rem 0 0; color: var(--nd-muted); font-size: .7rem; }
+.nd-capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .45rem; }
+.nd-capability { display: flex; align-items: flex-start; gap: .5rem; padding: .6rem; background: var(--nd-soft); border-radius: calc(var(--radius) - .2rem); cursor: pointer; }
+.nd-capability.is-selected { color: var(--nd-accent); background: hsl(var(--primary) / .1); }
+.nd-capability input { flex: 0 0 auto; width: 16px; height: 16px; margin-top: .1rem; accent-color: var(--nd-accent); }
+.nd-capability strong, .nd-capability small { display: block; }
+.nd-capability strong { font-size: .72rem; font-weight: 600; }
+.nd-capability small { margin-top: .12rem; color: var(--nd-muted); font-size: .62rem; line-height: 1.35; }
 
 .nd-field-list { display: grid; }
 .nd-field-row { display: grid; grid-template-columns: 1.65rem minmax(0, 1fr); gap: .65rem; padding: .9rem 0; border-top: 1px solid var(--nd-line); }

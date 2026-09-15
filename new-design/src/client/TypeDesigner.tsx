@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CardTypeSummary, CardTypeVersion, FieldDefinition } from "../common/contracts";
+import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeSummary, type CardTypeVersion, type FieldDefinition } from "../common/contracts";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 import FieldBuilder from "./FieldBuilder";
@@ -8,6 +8,16 @@ interface TypeDesignerProps {
   selected: CardTypeSummary | null;
   onSaved: (cardType: CardTypeSummary) => void;
 }
+
+const CAPABILITY_LABELS: Record<CardTypeCapability, { name: string; description: string }> = {
+  body_text: { name: "承载正文", description: "可以挂接正式叙事文本" },
+  timeline: { name: "进入时间线", description: "可以按故事时间定位" },
+  state_change: { name: "形成状态变化", description: "会改变人物、关系或世界状态" },
+  relation_subject: { name: "关系主体", description: "可以与其他卡片建立关系" },
+  lifecycle: { name: "生命周期", description: "具有计划、进行、完成等阶段" },
+  creative_goal: { name: "创作目标", description: "服务作者的结构安排与生产计划" },
+  canonical_fact: { name: "正式事实", description: "可作为故事世界的确定信息" },
+};
 
 function personStarterFields(): FieldDefinition[] {
   return [
@@ -26,6 +36,7 @@ function blankType(): CardTypeSummary {
     description: "",
     isSystem: false,
     sortOrder: 1_000,
+    semanticCapabilities: [],
     status: "draft",
     revision: 1,
     currentVersion: null,
@@ -53,6 +64,12 @@ export default function TypeDesigner({ selected, onSaved }: TypeDesignerProps) {
   }, [selected]);
 
   const publishedKeys = useMemo(() => new Set((versions[0]?.fields ?? []).map((field) => field.key)), [versions]);
+  const toggleCapability = (capability: CardTypeCapability) => {
+    const selectedCapabilities = new Set(draft.semanticCapabilities);
+    if (selectedCapabilities.has(capability)) selectedCapabilities.delete(capability);
+    else selectedCapabilities.add(capability);
+    setDraft({ ...draft, semanticCapabilities: CARD_TYPE_CAPABILITIES.filter((item) => selectedCapabilities.has(item)) });
+  };
   const save = async () => {
     setBusy(true);
     setMessage(null);
@@ -118,6 +135,24 @@ export default function TypeDesigner({ selected, onSaved }: TypeDesignerProps) {
               使用人物字段示例开始
             </button>
           )}
+          <div className="nd-capability-section">
+            <div>
+              <p className="nd-kicker">语义能力</p>
+              <p className="nd-help-text">描述这类卡片能参与哪些通用流程，不把题材规则写死在底层。</p>
+            </div>
+            <div className="nd-capability-grid">
+              {CARD_TYPE_CAPABILITIES.map((capability) => {
+                const label = CAPABILITY_LABELS[capability];
+                const checked = draft.semanticCapabilities.includes(capability);
+                return (
+                  <label className={`nd-capability${checked ? " is-selected" : ""}`} key={capability}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleCapability(capability)} />
+                    <span><strong>{label.name}</strong><small>{label.description}</small></span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         </section>
 
         <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />

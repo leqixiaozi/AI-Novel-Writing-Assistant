@@ -12,4 +12,12 @@ export const migrations: Migration[] = [
     id: "002_builtin_novel_cards",
     fileName: "002_builtin_novel_cards.sql",
   },
+  {
+    id: "003_novel_card_catalog",
+    fileName: "003_novel_card_catalog.sql",
+  },
+  {
+    id: "004_xianxia_production_demo",
+    fileName: "004_xianxia_production_demo.sql",
+  },
 ];

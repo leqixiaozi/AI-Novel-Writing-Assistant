@@ -10,6 +10,7 @@ delete process.env.NEW_DESIGN_DATABASE_URL;
 
 const runtime = require("../dist/server/database/runtime.js");
 const store = require("../dist/server/database/store.js");
+const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
   return [
@@ -29,24 +30,50 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.notEqual(status.port, 5432);
 
   const builtInTypes = await store.listCardTypes();
-  assert.equal(builtInTypes.filter((cardType) => cardType.isSystem).length, 14);
+  const systemTypes = builtInTypes.filter((cardType) => cardType.isSystem);
+  assert.equal(systemTypes.length, 19);
   assert.deepEqual(
-    builtInTypes.slice(0, 4).map((cardType) => cardType.name),
-    ["作品约定", "故事构思", "世界观", "人物"],
+    systemTypes.slice(0, 5).map((cardType) => cardType.name),
+    ["人物", "组织／势力", "地点", "道具", "世界规则"],
   );
-  assert.ok(builtInTypes.every((cardType) => cardType.currentVersion === 1));
+  assert.deepEqual(
+    systemTypes.map((cardType) => cardType.key),
+    ["character", "organization", "location", "prop", "world_rule", "event", "goal_task", "conflict", "secret_truth", "clue_evidence", "foreshadow", "suspense_question", "plotline", "plot_beat", "arc", "theme", "volume", "chapter", "scene"],
+  );
+  assert.deepEqual(
+    systemTypes.find((cardType) => cardType.key === "event").semanticCapabilities,
+    ["timeline", "state_change", "canonical_fact"],
+  );
+  assert.deepEqual(
+    systemTypes.find((cardType) => cardType.key === "scene").semanticCapabilities,
+    ["body_text", "timeline", "state_change", "creative_goal"],
+  );
 
   const starterCards = await store.listCards({});
+  for (const title of ["主世界观", "主线时间规则", "新书创作约定", "核心故事构思"]) {
+    assert.ok(starterCards.some((card) => card.title === title));
+  }
+
+  const demoCards = starterCards.filter((card) => card.title.startsWith("《照骨山河》"));
+  assert.equal(demoCards.length, 55);
   assert.deepEqual(
-    starterCards.map((card) => card.title).sort(),
-    ["主世界观", "主线时间规则", "新书创作约定", "核心故事构思"].sort(),
+    [...new Set(demoCards.map((card) => systemTypes.find((type) => type.id === card.cardTypeId)?.key))].sort(),
+    systemTypes.map((cardType) => cardType.key).sort(),
   );
+  for (const cardType of systemTypes) {
+    const currentVersion = (await store.listCardTypeVersions(cardType.id)).find((version) => version.id === cardType.currentVersionId);
+    assert.ok(currentVersion, `missing current version for ${cardType.key}`);
+    for (const card of demoCards.filter((candidate) => candidate.cardTypeId === cardType.id)) {
+      assert.deepEqual(validateCardValues(currentVersion.fields, card.values).issues, {}, `${card.title} should match ${cardType.key}`);
+    }
+  }
 
   const suffix = Date.now().toString(36);
   let cardType = await store.createCardType({
     key: `character_${suffix}`,
     name: "人物",
     description: "人物卡片集成验证",
+    semanticCapabilities: ["relation_subject", "state_change"],
     fields: personFields(),
   });
   cardType = await store.publishCardType(cardType.id, cardType.revision);
@@ -67,6 +94,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   cardType = await store.updateCardType(cardType.id, {
     name: cardType.name,
     description: cardType.description,
+    semanticCapabilities: cardType.semanticCapabilities,
     fields: [...cardType.draftFields, { key: "secret", name: "秘密", description: "尚未公开的信息", type: "long_text", required: false, defaultValue: null, options: [], group: "人物内核", order: 4 }],
     revision: cardType.revision,
   });

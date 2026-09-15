@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
+import { CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
 
 const optionSchema = z.object({
   value: z.string().trim().min(1, "选项值不能为空。"),
@@ -44,12 +44,14 @@ export const createCardTypeSchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "类型标识需以小写字母开头。"),
   name: z.string().trim().min(1, "类型名称不能为空。").max(80),
   description: z.string().trim().max(500).default(""),
+  semanticCapabilities: z.array(z.enum(CARD_TYPE_CAPABILITIES)).default([]),
   fields: fieldsSchema.default([]),
 });
 
 export const updateCardTypeSchema = z.object({
   name: z.string().trim().min(1, "类型名称不能为空。").max(80),
   description: z.string().trim().max(500).default(""),
+  semanticCapabilities: z.array(z.enum(CARD_TYPE_CAPABILITIES)).default([]),
   fields: fieldsSchema,
   revision: z.number().int().positive(),
 });
