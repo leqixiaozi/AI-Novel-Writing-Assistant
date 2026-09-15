@@ -94,6 +94,30 @@ export interface CardSummary {
   archivedAt: string | null;
 }
 
+export const STRATEGY_RESOURCE_TYPE_KEYS = [
+  "genre_strategy",
+  "progression_mode",
+  "writing_config",
+  "quality_rule",
+] as const;
+
+export type StrategyResourceTypeKey = (typeof STRATEGY_RESOURCE_TYPE_KEYS)[number];
+
+export interface StrategyResourceSummary extends CardSummary {
+  typeKey: StrategyResourceTypeKey;
+}
+
+export interface ResourceAdoption {
+  id: string;
+  resourceCardId: string;
+  resourceVersionId: string;
+  bookId: string;
+  targetCardId: string;
+  action: "install_snapshot";
+  snapshot: { typeKey: StrategyResourceTypeKey; title: string; values: Record<string, unknown> };
+  createdAt: string;
+}
+
 export interface CardVersion {
   id: string;
   revision: number;

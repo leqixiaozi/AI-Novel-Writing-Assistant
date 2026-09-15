@@ -43,6 +43,7 @@ import {
 } from "../database/compositionStore";
 import { NewDesignError } from "../domain/errors";
 import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
+import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -73,6 +74,7 @@ import {
   formInstanceInputSchema,
   formAssistSchema,
   relationTypeInputSchema,
+  resourceInstallSchema,
   syncPreviewSchema,
   templateInputSchema,
   revisionSchema,
@@ -206,6 +208,15 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/book-syncs/:id/apply", asyncRoute(async (req, res) => success(res, await applyBookSync(String(req.params.id)))));
 
   router.get("/book-creation/inspirations", asyncRoute(async (_req, res) => success(res, await listInspirationCandidates())));
+  router.get("/resources/strategies", asyncRoute(async (req, res) => success(res, await listStrategyResources({
+    typeKey: typeof req.query.typeKey === "string" ? req.query.typeKey : undefined,
+    archived: req.query.archived === "true",
+    search: typeof req.query.search === "string" ? req.query.search : undefined,
+  }))));
+  router.post("/resources/strategies/:id/install", asyncRoute(async (req, res) => {
+    const input = body(resourceInstallSchema, req);
+    success(res, await installStrategyResource(input.bookId, String(req.params.id)), 201);
+  }));
   router.post("/book-creation/sessions", asyncRoute(async (req, res) => success(res, await createBookCreationSession(body(bookCreationSessionInputSchema, req)), 201)));
   router.get("/book-creation/sessions/:id", asyncRoute(async (req, res) => success(res, await getBookCreationSession(String(req.params.id)))));
   router.post("/book-creation/sessions/:id/directions", asyncRoute(async (req, res) => {

@@ -36,4 +36,8 @@ export const migrations: Migration[] = [
     id: "008_card_type_categories",
     fileName: "008_card_type_categories.sql",
   },
+  {
+    id: "009_strategy_resources",
+    fileName: "009_strategy_resources.sql",
+  },
 ];

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CardSummary, CardTypeSummary, CardTypeVersion, CardVersion } from "../common/contracts";
+import type { CardSummary, CardTypeCategory, CardTypeSummary, CardTypeVersion, CardVersion } from "../common/contracts";
+import { buildCardTypeTree, type CardTypeTreeNode } from "../common/cardTypeTree";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 
 interface CardWorkspaceProps {
   cardTypes: CardTypeSummary[];
+  categories: CardTypeCategory[];
   spaceId?: string;
 }
 
@@ -12,9 +14,11 @@ function sourceLabel(source: CardVersion["source"]): string {
   return { create: "创建", edit: "编辑", archive: "归档", restore: "恢复" }[source];
 }
 
-export default function CardWorkspace({ cardTypes, spaceId }: CardWorkspaceProps) {
-  const publishedTypes = cardTypes.filter((item) => item.status === "published" && item.currentVersionId);
+export default function CardWorkspace({ cardTypes, categories, spaceId }: CardWorkspaceProps) {
+  const publishedTypes = useMemo(() => cardTypes.filter((item) => item.status === "published" && item.currentVersionId), [cardTypes]);
   const [cardTypeId, setCardTypeId] = useState("");
+  const [typeQuery, setTypeQuery] = useState("");
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [typeVersions, setTypeVersions] = useState<CardTypeVersion[]>([]);
   const [cards, setCards] = useState<CardSummary[]>([]);
   const [archived, setArchived] = useState(false);
@@ -32,7 +36,65 @@ export default function CardWorkspace({ cardTypes, spaceId }: CardWorkspaceProps
   }, [cardTypeId, publishedTypes]);
 
   const selectedType = publishedTypes.find((item) => item.id === cardTypeId) ?? null;
+  const typeTree = useMemo(() => buildCardTypeTree(categories, publishedTypes, typeQuery), [categories, publishedTypes, typeQuery]);
   const fields = typeVersions[0]?.fields ?? [];
+
+  useEffect(() => {
+    const categoryById = new Map(categories.map((category) => [category.id, category]));
+    let categoryId = selectedType?.categoryId ?? null;
+    if (!categoryId) return;
+    const ancestorIds: string[] = [];
+    while (categoryId) {
+      ancestorIds.push(categoryId);
+      categoryId = categoryById.get(categoryId)?.parentId ?? null;
+    }
+    setExpandedCategories((current) => {
+      const next = new Set(current);
+      ancestorIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [categories, selectedType?.categoryId]);
+
+  const toggleCategory = (categoryId: string) => setExpandedCategories((current) => {
+    const next = new Set(current);
+    if (next.has(categoryId)) next.delete(categoryId);
+    else next.add(categoryId);
+    return next;
+  });
+
+  const renderTypeNode = (node: CardTypeTreeNode, depth = 0): React.ReactNode => {
+    const open = Boolean(typeQuery.trim()) || expandedCategories.has(node.category.id);
+    return (
+      <div className="nd-tree-node" key={node.category.id}>
+        <button
+          className="nd-tree-category"
+          style={{ paddingLeft: `${.55 + depth * .8}rem` }}
+          type="button"
+          onClick={() => toggleCategory(node.category.id)}
+          aria-expanded={open}
+        >
+          <span>{open ? "⌄" : "›"}</span>
+          <strong>{node.category.name}</strong>
+          <small>{node.typeCount}</small>
+        </button>
+        {open && <div>
+          {node.children.map((child) => renderTypeNode(child, depth + 1))}
+          {node.cardTypes.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`nd-tree-leaf${cardTypeId === item.id ? " is-selected" : ""}`}
+              style={{ paddingLeft: `${1.65 + depth * .8}rem` }}
+              onClick={() => setCardTypeId(item.id)}
+            >
+              <span>└</span>
+              <div><strong>{item.name}</strong><small>本书资料 · v{item.currentVersion}</small></div>
+            </button>
+          ))}
+        </div>}
+      </div>
+    );
+  };
 
   const reloadCards = async () => {
     if (!cardTypeId) { setCards([]); return; }
@@ -112,13 +174,17 @@ export default function CardWorkspace({ cardTypes, spaceId }: CardWorkspaceProps
           <div><p className="nd-kicker">卡片库</p><h1>{selectedType?.name ?? "选择类型"}</h1></div>
           <button className="nd-button nd-button-primary" type="button" onClick={beginCreate}>＋ 新建卡片</button>
         </div>
-        <div className="nd-card-toolbar">
-          <label className="nd-control">
-            <span>元卡片类型</span>
-            <select value={cardTypeId} onChange={(event) => setCardTypeId(event.target.value)}>
-              {publishedTypes.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.currentVersion}</option>)}
-            </select>
+        <div className="nd-card-type-navigation" aria-label="本书资料类型">
+          <label className="nd-type-search">
+            <span className="nd-visually-hidden">查找资料类型</span>
+            <input value={typeQuery} placeholder="查找资料类型" onChange={(event) => setTypeQuery(event.target.value)} />
           </label>
+          <div className="nd-type-tree nd-card-type-tree">
+            {typeTree.map((node) => renderTypeNode(node))}
+            {typeTree.length === 0 && <div className="nd-empty nd-empty-compact">没有匹配的资料类型。</div>}
+          </div>
+        </div>
+        <div className="nd-card-toolbar">
           <div className="nd-segmented" aria-label="卡片状态">
             <button className={!archived ? "is-active" : ""} type="button" onClick={() => setArchived(false)}>使用中</button>
             <button className={archived ? "is-active" : ""} type="button" onClick={() => setArchived(true)}>已归档</button>

@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -22,6 +22,9 @@ card_type_categories 1 ── n card_types
 book_creation_sessions 1 ── n ai_generation_batches
           │             └── n book_content_sources
           └── 0..1 books 1 ── n card_field_origins
+
+resource card/version 1 ── n resource_adoptions n ── 1 books
+                                      └──────────── 1 target card
 ```
 
 ## `new_design.schema_migrations`
@@ -173,6 +176,29 @@ book_creation_sessions 1 ── n ai_generation_batches
 > 🏠 **白话比喻**：开书会话像医院挂号后的就诊单，入口只是“从哪个窗口来”；AI 批次像每次检查报告，最终都归入同一份病历。对应到系统里：七种入口共用一套书籍表单，生成记录和作者确认则分别留痕。
 
 > 🧠 **速记方法**：**入口记来源，会话记进度，批次记生成，字段记归属**。
+
+## 创作策略公共资源与安装快照
+
+固定空间 `60000000-0000-4000-8000-000000000001`（`resource_strategy`）保存可跨书复用的题材策略、推进模式、写法配置和质量规则。`009_strategy_resources.sql` 使用稳定 UUID 初始化 12 项可生产资源：3 项题材策略、3 项推进模式、2 项写法配置和 4 项质量规则。资源本身继续使用 `cards` / `card_versions`，不建立四套重复事实表。
+
+`resource_adoptions` 记录公共资源安装到书籍时的证据：
+
+| 字段 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `id` | `uuid` | 主键 | 安装记录身份 |
+| `resource_card_id` | `uuid` | 外键、非空 | 安装时采用的公共资源 |
+| `resource_version_id` | `uuid` | 外键、非空 | 安装时采用的不可变资源版本 |
+| `book_id` | `uuid` | 外键、非空 | 目标书籍 |
+| `target_card_id` | `uuid` | 外键、非空 | 复制进本书空间后的独立卡片 |
+| `action` | `text` | `install_snapshot` | 采用动作；当前只允许安装快照 |
+| `snapshot` | `jsonb` | 非空 | 安装当时的类型、标题和字段值 |
+| `created_at` | `timestamptz` | 非空 | 安装时间 |
+
+安装会先按目标书籍同 `type_key` 的当前发布规格重新校验字段，再在一个事务中创建本书卡片、版本、字段来源和采用记录。之后公共资源与本书卡片各自编辑，互不回写；开书页选择的策略资源也走同一套事务安装，不通过前端临时拼接。
+
+> 🏠 **白话比喻**：公共策略像文具店里的表格范本，安装到一本书时会复印一份放进这本书的档案袋。对应到数据库：`resource_card_id` 留下范本来源，`target_card_id` 是书内可独立修改的复印件，商店后来换新版不会改掉档案袋里的内容。
+
+> 🧠 **速记方法**：**公共库管范本，采用表管凭证，本书卡管成品**。
 
 ## 迁移规则
 

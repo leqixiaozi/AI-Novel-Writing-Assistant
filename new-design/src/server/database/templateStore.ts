@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { BookSummary, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
+import type { StrategyResourceDraft } from "./resourceStore";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
@@ -39,11 +40,13 @@ interface CreateBookOrigin {
 interface CreateBookOptions {
   includeTemplateSeed?: boolean;
   initialCards?: InitialCardDraft[];
+  resourceCards?: StrategyResourceDraft[];
   origin?: CreateBookOrigin;
 }
 
 async function installPayload(
   client: PoolClient,
+  bookId: string,
   spaceId: string,
   payload: TemplatePayload,
   options: CreateBookOptions,
@@ -71,28 +74,33 @@ async function installPayload(
     await client.query("INSERT INTO new_design.card_group_form_versions (id,form_id,version,definition) VALUES ($1,$2,1,$3::jsonb)", [versionId, formId, JSON.stringify(form.definition)]);
     await client.query("UPDATE new_design.card_group_forms SET current_version_id=$2 WHERE id=$1", [formId, versionId]);
   }
-  const cards = options.initialCards?.length
-    ? options.initialCards
-    : options.includeTemplateSeed === false ? [] : payload.seedCards;
-  const sourceKind = options.initialCards?.length ? "ai" : "template";
-  const confirmation = sourceKind === "ai" ? "ai_draft" : "template_suggestion";
-  for (const card of cards) {
+  const cards = [
+    ...(options.includeTemplateSeed === false ? [] : payload.seedCards.map((card) => ({ card, sourceKind: "template" as const, sourceId: card.sourceId, sourceVersionId: null }))),
+    ...(options.initialCards ?? []).map((card) => ({ card, sourceKind: "ai" as const, sourceId: null, sourceVersionId: null })),
+    ...(options.resourceCards ?? []).map((card) => ({ card, sourceKind: "resource" as const, sourceId: card.sourceCardId, sourceVersionId: card.sourceVersionId })),
+  ];
+  for (const prepared of cards) {
+    const { card, sourceKind } = prepared;
+    const confirmation = sourceKind === "ai" ? "ai_draft" : sourceKind === "template" ? "template_suggestion" : "confirmed";
     const type = assertFound(typeIds.get(card.typeKey), `模板缺少卡片类型 ${card.typeKey}。`);
     const definition = assertFound(payload.cardTypes.find((item) => item.key === card.typeKey), `模板缺少类型定义 ${card.typeKey}。`);
     const allowedKeys = new Set(definition.fields.map((field) => field.key));
     const filteredValues = Object.fromEntries(Object.entries(card.values).filter(([key]) => allowedKeys.has(key)));
     const validated = validateCardValues(definition.fields, filteredValues);
-    if (sourceKind === "ai" && Object.keys(validated.issues).length) {
-      throw new NewDesignError(`AI 生成的“${card.title}”未满足模板字段要求。`, 422, validated.issues);
+    if (sourceKind !== "template" && Object.keys(validated.issues).length) {
+      throw new NewDesignError(`${sourceKind === "ai" ? "AI 生成的" : "选用的创作策略"}“${card.title}”未满足模板字段要求。`, 422, validated.issues);
     }
-    const values = sourceKind === "ai" ? validated.values : filteredValues;
+    const values = sourceKind === "template" ? filteredValues : validated.values;
     const cardId = randomUUID();
     const versionId = randomUUID();
     await client.query(`INSERT INTO new_design.cards (id,space_id,card_type_id,title,status,revision,type_version_id,current_version_id,values) VALUES ($1,$2,$3,$4,'active',1,$5,NULL,$6::jsonb)`, [cardId, spaceId, type.typeId, card.title, type.versionId, JSON.stringify(values)]);
     await client.query(`INSERT INTO new_design.card_versions (id,card_id,revision,type_version_id,title,values,source) VALUES ($1,$2,1,$3,$4,$5::jsonb,'create')`, [versionId, cardId, type.versionId, card.title, JSON.stringify(values)]);
     await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1", [cardId, versionId]);
     for (const [fieldKey, value] of [["$title", card.title] as const, ...Object.entries(values)]) {
-      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$8::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, sourceKind === "template" ? definition.sourceId : null, options.origin?.generationBatchId ?? null, confirmation, JSON.stringify(value)]);
+      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$8::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, prepared.sourceId, sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null, confirmation, JSON.stringify(value)]);
+    }
+    if (sourceKind === "resource" && prepared.sourceId && prepared.sourceVersionId) {
+      await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [randomUUID(), prepared.sourceId, prepared.sourceVersionId, bookId, cardId, JSON.stringify({ typeKey: card.typeKey, title: card.title, values })]);
     }
   }
 }
@@ -112,7 +120,7 @@ export async function createBook(
     const payload = version.payload as TemplatePayload;
     await client.query("INSERT INTO new_design.card_spaces (id,space_key,name) VALUES ($1,$2,$3)", [spaceId, `book_${input.key}`, input.name]);
     await client.query(`INSERT INTO new_design.books (id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [id, spaceId, input.key, input.name, input.description, template.id, version.id, JSON.stringify(payload)]);
-    await installPayload(client, spaceId, payload, options);
+    await installPayload(client, id, spaceId, payload, options);
     if (options.origin) {
       await client.query(`INSERT INTO new_design.book_content_sources (id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'confirmed')`, [randomUUID(), id, options.origin.sessionId ?? null, options.origin.method, options.origin.sourceReference, JSON.stringify(options.origin.sourcePayload)]);
     }

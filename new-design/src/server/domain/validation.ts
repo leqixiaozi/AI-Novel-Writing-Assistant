@@ -208,6 +208,7 @@ export const bookCreationSessionInputSchema = z.object({
 
 export const selectDirectionSchema = z.object({ directionId: z.string().trim().min(1).max(80) });
 export const completeBookCreationSchema = z.object({ keepCurrentResult: z.boolean().default(false) });
+export const resourceInstallSchema = z.object({ bookId: z.string().uuid() });
 export const formAssistSchema = z.object({
   cardId: z.string().uuid(),
   formKey: z.string().trim().min(1).max(80),

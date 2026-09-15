@@ -5,6 +5,8 @@ import CardTypeCatalogPage from "./CardTypeCatalogPage";
 import DictionaryRelationsPage from "./DictionaryRelationsPage";
 import FormDesignerPage from "./FormDesignerPage";
 import NewDesignLanding from "./NewDesignLanding";
+import ResourceCenterPage from "./ResourceCenterPage";
+import StrategyResourcesPage from "./StrategyResourcesPage";
 import TemplateGroupsPage from "./TemplateGroupsPage";
 import "./new-design.css";
 
@@ -15,6 +17,8 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design")return <NewDesignLanding/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
+  if(path==="/new-design/resources")return <ResourceCenterPage/>;
+  if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
   if(bookMatch)return <BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={(bookMatch[2] as "forms"|"cards"|"fields"|undefined)??"forms"}/>;
   if(path==="/new-design/structure/card-types")return <CardTypeCatalogPage/>;

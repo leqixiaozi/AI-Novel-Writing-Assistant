@@ -14,16 +14,19 @@
 - `CardGroupForm` / `CardMount`：用不可变表单版本组合多张卡片，局部字段不污染来源卡片。
 - `TemplateGroup`：冻结类型、字典、关系、表单和菜单快照，并以只增不改规则同步到书籍。
 - `BookCreationSession` / `AiGenerationBatch`：让空白、模板、灵感、市场、参考和续写入口汇入同一套书籍事实模型，并记录 AI 阶段、批次、失败与重试来源。
+- `ResourceAdoption`：记录公共创作策略采用的资源版本与书内独立卡片，不让公共资源后续修改污染已开作品。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/008_card_type_categories.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/009_strategy_resources.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
 
 ## 内置创作资料规格
 
 首次初始化会得到 29 种已发布的通用小说资料规格。原有 19 种保持不变，新增题材策略、推进模式、写法配置、质量规则、世界总览、能力／科技／修炼体系、种族、文化、宗教和参考资料。结构设计中心把它们归入创作策略、人物与组织、世界设定、剧情结构、篇章结构、参考资料六个目录；目录可折叠和搜索，但不会让子类型继承字段。
 
 “新建书籍”提供空白、模板、一句话灵感、没有想法、市场方向、拆书参考和续写已有作品七种入口。入口只影响第一次如何准备内容；创建完成后全部进入同一套书籍创作表单、本书资料库和字段空间。AI 结果先预览确认，再以来源批次写入 PostgreSQL，不会静默覆盖作者已经修改的内容。
+
+“资源中心／创作策略”提供 12 项内置题材、推进、写法和质量资源。作者可在开书时勾选，也可稍后明确安装到某本书；安装形成独立快照，公共资源和书内资料此后互不回写。本书资料库使用六类可折叠树导航 29 种资料规格，作者选择叶子后直接看到对应表单和资料列表。
 
 “我的书籍”内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。事件规划表单可装配人物、地点、道具与剧情线。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
 
@@ -59,7 +62,7 @@ pnpm --filter @ai-novel/new-design test:integration
 pnpm --filter @ai-novel/client build
 ```
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加及停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、模板安全追加、策略资源安装隔离及停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
 
 ## 当前范围之外
 

@@ -15,6 +15,8 @@ import type {
   DictionarySummary,
   InspirationCandidate,
   RelationTypeSummary,
+  ResourceAdoption,
+  StrategyResourceSummary,
   TemplateGroupSummary,
   TemplateGroupVersion,
   TemplateSyncPreview,
@@ -118,6 +120,15 @@ export const newDesignApi = {
   getBook: (id: string) => request<BookSummary>(`/books/${id}`),
   createBook: (input: {key:string;name:string;description:string;templateVersionId:string}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
   listInspirationCandidates: () => request<InspirationCandidate[]>("/book-creation/inspirations"),
+  listStrategyResources: (input:{typeKey?:string;archived?:boolean;search?:string}={}) => {
+    const params=new URLSearchParams();
+    if(input.typeKey)params.set("typeKey",input.typeKey);
+    if(input.archived)params.set("archived","true");
+    if(input.search)params.set("search",input.search);
+    const query=params.toString();
+    return request<StrategyResourceSummary[]>(`/resources/strategies${query?`?${query}`:""}`);
+  },
+  installStrategyResource: (resourceId:string,bookId:string) => request<{resource:StrategyResourceSummary;target:CardSummary;adoption:ResourceAdoption}>(`/resources/strategies/${resourceId}/install`,{method:"POST",body:JSON.stringify({bookId})}),
   createBookCreationSession: (input: { method:BookCreationMethod;templateVersionId:string;bookName:string;description:string;sourceReference:string;inputPayload:Record<string,unknown> }) => request<BookCreationSession>("/book-creation/sessions", {method:"POST",body:JSON.stringify(input)}),
   getBookCreationSession: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}`),
   generateBookDirections: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/directions`, {method:"POST",body:"{}"}),

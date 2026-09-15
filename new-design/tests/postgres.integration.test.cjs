@@ -14,6 +14,7 @@ const composition = require("../dist/server/database/compositionStore.js");
 const templates = require("../dist/server/database/templateStore.js");
 const bookCreation = require("../dist/server/database/bookCreationStore.js");
 const categoriesStore = require("../dist/server/database/categoryStore.js");
+const resources = require("../dist/server/database/resourceStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -142,6 +143,12 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   const inspirationCandidates = await bookCreation.listInspirationCandidates();
   assert.equal(inspirationCandidates.length, 6);
+  const strategyResources = await resources.listStrategyResources();
+  assert.equal(strategyResources.length, 12);
+  assert.deepEqual(
+    Object.fromEntries(["genre_strategy", "progression_mode", "writing_config", "quality_rule"].map((typeKey) => [typeKey, strategyResources.filter((item) => item.typeKey === typeKey).length])),
+    { genre_strategy: 3, progression_mode: 3, writing_config: 2, quality_rule: 4 },
+  );
   let blankSession = await bookCreation.createBookCreationSession({
     method: "blank",
     templateVersionId: initialTemplateVersion.id,
@@ -155,6 +162,32 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const blankBook = await templates.getBook(blankSession.bookId);
   assert.equal((await store.listCards({ spaceId: blankBook.spaceId })).length, 0);
   assert.equal((await composition.listCardGroupForms(blankBook.spaceId)).length, 1);
+
+  const publicGenre = strategyResources.find((item) => item.typeKey === "genre_strategy");
+  assert.ok(publicGenre);
+  const installed = await resources.installStrategyResource(blankBook.id, publicGenre.id);
+  assert.equal(installed.adoption.action, "install_snapshot");
+  assert.equal(installed.target.title, publicGenre.title);
+  assert.deepEqual(installed.target.values, publicGenre.values);
+  await (await runtime.getNewDesignPool()).query("UPDATE new_design.cards SET title='公共资源已更新' WHERE id=$1", [publicGenre.id]);
+  const independentSnapshot = await store.getCard(installed.target.id);
+  assert.equal(independentSnapshot.title, publicGenre.title);
+  assert.deepEqual(independentSnapshot.values, publicGenre.values);
+
+  let resourceSession = await bookCreation.createBookCreationSession({
+    method: "blank",
+    templateVersionId: initialTemplateVersion.id,
+    bookName: "带策略开书样书",
+    description: "验证开书时安装策略快照。",
+    sourceReference: "",
+    inputPayload: { strategyResourceIds: strategyResources.filter((item) => ["progression_mode", "quality_rule"].includes(item.typeKey)).slice(0, 2).map((item) => item.id) },
+  });
+  resourceSession = await bookCreation.completeBookCreation(resourceSession.id);
+  const resourceBook = await templates.getBook(resourceSession.bookId);
+  assert.equal((await store.listCards({ spaceId: resourceBook.spaceId })).length, 2);
+  const adoptionRows = await (await runtime.getNewDesignPool()).query("SELECT action,snapshot FROM new_design.resource_adoptions WHERE book_id=$1", [resourceBook.id]);
+  assert.equal(adoptionRows.rowCount, 2);
+  assert.ok(adoptionRows.rows.every((row) => row.action === "install_snapshot"));
 
   let aiSession = await bookCreation.createBookCreationSession({
     method: "idea",
