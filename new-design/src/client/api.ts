@@ -161,6 +161,8 @@ import type {
   OutboxConsumer,
   OutboxEvent,
   OutboxTopic,
+  PrivateRuntimeDiagnostics,
+  PrivateRuntimeStatus,
   TransferConflict,
   TransferExportProfile,
   TransferOperation,
@@ -210,7 +212,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
-  health: () => request<{ mode: "bundled" | "external"; postgresVersion: string; port: number }>("/health"),
+  health: () => request<{ mode: "bundled"; postgresVersion: string; host:"127.0.0.1"; port: number; dataLocator:string; runtimeId:string; manifestSha256:string }>("/health"),
   listCardTypes: (spaceId?: string) => request<CardTypeSummary[]>(`/card-types${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ""}`),
   listCardTypeCategories: () => request<CardTypeCategory[]>("/card-type-categories"),
   createCardTypeCategory: (input:Pick<CardTypeCategory,"key"|"name"|"parentId"|"sortOrder">) => request<CardTypeCategory>("/card-type-categories",{method:"POST",body:JSON.stringify(input)}),
@@ -528,6 +530,8 @@ export const newDesignApi = {
   retryBackgroundJob:(bookId:string,id:string)=>request<BackgroundJob>(`/books/${bookId}/runtime/jobs/${id}/retry`,{method:"POST"}),
   replayBackgroundJob:(bookId:string,id:string,input:{reason:string;requestedBy:string;idempotencyKey:string})=>request<BackgroundJobReplay>(`/books/${bookId}/runtime/jobs/${id}/replay`,{method:"POST",body:JSON.stringify(input)}),
   getTransferRuntime:()=>request<TransferRuntimeAvailability>("/transfers/runtime"),
+  getPrivateRuntimeStatus:()=>request<PrivateRuntimeStatus>("/runtime/private/status"),
+  getPrivateRuntimeDiagnostics:()=>request<PrivateRuntimeDiagnostics>("/runtime/private/doctor"),
   listTransferProfiles:()=>request<TransferExportProfile[]>("/transfers/profiles"),
   listTransferOperations:(input:{bookId?:string;status?:TransferOperationStatus;limit?:number}={})=>request<TransferOperation[]>(`/transfers/operations?${new URLSearchParams(Object.entries(input).flatMap(([key,value])=>value===undefined?[]:[[key,String(value)]])).toString()}`),
   getTransferOperation:(id:string)=>request<TransferOperationDetail>(`/transfers/operations/${id}`),

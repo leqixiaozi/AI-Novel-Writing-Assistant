@@ -128,4 +128,8 @@ export const migrations: Migration[] = [
     id: "031_transfer_backup_import_export",
     fileName: "031_transfer_backup_import_export.sql",
   },
+  {
+    id: "032_private_runtime_lifecycle",
+    fileName: "032_private_runtime_lifecycle.sql",
+  },
 ];

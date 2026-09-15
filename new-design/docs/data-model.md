@@ -590,6 +590,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**清单定范围，哈希验完整，预检找冲突，隔离后发布**。
 
+## 应用私有运行时与升级审计
+
+`032_private_runtime_lifecycle.sql` 新增 `runtime_installations`、`runtime_lifecycle_events`、`runtime_health_snapshots` 和 `runtime_upgrade_plans`。安装实例保存当前 runtime manifest、PostgreSQL／AGE／pgvector／pg_trgm 版本和 active data generation；生命周期与健康记录只追加；升级计划冻结来源／目标运行包、备份、兼容 dry-run、升级策略、staging 世代和回滚世代，并用触发器限制状态转换。
+
+数据库尚未启动时，唯一允许的协调状态是应用数据目录下带格式版本和 checksum 的 `bootstrap/state.json`。它保存安装 ID、随机 instance token、data generation、端口、PID、启动时间和清洁停机标记，但不保存数据库口令或小说事实。口令放在独立凭据文件并收紧 Windows ACL；API 只返回脱敏 locator、版本、端口和错误码。
+
+> 🏠 **白话比喻**：032 像机房的值班登记簿，记哪套设备、哪间库房、什么时候启停和升级；小说内容仍是档案柜里的原件。对应到系统：运行审计帮助安全启停，但不会成为第二份业务数据库。
+
+> 🧠 **速记方法**：**状态管开门，数据库管正文；升级先留旧库，新库验完再换牌。**
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。

@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { TransferOperationKind, TransferRuntimeAvailability } from "../../common/contracts";
 import { NewDesignError } from "../domain/errors";
+import { resolvePrivateRuntimeLayout } from "../runtime/layout";
+import { resolvePackageFile, verifyRuntimePackage } from "../runtime/manifest";
 
 export interface ArchiveEntryCandidate {
   path:string;
@@ -53,45 +55,24 @@ export function validateArchiveEntries(entries:ArchiveEntryCandidate[],limits:Ar
   });
 }
 
-function resolvePrivateRuntimeRoot():string {
-  const explicit=process.env.NEW_DESIGN_DATA_DIR?.trim();
-  if(explicit)return path.resolve(explicit);
-  const appDataRoot=process.env.AI_NOVEL_APP_DATA_DIR?.trim();
-  if(appDataRoot)return path.join(path.resolve(appDataRoot),"new-design");
-  return path.resolve(__dirname,"../../..",".data");
-}
-
-function resolveBundledBinDirectory():string {
-  const entry=require.resolve("@embedded-postgres/windows-x64");
-  const archived=path.resolve(path.dirname(entry),"..","native","bin");
-  return archived.replace(`${path.sep}app.asar${path.sep}`,`${path.sep}app.asar.unpacked${path.sep}`);
-}
-
 export async function getTransferRuntimeAvailability():Promise<TransferRuntimeAvailability>{
-  let databaseToolsAvailable=false;
-  try {
-    const bin=resolveBundledBinDirectory();
-    databaseToolsAvailable=await Promise.all(["pg_dump.exe","pg_restore.exe"].map((name)=>fs.access(path.join(bin,name)).then(()=>true).catch(()=>false))).then((items)=>items.every(Boolean));
-  } catch {
-    databaseToolsAvailable=false;
-  }
-  return{available:false,code:"package_runtime_unavailable",detail:databaseToolsAvailable?"数据库维护工具可定位，但受控归档打包/解包与原子切换运行时尚未接入。":"受控归档运行时与匹配 PostgreSQL 主版本的维护工具尚未完整接入。",packageRuntimeVersion:null,databaseToolsAvailable,restoreSwitchAvailable:false};
+  try{const layout=resolvePrivateRuntimeLayout(),manifest=await verifyRuntimePackage(layout.packageRoot),databaseToolsAvailable=await Promise.all(["bin/pg_dump.exe","bin/pg_restore.exe"].map(name=>fs.access(resolvePackageFile(layout.packageRoot,name)).then(()=>true).catch(()=>false))).then(items=>items.every(Boolean)),archiveAvailable=await fs.access(resolvePackageFile(layout.packageRoot,"bin/bsdtar.exe")).then(()=>true).catch(()=>false);return{available:databaseToolsAvailable&&archiveAvailable,code:databaseToolsAvailable&&archiveAvailable?"ready":"package_runtime_unavailable",detail:databaseToolsAvailable&&archiveAvailable?"受控归档与数据库维护工具已经通过运行包 manifest 校验。":"运行包缺少受控归档或数据库维护工具。",packageRuntimeVersion:manifest.runtimeId,databaseToolsAvailable,restoreSwitchAvailable:false};}catch(error){return{available:false,code:"package_runtime_unavailable",detail:error instanceof Error?error.message:"私有运行包不可用。",packageRuntimeVersion:null,databaseToolsAvailable:false,restoreSwitchAvailable:false};}
 }
 
 export async function requireTransferRuntime(operationKind:TransferOperationKind):Promise<void>{
   const availability=await getTransferRuntimeAvailability();
-  if(!availability.available)throw new NewDesignError(`${operationKind} 当前不可执行：${availability.detail}`,503);
+  if(!availability.available||(operationKind==="full_restore"&&!availability.restoreSwitchAvailable))throw new NewDesignError(`${operationKind} 当前不可执行：${operationKind==="full_restore"&&!availability.restoreSwitchAvailable?"受控恢复 staging 与原子切换执行器尚未接入。":availability.detail}`,503);
 }
 
 export async function resolveFixedDatabaseTool(tool:"pg_dump"|"pg_restore"):Promise<string>{
-  const executable=path.join(resolveBundledBinDirectory(),`${tool}.exe`);
+  const layout=resolvePrivateRuntimeLayout();await verifyRuntimePackage(layout.packageRoot);const executable=resolvePackageFile(layout.packageRoot,`bin/${tool}.exe`);
   const stat=await fs.lstat(executable).catch(()=>null);
   if(!stat?.isFile()||stat.isSymbolicLink())throw new NewDesignError(`固定维护工具 ${tool} 不可用。`,503);
   return executable;
 }
 
 export async function resolveReadyArtifactFile(locator:string):Promise<string>{
-  const portable=normalizePortableLocator(locator),root=path.join(resolvePrivateRuntimeRoot(),"transfers"),candidate=path.resolve(root,...portable.split("/"));
+  const portable=normalizePortableLocator(locator);if(!portable.startsWith("backups/"))throw new NewDesignError("下载只允许访问已完成的备份产物。",422);const root=resolvePrivateRuntimeLayout().dataRoot,candidate=path.resolve(root,...portable.split("/"));
   if(candidate!==root&&!candidate.startsWith(`${root}${path.sep}`))throw new NewDesignError("产物路径越过受控目录。",422);
   const realRoot=await fs.realpath(root).catch(()=>root),stat=await fs.lstat(candidate).catch(()=>null);
   if(!stat?.isFile()||stat.isSymbolicLink())throw new NewDesignError("可下载产物不存在或不是普通文件。",409);

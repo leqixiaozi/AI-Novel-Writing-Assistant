@@ -3,3 +3,6 @@ export { getDatabaseRuntimeStatus, getNewDesignPool, stopNewDesignDatabase } fro
 export type { NewDesignAiGateway, DirectionGenerationInput, InitialContentGenerationInput, FormAssistInput, MarketAnalysisInput, BookAnalysisInput, AiResearchRunResult } from "./ai/gateway";
 export { createTransferBackgroundHandlers, confirmLocalRestore, requestLocalRestoreDryRun } from "./transfers";
 export type { LocalRestoreAuthorization, TransferExecutionAdapter, TransferIngressAdapter } from "./transfers";
+export { getPrivateRuntimeManager, startNewDesignRuntimeServices } from "./runtime";
+export type { PrivateRuntimeConnection, PrivateRuntimeServices } from "./runtime";
+export type { RegisteredBackgroundHandler, RegisteredBackgroundHandlers } from "./database/outbox";

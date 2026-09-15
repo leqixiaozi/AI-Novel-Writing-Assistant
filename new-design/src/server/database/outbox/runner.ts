@@ -25,9 +25,11 @@ export class BackgroundJobRunner {
     this.loopPromise=this.loop();
   }
 
-  async stop():Promise<void>{
+  async stop(maxWaitMs=30000):Promise<void>{
     this.accepting=false;
-    await this.loopPromise;
+    const loop=this.loopPromise;if(!loop)return;
+    const completed=await Promise.race([loop.then(()=>true),new Promise<boolean>(resolve=>{const timer=setTimeout(()=>resolve(false),Math.min(120000,Math.max(1000,maxWaitMs)));timer.unref();})]);
+    if(!completed&&this.activeLease){await releaseBackgroundJob({...leaseRef(this.activeLease),reason:"运行器停止等待超时，归还租约并依赖 fencing 拒绝迟到结果。"}).catch(()=>undefined);this.activeLease=null;}
     this.loopPromise=null;
   }
 

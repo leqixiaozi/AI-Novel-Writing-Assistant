@@ -17,7 +17,9 @@ import {
   updateCard,
   updateCardType,
 } from "../database/store";
-import { getDatabaseRuntimeStatus } from "../database/runtime";
+import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics } from "../database/runtime";
+import { getPrivateRuntimeManager } from "../runtime";
+import { scrub } from "../runtime/command";
 import {
   applyBookSync,
   createBook,
@@ -591,6 +593,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/books/:id/runtime/jobs/:jobId",asyncRoute(async(req,res)=>success(res,await getBackgroundJob(String(req.params.jobId),String(req.params.id)))));
   router.get("/books/:id/runtime/outbox",asyncRoute(async(req,res)=>success(res,await listOutboxEvents({bookId:String(req.params.id),...outboxEventListQuerySchema.parse(req.query)}))));
   router.get("/runtime/consumers",asyncRoute(async(_req,res)=>success(res,await listOutboxConsumers())));
+  router.get("/runtime/private/status",asyncRoute(async(_req,res)=>success(res,await getPrivateRuntimeManager().status())));
+  router.get("/runtime/private/doctor",asyncRoute(async(_req,res)=>success(res,await getPrivateRuntimeDiagnostics())));
   router.post("/runtime/consumers/:key/state",asyncRoute(async(req,res)=>success(res,await setOutboxConsumerState({consumerKey:String(req.params.key),...body(outboxConsumerStateSchema,req)}))));
   router.get("/books/:id/runtime/state",asyncRoute(async(req,res)=>success(res,await getBackgroundBookPause(String(req.params.id)))));
   router.post("/books/:id/runtime/state",asyncRoute(async(req,res)=>success(res,await setBackgroundBookPause({bookId:String(req.params.id),...body(backgroundBookPauseSchema,req)}))));
@@ -699,10 +703,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       res.status(error.status).json(envelope);
       return;
     }
-    console.error("[new-design] request failed", error);
+    const publicError=scrub(error instanceof Error?error.message:String(error));
+    console.error("[new-design] request failed",publicError);
     const envelope: ApiEnvelope<null> = {
       success: false,
-      error: error instanceof Error ? `新设计服务暂时不可用：${error.message}` : "新设计服务暂时不可用。",
+      error: publicError ? `新设计服务暂时不可用：${publicError}` : "新设计服务暂时不可用。",
     };
     res.status(500).json(envelope);
   });

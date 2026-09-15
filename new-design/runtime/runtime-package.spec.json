@@ -1,0 +1,91 @@
+{
+  "formatVersion": 1,
+  "specId": "new-design-win32-x64-pg17-age-vector-v1",
+  "platform": "win32",
+  "architecture": "x64",
+  "components": {
+    "application": {
+      "version": "0.1.0",
+      "nodeVersion": "24.19.0"
+    },
+    "postgresql": {
+      "version": "17.6",
+      "major": 17,
+      "distribution": "@embedded-postgres/windows-x64@17.6.0-beta.15",
+      "distributionIntegrity": "sha512-zzoF/J8NA6cePJPnWcWBti4IXt3347A9zD7ucSHx4ccuS5v/uhip4Cm1Oc+isI8TIjW/jtEL9pKsu6J1upoHSA=="
+    },
+    "age": {
+      "version": "1.6.0",
+      "postgresMajor": 17,
+      "sourceRef": "apache/age:PG17/v1.6.0-rc0"
+    },
+    "pgvector": {
+      "version": "0.8.6",
+      "postgresMajor": 17,
+      "sourceRef": "pgvector/pgvector:v0.8.6"
+    },
+    "pgTrgm": {
+      "version": "1.6",
+      "postgresMajor": 17,
+      "sourceRef": "postgresql-contrib:REL_17_6"
+    },
+    "archive": {
+      "version": "3.7.7",
+      "sourceRef": "libarchive:bsdtar-3.7.7-win64"
+    }
+  },
+  "requiredFiles": [
+    "bin/node.exe",
+    "bin/initdb.exe",
+    "bin/pg_ctl.exe",
+    "bin/pg_isready.exe",
+    "bin/pg_dump.exe",
+    "bin/pg_restore.exe",
+    "bin/postgres.exe",
+    "bin/psql.exe",
+    "bin/bsdtar.exe",
+    "lib/age.dll",
+    "lib/vector.dll",
+    "share/extension/age.control",
+    "share/extension/age--1.6.0.sql",
+    "share/extension/vector.control",
+    "share/extension/vector--0.8.6.sql",
+    "share/extension/pg_trgm.control",
+    "share/extension/pg_trgm--1.6.sql",
+    "licenses/PostgreSQL.txt",
+    "licenses/Apache-AGE.txt",
+    "licenses/pgvector.txt",
+    "licenses/embedded-postgres-MIT.txt",
+    "licenses/NOTICE.md",
+    "licenses/libarchive.txt",
+    "licenses/Node.js.txt",
+    "app/server/index.js",
+    "app/server/runtime/cli.js",
+    "app/client/index.html",
+    "app/scripts/runtime.ps1",
+    "app/scripts/start.ps1",
+    "app/scripts/stop.ps1",
+    "app/scripts/status.ps1",
+    "app/scripts/doctor.ps1",
+    "app/scripts/backup.ps1",
+    "app/scripts/upgrade.ps1",
+    "app/migrations/001_card_kernel.sql",
+    "app/migrations/032_private_runtime_lifecycle.sql"
+  ],
+  "requiredPrefixes": [
+    "bin/",
+    "lib/",
+    "share/",
+    "share/extension/",
+    "licenses/",
+    "app/server/",
+    "app/client/",
+    "app/scripts/",
+    "app/migrations/"
+  ],
+  "migrationRange": {
+    "first": "001_card_kernel.sql",
+    "last": "032_private_runtime_lifecycle.sql",
+    "count": 32
+  }
+}

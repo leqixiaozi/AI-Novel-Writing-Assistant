@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "New Design controlled runtime source manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "specId", "components", "files"],
+  "properties": {
+    "formatVersion": { "const": 1 },
+    "specId": { "type": "string", "minLength": 1 },
+    "components": { "type": "object" },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sourcePath", "targetPath", "component", "licenseId", "byteSize", "sha256"],
+        "properties": {
+          "sourcePath": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+          "targetPath": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+$" },
+          "component": { "enum": ["postgresql", "age", "pgvector", "pg_trgm", "archive", "application", "license"] },
+          "licenseId": { "enum": ["PostgreSQL", "Apache-2.0", "PostgreSQL-pgvector", "BSD-2-Clause", "MIT"] },
+          "byteSize": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}
