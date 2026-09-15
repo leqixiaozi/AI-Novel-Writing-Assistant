@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -82,6 +82,15 @@ test("canonical facts always enter through a typed evidence-backed proposal",()=
   assert.equal(canonicalFactInputSchema.safeParse({...common,evidence:[]}).success,false);
   assert.equal(canonicalFactInputSchema.safeParse({...common,evidence:[{...common.evidence[0],researchEvidenceId:"30000000-0000-4000-8000-000000000001"}]}).success,false);
   assert.equal(canonicalFactReviewSchema.safeParse({action:"confirm",expectedRevision:1,idempotencyKey:"confirm-fact-1"}).success,true);
+});
+
+test("state proposals require explicit before and after values",()=>{
+  const common={chapterDocumentId:"10000000-0000-4000-8000-000000000001",bodyVersionId:"20000000-0000-4000-8000-000000000001",subjectKind:"card",subjectId:"30000000-0000-4000-8000-000000000001",stateKey:"energy",beforeValue:100,afterValue:72,delta:-28,reason:"施法消耗",source:"ai"};
+  assert.equal(stateChangeProposalInputSchema.safeParse(common).success,true);
+  const {beforeValue,...withoutBefore}=common;
+  assert.equal(stateChangeProposalInputSchema.safeParse(withoutBefore).success,false);
+  assert.equal(stateChangeProposalInputSchema.safeParse({...common,beforeValue:null,afterValue:"held"}).success,true);
+  assert.equal(stateValueMappingSchema.safeParse({spaceId:"40000000-0000-4000-8000-000000000001",typeKey:"character",fieldKey:"energy",ranges:[{min:0,max:30,label:"低",value:"需要恢复"}]}).success,true);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

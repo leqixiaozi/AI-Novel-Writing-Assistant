@@ -72,4 +72,12 @@ export const migrations: Migration[] = [
     id: "017_canonical_facts",
     fileName: "017_canonical_facts.sql",
   },
+  {
+    id: "018_state_settlements",
+    fileName: "018_state_settlements.sql",
+  },
+  {
+    id: "019_state_proposal_before_guard",
+    fileName: "019_state_proposal_before_guard.sql",
+  },
 ];

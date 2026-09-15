@@ -52,6 +52,7 @@ import { applyCandidateDecisions } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
 import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
+import { commitChapterSettlement, createStateMilestone, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -115,6 +116,14 @@ import {
   canonicalFactReviewSchema,
   canonicalFactConflictReviewSchema,
   canonicalFactStatusSchema,
+  stateTypeCapabilitySchema,
+  stateRelationCapabilitySchema,
+  initialStateInputSchema,
+  stateChangeProposalInputSchema,
+  chapterSettlementInputSchema,
+  settlementRevertSchema,
+  stateMilestoneInputSchema,
+  stateValueMappingSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -277,6 +286,24 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/facts/:id/review",asyncRoute(async(req,res)=>success(res,await reviewCanonicalFact(String(req.params.id),body(canonicalFactReviewSchema,req)))));
   router.get("/books/:id/fact-conflicts",asyncRoute(async(req,res)=>success(res,await listFactConflicts(String(req.params.id)))));
   router.post("/fact-conflicts/:id/review",asyncRoute(async(req,res)=>success(res,await resolveFactConflict(String(req.params.id),body(canonicalFactConflictReviewSchema,req)))));
+  router.get("/spaces/:id/state-capabilities",asyncRoute(async(req,res)=>success(res,await getStateCapabilities(String(req.params.id)))));
+  router.put("/spaces/:id/state-capabilities/types",asyncRoute(async(req,res)=>success(res,await saveStateTypeCapability(String(req.params.id),body(stateTypeCapabilitySchema,req)))));
+  router.put("/spaces/:id/state-capabilities/relations",asyncRoute(async(req,res)=>success(res,await saveStateRelationCapability(String(req.params.id),body(stateRelationCapabilitySchema,req)))));
+  router.get("/books/:id/initial-states",asyncRoute(async(req,res)=>success(res,await listInitialStates(String(req.params.id)))));
+  router.post("/books/:id/initial-states",asyncRoute(async(req,res)=>success(res,await saveInitialState({bookId:String(req.params.id),...body(initialStateInputSchema,req)}),201)));
+  router.get("/initial-states/:id",asyncRoute(async(req,res)=>success(res,await getInitialState(String(req.params.id)))));
+  router.get("/chapter-documents/:id/state-change-proposals",asyncRoute(async(req,res)=>success(res,await listStateChangeProposals(String(req.params.id)))));
+  router.post("/books/:id/state-change-proposals",asyncRoute(async(req,res)=>success(res,await proposeStateChange({bookId:String(req.params.id),...body(stateChangeProposalInputSchema,req)}),201)));
+  router.post("/books/:id/chapter-settlements",asyncRoute(async(req,res)=>success(res,await commitChapterSettlement({bookId:String(req.params.id),...body(chapterSettlementInputSchema,req)}),201)));
+  router.get("/chapter-documents/:id/settlements",asyncRoute(async(req,res)=>success(res,await listChapterSettlements(String(req.params.id)))));
+  router.get("/chapter-settlements/:id",asyncRoute(async(req,res)=>success(res,await getSettlement(String(req.params.id)))));
+  router.post("/chapter-settlements/:id/revert",asyncRoute(async(req,res)=>success(res,await revertChapterSettlement(String(req.params.id),body(settlementRevertSchema,req)))));
+  router.get("/books/:id/current-state",asyncRoute(async(req,res)=>success(res,await listCurrentState(String(req.params.id)))));
+  router.post("/books/:id/current-state/rebuild",asyncRoute(async(req,res)=>success(res,await rebuildStateProjections(String(req.params.id)))));
+  router.get("/books/:id/state-milestones",asyncRoute(async(req,res)=>success(res,await listStateMilestones(String(req.params.id)))));
+  router.post("/books/:id/state-milestones",asyncRoute(async(req,res)=>success(res,await createStateMilestone({bookId:String(req.params.id),...body(stateMilestoneInputSchema,req)}),201)));
+  router.post("/state-value-mappings/publish",asyncRoute(async(req,res)=>success(res,await publishStateValueMapping(body(stateValueMappingSchema,req)),201)));
+  router.get("/state-value-mappings/:id",asyncRoute(async(req,res)=>success(res,await getStateValueMapping(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

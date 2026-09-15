@@ -23,6 +23,7 @@ const bookAnalysis = require("../dist/server/database/bookAnalysisStore.js");
 const referencePacks = require("../dist/server/database/referencePackStore.js");
 const chapterBodies = require("../dist/server/database/chapterBodyStore.js");
 const facts = require("../dist/server/database/factStore.js");
+const states = require("../dist/server/database/stateStore.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -369,6 +370,70 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   await changeSets.applyBookChangeSet(cluePreview.id);
   const lifecycleCounts = await (await runtime.getNewDesignPool()).query("SELECT (SELECT count(*) FROM new_design.narrative_placements WHERE subject_card_id=$1 AND role IN ('plant','reveal') AND status='active')::int AS placements,(SELECT count(*) FROM new_design.text_anchors WHERE subject_card_id=$1 AND role IN ('plant','reveal'))::int AS anchors", [viewClue.id]);
   assert.deepEqual(lifecycleCounts.rows[0], { placements:2, anchors:2 });
+
+  const stateCapabilities = await states.getStateCapabilities(sampleBook.spaceId);
+  assert.equal(stateCapabilities.types.find((item) => item.typeKey === "character").settlementCapability, "required");
+  assert.equal(stateCapabilities.types.find((item) => item.typeKey === "prop").settlementCapability, "required");
+  assert.equal(stateCapabilities.types.find((item) => item.typeKey === viewClue.typeKey).stateMode, "lifecycle");
+  assert.equal(stateCapabilities.relations.find((item) => item.relationKey === "character_relationship").dimensions[0].direction, "bidirectional");
+
+  const initialEnergy = await states.saveInitialState({ bookId:sampleBook.id,subjectKind:"card",subjectId:viewCharacters[0].id,stateKey:"energy",value:100,actor:"integration-test",note:"开篇体力" });
+  const initialRelationship = await states.saveInitialState({ bookId:sampleBook.id,subjectKind:"relation",subjectId:relationship.id,stateKey:"relationship_state",value:"互相试探",actor:"integration-test" });
+  const initialHolder = await states.saveInitialState({ bookId:sampleBook.id,subjectKind:"card",subjectId:prop.id,stateKey:"holder",value:viewCharacters[0].id,actor:"integration-test" });
+  const initialClueLifecycle = await states.saveInitialState({ bookId:sampleBook.id,subjectKind:"card",subjectId:viewClue.id,stateKey:"lifecycle",value:"planted",actor:"integration-test" });
+  assert.deepEqual([initialEnergy.currentValue,initialRelationship.currentValue,initialHolder.currentValue,initialClueLifecycle.currentValue],[100,"互相试探",viewCharacters[0].id,"planted"]);
+  const initialStateMilestone = await states.createStateMilestone({ bookId:sampleBook.id,kind:"initial",label:"开篇状态" });
+  assert.equal(initialStateMilestone.snapshot.states.length,4);
+
+  const promptComponentVersionId = (await store.listCardVersions(customPrompt.id))[0].id;
+  const energyMapping = await states.publishStateValueMapping({ spaceId:sampleBook.spaceId,typeKey:"character",fieldKey:"energy",ranges:[{min:null,max:30,label:"濒临耗尽",value:"动作迟滞，需要恢复"},{min:31,max:70,label:"明显消耗",value:"仍可行动，但连续爆发受限"},{min:71,max:null,label:"状态充足",value:"可承受常规战斗"}],promptComponentVersionId,note:"章节结算把数值翻译成写作语义。" });
+  assert.equal(energyMapping.currentVersion,1);
+  assert.equal(energyMapping.promptComponentVersionId,promptComponentVersionId);
+
+  const proposalInputs = [
+    { subjectKind:"card",subjectId:viewCharacters[0].id,stateKey:"energy",beforeValue:100,afterValue:72,delta:-28,reason:"点亮照骨灯消耗体力。" },
+    { subjectKind:"relation",subjectId:relationship.id,stateKey:"relationship_state",beforeValue:"互相试探",afterValue:"建立信任",reason:"共同确认旧案线索。" },
+    { subjectKind:"card",subjectId:prop.id,stateKey:"holder",beforeValue:viewCharacters[0].id,afterValue:null,reason:"照骨灯被敌人夺走。" },
+    { subjectKind:"card",subjectId:viewClue.id,stateKey:"lifecycle",beforeValue:"planted",afterValue:"revealed",reason:"正文揭示铜铃与旧案的联系。" },
+  ];
+  const proposals=[];
+  for (const proposal of proposalInputs) proposals.push(await states.proposeStateChange({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,causeEventCardId:viewEvent.id,effectiveStoryOrder:20,source:"ai",...proposal }));
+  assert.ok(proposals.every((proposal) => proposal.status === "proposed"));
+  const settlementKey=`state-settlement-${Date.now()}-first`;
+  let settlement=await states.commitChapterSettlement({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,proposalIds:proposals.map((proposal)=>proposal.id),idempotencyKey:settlementKey,actor:"integration-test",milestone:{kind:"manual",label:"第一章结算"} });
+  assert.equal(settlement.changes.length,4);
+  settlement=await states.commitChapterSettlement({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,proposalIds:proposals.map((proposal)=>proposal.id),idempotencyKey:settlementKey,actor:"integration-test" });
+  assert.equal(settlement.changes.length,4);
+  let projections=await states.listCurrentState(sampleBook.id);
+  const projectionValue=(kind,id,key)=>projections.find((item)=>item.subjectKind===kind&&item.subjectId===id&&item.stateKey===key)?.value;
+  assert.equal(projectionValue("card",viewCharacters[0].id,"energy"),72);
+  assert.equal(projectionValue("relation",relationship.id,"relationship_state"),"建立信任");
+  assert.equal(projectionValue("card",prop.id,"holder"),null);
+  assert.equal(projectionValue("card",viewClue.id,"lifecycle"),"revealed");
+
+  const revertKey=`state-revert-${Date.now()}`;
+  settlement=await states.revertChapterSettlement(settlement.id,{expectedRevision:settlement.revision,idempotencyKey:revertKey,actor:"integration-test"});
+  settlement=await states.revertChapterSettlement(settlement.id,{expectedRevision:1,idempotencyKey:revertKey,actor:"integration-test"});
+  assert.equal(settlement.status,"reverted");
+  projections=await states.listCurrentState(sampleBook.id);
+  assert.equal(projections.find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
+  assert.equal(projections.find((item)=>item.subjectId===relationship.id&&item.stateKey==="relationship_state").value,"互相试探");
+  assert.equal(projections.find((item)=>item.subjectId===prop.id&&item.stateKey==="holder").value,viewCharacters[0].id);
+  assert.equal(projections.find((item)=>item.subjectId===viewClue.id&&item.stateKey==="lifecycle").value,"planted");
+
+  const secondProposals=[];
+  for (const proposal of proposalInputs) secondProposals.push(await states.proposeStateChange({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,causeEventCardId:viewEvent.id,effectiveStoryOrder:20,source:"manual",...proposal }));
+  let supersededSettlement=await states.commitChapterSettlement({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,proposalIds:secondProposals.map((proposal)=>proposal.id),idempotencyKey:`state-settlement-${Date.now()}-second`,actor:"integration-test" });
+  const persistedSupersededSettlementId=supersededSettlement.id,persistedStateMappingId=energyMapping.id;
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:manualBody.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-state-stale`,actor:"integration-test"});
+  supersededSettlement=await states.getSettlement(supersededSettlement.id);
+  assert.equal(supersededSettlement.status,"superseded");
+  assert.ok(supersededSettlement.changes.every((change)=>change.status==="invalidated"));
+  assert.ok((await states.listStateMilestones(sampleBook.id)).some((item)=>item.kind==="body_switch"));
+  assert.equal((await states.listCurrentState(sampleBook.id)).find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateB.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-state-return`,actor:"integration-test"});
+  assert.equal((await states.getSettlement(persistedSupersededSettlementId)).status,"superseded");
+
   await assert.rejects(() => bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:50,endOrder:20,startLabel:"",endLabel:"",uncertainty:"",revision:storyTime.revision }), (error) => error.status === 422 && /不能早于/.test(error.message));
   await assert.rejects(() => bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"过期写入",revision:1 }), (error) => error.status === 409 && /其他视图/.test(error.message));
 
@@ -624,4 +689,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(restartedChapterDocument.anchors.find((item)=>item.id===manualAnchor.id).isStale,true);
   assert.equal((await facts.getCanonicalFact(persistedCorrectedFactId)).status,"confirmed");
   assert.equal((await facts.getCanonicalFact(persistedPendingFactId)).status,"stale");
+  assert.equal((await states.getSettlement(persistedSupersededSettlementId)).status,"superseded");
+  assert.equal((await states.getStateValueMapping(persistedStateMappingId)).currentVersion,1);
+  assert.equal((await states.listCurrentState(sampleBook.id)).find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
 });

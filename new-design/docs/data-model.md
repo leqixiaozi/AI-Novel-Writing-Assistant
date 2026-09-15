@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录，`013_research_foundation.sql` 建立版本化研究资料、研究运行、证据、候选采用、参考包和市场来源快照，`014_market_radar.sql` 发布“市场信号”动态规格与独立研究资源空间；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -46,6 +46,13 @@ chapter_body_versions 1 ── n chapter_text_anchors
 books 1 ── n canonical_facts 1 ── n canonical_fact_evidence
 canonical_facts n ── n canonical_fact_conflicts
 canonical_facts 1 ── n canonical_fact_review_actions
+
+books 1 ── n entity_initial_states 1 ── n entity_initial_state_versions
+chapter_body_versions 1 ── n state_change_proposals
+chapter_settlements 1 ── n state_changes
+entity_initial_states + active state_changes ──> current_state_projections
+books 1 ── n state_milestone_snapshots
+state_value_mappings 1 ── n state_value_mapping_versions
 ```
 
 ## 研究与分析固定对象
@@ -87,6 +94,27 @@ canonical_facts 1 ── n canonical_fact_review_actions
 > 🏠 **白话比喻**：卡片像人物档案里的简介，事实库像法庭确认的案情记录；证词先登记，互相矛盾就挂起冲突，法官确认后才成为有效结论，后来翻案也要留下原判和新判。对应到系统里：卡片描述不是正典，AI 只提交证词，人工审核决定事实状态，修正通过新记录取代旧记录。
 
 > 🧠 **速记方法**：**描述归卡片，事实先进提案；证据要挂号，冲突不覆盖，修正另开单**。
+
+### 可配置状态、章节结算与投影
+
+`state_type_capabilities` 和 `state_field_policies` 决定某类卡片是否必须、可以或禁止参加章节结算，并把字段分为不跟踪、直接跟踪、派生值或仅生命周期。`state_relation_capabilities` 和 `state_relation_dimensions` 对关系采用同样规则，并额外保存正向、反向或双向维度。默认人物、组织和道具为必结，地点可选；人物关系和事件—道具关系为必结；目标、冲突、秘密、线索、伏笔、悬念、剧情线和弧线使用轻量生命周期；世界、策略和参考资料默认禁用。
+
+`entity_initial_states` 保存主体与状态键的稳定身份，`entity_initial_state_versions` 只追加每次初始值修订、哈希、可选确认事实来源和操作人。`state_change_proposals` 必须记录变化前值、变化后值、可选差量、原因、故事时间，并锁定章节正文版本；文本证据可进一步绑定 `chapter_text_anchors`，原因事件可绑定本书 `event` 卡片。AI、人工和导入都只能先写 `proposed`。
+
+`chapter_settlements` 是用户确认的一次章节入账，幂等键保证重复提交不会重复记账。只有当前已采用的正文版本可以提交；服务端会再次比较提案的变化前值与 `current_state_projections`，防止陈旧提案覆盖新状态。通过校验后，每项变化才追加到 `state_changes`。撤销把变化标为 `reverted`，采用其他正文把原结算与变化标为 `superseded/invalidated`；历史行全部保留。
+
+`current_state_projections` 只保存从当前初始版本和全部有效变化重建出的查询结果，不是第二份正本。`state_milestone_snapshots` 可在初始、卷末、重大修订、正文切换或手工节点冻结一份投影照片。`state_value_mappings` 与不可变的 `state_value_mapping_versions` 保存数值区间的写作语义，并可锁定具体提示词组件卡片版本，避免提示词升级改变旧规则含义。
+
+| 能力层 | 关键取值 | 默认用途 |
+|---|---|---|
+| 类型结算能力 | `disabled / optional / required` | 控制整类资料是否参与结算 |
+| 字段策略 | `none / tracked / derived / lifecycle_only` | 控制具体状态键能否直接写入 |
+| 状态模式 | `absolute / delta / derived / lifecycle` | 区分绝对值、差量、派生和生命周期 |
+| 关系方向 | `forward / inverse / bidirectional` | 解释关系状态从哪一侧读取 |
+
+> 🏠 **白话比喻**：章节结算像仓库交接班。AI 可以先填“谁领走了灯、谁受了伤”的待核单，但仓管员签字后才进入流水；库存看板随流水重算，退单或换掉本章正式稿时只作废对应流水，不撕掉原单。对应到系统里：提案、确认结算、只追加变化和可重建投影各司其职。
+
+> 🧠 **速记方法**：**能力定范围，初值打底；提案对前值，确认才入账；历史不删除，投影随时算**。
 
 ### 市场雷达快照与市场信号
 

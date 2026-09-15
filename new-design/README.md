@@ -23,10 +23,11 @@
 - `ResearchReferencePackVersion` / `BookCreationResearchSelection`：把多个精确研究运行组合成不可变参考包，并在开书会话中冻结预填快照；研究建议只填空白字段，不覆盖模板、AI 草稿或作者已有值。
 - `ChapterDocument` / `ChapterBodyVersion` / `ChapterTextAnchor`：用章节档案保存逻辑顺序和唯一正式正文指针；人工稿、AI 候选、修订与导入均新增不可变版本，精确锚点始终绑定某个正文版本。
 - `CanonicalFact` / `CanonicalFactEvidence` / `CanonicalFactConflict`：把已确认小说事实与卡片描述分开；新事实先进入提案，证据、冲突、人工审核和修正取代链全程留痕。
+- `EntityInitialState` / `StateChangeProposal` / `ChapterSettlement` / `CurrentStateProjection`：按类型和关系的可配置能力保存初始状态、章节变化提案、用户确认账单和可重建当前投影；正文切版、撤销和重算不删除历史。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/017_canonical_facts.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/019_state_proposal_before_guard.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
 
 ## 内置创作资料规格
 
@@ -50,6 +51,12 @@
 
 统一事实存储把“卡片里如何描述”与“小说已经确认发生什么”分开。文本、数值、布尔、JSON 和卡片引用事实都先以 `proposed` 写入，AI 抽取不能直接确认；证据必须且只能指向正文锚点、卡片版本或研究证据之一。重叠时间范围内的不同值会生成冲突记录，人工可确认、驳回或提交修正事实；修正确认后旧事实才进入 `superseded`。
 
+章节状态结算把人物数值、人物关系、道具归属和伏笔生命周期放在同一套流水账中。卡片类型可声明必结、可选或禁用，字段可声明跟踪、派生或仅生命周期；关系另有状态维度与方向。AI 只能生成带采用正文、文本锚点、事件原因、变化前后值和故事时间的提案，用户确认后才形成只追加的 `StateChange`。当前状态是可重建投影，撤销或采用其他正文会让原结算失效并从有效历史重算；初始、卷末、重大修订、正文切换和手工节点可保存里程碑快照。数值区间还能锁定提示词组件版本，把“72”稳定翻译为写作所需的状态语义。
+
+> 🏠 **白话比喻**：状态变化像银行卡流水，当前余额只是所有有效流水算出来的结果；银行不会为了改余额偷偷擦掉旧账。对应到系统里：初始状态是开户余额，章节结算是入账单，投影是当前余额，撤销和正文切版通过作废旧流水后重算。
+
+> 🧠 **速记方法**：**先定初值，AI 开单，人来入账；换稿作废，投影重算，节点留照**。
+
 “我的书籍”内置原创仙侠项目《照骨山河》的 55 张生产样例，覆盖全部 19 类卡片，并完成第一卷前八章和第一章五场景的规划。事件规划表单可装配人物、地点、道具与剧情线。样例的来源分析、原创转化边界和卡片清单见 `docs/xianxia-production-demo.md`。
 
 预置内容由版本化 SQL 管理并进入 Git，因此每台开发机器都能得到同一套基础数据。作者自行创建和填写的业务数据不进入 Git，仍需 PostgreSQL 备份与恢复。
@@ -66,7 +73,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `017` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本与统一事实数据。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `019` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实与状态结算数据。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -84,7 +91,7 @@ pnpm --filter @ai-novel/new-design test:integration
 pnpm --filter @ai-novel/client build
 ```
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、高影响修改保护，以及研究复用、章节多候选、显式采用／回退、精确锚点、事实提案／冲突／确认／驳回／修正取代、正文切版陈旧传播和停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、高影响修改保护，以及研究复用、章节多候选、显式采用／回退、精确锚点、事实提案／冲突／确认／驳回／修正取代、人物数值／关系／道具／伏笔状态结算、撤销与正文切版失效、状态投影重建和停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
 
 ## 当前范围之外
 
