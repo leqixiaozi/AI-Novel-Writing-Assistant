@@ -124,4 +124,8 @@ export const migrations: Migration[] = [
     id: "030_postgres_outbox_job_runtime",
     fileName: "030_postgres_outbox_job_runtime.sql",
   },
+  {
+    id: "031_transfer_backup_import_export",
+    fileName: "031_transfer_backup_import_export.sql",
+  },
 ];

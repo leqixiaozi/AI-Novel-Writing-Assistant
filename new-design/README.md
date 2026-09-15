@@ -35,10 +35,11 @@
 - `GraphProjectionGeneration` / `GraphProjectionRequest` / `GraphProjectionSourceMapping`：把当前／采用／有效的关系正本投影到 Apache AGE，共享图按书籍和世代隔离，支持可诊断增量同步、墓碑、全量重建与固定关系遍历。
 - `EmbeddingSourceSnapshot` / `EmbeddingChunk` / `EmbeddingResult` / `EmbeddingIndexGeneration`：用 pgvector 保存按精确来源版本生成的可重建语义索引，支持多配置、多维度、分代核验、迟到回执拒绝、失效传播和检索轨迹。
 - `OutboxEvent` / `BackgroundJob` / `BackgroundJobAttempt` / `InboxReceipt`：用同一 PostgreSQL 事务把专业请求交给受控后台运行器，提供至少一次投递、幂等回执、SKIP LOCKED 领取、租约／fencing、重试、死信、取消和恢复历史。
+- `TransferOperation` / `TransferManifest` / `TransferArtifact` / `TransferStagingScope`：统一登记整库备份、单书／模板／资源导入导出、兼容快照、归档清单、冲突、ID 映射与隔离发布；复用同一 Outbox，不接受客户端路径或命令。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/030_postgres_outbox_job_runtime.sql`、`docs/data-model.md`、`docs/semantic-retrieval.md` 与 `docs/outbox-runtime.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据与任务积压需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/031_transfer_backup_import_export.sql`、`docs/data-model.md`、`docs/semantic-retrieval.md`、`docs/outbox-runtime.md` 与 `docs/transfer-backup-import-export.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
@@ -148,7 +149,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `030` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索以及 Outbox／后台作业数据。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `031` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、专业任务账本、质量审计、统一依赖、附件资产、AGE 图投影、pgvector 语义检索、Outbox／后台作业以及可移植传输账本。028 要求数据库运行包同时提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -170,4 +171,4 @@ pnpm --filter @ai-novel/client build
 
 ## 当前范围之外
 
-本模块当前不包含真实审稿／Embedding 模型、自动修文、质量门禁业务编排、质量热力图、RAG 或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、旧数据迁移、备份恢复 UI、Windows Service 或真实 AGE／Embedding／附件／AI／备份后台 handler。030 目前只提供显式启动的受控运行壳。AGE、pgvector 与 Outbox 的真实迁移、并发锁、租约重领、fencing、幂等、顺序、取消／暂停、崩溃恢复、长队列、备份恢复和桌面启停仍是 Release Gate 验证债务；后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。
+本模块当前不包含真实审稿／Embedding 模型、自动修文、质量门禁业务编排、质量热力图、RAG 或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、旧数据迁移、备份恢复 UI、Windows Service 或真实 AGE／Embedding／附件／AI／备份后台执行器。030/031 目前提供显式启动的受控运行壳与失败关闭的数据合同；归档打包／解包、匹配版本 `pg_dump/pg_restore`、数据库与附件一致性快照、staging 原子切换、恢复演练，以及 AGE、pgvector 与 Outbox 的真实迁移和故障恢复仍是 Release Gate 验证债务。后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。

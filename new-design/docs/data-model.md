@@ -580,6 +580,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**专业表管做什么，通用表管何时做；至少投一次，幂等只生效一次**。
 
+## 备份、恢复与可移植包
+
+`031_transfer_backup_import_export.sql` 在 PostgreSQL 中新增传输操作、manifest、产物、归档条目、兼容快照、步骤、检查点、校验结果、冲突、ID 映射、staging、导入来源、恢复演练和状态事件。完整字段、profile、状态机和安全边界见 [transfer-backup-import-export.md](./transfer-backup-import-export.md)。
+
+整库备份以 PostgreSQL 逻辑数据、受管附件和 manifest 为一组；单书、模板和资源包按固定 profile 导出。导入先做只读 dry-run，再由用户解决冲突并显式确认，实际写入全新 staging；未知能力、校验失败或运行时缺失都会阻止发布。AGE、pgvector、缓存和任务队列不作为作品真相搬运。
+
+> 🏠 **白话比喻**：manifest 像搬家清单，checksum 像封条编号，staging 像新家的临时验货间。对应到数据库：先核对版本和每件文件，再把数据放进隔离区，全部通过后才切换为正式内容。
+
+> 🧠 **速记方法**：**清单定范围，哈希验完整，预检找冲突，隔离后发布**。
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。

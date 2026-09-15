@@ -571,3 +571,19 @@ export const backgroundJobCancelSchema=z.object({reason:z.string().trim().min(1)
 export const backgroundJobReplaySchema=z.object({reason:z.string().trim().min(1).max(2000),requestedBy:z.string().trim().min(1).max(160),idempotencyKey:z.string().trim().min(8).max(240)});
 export const outboxConsumerStateSchema=z.object({status:z.enum(["active","paused"]),reason:z.string().trim().max(1000).default(""),expectedRevision:z.number().int().positive()});
 export const backgroundBookPauseSchema=z.object({status:z.enum(["active","paused"]),reason:z.string().trim().max(1000).default(""),actor:z.string().trim().min(1).max(160),expectedRevision:z.number().int().nonnegative()});
+
+const transferProfileSchema=z.enum(["full_system","compact_continue","full_audit","template_bundle","resource_bundle"]);
+const transferExportKindSchema=z.enum(["full_backup","book_export","template_export","resource_export"]);
+const transferImportKindSchema=z.enum(["book_import","template_import","resource_import"]);
+export const transferExportRequestSchema=z.object({operationKind:transferExportKindSchema,profileKey:transferProfileSchema,bookId:z.string().uuid().nullable().optional(),requestedBy:z.string().trim().min(1).max(160),idempotencyKey:z.string().trim().min(8).max(240)}).superRefine((value,ctx)=>{
+  const valid=(value.operationKind==="full_backup"&&value.profileKey==="full_system"&&!value.bookId)||(value.operationKind==="book_export"&&["compact_continue","full_audit"].includes(value.profileKey)&&Boolean(value.bookId))||(value.operationKind==="template_export"&&value.profileKey==="template_bundle"&&!value.bookId)||(value.operationKind==="resource_export"&&value.profileKey==="resource_bundle"&&!value.bookId);
+  if(!valid)ctx.addIssue({code:"custom",path:["profileKey"],message:"操作类型、导出配置与书籍范围不匹配。"});
+});
+export const transferImportDryRunSchema=z.object({operationKind:transferImportKindSchema,profileKey:transferProfileSchema,uploadTicketId:z.string().uuid(),requestedBy:z.string().trim().min(1).max(160),idempotencyKey:z.string().trim().min(8).max(240)}).superRefine((value,ctx)=>{
+  const valid=(value.operationKind==="book_import"&&["compact_continue","full_audit"].includes(value.profileKey))||(value.operationKind==="template_import"&&value.profileKey==="template_bundle")||(value.operationKind==="resource_import"&&value.profileKey==="resource_bundle");
+  if(!valid)ctx.addIssue({code:"custom",path:["profileKey"],message:"导入类型与包配置不匹配。"});
+});
+export const transferImportConfirmSchema=z.object({requestedBy:z.string().trim().min(1).max(160),idempotencyKey:z.string().trim().min(8).max(240),compatibilityPolicy:z.enum(["strict","explicit_upgrade"]).default("strict")});
+export const transferOperationListSchema=z.object({bookId:z.string().uuid().optional(),status:z.enum(["queued","running","verifying","ready","failed","cancelled","imported","restored","archived"]).optional(),limit:z.coerce.number().int().min(1).max(200).default(50)});
+export const transferCancelSchema=z.object({reason:z.string().trim().min(1).max(2000),actor:z.string().trim().min(1).max(160),expectedRevision:z.number().int().positive()});
+export const transferConflictResolveSchema=z.object({resolution:z.enum(["new_local_version","remap","skip","abort"]),resolutionNote:z.string().trim().min(1).max(2000),expectedRevision:z.number().int().positive()});

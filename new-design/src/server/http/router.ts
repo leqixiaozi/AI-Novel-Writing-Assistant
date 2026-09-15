@@ -64,6 +64,8 @@ import { addAssetVersion, adoptAssetVersion, archiveAsset, completeAssetDerivati
 import { getGraphProjectionBatch, getGraphProjectionHealth, getGraphProjectionState, listGraphProjectionBatches, listGraphProjectionFailures, listGraphProjectionGenerations, listGraphProjectionMappings, listGraphProjectionRequests, processGraphProjectionRequest, rebuildGraphProjection, traverseGraph } from "../database/graph";
 import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddingProfile, archiveEmbeddingSourceSnapshot, buildEmbeddingGeneration, completeChunking, completeEmbeddingAttempt, createEmbeddingProfile, createEmbeddingRequest, createEmbeddingSourceSnapshot, getEmbeddingCoverage, getEmbeddingProfile, getEmbeddingRequest, getSemanticRetrievalRun, listEmbeddingGenerations, listEmbeddingRequests, listEmbeddingStaleReasons, listSemanticRetrievalRuns, retrieveSemantic, startEmbeddingAttempt } from "../database/embeddings";
 import { cancelBackgroundJobForBook, getBackgroundBookPause, getBackgroundJob, getBackgroundRuntimeHealth, listBackgroundJobs, listOutboxConsumers, listOutboxEvents, replayBackgroundJobForBook, retryBackgroundJobForBook, setBackgroundBookPause, setOutboxConsumerState } from "../database/outbox";
+import type { TransferIngressAdapter } from "../transfers";
+import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -243,6 +245,12 @@ import {
   backgroundJobReplaySchema,
   outboxConsumerStateSchema,
   backgroundBookPauseSchema,
+  transferExportRequestSchema,
+  transferImportDryRunSchema,
+  transferImportConfirmSchema,
+  transferOperationListSchema,
+  transferCancelSchema,
+  transferConflictResolveSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -266,7 +274,7 @@ function normalizeFields(fields: Array<Omit<FieldDefinition, "defaultValue"> & {
   return fields.map((field) => ({ ...field, defaultValue: field.defaultValue ?? null }));
 }
 
-export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } = {}): Router {
+export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
 
@@ -589,6 +597,16 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/books/:bookId/runtime/jobs/:id/cancel",asyncRoute(async(req,res)=>success(res,await cancelBackgroundJobForBook(String(req.params.bookId),String(req.params.id),body(backgroundJobCancelSchema,req).reason))));
   router.post("/books/:bookId/runtime/jobs/:id/retry",asyncRoute(async(req,res)=>success(res,await retryBackgroundJobForBook(String(req.params.bookId),String(req.params.id)))));
   router.post("/books/:bookId/runtime/jobs/:id/replay",asyncRoute(async(req,res)=>success(res,await replayBackgroundJobForBook(String(req.params.bookId),{sourceJobId:String(req.params.id),...body(backgroundJobReplaySchema,req)}),201)));
+  router.get("/transfers/runtime",asyncRoute(async(_req,res)=>success(res,await getTransferAvailability())));
+  router.get("/transfers/profiles",asyncRoute(async(_req,res)=>success(res,await listTransferProfiles())));
+  router.get("/transfers/operations",asyncRoute(async(req,res)=>success(res,await listTransferOperations(transferOperationListSchema.parse(req.query)))));
+  router.get("/transfers/operations/:id",asyncRoute(async(req,res)=>success(res,await getTransferOperation(String(req.params.id)))));
+  router.post("/transfers/exports",asyncRoute(async(req,res)=>success(res,await requestTransferExport(body(transferExportRequestSchema,req)),202)));
+  router.post("/transfers/imports/dry-run",asyncRoute(async(req,res)=>success(res,await requestImportDryRun(dependencies.transferIngress,body(transferImportDryRunSchema,req)),202)));
+  router.post("/transfers/imports/:id/confirm",asyncRoute(async(req,res)=>success(res,await confirmTransferImport(String(req.params.id),body(transferImportConfirmSchema,req)),202)));
+  router.post("/transfers/operations/:id/cancel",asyncRoute(async(req,res)=>success(res,await cancelTransferOperation(String(req.params.id),body(transferCancelSchema,req)))));
+  router.post("/transfers/conflicts/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveTransferConflict(String(req.params.id),body(transferConflictResolveSchema,req)))));
+  router.get("/transfers/artifacts/:id/download",(req,res,next)=>{void resolveTransferArtifactDownload(String(req.params.id)).then(file=>{res.type(file.mediaType);res.download(file.path,file.displayFilename,error=>{if(error)next(error);});},next);});
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

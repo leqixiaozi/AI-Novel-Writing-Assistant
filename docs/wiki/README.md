@@ -19,6 +19,7 @@ Wiki 不记录单次提交改了什么，也不替代 release notes。它只记�
 - [当前模型选择与厂商默认模型边界](./architecture/model-selection.md)
 - [配置项归属与可见性规范](./architecture/configuration-conventions.md)
 - [PostgreSQL Outbox 与后台运行边界](./architecture/postgres-outbox-runtime.md)
+- [可移植传输与恢复边界](./architecture/transfer-portability-and-restore.md)
 
 ### Workflows
 
