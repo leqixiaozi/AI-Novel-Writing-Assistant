@@ -57,6 +57,7 @@ import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowl
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
 import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
 import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
+import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -162,6 +163,17 @@ import {
   modelRouteCreateSchema,
   modelRouteVersionSchema,
   modelRouteResolveSchema,
+  aiTaskCreateSchema,
+  aiAttemptStartSchema,
+  aiStepHeartbeatSchema,
+  aiAttemptSuccessSchema,
+  aiAttemptFailureSchema,
+  aiStepRecoverySchema,
+  aiApprovalRequestSchema,
+  aiApprovalDecisionSchema,
+  aiAttemptUsageSchema,
+  aiTaskListQuerySchema,
+  aiFailureCategorySchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -402,6 +414,21 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/model-routes/resolve",asyncRoute(async(req,res)=>success(res,await resolveModelRoute(body(modelRouteResolveSchema,req)))));
   router.post("/model-route-snapshots",asyncRoute(async(req,res)=>success(res,await createModelRouteSnapshot(body(modelRouteResolveSchema,req)),201)));
   router.get("/model-route-snapshots/:id",asyncRoute(async(req,res)=>success(res,await getModelRouteSnapshot(String(req.params.id)))));
+  router.get("/ai-runtime/tasks",asyncRoute(async(req,res)=>success(res,await listAiTasks(aiTaskListQuerySchema.parse(req.query)))));
+  router.get("/ai-runtime/tasks/recoverable",asyncRoute(async(req,res)=>success(res,await listRecoverableAiTasks({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,limit:typeof req.query.limit==="string"?Number(req.query.limit):undefined}))));
+  router.get("/ai-runtime/tasks/failed-attempts",asyncRoute(async(req,res)=>success(res,await listFailedAiAttempts({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,category:typeof req.query.category==="string"?aiFailureCategorySchema.parse(req.query.category):undefined,limit:typeof req.query.limit==="string"?Number(req.query.limit):undefined}))));
+  router.get("/ai-runtime/tasks/pending-approvals",asyncRoute(async(req,res)=>success(res,await listPendingAiApprovals({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,limit:typeof req.query.limit==="string"?Number(req.query.limit):undefined}))));
+  router.get("/ai-runtime/tasks/usage-summary",asyncRoute(async(req,res)=>success(res,await summarizeAiUsage({bookId:typeof req.query.bookId==="string"?String(req.query.bookId):undefined,taskId:typeof req.query.taskId==="string"?String(req.query.taskId):undefined}))));
+  router.get("/ai-runtime/tasks/:id",asyncRoute(async(req,res)=>success(res,await getAiTask(String(req.params.id)))));
+  router.post("/ai-runtime/commands/tasks",asyncRoute(async(req,res)=>success(res,await createAiTask(body(aiTaskCreateSchema,req)),201)));
+  router.post("/ai-runtime/commands/attempts/start",asyncRoute(async(req,res)=>success(res,await startAiTaskAttempt(body(aiAttemptStartSchema,req)),201)));
+  router.post("/ai-runtime/commands/steps/heartbeat",asyncRoute(async(req,res)=>success(res,await heartbeatAiTaskStep(body(aiStepHeartbeatSchema,req)))));
+  router.post("/ai-runtime/commands/attempts/succeed",asyncRoute(async(req,res)=>success(res,await succeedAiTaskAttempt(body(aiAttemptSuccessSchema,req)))));
+  router.post("/ai-runtime/commands/attempts/fail",asyncRoute(async(req,res)=>success(res,await failAiTaskAttempt(body(aiAttemptFailureSchema,req)))));
+  router.post("/ai-runtime/commands/steps/recover",asyncRoute(async(req,res)=>success(res,await recoverExpiredAiTaskStep(body(aiStepRecoverySchema,req)),201)));
+  router.post("/ai-runtime/commands/approvals",asyncRoute(async(req,res)=>success(res,await requestAiApproval(body(aiApprovalRequestSchema,req)),201)));
+  router.post("/ai-runtime/commands/approvals/:id/decisions",asyncRoute(async(req,res)=>success(res,await decideAiApproval({requestId:String(req.params.id),...body(aiApprovalDecisionSchema,req)}),201)));
+  router.post("/ai-runtime/commands/usage",asyncRoute(async(req,res)=>success(res,await recordAiAttemptUsage(body(aiAttemptUsageSchema,req)),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

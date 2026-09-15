@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -203,6 +203,20 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：任务合同像外卖订单上的制作要求，提示词配方像厨房配料表，上下文清单像实际领料记录，路由快照像当班灶台和厨师记录。菜单、原料或排班后来改变，也不能改掉旧订单当时真实使用的东西。对应到数据库：稳定身份可续版，执行引用必须锁定版本和哈希。
 
 > 🧠 **速记方法**：**任务锁要求，配方锁顺序，清单锁所见，快照锁去向；内容不佳不换路，密钥永不出库**。
+
+### 通用 AI 任务、恢复、审批与用量账本
+
+`ai_tasks` 保存工作区／书籍、稳定 `task_key`、确切任务合同版本、来源页面和对象、请求幂等键、优先级、当前状态、步骤与检查点。`ai_task_steps` 保存稳定步骤定义和当前执行投影；`ai_task_attempts` 为同一步骤的每一次实际尝试追加记录，并冻结 023 的合同版本、配方版本、上下文清单与模型路由快照，同时保存输入哈希、输出结构版本、安全化供应商请求摘要、结果候选引用和失败类别。任务不复制小说事实、正文或模型请求内容。
+
+任务和步骤使用 `queued / running / waiting_approval / retry_scheduled / paused / succeeded / failed / cancelled` 状态；数据库触发器限制合法转换，终态不能返回运行态。每次变化追加到 `ai_task_state_events`，已结束尝试、状态事件、审批记录和用量记录不能更新或删除。步骤的 `lease_owner / lease_token / lease_expires_at / heartbeat_at / checkpoint_key` 用于中断恢复：只有当前未过期租约能提交结果，租约过期会把旧尝试标为作废并创建新的 recovery attempt，旧 worker 的迟到结果无法覆盖新尝试。
+
+技术失败包括连接传输、限流、超时、认证、供应商不可用、上下文超限和结构解析失败，可按冻结的最大次数和 backoff 进入 `retry_scheduled`；耗尽后失败。`content_unsatisfactory` 只进入 `paused` 并标记人工重开资格，只有用户身份能创建 `manual_retry`，不能静默回退模型。AI 事实与规划结果只允许引用已经自动入库的 `proposed` 候选；审批通过仍只追加 `ai_approval_decisions`，正式采用必须交给事实、规划等所属领域的事务。
+
+`ai_attempt_usage` 每次尝试最多一条，供应商与模型从路由快照读取，记录输入、输出、缓存 Token、耗时、估算费用、币种、回退次数和预算判断。未知字段保留 `null`；只有 Token 均已知且快照预算可比较时才判断超限。查询支持书籍／空间隔离和游标分页，并分别提供任务详情、全部事件、待审批、过期租约、失败分类、来源路由和用量汇总。任务中心只能消费这些 GET 投影；所有命令端点位于独立的 source-page runtime 路径，本批没有增加任务中心操作按钮。
+
+> 🏠 **白话比喻**：这是一套医院病历和交接班记录。任务是一次住院，步骤是检查／手术／观察，attempt 是某次具体操作；值班医生换班要看心跳、租约和最近检查点，旧医生晚交的结果不能盖掉新班次记录。对应到数据库：身份稳定、尝试追加、状态有合法路线、恢复只从安全边界继续。
+
+> 🧠 **速记方法**：**单据去重，步骤分层，尝试只加；技术按策重试，内容等人重开，审批不替领域盖章，未知用量不填零**。
 
 > 🏠 **白话比喻**：总计划像建筑总图，卷、章、场景像楼层图、房间图和施工单。总图换版时，施工单不会被人偷偷重画，而是盖上“依据旧图，待复核”的章；采用哪一版则像档案室门口唯一生效的蓝图编号。
 

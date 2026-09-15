@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -142,6 +142,18 @@ test("AI execution contracts reject ambiguous slots, raw secrets and quality fal
   assert.equal(modelRouteCreateSchema.safeParse(route).success,true);
   assert.equal(modelRouteCreateSchema.safeParse({...route,fallbacks:[{...route.fallbacks[0],technicalFailureCategories:["content_quality"]}]}).success,false);
   assert.equal(contextManifestCreateSchema.safeParse({bookId:"10000000-0000-4000-8000-000000000001",taskContractVersionId:"20000000-0000-4000-8000-000000000001",slots:[{slotKey:"sources",entries:[],exclusions:[{sourceType:"research_version",stableObjectId:null,exactVersionId:null,reasonCode:"unavailable",reasonDetail:"未选择研究资料",priority:null,tokenEstimate:null,sortOrder:0}]}]}).success,true);
+});
+
+test("AI task ledger inputs keep frozen references and unknown usage explicit",()=>{
+  const ids=[1,2,3,4,5].map(value=>`${value}0000000-0000-4000-8000-000000000001`),hash="a".repeat(64);
+  assert.equal(aiTaskCreateSchema.safeParse({spaceId:ids[0],bookId:ids[1],taskKey:"chapter.generate",taskContractVersionId:ids[2],sourceRoute:"/new-design/books/1/cards",sourceKind:"chapter",sourceId:ids[3],requestIdempotencyKey:"task-request-1",steps:[{stepKey:"draft",sortOrder:0,maxAttempts:3}]}).success,true);
+  const start={taskId:ids[0],stepId:ids[1],expectedStepRevision:1,triggerKind:"initial",owner:"worker",actorKind:"worker",leaseMs:30000,taskContractVersionId:ids[2],promptRecipeVersionId:ids[3],contextManifestId:ids[4],modelRouteSnapshotId:ids[0],inputHash:hash,outputSchemaVersion:"1"};
+  assert.equal(aiAttemptStartSchema.safeParse(start).success,true);
+  assert.equal(aiAttemptStartSchema.safeParse({...start,inputHash:"raw input"}).success,false);
+  assert.equal(aiAttemptFailureSchema.safeParse({taskId:ids[0],stepId:ids[1],attemptId:ids[2],leaseToken:ids[3],expectedStepRevision:2,errorCategory:"content_unsatisfactory",errorSummary:"用户不满意"}).success,true);
+  assert.equal(aiAttemptFailureSchema.safeParse({taskId:ids[0],stepId:ids[1],attemptId:ids[2],leaseToken:ids[3],expectedStepRevision:2,errorCategory:"quality_fallback",errorSummary:"错误回退"}).success,false);
+  assert.equal(aiAttemptUsageSchema.safeParse({attemptId:ids[0],inputTokens:null,outputTokens:null,cachedInputTokens:null,durationMs:null}).success,true);
+  assert.equal(aiAttemptUsageSchema.safeParse({attemptId:ids[0],estimatedCost:0.1}).success,false);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

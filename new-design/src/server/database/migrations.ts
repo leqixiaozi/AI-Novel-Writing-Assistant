@@ -96,4 +96,8 @@ export const migrations: Migration[] = [
     id: "023_ai_execution_contracts",
     fileName: "023_ai_execution_contracts.sql",
   },
+  {
+    id: "024_ai_task_ledger",
+    fileName: "024_ai_task_ledger.sql",
+  },
 ];
