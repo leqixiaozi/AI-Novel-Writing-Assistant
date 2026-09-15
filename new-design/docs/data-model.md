@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`036` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系，以及资料标签、分组、智能视图与安全归档合同。运行时迁移范围以 `001_card_kernel.sql` 至 `036_material_management_smart_views.sql` 为准。
+`031`—`037` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档，以及上下文绑定、装配预览与运行快照合同。运行时迁移范围以 `001_card_kernel.sql` 至 `037_context_binding_assembly_snapshots.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -636,6 +636,20 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：来源资料像通讯录里的联系人，表单关联像把联系人抄进一次会议的参会名单，“本次发言立场”只写在会议名单旁边，不能改掉通讯录。对应到系统：`cards/card_versions` 保存来源正本，`card_mount_versions` 保存本次引用及其局部信息，`card_relations/card_relation_versions` 保存独立业务关系。
 
 > 🧠 **速记方法**：**正本归资料，场景归挂载，关系另立账；换版先提示，采用才前进。** 详细事务与接口见 [association-management.md](./association-management.md)。
+
+### 036 资料组织与安全归档
+
+`036_material_management_smart_views.sql` 以不可变版本保存标签、分组树和安全智能视图，并把资料归档拆成预览与确认。标签和分组只组织资料，不拥有资料内容；智能视图只保存安全查询结构，不缓存结果行。
+
+### 037 上下文绑定、装配预览与运行快照
+
+`037_context_binding_assembly_snapshots.sql` 新增稳定上下文规则、不可变规则版本、来源选择器、采用回执、装配预览、逐项决定、并发冲突和审计事件。规则按系统／公共、任务组、任务节点、书、卷／章／场景、本次调整逐层解析，可继承、覆盖或排除。
+
+激活条件是带字段与运算符白名单的安全结构，最多 4 层、40 条；来源可来自明确版本、内容类型、标签、036 智能视图、关系、故事范围、研究包、提示词组件或 029 的既有检索轨迹。智能视图与检索只产生候选。预览冻结候选决定与来源集合哈希，但不等于正式运行；内部 finalize 才在同一事务中冻结合同、配方、路由、规则版本、确切来源与理由。必须事实超预算或确切必须来源不可用时失败关闭，只有参考资料可裁剪。
+
+> 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
+
+> 🧠 **速记方法**：**规则选候选，预览算预算，运行冻小票；必需缺一项就关门，来源换版不改旧账。** 详细边界见 [context-management-and-assembly.md](./context-management-and-assembly.md)。
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。
 2. 已发布迁移文件不可改写；结构变化必须新增迁移。

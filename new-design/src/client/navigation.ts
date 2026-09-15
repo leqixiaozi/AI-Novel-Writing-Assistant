@@ -21,6 +21,7 @@ export const NEW_DESIGN_ADVANCED_NAV = [
   { key: "options-relations", label: "选项与关联", href: "/new-design/structure/dictionaries-relations" },
   { key: "forms", label: "创作表单", href: "/new-design/structure/forms" },
   { key: "templates", label: "开书模板", href: "/new-design/structure/templates" },
+  { key: "context", label: "上下文管理", href: "/new-design/structure/context" },
 ] as const;
 
 export const BOOK_TASK_NAV = [

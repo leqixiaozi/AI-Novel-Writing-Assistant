@@ -50,6 +50,7 @@ import { installStrategyResource, listStrategyResources } from "../database/reso
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
 import { addAssociationLocalField, addExistingAssociation, createAndAddAssociation, getAssociationWorkspace, listAssociationHistory, refreshAssociationSource, removeAssociation, reorderAssociations, saveAssociationLocalValues, searchAssociationCandidates } from "../database/associations";
 import { archiveMaterialGroup, bulkChangeGroupMemberships, bulkChangeTagMemberships, confirmCardArchive, copySmartMaterialView, createMaterialGroup, createMaterialTag, createSmartMaterialView, getMaterialManagementWorkspace, previewCardArchive, queryMaterials, restoreArchivedCard, reviseMaterialGroup, reviseMaterialTag, reviseSmartMaterialView } from "../database/materialManagement";
+import { addContextBindingVersion, adoptContextBindingVersion, archiveContextBinding, createContextAssemblyPreview, createContextBinding, finalizeContextManifest, getContextAssemblyPreview, getContextBinding, getContextImpacts, getFinalizedContextManifest, listContextAssemblyPreviews, listContextBindings, listContextSnapshots, listContextSnapshotSources, resolveContextBindings } from "../database/contextManagement";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
@@ -61,7 +62,7 @@ import { commitChapterSettlement, createStateMilestone, editStateChangeProposal,
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
 import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
-import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
+import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, listPublishedTaskContracts, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
 import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdge, endDependencyEdge, getDependencyBookSummary, getDependencyInvalidation, listCurrentDependencyStates, listDependencyConflicts, listDependencyHistory, listDependencyReceipts, listDependencyRecomputeRequests, listResourceDependencies, previewDependencyChange, recordDependencyInvalidation, registerDependencyResource, resolveDependencyConflict, startDependencyRecompute } from "../database/dependencies";
@@ -281,6 +282,17 @@ import {
   cardArchivePreviewSchema,
   cardArchiveConfirmSchema,
   cardRestoreManagedSchema,
+  contextActivationRuleValidationSchema,
+  contextBindingCreateSchema,
+  contextBindingVersionSchema,
+  contextBindingAdoptSchema,
+  contextBindingArchiveSchema,
+  contextBindingListSchema,
+  contextResolutionSchema,
+  contextPreviewCreateSchema,
+  contextPreviewListSchema,
+  contextSnapshotListSchema,
+  contextManifestFinalizeSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -548,6 +560,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/prompt-recipes/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectPromptRecipeVersion(String(req.params.id),body(contractRejectSchema,req)))));
   router.get("/prompt-recipe-versions/:id/dependencies",asyncRoute(async(req,res)=>success(res,await listPromptRecipeDependencies(String(req.params.id)))));
   router.get("/task-contracts/by-key/:taskKey",asyncRoute(async(req,res)=>success(res,await getPublishedTaskContract(String(req.params.taskKey)))));
+  router.get("/task-contracts",asyncRoute(async(_req,res)=>success(res,await listPublishedTaskContracts())));
   router.post("/task-contracts",asyncRoute(async(req,res)=>success(res,await createTaskContract(body(taskContractCreateSchema,req)),201)));
   router.get("/task-contracts/:id",asyncRoute(async(req,res)=>success(res,await getTaskContract(String(req.params.id)))));
   router.post("/task-contracts/:id/versions",asyncRoute(async(req,res)=>success(res,await addTaskContractVersion(String(req.params.id),body(taskContractVersionSchema,req)),201)));
@@ -555,6 +568,22 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/task-contracts/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectTaskContractVersion(String(req.params.id),body(contractRejectSchema,req)))));
   router.post("/context-manifests",asyncRoute(async(req,res)=>success(res,await createContextManifest(body(contextManifestCreateSchema,req)),201)));
   router.get("/context-manifests/:id",asyncRoute(async(req,res)=>success(res,await getContextManifest(String(req.params.id)))));
+  router.get("/context-bindings",asyncRoute(async(req,res)=>success(res,await listContextBindings(contextBindingListSchema.parse(req.query)))));
+  router.post("/context-bindings",asyncRoute(async(req,res)=>success(res,await createContextBinding(body(contextBindingCreateSchema,req)),201)));
+  router.get("/context-bindings/:id",asyncRoute(async(req,res)=>success(res,await getContextBinding(String(req.params.id),typeof req.query.bookId==="string"?String(req.query.bookId):undefined))));
+  router.post("/context-bindings/:id/versions",asyncRoute(async(req,res)=>success(res,await addContextBindingVersion(String(req.params.id),body(contextBindingVersionSchema,req)),201)));
+  router.post("/context-bindings/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptContextBindingVersion(String(req.params.id),body(contextBindingAdoptSchema,req)))));
+  router.post("/context-bindings/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveContextBinding(String(req.params.id),body(contextBindingArchiveSchema,req)))));
+  router.post("/context-bindings/validate-rule",asyncRoute(async(req,res)=>{const rule=contextActivationRuleValidationSchema.parse(req.body);success(res,{valid:true,rule});}));
+  router.post("/context-bindings/resolve",asyncRoute(async(req,res)=>success(res,await resolveContextBindings(body(contextResolutionSchema,req)))));
+  router.post("/context-previews",asyncRoute(async(req,res)=>success(res,await createContextAssemblyPreview(body(contextPreviewCreateSchema,req)),201)));
+  router.get("/context-previews/:id",asyncRoute(async(req,res)=>{const bookId=String(req.query.bookId??"");if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bookId))throw new NewDesignError("查看装配预览时必须选择书籍。",422);success(res,await getContextAssemblyPreview(String(req.params.id),bookId));}));
+  router.get("/books/:id/context-previews",asyncRoute(async(req,res)=>success(res,await listContextAssemblyPreviews({bookId:String(req.params.id),...contextPreviewListSchema.parse(req.query)}))));
+  router.get("/books/:id/context-snapshots",asyncRoute(async(req,res)=>success(res,await listContextSnapshots({bookId:String(req.params.id),...contextSnapshotListSchema.parse(req.query)}))));
+  router.get("/books/:id/context-snapshots/:manifestId",asyncRoute(async(req,res)=>success(res,await getFinalizedContextManifest(String(req.params.manifestId),String(req.params.id)))));
+  router.get("/books/:id/context-snapshots/:manifestId/sources",asyncRoute(async(req,res)=>success(res,await listContextSnapshotSources({bookId:String(req.params.id),manifestId:String(req.params.manifestId),limit:contextSnapshotListSchema.parse(req.query).limit}))));
+  router.get("/books/:id/context-impacts",asyncRoute(async(req,res)=>success(res,await getContextImpacts({bookId:String(req.params.id),bindingId:typeof req.query.bindingId==="string"?String(req.query.bindingId):undefined,previewId:typeof req.query.previewId==="string"?String(req.query.previewId):undefined}))));
+  router.post("/internal/context-manifests/finalize",asyncRoute(async(req,res)=>{if(req.get("x-new-design-runtime")!=="internal")throw new NewDesignError("此入口只允许受控运行时调用。",403);success(res,await finalizeContextManifest(body(contextManifestFinalizeSchema,req)),201);}));
   router.put("/model-credential-refs",asyncRoute(async(req,res)=>success(res,await saveModelCredentialRef(body(modelCredentialRefSchema,req)))));
   router.get("/model-credential-refs/:id",asyncRoute(async(req,res)=>success(res,await getModelCredentialRef(String(req.params.id)))));
   router.post("/model-routes",asyncRoute(async(req,res)=>success(res,await createModelRouteConfig(body(modelRouteCreateSchema,req)),201)));

@@ -148,4 +148,8 @@ export const migrations: Migration[] = [
     id: "036_material_management_smart_views",
     fileName: "036_material_management_smart_views.sql",
   },
+  {
+    id: "037_context_binding_assembly_snapshots",
+    fileName: "037_context_binding_assembly_snapshots.sql",
+  },
 ];

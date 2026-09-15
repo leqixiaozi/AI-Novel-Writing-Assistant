@@ -108,6 +108,7 @@ const newDesignAdvancedItems: NavItem[] = NEW_DESIGN_ADVANCED_NAV.map((item) => 
     "options-relations": Workflow,
     forms: SquarePen,
     templates: LayoutDashboard,
+    context: Braces,
   }[item.key],
 }));
 

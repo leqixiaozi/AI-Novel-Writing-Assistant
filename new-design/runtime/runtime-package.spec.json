@@ -71,7 +71,8 @@
     "app/scripts/upgrade.ps1",
     "app/migrations/001_card_kernel.sql",
     "app/migrations/035_association_mount_versions.sql",
-    "app/migrations/036_material_management_smart_views.sql"
+    "app/migrations/036_material_management_smart_views.sql",
+    "app/migrations/037_context_binding_assembly_snapshots.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -86,7 +87,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "036_material_management_smart_views.sql",
-    "count": 36
+    "last": "037_context_binding_assembly_snapshots.sql",
+    "count": 37
   }
 }

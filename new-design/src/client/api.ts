@@ -88,6 +88,14 @@ import type {
   ContextManifest,
   ContextManifestEntry,
   ContextManifestExclusion,
+  ContextActivationRule,
+  ContextBinding,
+  ContextBindingVersion,
+  ContextPreview,
+  ContextResolution,
+  ContextScopeKind,
+  ContextSnapshotSummary,
+  ContextSourceSelector,
   ModelCredentialRef,
   ModelRouteConfig,
   ModelRouteFallback,
@@ -198,6 +206,10 @@ import type {
 export type PromptRecipeVersionInput={source:"manual"|"ai"|"import"|"system";variablesSchema:Record<string,unknown>;slots:Array<{slotKey:string;sortOrder:number;required:boolean;allowedContentTypes:string[];variableContract:Record<string,unknown>;components:Array<Pick<PromptRecipeComponentBinding,"componentCardId"|"componentVersionId"|"sortOrder"|"required">>}>;baseVersionId?:string|null;createdBy?:string};
 export type TaskContractVersionInput=Pick<TaskContractVersion,"source"|"taskGroup"|"inputSchema"|"inputSchemaVersion"|"outputSchema"|"outputSchemaVersion"|"contextPolicyVersion"|"promptRecipeVersionId"|"requiredCapabilities"|"budgetPolicy"|"timeoutMs"|"retryPolicy"|"confirmationPolicy">&{baseVersionId?:string|null;createdBy?:string};
 export type ContextManifestInput={bookId:string;taskContractVersionId:string;nodeKey?:string|null;createdBy?:string;slots:Array<{slotKey:string;tokenBudget?:number|null;entries:Array<Omit<ContextManifestEntry,"id"|"slotId"|"sourceSpaceId"|"contentHash">>;exclusions:Array<Omit<ContextManifestExclusion,"id"|"slotId">>}>};
+export type ContextBindingVersionInput=Pick<ContextBindingVersion,"inheritanceMode"|"activationRule"|"slotKey"|"priority"|"contentRole"|"tokenBudget"|"trimStrategy"|"dedupeStrategy">&{selectors:Array<Omit<ContextSourceSelector,"id">>;createdBy?:string};
+export type ContextBindingCreateInput=ContextBindingVersionInput&{bindingKey:string;name:string;description:string;scopeKind:ContextScopeKind;scopeRef?:string|null;bookId?:string|null;spaceId?:string|null;idempotencyKey:string};
+export type ContextResolutionInput={bookId:string;taskKey:string;taskGroup:string;taskNodeKey:string;volumeId?:string|null;chapterId?:string|null;sceneId?:string|null;manualSwitches:Record<string,boolean>};
+export type ContextPreviewInput=ContextResolutionInput&{taskContractVersionId:string;totalBudget:number;timeoutMs?:number;oneTimeOverrides?:{excludeSourceKeys:string[];manualSwitches:Record<string,boolean>};createdBy?:string};
 export type ModelRouteVersionInput={source:"manual"|"import"|"system";provider?:string|null;model?:string|null;parameters?:Record<string,unknown>|null;requiredCapabilities?:string[]|null;credentialRefId?:string|null;budgetPolicy?:Record<string,unknown>|null;timeoutMs?:number|null;retryPolicy?:Record<string,unknown>|null;fallbackMode:"inherit"|"replace";fallbacks:Array<Omit<ModelRouteFallback,"hasCredential">&{credentialRefId?:string|null}>;baseVersionId?:string|null;createdBy?:string};
 export type QualityEvidenceInput={evidenceKind:QualityEvidenceKind;textAnchorId?:string|null;factId?:string|null;stateChangeId?:string|null;storyTimingId?:string|null;storyRelationId?:string|null;planningVersionId?:string|null;ruleKey?:string|null;ruleVersion?:string|null;note:string;isUnverifiedObservation?:boolean};
 export type QualityFixInput={targetChapterDocumentId:string;targetBodyVersionId:string;targetAnchorId?:string|null;patch:Record<string,unknown>;source:"ai"|"user";createdBy?:string};
@@ -468,6 +480,22 @@ export const newDesignApi = {
   rejectTaskContractVersion:(id:string,input:{versionId:string;expectedRevision:number})=>request<TaskContract>(`/task-contracts/${id}/reject`,{method:"POST",body:JSON.stringify(input)}),
   createContextManifest:(input:ContextManifestInput)=>request<ContextManifest>("/context-manifests",{method:"POST",body:JSON.stringify(input)}),
   getContextManifest:(id:string)=>request<ContextManifest>(`/context-manifests/${id}`),
+  listPublishedTaskContracts:()=>request<TaskContract[]>("/task-contracts"),
+  listContextBindings:(input:{bookId?:string;includeGlobal?:boolean;includeArchived?:boolean;limit?:number}={})=>request<ContextBinding[]>(`/context-bindings?${new URLSearchParams(Object.entries(input).filter((entry):entry is [string,string|number|boolean]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])).toString()}`),
+  createContextBinding:(input:ContextBindingCreateInput)=>request<ContextBinding>("/context-bindings",{method:"POST",body:JSON.stringify(input)}),
+  getContextBinding:(id:string,bookId?:string)=>request<ContextBinding>(`/context-bindings/${id}${bookId?`?bookId=${encodeURIComponent(bookId)}`:""}`),
+  addContextBindingVersion:(id:string,input:ContextBindingVersionInput&{bookId?:string|null;expectedRevision:number;baseVersionId?:string|null;idempotencyKey:string})=>request<ContextBinding>(`/context-bindings/${id}/versions`,{method:"POST",body:JSON.stringify(input)}),
+  adoptContextBindingVersion:(id:string,input:{bookId?:string|null;versionId:string;expectedRevision:number;idempotencyKey:string;actor?:string})=>request<ContextBinding>(`/context-bindings/${id}/adopt`,{method:"POST",body:JSON.stringify(input)}),
+  archiveContextBinding:(id:string,input:{bookId?:string|null;expectedRevision:number;idempotencyKey:string;actor?:string;reason:string})=>request<ContextBinding>(`/context-bindings/${id}/archive`,{method:"POST",body:JSON.stringify(input)}),
+  validateContextRule:(rule:ContextActivationRule)=>request<{valid:true;rule:ContextActivationRule}>("/context-bindings/validate-rule",{method:"POST",body:JSON.stringify(rule)}),
+  resolveContextBindings:(input:ContextResolutionInput)=>request<ContextResolution>("/context-bindings/resolve",{method:"POST",body:JSON.stringify(input)}),
+  createContextPreview:(input:ContextPreviewInput)=>request<ContextPreview>("/context-previews",{method:"POST",body:JSON.stringify(input)}),
+  getContextPreview:(id:string,bookId:string)=>request<ContextPreview>(`/context-previews/${id}?bookId=${encodeURIComponent(bookId)}`),
+  listContextPreviews:(bookId:string,input:{status?:ContextPreview["status"];limit?:number}={})=>request<ContextPreview[]>(`/books/${bookId}/context-previews?${new URLSearchParams(Object.entries(input).flatMap(([key,value])=>value===undefined?[]:[[key,String(value)]])).toString()}`),
+  listContextSnapshots:(bookId:string,limit=30)=>request<ContextSnapshotSummary[]>(`/books/${bookId}/context-snapshots?limit=${limit}`),
+  getContextSnapshot:(bookId:string,id:string)=>request<ContextManifest>(`/books/${bookId}/context-snapshots/${id}`),
+  listContextSnapshotSources:(bookId:string,id:string,limit=100)=>request<ContextPreview["decisions"]>(`/books/${bookId}/context-snapshots/${id}/sources?limit=${limit}`),
+  getContextImpacts:(bookId:string,input:{bindingId?:string;previewId?:string})=>request<Array<{resourceId:string;state:string;reason:string;createdAt:string}>>(`/books/${bookId}/context-impacts?${new URLSearchParams(Object.entries(input).filter((entry):entry is [string,string]=>Boolean(entry[1]))).toString()}`),
   saveModelCredentialRef:(input:{credentialKey:string;provider:string;secretLocator:string;status?:"active"|"disabled"})=>request<ModelCredentialRef>("/model-credential-refs",{method:"PUT",body:JSON.stringify(input)}),
   getModelCredentialRef:(id:string)=>request<ModelCredentialRef>(`/model-credential-refs/${id}`),
   createModelRoute:(input:{scope:ModelRouteScope;taskGroup?:string|null;nodeKey?:string|null;bookId?:string|null;overrideKey?:string|null;name:string}&ModelRouteVersionInput)=>request<ModelRouteConfig>("/model-routes",{method:"POST",body:JSON.stringify(input)}),

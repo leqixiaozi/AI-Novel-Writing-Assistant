@@ -125,6 +125,7 @@ const moreNavGroups: MobileNavGroup[] = [
       { key: "new-design-dictionaries", label: "选项与关联", to: "/new-design/structure/dictionaries-relations", group: "more" },
       { key: "new-design-forms", label: "创作表单", to: "/new-design/structure/forms", group: "more" },
       { key: "new-design-templates", label: "开书模板", to: "/new-design/structure/templates", group: "more" },
+      { key: "new-design-context", label: "上下文管理", to: "/new-design/structure/context", group: "more" },
     ],
   },
 ];
