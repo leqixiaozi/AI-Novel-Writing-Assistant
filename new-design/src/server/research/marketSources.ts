@@ -1,0 +1,29 @@
+import type { MarketPlatform, MarketSourceDefinition } from "../../common/contracts";
+
+export interface CollectedRankingItem {rank:number;title:string;author?:string;category?:string;tags:string[];synopsis?:string;heatLabel?:string;serialStatus?:string;sourceUrl:string;}
+
+export const MARKET_SOURCES:MarketSourceDefinition[]=[
+  {platform:"fanqie",platformLabel:"番茄小说",listKey:"reading",listLabel:"阅读榜",channel:"general",sourceUrl:"https://fanqienovel.com/rank"},
+  {platform:"fanqie",platformLabel:"番茄小说",listKey:"new_book",listLabel:"新书榜",channel:"general",sourceUrl:"https://fanqienovel.com/rank/1_1"},
+  {platform:"qidian",platformLabel:"起点中文网",listKey:"hotsales",listLabel:"畅销榜",channel:"male",sourceUrl:"https://m.qidian.com/rank/hotsales/"},
+  {platform:"qidian",platformLabel:"起点中文网",listKey:"monthly_ticket",listLabel:"月票榜",channel:"male",sourceUrl:"https://m.qidian.com/rank/yuepiao/"},
+  {platform:"qidian",platformLabel:"起点中文网",listKey:"new_book",listLabel:"新书榜",channel:"male",sourceUrl:"https://m.qidian.com/rank/"},
+  {platform:"jinjiang",platformLabel:"晋江文学城",listKey:"monthly",listLabel:"月度榜",channel:"female",sourceUrl:"https://m.jjwxc.net/rank/naturalmore/5"},
+  {platform:"jinjiang",platformLabel:"晋江文学城",listKey:"quarterly",listLabel:"季度榜",channel:"female",sourceUrl:"https://m.jjwxc.net/rank/naturalmore/6"},
+  {platform:"jinjiang",platformLabel:"晋江文学城",listKey:"new_author",listLabel:"新晋作者榜",channel:"female",sourceUrl:"https://m.jjwxc.net/rank/naturalmore/29"},
+];
+
+const namedEntities:Record<string,string>={amp:"&",apos:"'",gt:">",lt:"<",nbsp:" ",quot:'"'};
+function decodeEntities(value:string):string{return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi,(_,key:string)=>{if(key.startsWith("#")){const hex=key[1]?.toLowerCase()==="x";const code=Number.parseInt(key.slice(hex?2:1),hex?16:10);return Number.isFinite(code)?String.fromCodePoint(code):"";}return namedEntities[key.toLowerCase()]??"";});}
+function plainText(value:string|undefined):string{return decodeEntities((value??"").replace(/<[^>]*>/g," ")).replace(/\s+/g," ").trim();}
+function absoluteUrl(base:string,value:string):string{return new URL(value.startsWith("//")?`https:${value}`:value,base).toString();}
+function extractTags(synopsis:string):string[]{const values=synopsis.match(/^[【〖\[]([^】〗\]]+)[】〗\]]/g)??[];return values.flatMap((part)=>plainText(part).replace(/^[【〖\[]|[】〗\]]$/g,"").split(/[+＋、|]/)).map((tag)=>tag.trim()).filter(Boolean).slice(0,12);}
+export function hasPrivateUseCharacters(value:string|null|undefined):boolean{return /[\uE000-\uF8FF]/u.test(value??"");}
+
+export function parseFanqieRanking(html:string,source:MarketSourceDefinition):CollectedRankingItem[]{const blocks=html.match(/<div class="rank-book-item">[\s\S]*?(?=<div class="rank-book-item">|<\/main>|<footer|<\/body>)/g)??[];return blocks.slice(0,30).flatMap((block,index)=>{const titleMatch=block.match(/<div class="title">\s*<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);if(!titleMatch)return[];const synopsis=plainText(block.match(/<div class="desc abstract[^>]*>([\s\S]*?)<\/div>/)?.[1]);const footer=plainText(block.match(/<div class="book-item-footer">([\s\S]*?)<\/div>/)?.[1]);return[{rank:Number(block.match(/book-item-index"><h1>(\d+)<\/h1>/)?.[1]??index+1),title:plainText(titleMatch[2]),author:plainText(block.match(/<div class="author">[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>/)?.[1]),tags:extractTags(synopsis),synopsis:synopsis.slice(0,800),heatLabel:footer.match(/在读[^\s，。]*/)?.[0],serialStatus:footer.match(/连载中|已完结/)?.[0],sourceUrl:absoluteUrl(source.sourceUrl,titleMatch[1])}];});}
+export function parseQidianRanking(html:string,source:MarketSourceDefinition):CollectedRankingItem[]{const escaped=source.listLabel.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");const pattern=new RegExp(`<a[^>]+href="([^"]*\\/book\\/[^"?]+)[^"]*"[^>]*>[\\s\\S]*?<h2[^>]+title="${escaped}第(\\d+)位"[^>]*>([\\s\\S]*?)<\\/h2>[\\s\\S]*?<p[^>]*class="[^"]*subTitle[^"]*"[^>]*>([\\s\\S]*?)<\\/p>[\\s\\S]*?<\\/a>`,"g");return Array.from(html.matchAll(pattern)).slice(0,30).map((match)=>{const parts=plainText(match[4]).split("·").map((part)=>part.trim()).filter(Boolean);return{rank:Number(match[2]),title:plainText(match[3]),author:parts[0],category:parts[1],tags:parts[1]?[parts[1]]:[],heatLabel:parts[2],sourceUrl:absoluteUrl(source.sourceUrl,match[1])};});}
+export function parseJinjiangRanking(html:string,source:MarketSourceDefinition):CollectedRankingItem[]{return Array.from(html.matchAll(/<li[^>]*>\s*<a href="(\/book2\/\d+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/li>/g)).slice(0,30).map((match,index)=>({rank:index+1,title:plainText(match[2]),tags:[],sourceUrl:absoluteUrl(source.sourceUrl,match[1])}));}
+
+async function fetchHtml(url:string):Promise<string>{const response=await fetch(url,{headers:{"user-agent":"Mozilla/5.0 (compatible; AI-Novel-New-Design-Radar/1.0; public-ranking-metadata-only)"},signal:AbortSignal.timeout(20_000)});if(!response.ok)throw new Error(`榜单页面返回 HTTP ${response.status}`);const bytes=await response.arrayBuffer();const header=response.headers.get("content-type")?.match(/charset=([^;]+)/i)?.[1]?.trim();const probe=new TextDecoder("latin1").decode(bytes.slice(0,4096));const meta=probe.match(/charset\s*=\s*["']?([\w-]+)/i)?.[1];return new TextDecoder(header||meta||"utf-8").decode(bytes);}
+
+export async function collectMarketSource(source:MarketSourceDefinition):Promise<CollectedRankingItem[]>{const html=await fetchHtml(source.sourceUrl);const parsers:Record<MarketPlatform,(value:string,item:MarketSourceDefinition)=>CollectedRankingItem[]>={fanqie:parseFanqieRanking,qidian:parseQidianRanking,jinjiang:parseJinjiangRanking};const items=parsers[source.platform](html,source).filter((item)=>item.title&&!hasPrivateUseCharacters(item.title));if(!items.length)throw new Error("榜单页面结构可能已变化，未识别到公开作品元数据");return items;}

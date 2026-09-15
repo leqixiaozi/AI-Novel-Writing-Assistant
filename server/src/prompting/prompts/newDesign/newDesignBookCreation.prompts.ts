@@ -23,6 +23,8 @@ const initialContentOutputSchema = z.object({
   }).strict()).min(4).max(24),
 }).strict();
 const formAssistOutputSchema = z.object({ suggestions: z.record(z.string(), scalarSchema) }).strict();
+const marketSignalSchema=z.object({title:z.string().min(1).max(100),signalType:z.enum(["genre","protagonist","advantage","opening","relationship","title","payoff","crowding","differentiation"]),summary:z.string().min(4).max(1000),heat:z.enum(["low","medium","high"]),crowding:z.enum(["low","medium","high"]),trend:z.enum(["rising","stable","falling","uncertain"]),platforms:z.array(z.enum(["fanqie","qidian","jinjiang"])).min(1),audience:z.string().min(2).max(500),differentiation:z.string().min(2).max(800),sourceRefs:z.string().min(2).max(2000),observedAt:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),effectiveUntil:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}).strict();
+const marketAnalysisOutputSchema=z.object({genre:z.array(z.string()).max(12),protagonistIdentities:z.array(z.string()).max(12),coreAdvantages:z.array(z.string()).max(12),openingPatterns:z.array(z.string()).max(12),relationshipHooks:z.array(z.string()).max(12),titlePatterns:z.array(z.string()).max(12),readerPayoffs:z.array(z.string()).max(12),crowdedTropes:z.array(z.string()).max(12),differentiationOpportunities:z.array(z.string()).max(12),evidenceBoundary:z.string().min(4).max(1000),signals:z.array(marketSignalSchema).min(1).max(12)}).strict();
 
 export interface DirectionPromptInput {
   method: string;
@@ -45,6 +47,7 @@ export interface FormAssistPromptInput {
   fieldsJson: string;
   instruction: string;
 }
+export interface MarketAnalysisPromptInput {itemsJson:string;focus:string;}
 
 export const newDesignBookDirectionsPrompt: PromptAsset<DirectionPromptInput, z.infer<typeof directionsOutputSchema>> = {
   id: "new_design.book_creation.directions",
@@ -128,4 +131,15 @@ export const newDesignFormAssistPrompt: PromptAsset<FormAssistPromptInput, z.inf
       "返回 suggestions 对象，键为需要建议的 field key。",
     ].join("\n")),
   ],
+};
+
+export const newDesignMarketAnalysisPrompt:PromptAsset<MarketAnalysisPromptInput,z.infer<typeof marketAnalysisOutputSchema>>={
+  id:"new_design.research.market_analysis",version:"v1",taskType:"planner",mode:"structured",language:"zh",contextPolicy:{maxTokensBudget:0},outputSchema:marketAnalysisOutputSchema,repairPolicy:{maxAttempts:1},semanticRetryPolicy:{maxAttempts:1},
+  render:(input)=>[new SystemMessage([
+    "你是小说市场研究员，只分析用户明确选择的公开榜单元数据。",
+    "不得把榜单名次当成销量，不得声称平台未公开的人群、收入或增长率；没有跨期样本时趋势必须为 uncertain。",
+    "结论必须覆盖题材、主角身份、核心优势、开局方式、关系钩子、标题模式、读者满足、拥挤套路和差异化机会。",
+    "每条 market signal 都要在 sourceRefs 写出所依据的平台、榜单和作品标题，并说明证据边界。",
+    "这只是候选研究结果，不得创建书籍、角色、世界观或正式卡片。只输出严格 JSON。",
+  ].join("\n")),new HumanMessage([`用户关注：${input.focus||"整体市场结构"}`,`所选公开元数据：${input.itemsJson}`,"请返回九类聚合结论、证据边界和 1—12 条可由用户确认保存的市场信号候选。"].join("\n"))],
 };

@@ -4,6 +4,7 @@ import {
   newDesignBookDirectionsPrompt,
   newDesignFormAssistPrompt,
   newDesignInitialContentPrompt,
+  newDesignMarketAnalysisPrompt,
 } from "../../prompting/prompts/newDesign/newDesignBookCreation.prompts";
 
 export const newDesignAiGateway: NewDesignAiGateway = {
@@ -41,5 +42,9 @@ export const newDesignAiGateway: NewDesignAiGateway = {
       options: { entrypoint: "new_design", stage: "form_assist", temperature: 0.45, maxTokens: 3000 },
     });
     return result.output.suggestions;
+  },
+  async analyzeMarket(input) {
+    const result=await runStructuredPrompt({asset:newDesignMarketAnalysisPrompt,promptInput:{itemsJson:JSON.stringify(input.items),focus:input.focus},options:{entrypoint:"new_design",stage:"market_analysis",temperature:0.35,maxTokens:input.budgetTokens}});
+    return {output:result.output,promptSnapshot:{promptId:result.meta.invocation.promptId,promptVersion:result.meta.invocation.promptVersion},modelSnapshot:{provider:result.meta.provider??"configured-route",model:result.meta.model??"configured-route"},usedTokens:result.meta.tokenUsage?.totalTokens??0};
   },
 };

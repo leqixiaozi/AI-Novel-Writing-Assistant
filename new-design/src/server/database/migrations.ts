@@ -56,4 +56,8 @@ export const migrations: Migration[] = [
     id: "013_research_foundation",
     fileName: "013_research_foundation.sql",
   },
+  {
+    id: "014_market_radar",
+    fileName: "014_market_radar.sql",
+  },
 ];

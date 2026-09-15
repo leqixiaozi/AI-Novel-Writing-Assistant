@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, researchDocumentInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
+const { parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
 const fields = [
   { key: "name", name: "姓名", description: "", type: "short_text", required: true, defaultValue: null, options: [], group: "基本信息", order: 0 },
@@ -64,4 +65,13 @@ test("high-impact book changes require a typed preview payload", () => {
 test("research text intake rejects empty placeholders", () => {
   assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"太短",sourceKind:"paste",sourceUrl:"" }).success,false);
   assert.equal(researchDocumentInputSchema.safeParse({ title:"样章",content:"这是一段真实可分析的测试文本，长度足以形成不可变来源版本。",sourceKind:"paste",sourceUrl:"" }).success,true);
+});
+
+test("public ranking adapters only extract source metadata",()=>{
+  const fanqie={platform:"fanqie",platformLabel:"番茄小说",listKey:"reading",listLabel:"阅读榜",channel:"general",sourceUrl:"https://fanqienovel.com/rank"};
+  const qidian={platform:"qidian",platformLabel:"起点中文网",listKey:"hotsales",listLabel:"畅销榜",channel:"male",sourceUrl:"https://m.qidian.com/rank/hotsales/"};
+  const jinjiang={platform:"jinjiang",platformLabel:"晋江文学城",listKey:"monthly",listLabel:"月度榜",channel:"female",sourceUrl:"https://m.jjwxc.net/rank/naturalmore/5"};
+  assert.equal(parseFanqieRanking('<div class="rank-book-item"><div class="book-item-index"><h1>1</h1></div><div class="title"><a href="/page/1">山河问道</a></div><div class="author"><span>青石</span></div><div class="desc abstract">【仙侠＋成长】少年入山</div><div class="book-item-footer">10万人在读 连载中</div></div></main>',fanqie)[0].title,"山河问道");
+  assert.equal(parseQidianRanking('<a href="/book/1"><h2 title="畅销榜第1位">星门</h2><p class="subTitle">作者甲 · 仙侠 · 热门</p></a>',qidian)[0].category,"仙侠");
+  assert.equal(parseJinjiangRanking('<li><a href="/book2/123">长夜有灯</a></li>',jinjiang)[0].sourceUrl,"https://m.jjwxc.net/book2/123");
 });

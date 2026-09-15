@@ -245,6 +245,8 @@ export const researchDocumentInputSchema=z.object({
 export const researchDocumentVersionSchema=z.object({content:z.string().trim().min(20,"参考文本至少需要 20 个字符。").max(2_000_000),revision:z.number().int().positive()});
 export const researchRecordTypeSchema=z.enum(["market_scan","market_analysis","book_analysis","diagnosis"]);
 export const researchRecordMetadataSchema=z.object({title:z.string().trim().min(1).max(160),tags:z.array(z.string().trim().min(1).max(40)).max(20),favorite:z.boolean(),notes:z.string().trim().max(3000),revision:z.number().int().positive(),status:z.enum(["active","archived"]).optional()});
+export const marketScanInputSchema=z.object({sourceKeys:z.array(z.string().trim().min(1).max(80)).min(1).max(8)});
+export const marketAnalysisInputSchema=z.object({scanRecordId:z.string().uuid(),scanVersionId:z.string().uuid().optional(),itemIds:z.array(z.string().uuid()).min(1).max(80),focus:z.string().trim().max(500).default(""),budgetTokens:z.number().int().min(1000).max(12000).default(5000)});
 
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({

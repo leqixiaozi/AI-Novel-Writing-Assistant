@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录，`013_research_foundation.sql` 建立版本化研究资料、研究运行、证据、候选采用、参考包和市场来源快照；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录，`013_research_foundation.sql` 建立版本化研究资料、研究运行、证据、候选采用、参考包和市场来源快照，`014_market_radar.sql` 发布“市场信号”动态规格与独立研究资源空间；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -52,6 +52,18 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 > 🏠 **白话比喻**：研究资料像送到编辑部的原稿，研究运行像编辑针对某一版原稿写的批注报告，参考包像把若干份报告封进一个有编号的档案袋。对应到系统里：原文版本、运行版本和参考包版本各自冻结，新的分析只能新增一版，不能在旧报告上涂改。
 
 > 🧠 **速记方法**：**原文留底、运行增版、证据定位、采用过账、开书锁版**。分别对应资料版本、研究版本、证据锚点、候选采用记录和书籍引用快照。
+
+### 市场雷达快照与市场信号
+
+每次手动扫描先建立 `market_scan` 研究版本，再为每个公开榜单写一条 `market_source_snapshots`。同一次扫描中，番茄、起点、晋江的适配器彼此隔离：某个来源失败只把该快照记为 `failed`，其余成功来源继续写入 `market_ranking_items`。重试在同一研究记录下新增版本，旧版本和旧快照仍可按版本读取。
+
+扫描本身不调用模型。作者勾选具体作品并点击“开始 AI 分析”后，系统才建立独立 `market_analysis` 运行；提示词、模型、预算、所选 item ID、结构结果和可读报告均随运行版本冻结。分析产生的 `market_signal` 先进入候选批次，只有作者逐条确认后，才在固定资源空间 `70000000-0000-4000-8000-000000000001` 创建卡片，并用 `research_candidate_adoptions` 与 `card_field_origins.source_kind = research` 留下来源。
+
+`market_signal` 包含信号类型、摘要、热度、拥挤度、趋势、平台、受众、差异化、来源引用、观察日期和建议复核日期。没有跨期证据时趋势只能是不确定；榜单名次不能被解释为销量、收入或增长率。
+
+> 🏠 **白话比喻**：扫描像每天拍下商场门口的客流牌，AI 分析像研究员拿着用户圈选的照片写观察，市场信号卡像负责人签字后放进选题档案的结论。对应到系统里：拍照不会自动请研究员，研究报告也不会未经确认就变成正式资源。
+
+> 🧠 **速记方法**：**扫榜不耗模，圈选才分析，确认才入库**。
 
 ## `new_design.schema_migrations`
 
@@ -292,7 +304,7 @@ books 1 ── n book_research_references ── 1 research/pack exact version
 
 ## 内置小说资料规格
 
-`003_novel_card_catalog.sql` 将系统目录收敛为 19 种已发布核心类型：人物、组织／势力、地点、道具、世界规则、事件、目标／任务、冲突、秘密／真相、线索／证据、伏笔、悬念／问题、剧情线、剧情节点／节拍、弧线／变化线、主题／命题、卷、章节和场景。`008_card_type_categories.sql` 在不修改这 19 种类型及既有书籍快照的前提下，新增题材策略、推进模式、写法配置、质量规则、世界总览、能力／科技／修炼体系、种族、文化、宗教和参考资料，使小说资料目录达到 29 种类型；`010_prompt_components.sql` 另加 1 种 AI 资源类型，系统定义总数为 30，但它不会进入书籍模板。
+`003_novel_card_catalog.sql` 将系统目录收敛为 19 种已发布核心类型：人物、组织／势力、地点、道具、世界规则、事件、目标／任务、冲突、秘密／真相、线索／证据、伏笔、悬念／问题、剧情线、剧情节点／节拍、弧线／变化线、主题／命题、卷、章节和场景。`008_card_type_categories.sql` 在不修改这 19 种类型及既有书籍快照的前提下，新增题材策略、推进模式、写法配置、质量规则、世界总览、能力／科技／修炼体系、种族、文化、宗教和参考资料，使小说资料目录达到 29 种类型；`010_prompt_components.sql` 另加 1 种 AI 资源类型，`014_market_radar.sql` 再加 1 种研究资源类型，系统定义总数为 31，但后两者都不会进入书籍模板。
 
 迁移会为“通用长篇小说模板”发布一个新的不可变版本，把 29 种类型纳入后续新书；旧模板版本、旧书的 19 类型快照和《照骨山河》样例均保持原状。
 

@@ -47,6 +47,8 @@ import { installStrategyResource, listStrategyResources } from "../database/reso
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchRecords, updateResearchRecord } from "../database/researchStore";
+import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
+import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -91,6 +93,8 @@ import {
   researchDocumentVersionSchema,
   researchRecordTypeSchema,
   researchRecordMetadataSchema,
+  marketScanInputSchema,
+  marketAnalysisInputSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -116,6 +120,7 @@ function normalizeFields(fields: Array<Omit<FieldDefinition, "defaultValue"> & {
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } = {}): Router {
   const router = Router();
+  router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
 
   router.get("/health", asyncRoute(async (_req, res) => {
     success(res, await getDatabaseRuntimeStatus());
@@ -221,6 +226,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/research/records",asyncRoute(async(req,res)=>success(res,await listResearchRecords({type:typeof req.query.type==="string"?researchRecordTypeSchema.parse(req.query.type):undefined,archived:req.query.archived==="true",favorite:req.query.favorite==="true",search:typeof req.query.search==="string"?req.query.search:undefined}))));
   router.get("/research/records/:id",asyncRoute(async(req,res)=>success(res,await getResearchRecord(String(req.params.id)))));
   router.patch("/research/records/:id",asyncRoute(async(req,res)=>success(res,await updateResearchRecord(String(req.params.id),body(researchRecordMetadataSchema,req)))));
+  router.get("/research/market/sources",asyncRoute(async(_req,res)=>success(res,listMarketSources())));
+  router.post("/research/market/scans",asyncRoute(async(req,res)=>success(res,await startMarketScan(body(marketScanInputSchema,req)),202)));
+  router.get("/research/market/scans/:id",asyncRoute(async(req,res)=>success(res,await getMarketScan(String(req.params.id),typeof req.query.versionId==="string"?req.query.versionId:undefined))));
+  router.post("/research/market/scans/:id/retry",asyncRoute(async(req,res)=>success(res,await retryMarketScan(String(req.params.id)),202)));
+  router.post("/research/runs/:id/cancel",asyncRoute(async(req,res)=>{await requestMarketScanCancellation(String(req.params.id));success(res,{cancelRequested:true});}));
+  router.post("/research/market/analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await startMarketAnalysis(dependencies.ai,body(marketAnalysisInputSchema,req)),202);}));
+  router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await retryMarketAnalysis(dependencies.ai,String(req.params.id)),202);}));
+  router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

@@ -18,6 +18,7 @@ const resources = require("../dist/server/database/resourceStore.js");
 const bookViews = require("../dist/server/database/bookViewStore.js");
 const changeSets = require("../dist/server/database/changeSetStore.js");
 const research = require("../dist/server/database/researchStore.js");
+const market = require("../dist/server/database/marketStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -61,9 +62,9 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   const builtInTypes = await store.listCardTypes();
   const systemTypes = builtInTypes.filter((cardType) => cardType.isSystem);
-  assert.equal(systemTypes.length, 30);
-  assert.equal(new Set(systemTypes.map((cardType) => cardType.key)).size, 30);
-  for (const key of ["character", "organization", "world_rule", "event", "volume", "scene", "genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material", "world_overview", "power_system", "race", "culture", "religion", "prompt_component"]) {
+  assert.equal(systemTypes.length, 31);
+  assert.equal(new Set(systemTypes.map((cardType) => cardType.key)).size, 31);
+  for (const key of ["character", "organization", "world_rule", "event", "volume", "scene", "genre_strategy", "progression_mode", "writing_config", "quality_rule", "reference_material", "world_overview", "power_system", "race", "culture", "religion", "prompt_component", "market_signal"]) {
     assert.ok(systemTypes.some((cardType) => cardType.key === key), `missing built-in type ${key}`);
   }
   assert.ok(!systemTypes.some((cardType) => ["base_character", "historical_event", "timeline"].includes(cardType.key)));
@@ -74,6 +75,27 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
     systemTypes.find((cardType) => cardType.key === "event").semanticCapabilities,
     ["timeline", "state_change", "canonical_fact"],
   );
+  const scanSource={platform:"qidian",platformLabel:"起点中文网",listKey:"test",listLabel:"集成榜",channel:"male",sourceUrl:"https://example.test/rank"};
+  const marketRun=await market.beginMarketScan({sources:[scanSource]});
+  await market.persistMarketSource(marketRun.versionId,scanSource,{items:[{rank:1,title:"问剑山河",author:"测试作者",category:"仙侠",tags:["成长"],synopsis:"少年查明山门旧案。",heatLabel:"榜首",serialStatus:"连载中",sourceUrl:"https://example.test/book/1"}]},95);
+  await market.finishMarketScan(marketRun.versionId);
+  const marketScan=await market.getMarketScan(marketRun.recordId);
+  assert.equal(marketScan.record.currentVersion.runStatus,"completed");
+  assert.equal(marketScan.snapshots[0].items[0].title,"问剑山河");
+  const failedRefresh=await market.beginMarketScan({sources:[scanSource],recordId:marketRun.recordId,parentVersionId:marketRun.versionId});
+  await market.persistMarketSource(failedRefresh.versionId,scanSource,{error:"测试来源暂时不可用"},95);
+  await market.finishMarketScan(failedRefresh.versionId);
+  assert.equal((await market.getMarketScan(marketRun.recordId)).record.currentVersion.runStatus,"failed");
+  const previousMarketScan=await market.getMarketScan(marketRun.recordId,marketRun.versionId);
+  assert.equal(previousMarketScan.isCurrent,false);
+  assert.equal(previousMarketScan.snapshots[0].items[0].title,"问剑山河");
+  const marketAnalysisRun=await market.beginMarketAnalysis({scanRecordId:marketRun.recordId,scanVersionId:marketRun.versionId,itemIds:[marketScan.snapshots[0].items[0].id],focus:"仙侠成长",budgetTokens:3000});
+  await market.completeMarketAnalysis(marketAnalysisRun.versionId,{genre:["仙侠"],protagonistIdentities:["山门少年"],coreAdvantages:["成长解谜"],openingPatterns:["旧案切入"],relationshipHooks:["师徒互疑"],titlePatterns:["意象加动作"],readerPayoffs:["升级与真相"],crowdedTropes:["天才觉醒"],differentiationOpportunities:["代价式突破"],evidenceBoundary:"仅基于一条测试榜单元数据，不能判断真实销量和跨期趋势。",signals:[{title:"仙侠成长解谜信号",signalType:"genre",summary:"仙侠升级与旧案解谜可以并行。",heat:"medium",crowding:"high",trend:"uncertain",platforms:["qidian"],audience:"喜欢升级与真相回收的读者",differentiation:"让每次突破付出会改变查案路径的代价",sourceRefs:"起点中文网／集成榜／问剑山河",observedAt:"2026-09-15",effectiveUntil:"2026-10-15"}]},{usedTokens:240,promptSnapshot:{promptId:"new_design.research.market_analysis",promptVersion:"v1"},modelSnapshot:{provider:"test",model:"test-model"}});
+  const marketAnalysis=await research.getResearchRecord(marketAnalysisRun.recordId);
+  assert.equal(marketAnalysis.candidates.length,1);
+  const adoptedMarketSignal=await market.adoptMarketSignal(marketAnalysis.candidates[0].id);
+  assert.equal(adoptedMarketSignal.values.trend,"uncertain");
+  const persistedMarketSignalId=adoptedMarketSignal.id;
   assert.deepEqual(
     systemTypes.find((cardType) => cardType.key === "scene").semanticCapabilities,
     ["body_text", "timeline", "state_change", "creative_goal"],
@@ -439,4 +461,5 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const restartedResearch = await research.getResearchRecord(persistedResearchId);
   assert.equal(restartedResearch.currentVersion.report,"# 测试拆书\n\n持久化报告。");
   assert.deepEqual(restartedResearch.tags,["测试","可恢复"]);
+  assert.equal((await store.getCard(persistedMarketSignalId)).title,"仙侠成长解谜信号");
 });

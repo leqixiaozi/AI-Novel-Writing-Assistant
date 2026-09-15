@@ -1,4 +1,4 @@
-import type { BookCreationMethod, BookDirectionCandidate, FieldDefinition, InitialCardDraft } from "../../common/contracts";
+import type { BookCreationMethod, BookDirectionCandidate, FieldDefinition, InitialCardDraft, MarketAnalysisResult, MarketRankingItem } from "../../common/contracts";
 
 export interface AiSchemaType {
   key: string;
@@ -29,8 +29,12 @@ export interface FormAssistInput {
   instruction: string;
 }
 
+export interface MarketAnalysisInput {items:MarketRankingItem[];focus:string;budgetTokens:number;}
+export interface AiResearchRunResult<T> {output:T;promptSnapshot:Record<string,unknown>;modelSnapshot:Record<string,unknown>;usedTokens:number;}
+
 export interface NewDesignAiGateway {
   generateDirections(input: DirectionGenerationInput): Promise<BookDirectionCandidate[]>;
   generateInitialContent(input: InitialContentGenerationInput): Promise<InitialCardDraft[]>;
   assistForm(input: FormAssistInput): Promise<Record<string, unknown>>;
+  analyzeMarket(input:MarketAnalysisInput):Promise<AiResearchRunResult<MarketAnalysisResult>>;
 }
