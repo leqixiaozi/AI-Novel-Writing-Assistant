@@ -1,6 +1,40 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
-import { BOOK_CREATION_METHODS, BOOK_VIEW_KEYS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition } from "../../common/contracts";
+import { BOOK_CREATION_METHODS, BOOK_VIEW_KEYS, CARD_TYPE_CAPABILITIES, FIELD_TYPES, type FieldDefinition, type MaterialFilterNode } from "../../common/contracts";
+
+const materialKeySchema=z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/,"稳定标识需以小写字母开头，只能包含小写字母、数字、横线或下划线。");
+const materialActorSchema=z.string().trim().min(1).max(120).optional();
+const materialVisibilitySchema=z.enum(["space","private"]).optional();
+const idempotencySchema=z.string().trim().min(8).max(160);
+const materialFilterFields=["content_type","tag","card_status","canonical_status","candidate_status","chapter","volume","story_time","relation_exists","association_exists","source","updated_at"] as const;
+const materialFilterOperators=["equals","not_equals","in","not_in","contains","exists","not_exists","gte","lte","between"] as const;
+const materialOperatorMatrix:Record<(typeof materialFilterFields)[number],Set<(typeof materialFilterOperators)[number]>>={
+  content_type:new Set(["equals","not_equals","in","not_in"]),tag:new Set(["equals","in","exists","not_exists"]),card_status:new Set(["equals","in"]),
+  canonical_status:new Set(["equals","in"]),candidate_status:new Set(["equals","in"]),chapter:new Set(["equals","in"]),volume:new Set(["equals","in"]),
+  story_time:new Set(["gte","lte","between","exists","not_exists"]),relation_exists:new Set(["exists","not_exists"]),association_exists:new Set(["exists","not_exists"]),
+  source:new Set(["equals","in"]),updated_at:new Set(["gte","lte","between"]),
+};
+const materialFilterConditionSchema=z.object({kind:z.literal("condition"),field:z.enum(materialFilterFields),operator:z.enum(materialFilterOperators),value:z.union([z.string().max(300),z.number(),z.boolean(),z.array(z.union([z.string().max(300),z.number()])).max(50),z.null()]).optional()}).superRefine((value,context)=>{if(!materialOperatorMatrix[value.field].has(value.operator))context.addIssue({code:"custom",path:["operator"],message:"该筛选条件不支持此运算方式。"});if(!["exists","not_exists"].includes(value.operator)&&value.value===undefined)context.addIssue({code:"custom",path:["value"],message:"筛选条件缺少值。"});if(value.operator==="between"&&(!Array.isArray(value.value)||value.value.length!==2))context.addIssue({code:"custom",path:["value"],message:"范围筛选必须包含起点和终点。"});});
+const materialFilterNodeSchema:z.ZodType<MaterialFilterNode>=z.lazy(()=>z.union([materialFilterConditionSchema,z.object({kind:z.literal("group"),operator:z.enum(["and","or"]),items:z.array(materialFilterNodeSchema).max(20)})])) as z.ZodType<MaterialFilterNode>;
+function inspectMaterialFilter(node:MaterialFilterNode,depth=1):{depth:number;conditions:number}{if(node.kind==="condition")return{depth,conditions:1};return node.items.reduce((summary,item)=>{const child=inspectMaterialFilter(item,depth+1);return{depth:Math.max(summary.depth,child.depth),conditions:summary.conditions+child.conditions};},{depth,conditions:0});}
+const boundedMaterialFilterSchema=materialFilterNodeSchema.superRefine((node,context)=>{const size=inspectMaterialFilter(node);if(size.depth>4)context.addIssue({code:"custom",message:"筛选组合最多嵌套 4 层。"});if(size.conditions>40)context.addIssue({code:"custom",message:"筛选条件最多 40 条。"});});
+const materialSortSchema=z.array(z.object({field:z.enum(["title","content_type","updated_at","created_at","story_time"]),direction:z.enum(["asc","desc"])})).min(1).max(3);
+const materialDisplayColumns=["title","content_type","status","tags","groups","source","story_time","created_at","updated_at"] as const;
+const smartViewPayloadSchema=z.object({name:z.string().trim().min(1).max(100),description:z.string().trim().max(500).default(""),filter:boundedMaterialFilterSchema,sort:materialSortSchema,grouping:z.object({field:z.enum(["content_type","tag","group","status","source"]).optional()}).default({}),displayColumns:z.array(z.enum(materialDisplayColumns)).min(1).max(9),layout:z.object({mode:z.enum(["list","table"])}).passthrough(),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
+
+export const materialTagCreateSchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(80),aliases:z.array(z.string().trim().min(1).max(80)).max(30).default([]),color:z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),metadata:z.record(z.string(),z.unknown()).default({}),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const materialTagRevisionSchema=materialTagCreateSchema.omit({key:true}).extend({expectedRevision:z.number().int().positive()});
+export const materialMembershipSchema=z.object({cardIds:z.array(z.string().uuid()).min(1).max(200),action:z.enum(["add","remove"]),actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const materialGroupCreateSchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(100),parentId:z.string().uuid().nullable().optional(),sortOrder:z.number().int().min(0).max(100000).default(1000),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const materialGroupRevisionSchema=materialGroupCreateSchema.omit({key:true}).extend({expectedRevision:z.number().int().positive()});
+export const materialGroupArchiveSchema=z.object({expectedRevision:z.number().int().positive(),childMode:z.enum(["promote","archive_tree"]),actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const smartViewCreateSchema=smartViewPayloadSchema.extend({key:materialKeySchema,baseViewKey:z.enum(BOOK_VIEW_KEYS).nullable().optional()});
+export const smartViewRevisionSchema=smartViewPayloadSchema.extend({expectedRevision:z.number().int().positive()});
+export const smartViewCopySchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(100),actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const materialQuerySchema=z.object({viewId:z.string().uuid().optional(),filter:boundedMaterialFilterSchema.optional(),sort:materialSortSchema.optional(),cursor:z.string().uuid().optional(),limit:z.coerce.number().int().min(1).max(100).optional()}).refine(value=>!(value.viewId&&(value.filter||value.sort)),"按视图查询时不能同时提交临时筛选或排序。");
+export const cardArchivePreviewSchema=z.object({expectedRevision:z.number().int().positive(),actor:materialActorSchema});
+export const cardArchiveConfirmSchema=z.object({previewId:z.string().uuid(),confirmationToken:z.string().uuid(),snapshotHash:z.string().length(64),expectedRevision:z.number().int().positive(),acceptRisk:z.boolean().default(false),actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const cardRestoreManagedSchema=z.object({expectedRevision:z.number().int().positive(),actor:materialActorSchema,idempotencyKey:idempotencySchema});
 
 const optionSchema = z.object({
   id: z.string().uuid().optional(),

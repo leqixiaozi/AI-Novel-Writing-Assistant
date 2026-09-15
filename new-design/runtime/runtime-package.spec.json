@@ -70,7 +70,8 @@
     "app/scripts/backup.ps1",
     "app/scripts/upgrade.ps1",
     "app/migrations/001_card_kernel.sql",
-    "app/migrations/035_association_mount_versions.sql"
+    "app/migrations/035_association_mount_versions.sql",
+    "app/migrations/036_material_management_smart_views.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -85,7 +86,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "035_association_mount_versions.sql",
-    "count": 35
+    "last": "036_material_management_smart_views.sql",
+    "count": 36
   }
 }

@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`035` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域，以及表单关联／独立关系的不可变版本合同。运行时迁移范围以 `001_card_kernel.sql` 至 `035_association_mount_versions.sql` 为准。
+`031`—`036` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系，以及资料标签、分组、智能视图与安全归档合同。运行时迁移范围以 `001_card_kernel.sql` 至 `036_material_management_smart_views.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -29,6 +29,11 @@ resource card/version 1 ── n resource_adoptions n ── 1 books
                                       └──────────── 1 target card
 
 books 1 ── n book_view_configs
+card_spaces 1 ── n material_tags 1 ── n material_tag_memberships n ── 1 cards
+card_spaces 1 ── n material_groups（固定父子树）1 ── n material_group_memberships n ── 1 cards
+card_spaces 1 ── n smart_views 1 ── n smart_view_versions
+books 1 ── 6 book_view_configs ── 1 compatible smart_view
+cards 1 ── n card_archive_previews / card_archive_events
 books 1 ── n book_change_sets
 card 1 ── 0..1 story_time_positions
 card 1 ── n narrative_placements n ── 1 chapter/scene card

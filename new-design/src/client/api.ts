@@ -184,6 +184,15 @@ import type {
   TemplateGroupSummary,
   TemplateGroupVersion,
   TemplateSyncPreview,
+  MaterialFilterNode,
+  MaterialGroup,
+  MaterialManagementWorkspace,
+  MaterialQueryPage,
+  MaterialSortRule,
+  MaterialTag,
+  SmartMaterialView,
+  CardArchivePreview,
+  CardArchiveReceipt,
 } from "../common/contracts";
 
 export type PromptRecipeVersionInput={source:"manual"|"ai"|"import"|"system";variablesSchema:Record<string,unknown>;slots:Array<{slotKey:string;sortOrder:number;required:boolean;allowedContentTypes:string[];variableContract:Record<string,unknown>;components:Array<Pick<PromptRecipeComponentBinding,"componentCardId"|"componentVersionId"|"sortOrder"|"required">>}>;baseVersionId?:string|null;createdBy?:string};
@@ -196,6 +205,8 @@ export type QualityIssueVersionInput=Pick<QualityIssueVersion,"categoryKey"|"sev
 export type QualityAuditReportInput=Pick<QualityAuditReportSummary,"id"|"bookId"|"scopeKind"|"scopeId"|"taskId"|"stepId"|"attemptId"|"taskContractVersionId"|"promptRecipeVersionId"|"contextManifestId"|"modelRouteSnapshotId"|"ruleSetKey"|"ruleSetVersion"|"inputHash"|"policyMode"|"policyDecision"|"summary"|"createdBy">&{idempotencyKey:string;bodyVersions:QualityAuditReport["bodyVersions"];planningVersions:QualityAuditReport["planningVersions"];factIds:string[];issues:Array<QualityIssueVersionInput&{stableKey:string;isQualityDebt?:boolean;fixCandidate?:QualityFixInput|null}>};
 
 const API_ROOT = "/api/new-design";
+export type MaterialApiScope={bookId?:string;spaceId?:string};
+const materialScopeQuery=(scope:MaterialApiScope)=>scope.bookId?`bookId=${encodeURIComponent(scope.bookId)}`:`spaceId=${encodeURIComponent(scope.spaceId??"")}`;
 
 type FormInstanceSaveInput = Pick<CardGroupFormInstance, "spaceId" | "formVersionId" | "primaryCardId" | "title"> & {
   revision?: number;
@@ -253,6 +264,21 @@ export const newDesignApi = {
     method: "POST", body: JSON.stringify({ revision }),
   }),
   listCardVersions: (id: string) => request<CardVersion[]>(`/cards/${id}/versions`),
+  getMaterialWorkspace:(scope:MaterialApiScope)=>request<MaterialManagementWorkspace>(`/material-management/workspace?${materialScopeQuery(scope)}`),
+  queryMaterials:(scope:MaterialApiScope,input:{viewId?:string;filter?:MaterialFilterNode;sort?:MaterialSortRule[];cursor?:string;limit?:number})=>request<MaterialQueryPage>(`/material-management/query?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  createMaterialTag:(scope:MaterialApiScope,input:{key:string;name:string;aliases:string[];color?:string|null;metadata:Record<string,unknown>;visibility?:"space"|"private";idempotencyKey:string})=>request<MaterialTag>(`/material-management/tags?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  reviseMaterialTag:(scope:MaterialApiScope,id:string,input:{name:string;aliases:string[];color?:string|null;metadata:Record<string,unknown>;visibility?:"space"|"private";expectedRevision:number;idempotencyKey:string},archive=false)=>request<MaterialTag>(`/material-management/tags/${id}${archive?"/archive":""}?${materialScopeQuery(scope)}`,{method:archive?"POST":"PATCH",body:JSON.stringify(input)}),
+  changeTagMemberships:(scope:MaterialApiScope,id:string,input:{cardIds:string[];action:"add"|"remove";idempotencyKey:string})=>request<MaterialManagementWorkspace>(`/material-management/tags/${id}/memberships?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  createMaterialGroup:(scope:MaterialApiScope,input:{key:string;name:string;parentId?:string|null;sortOrder:number;visibility?:"space"|"private";idempotencyKey:string})=>request<MaterialGroup>(`/material-management/groups?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  reviseMaterialGroup:(scope:MaterialApiScope,id:string,input:{name:string;parentId?:string|null;sortOrder:number;visibility?:"space"|"private";expectedRevision:number;idempotencyKey:string})=>request<MaterialGroup>(`/material-management/groups/${id}?${materialScopeQuery(scope)}`,{method:"PATCH",body:JSON.stringify(input)}),
+  archiveMaterialGroup:(scope:MaterialApiScope,id:string,input:{expectedRevision:number;childMode:"promote"|"archive_tree";idempotencyKey:string})=>request<MaterialManagementWorkspace>(`/material-management/groups/${id}/archive?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  changeGroupMemberships:(scope:MaterialApiScope,id:string,input:{cardIds:string[];action:"add"|"remove";idempotencyKey:string})=>request<MaterialManagementWorkspace>(`/material-management/groups/${id}/memberships?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  createSmartView:(scope:MaterialApiScope,input:{key:string;name:string;description:string;baseViewKey?:string|null;filter:MaterialFilterNode;sort:MaterialSortRule[];grouping:{field?:string};displayColumns:string[];layout:{mode:"list"|"table"};idempotencyKey:string})=>request<SmartMaterialView>(`/material-management/views?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  reviseSmartView:(scope:MaterialApiScope,id:string,input:{name:string;description:string;filter:MaterialFilterNode;sort:MaterialSortRule[];grouping:{field?:string};displayColumns:string[];layout:{mode:"list"|"table"};expectedRevision:number;idempotencyKey:string},archive=false)=>request<SmartMaterialView>(`/material-management/views/${id}${archive?"/archive":""}?${materialScopeQuery(scope)}`,{method:archive?"POST":"PATCH",body:JSON.stringify(input)}),
+  copySmartView:(scope:MaterialApiScope,id:string,input:{key:string;name:string;idempotencyKey:string})=>request<SmartMaterialView>(`/material-management/views/${id}/copy?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  previewManagedArchive:(scope:MaterialApiScope,id:string,expectedRevision:number)=>request<CardArchivePreview>(`/material-management/cards/${id}/archive-preview?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify({expectedRevision})}),
+  confirmManagedArchive:(scope:MaterialApiScope,id:string,input:{previewId:string;confirmationToken:string;snapshotHash:string;expectedRevision:number;acceptRisk:boolean;idempotencyKey:string})=>request<CardArchiveReceipt>(`/material-management/cards/${id}/archive?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
+  restoreManagedCard:(scope:MaterialApiScope,id:string,input:{expectedRevision:number;idempotencyKey:string})=>request<CardArchiveReceipt>(`/material-management/cards/${id}/restore?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
   getAssociationWorkspace:(bookId:string,cardId:string)=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations`),
   searchAssociationCandidates:(bookId:string,cardId:string,input:{slotKey:string;query:string;offset?:number;limit?:number})=>request<{items:AssociationCandidate[];hasMore:boolean}>(`/books/${bookId}/cards/${cardId}/association-candidates?slotKey=${encodeURIComponent(input.slotKey)}&query=${encodeURIComponent(input.query)}&offset=${input.offset??0}&limit=${input.limit??20}`),
   addExistingAssociation:(bookId:string,cardId:string,input:{slotKey:string;cardId:string;expectedInstanceRevision:number|null;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations`,{method:"POST",body:JSON.stringify(input)}),

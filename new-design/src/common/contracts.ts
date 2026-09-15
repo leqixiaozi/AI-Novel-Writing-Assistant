@@ -523,6 +523,47 @@ export interface BookViewWorkspace {
   viewConfigs: BookViewConfig[];
 }
 
+export type MaterialFilterField = "content_type" | "tag" | "card_status" | "canonical_status" | "candidate_status" | "chapter" | "volume" | "story_time" | "relation_exists" | "association_exists" | "source" | "updated_at";
+export type MaterialFilterOperator = "equals" | "not_equals" | "in" | "not_in" | "contains" | "exists" | "not_exists" | "gte" | "lte" | "between";
+export interface MaterialFilterCondition { kind:"condition";field:MaterialFilterField;operator:MaterialFilterOperator;value?:string|string[]|number|boolean|null; }
+export interface MaterialFilterGroup { kind:"group";operator:"and"|"or";items:MaterialFilterNode[]; }
+export type MaterialFilterNode = MaterialFilterCondition | MaterialFilterGroup;
+export type MaterialSortField = "title" | "content_type" | "updated_at" | "created_at" | "story_time";
+export interface MaterialSortRule { field:MaterialSortField;direction:"asc"|"desc"; }
+
+export interface MaterialTag {
+  id:string;spaceId:string;key:string;name:string;aliases:string[];color:string|null;metadata:Record<string,unknown>;
+  status:"active"|"archived";revision:number;currentVersionId:string;visibility:"space"|"private";memberCount:number;updatedAt:string;
+}
+
+export interface MaterialGroup {
+  id:string;spaceId:string;bookId:string|null;key:string;name:string;parentId:string|null;sortOrder:number;
+  status:"active"|"archived";revision:number;currentVersionId:string;visibility:"space"|"private";memberCount:number;updatedAt:string;
+}
+
+export interface SmartMaterialView {
+  id:string;spaceId:string;bookId:string|null;key:string;baseViewKey:BookViewKey|null;name:string;description:string;
+  filter:MaterialFilterNode;sort:MaterialSortRule[];grouping:{field?:string};displayColumns:string[];layout:{mode:"list"|"table";[key:string]:unknown};
+  status:"active"|"archived";revision:number;version:number;currentVersionId:string;visibility:"space"|"private";updatedAt:string;
+}
+
+export interface MaterialMembershipSummary { cardId:string;tagIds:string[];groupIds:string[]; }
+export interface MaterialManagementWorkspace {
+  spaceId:string;bookId:string|null;tags:MaterialTag[];groups:MaterialGroup[];views:SmartMaterialView[];memberships:MaterialMembershipSummary[];
+}
+
+export interface MaterialQueryCard extends CardSummary {
+  typeKey:string;tagIds:string[];groupIds:string[];storyTimeStart:number|null;
+}
+export interface MaterialQueryPage { items:MaterialQueryCard[];nextCursor:string|null;totalCapped:number; }
+
+export interface CardArchiveImpactItem { key:string;label:string;count:number;level:"blocking"|"risk"|"recompute"|"information";samples:Array<{id:string;label:string}>; }
+export interface CardArchivePreview {
+  id:string;spaceId:string;bookId:string|null;cardId:string;expectedRevision:number;snapshotHash:string;confirmationToken:string;decision:"ready"|"risk_confirmation"|"blocked";
+  expiresAt:string;impacts:CardArchiveImpactItem[];blockingCount:number;riskCount:number;recomputeCount:number;
+}
+export interface CardArchiveReceipt { id:string;card:CardSummary;riskAccepted:boolean;createdAt:string; }
+
 export type BookChangeOperationKey = "story_time" | "narrative_placement" | "character_relation" | "clue_lifecycle";
 
 export interface BookChangeImpact {

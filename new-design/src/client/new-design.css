@@ -414,6 +414,7 @@
 .nd-strategy-picker-grid label small { margin-top: .14rem; color: var(--nd-muted); font-size: .61rem; }
 .nd-strategy-picker > a { display: inline-block; margin: 0 1rem 1rem; color: var(--nd-accent); font-size: .68rem; text-decoration: none; }
 .nd-resource-home { display: grid; gap: 1.5rem; }
+.nd-resource-material-manager{display:grid;gap:.65rem}.nd-resource-material-manager>.nd-business-form-header{align-items:center}
 .nd-my-card-tree { overflow: hidden; background: var(--nd-paper); border-radius: var(--radius); }
 .nd-my-card-tree details + details { border-top: 1px solid var(--nd-line); }
 .nd-my-card-tree summary { display: grid; grid-template-columns: 1rem minmax(0,1fr) auto; align-items: center; gap: .65rem; min-height: 62px; padding: .75rem 1rem; cursor: pointer; list-style: none; }

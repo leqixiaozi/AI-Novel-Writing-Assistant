@@ -59,10 +59,10 @@
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/035_association_mount_versions.sql`，数据说明见 `docs/data-model.md`。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/036_material_management_smart_views.sql`，数据说明见 `docs/data-model.md`。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 
 ## 当前未开放
 
-任意添加字段／信息、关联资料编辑器、智能视图和三章生产闭环不属于本批实现，不能以占位菜单伪装为可用功能。普通创作页已经使用已发布规格生成统一动态表单，但内容规格设计仍只在高级设置中完成。
+添加信息、关联资料编辑器与智能视图均使用真实 PostgreSQL 数据；三章生产闭环仍不属于本批实现，不能以占位菜单伪装为可用功能。普通创作页使用已发布规格生成统一动态表单，内容规格设计仍只在高级设置中完成。

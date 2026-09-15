@@ -56,4 +56,4 @@ U4 把已发布创作表单里的关联位置升级为可编辑面板：可按�
 
 ## 跨机器同步
 
-`033_business_form_provenance.sql`、`034_scoped_field_definitions.sql`、`035_association_mount_versions.sql`、字段／关联合同、表单解析规则和本文档随 Git 同步。作者填写的字段扩展、`cards`、`card_versions`、挂载／关系版本、局部值和附件不进入 Git，仍必须使用 PostgreSQL 逻辑备份、受管附件和 manifest 一起迁移。只复制仓库相当于搬走空白表格，不能搬走已填写内容。
+`033_business_form_provenance.sql` 至 `036_material_management_smart_views.sql`、字段／关联合同、资料组织规则、表单解析规则和本文档随 Git 同步。作者填写的字段扩展、`cards`、`card_versions`、挂载／关系版本、标签、分组、智能视图、局部值和附件不进入 Git，仍必须使用 PostgreSQL 逻辑备份、受管附件和 manifest 一起迁移。只复制仓库相当于搬走空白表格，不能搬走已填写内容。

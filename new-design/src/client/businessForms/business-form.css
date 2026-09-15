@@ -2,6 +2,7 @@
 .nd-business-form-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 1.1rem; background: var(--nd-paper); border-radius: var(--radius); }
 .nd-business-form-header h2, .nd-business-editor-heading h2 { margin: .15rem 0 .3rem; font-size: 1.08rem; font-weight: 620; }
 .nd-business-form-header p:last-child, .nd-business-editor-heading p:last-child { max-width: 46rem; margin: 0; color: var(--nd-muted); font-size: .69rem; line-height: 1.55; }
+.nd-material-mode-tabs{display:flex;gap:.2rem;padding:.3rem;background:var(--nd-paper);border-radius:var(--radius)}.nd-material-mode-tabs button{padding:.5rem .8rem;color:var(--nd-muted);background:transparent;border:0;border-radius:calc(var(--radius) - .25rem);cursor:pointer}.nd-material-mode-tabs button:hover,.nd-material-mode-tabs button.is-selected{color:var(--nd-ink);background:var(--nd-soft)}.nd-material-mode-tabs button.is-selected{box-shadow:inset 0 -2px var(--nd-accent)}
 .nd-business-form-layout { display: grid; gap: .8rem; min-width: 0; align-items: start; }
 .nd-business-form-browser, .nd-business-form-editor { min-width: 0; background: var(--nd-paper); border-radius: var(--radius); }
 .nd-business-form-browser { overflow: hidden; }

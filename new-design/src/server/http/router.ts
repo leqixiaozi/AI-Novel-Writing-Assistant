@@ -1,5 +1,5 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
-import { ZodError, type ZodType } from "zod";
+import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
 import {
@@ -49,6 +49,7 @@ import { listCardTypeCategories, saveCardTypeCategory } from "../database/catego
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
 import { addAssociationLocalField, addExistingAssociation, createAndAddAssociation, getAssociationWorkspace, listAssociationHistory, refreshAssociationSource, removeAssociation, reorderAssociations, saveAssociationLocalValues, searchAssociationCandidates } from "../database/associations";
+import { archiveMaterialGroup, bulkChangeGroupMemberships, bulkChangeTagMemberships, confirmCardArchive, copySmartMaterialView, createMaterialGroup, createMaterialTag, createSmartMaterialView, getMaterialManagementWorkspace, previewCardArchive, queryMaterials, restoreArchivedCard, reviseMaterialGroup, reviseMaterialTag, reviseSmartMaterialView } from "../database/materialManagement";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
@@ -267,6 +268,19 @@ import {
   associationReorderSchema,
   associationLocalValuesSchema,
   associationLocalFieldSchema,
+  materialTagCreateSchema,
+  materialTagRevisionSchema,
+  materialMembershipSchema,
+  materialGroupCreateSchema,
+  materialGroupRevisionSchema,
+  materialGroupArchiveSchema,
+  smartViewCreateSchema,
+  smartViewRevisionSchema,
+  smartViewCopySchema,
+  materialQuerySchema,
+  cardArchivePreviewSchema,
+  cardArchiveConfirmSchema,
+  cardRestoreManagedSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -289,6 +303,9 @@ function zodIssues(error: ZodError): Record<string, string> {
 function normalizeFields(fields: Array<Omit<FieldDefinition, "defaultValue"> & { defaultValue?: unknown }>): FieldDefinition[] {
   return fields.map((field) => ({ ...field, defaultValue: field.defaultValue ?? null }));
 }
+
+const materialScopeSchema=z.object({bookId:z.string().uuid().optional(),spaceId:z.string().uuid().optional()}).refine(value=>Boolean(value.bookId)!==Boolean(value.spaceId),"必须且只能指定书籍或公共资源空间。");
+function materialScope(req:Request):{bookId?:string;spaceId?:string}{return materialScopeSchema.parse({bookId:typeof req.query.bookId==="string"?req.query.bookId:undefined,spaceId:typeof req.query.spaceId==="string"?req.query.spaceId:undefined});}
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
@@ -401,6 +418,23 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/books", asyncRoute(async (req, res) => success(res, await createBook(body(bookInputSchema, req)), 201)));
   router.get("/books/:id", asyncRoute(async (req, res) => success(res, await getBook(String(req.params.id)))));
   router.get("/books/:id/view-workspace", asyncRoute(async (req,res)=>success(res,await getBookViewWorkspace(String(req.params.id)))));
+  router.get("/material-management/workspace",asyncRoute(async(req,res)=>success(res,await getMaterialManagementWorkspace(materialScope(req)))));
+  router.post("/material-management/query",asyncRoute(async(req,res)=>success(res,await queryMaterials(materialScope(req),body(materialQuerySchema,req)))));
+  router.post("/material-management/tags",asyncRoute(async(req,res)=>success(res,await createMaterialTag(materialScope(req),body(materialTagCreateSchema,req)),201)));
+  router.patch("/material-management/tags/:id",asyncRoute(async(req,res)=>success(res,await reviseMaterialTag(materialScope(req),String(req.params.id),body(materialTagRevisionSchema,req)))));
+  router.post("/material-management/tags/:id/archive",asyncRoute(async(req,res)=>success(res,await reviseMaterialTag(materialScope(req),String(req.params.id),body(materialTagRevisionSchema,req),"archived"))));
+  router.post("/material-management/tags/:id/memberships",asyncRoute(async(req,res)=>{const input=body(materialMembershipSchema,req);success(res,await bulkChangeTagMemberships(materialScope(req),{tagId:String(req.params.id),...input}));}));
+  router.post("/material-management/groups",asyncRoute(async(req,res)=>success(res,await createMaterialGroup(materialScope(req),body(materialGroupCreateSchema,req)),201)));
+  router.patch("/material-management/groups/:id",asyncRoute(async(req,res)=>success(res,await reviseMaterialGroup(materialScope(req),String(req.params.id),body(materialGroupRevisionSchema,req)))));
+  router.post("/material-management/groups/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveMaterialGroup(materialScope(req),String(req.params.id),body(materialGroupArchiveSchema,req)))));
+  router.post("/material-management/groups/:id/memberships",asyncRoute(async(req,res)=>{const input=body(materialMembershipSchema,req);success(res,await bulkChangeGroupMemberships(materialScope(req),{groupId:String(req.params.id),...input}));}));
+  router.post("/material-management/views",asyncRoute(async(req,res)=>success(res,await createSmartMaterialView(materialScope(req),body(smartViewCreateSchema,req)),201)));
+  router.patch("/material-management/views/:id",asyncRoute(async(req,res)=>success(res,await reviseSmartMaterialView(materialScope(req),String(req.params.id),body(smartViewRevisionSchema,req)))));
+  router.post("/material-management/views/:id/archive",asyncRoute(async(req,res)=>success(res,await reviseSmartMaterialView(materialScope(req),String(req.params.id),body(smartViewRevisionSchema,req),"archived"))));
+  router.post("/material-management/views/:id/copy",asyncRoute(async(req,res)=>success(res,await copySmartMaterialView(materialScope(req),String(req.params.id),body(smartViewCopySchema,req)),201)));
+  router.post("/material-management/cards/:id/archive-preview",asyncRoute(async(req,res)=>success(res,await previewCardArchive(materialScope(req),String(req.params.id),body(cardArchivePreviewSchema,req)),201)));
+  router.post("/material-management/cards/:id/archive",asyncRoute(async(req,res)=>success(res,await confirmCardArchive(materialScope(req),String(req.params.id),body(cardArchiveConfirmSchema,req)))));
+  router.post("/material-management/cards/:id/restore",asyncRoute(async(req,res)=>success(res,await restoreArchivedCard(materialScope(req),String(req.params.id),body(cardRestoreManagedSchema,req)))));
   router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId)))));
   router.get("/books/:bookId/cards/:cardId/association-candidates",asyncRoute(async(req,res)=>success(res,await searchAssociationCandidates(String(req.params.bookId),String(req.params.cardId),associationSearchSchema.parse(req.query)))));
   router.post("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await addExistingAssociation(String(req.params.bookId),String(req.params.cardId),body(associationAddSchema,req)),201)));

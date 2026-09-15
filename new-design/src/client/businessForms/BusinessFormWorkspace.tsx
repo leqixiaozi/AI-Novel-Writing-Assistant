@@ -17,6 +17,7 @@ import { ApiError, newDesignApi } from "../api";
 import DynamicForm from "../DynamicForm";
 import AddInformationDialog from "./AddInformationDialog";
 import AssociationPanel from "./AssociationPanel";
+import MaterialManagementPanel from "./MaterialManagementPanel";
 import {
   SCOPE_COPY,
   cardsForType,
@@ -58,6 +59,7 @@ const TYPE_LABELS:Record<string,string>={short_text:"短文本",long_text:"长�
 function fieldSourceDetail(item:ScopedFieldDefinition){if(item.origin==="core")return "系统核心规格";if(item.origin==="template")return `随模板安装${item.sourceTemplateVersionId?` · 来源版本 ${item.sourceTemplateVersionId.slice(0,8)}`:""}`;if(item.origin==="book_extension")return `本书独立规格 · 字段版本 ${item.currentVersion.version}`;return `当前资料独立补充 · 字段版本 ${item.currentVersion.version}`;}
 
 export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props) {
+  const [browserMode,setBrowserMode]=useState<"types"|"tags"|"groups"|"views">("types");
   const [liveCardTypes,setLiveCardTypes]=useState(cardTypes);
   const availableTypes = useMemo(() => typesForScope(liveCardTypes, scope), [liveCardTypes, scope]);
   const [selectedTypeId, setSelectedTypeId] = useState("");
@@ -278,7 +280,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
       <button className="nd-button nd-button-primary" type="button" disabled={!resolution} onClick={beginCreate}>＋ 新建{selectedType?.name ?? "资料"}</button>
     </header>
 
-    <div className="nd-business-form-layout">
+    {scope==="all"&&<nav className="nd-material-mode-tabs" aria-label="本书资料查看方式">{([['types','内容类型'],['tags','标签'],['groups','分组目录'],['views','智能视图']] as const).map(([key,label])=><button className={browserMode===key?"is-selected":""} type="button" key={key} aria-pressed={browserMode===key} onClick={()=>setBrowserMode(key)}>{label}</button>)}</nav>}
+
+    {scope==="all"&&browserMode!=="types"?<MaterialManagementPanel scope={{bookId:book.id}} mode={browserMode} cards={workspace.cards} onOpenCard={(card)=>{selectType(card.cardTypeId);selectCard(card);setBrowserMode("types");}}/>:<div className="nd-business-form-layout">
       <aside className="nd-business-form-browser" aria-label={`${copy.title}内容类型与资料`}>
         <div className="nd-business-type-list">
           {availableTypes.map((type) => <button className={type.id === selectedType?.id ? "is-selected" : ""} type="button" key={type.id} onClick={() => selectType(type.id)}><strong>{type.name}</strong><small>{workspace.cards.filter((card) => card.cardTypeId === type.id && card.status === "active").length} 条资料</small></button>)}
@@ -320,7 +324,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
           <div className="nd-editor-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={() => { setCreating(false); setEditing(null); setConflict(null); setError(""); setNotice(""); }}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={busy || !title.trim() || Boolean(conflict)} onClick={() => void save()}>{busy ? "保存中…" : "保存资料"}</button></div>
         </>}
       </section>
-    </div>
+    </div>}
 
     {history && <div className="nd-dialog-backdrop" role="presentation" onMouseDown={() => setHistory(null)}><section className="nd-history-dialog" role="dialog" aria-modal="true" aria-labelledby="nd-business-history-title" onMouseDown={(event) => event.stopPropagation()}><div className="nd-section-heading"><div><p className="nd-kicker">只读修改记录</p><h2 id="nd-business-history-title">{historyTitle}</h2></div><button className="nd-dialog-close" type="button" aria-label="关闭修改记录" onClick={() => setHistory(null)}>×</button></div><div className="nd-history-list">{history.map((version) => <article key={version.id}><div><strong>修订 {version.revision}</strong><span>{historySource(version.source)} · 内容规格 v{version.typeVersion}{version.formVersion ? ` · 创作表单 v${version.formVersion}` : ""}</span></div><time>{new Date(version.createdAt).toLocaleString("zh-CN")}</time><h3>{version.title}</h3><dl>{Object.entries({...version.values,...version.localValues}).map(([key, value]) => <div key={key}><dt>{combinedFields.find((field) => field.key === key)?.name ?? key}</dt><dd>{displayValue(value, combinedFields.find((field) => field.key === key))}</dd></div>)}</dl></article>)}</div></section></div>}
     {addingInformation&&selectedType&&<AddInformationDialog bookId={book.id} cardType={selectedType} card={editing} onClose={()=>setAddingInformation(false)} onCreated={refreshAfterFieldCreate}/>}

@@ -144,4 +144,8 @@ export const migrations: Migration[] = [
     id: "035_association_mount_versions",
     fileName: "035_association_mount_versions.sql",
   },
+  {
+    id: "036_material_management_smart_views",
+    fileName: "036_material_management_smart_views.sql",
+  },
 ];
