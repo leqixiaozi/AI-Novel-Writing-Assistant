@@ -784,6 +784,22 @@ export interface Asset {id:string;spaceId:string;bookId:string;assetKey:string;a
 export interface AssetDetail extends Asset {versions:AssetVersion[];adoptions:AssetAdoption[];events:AssetEvent[];mounts:AssetMount[];derivations:AssetDerivation[];}
 export interface AssetBookSummary {bookId:string;activeAssets:number;contentObjects:number;activeMounts:number;pendingDerivations:number;staleDerivedAssets:number;missingOrCorruptObjects:number;totalBytes:number;}
 
+export type GraphProjectionSourceKind="book"|"card_version"|"chapter_body_version"|"canonical_fact"|"knowledge_state_change"|"state_change"|"state_projection"|"story_event_timing"|"story_event_timing_link"|"story_event_relation"|"planning_version"|"research_record_version"|"asset_version"|"card_relation"|"planning_parent"|"research_reference"|"research_reference_pack_item"|"asset_mount";
+export interface GraphProjectionAvailability {available:boolean;code:"ready"|"age_extension_missing"|"age_load_failed"|"graph_missing"|"configuration_missing";detail:string;graphName:string|null;extensionVersion:string|null;}
+export interface GraphProjectionConfig {graphName:string;mappingVersion:number;maxDepth:number;maxResults:number;statementTimeoutMs:number;status:"active"|"disabled";}
+export interface GraphProjectionGeneration {id:string;bookId:string;generation:number;mappingVersion:number;status:"building"|"ready"|"active"|"failed"|"superseded";sourceWatermark:Record<string,unknown>;vertexCount:number;edgeCount:number;projectionChecksum:string|null;errorCode:string;errorDetail:string;retryable:boolean;startedAt:string;completedAt:string|null;activatedAt:string|null;}
+export interface GraphProjectionBookState {bookId:string;activeGenerationId:string|null;status:"idle"|"building"|"active"|"degraded"|"unavailable";lastRequestAt:string|null;lastSuccessAt:string|null;lastErrorCode:string;lastErrorDetail:string;revision:number;updatedAt:string;activeGeneration:GraphProjectionGeneration|null;}
+export interface GraphProjectionRequest {id:string;bookId:string;generationId:string|null;requestKind:"incremental_upsert"|"tombstone"|"full_rebuild";dependencyResourceId:string|null;sourceKind:string|null;sourceId:string|null;sourceVersionId:string|null;sourceRevision:number|null;sourceHash:string|null;reason:string;status:"pending"|"processing"|"succeeded"|"failed"|"superseded";attemptCount:number;idempotencyKey:string;lastErrorCode:string;lastErrorDetail:string;retryable:boolean;createdAt:string;startedAt:string|null;completedAt:string|null;}
+export interface GraphProjectionBatch {id:string;requestId:string;bookId:string;generationId:string;mode:"incremental"|"full_rebuild";status:"running"|"succeeded"|"failed";sourceWatermark:Record<string,unknown>;processedCount:number;vertexCount:number;edgeCount:number;checksum:string|null;startedAt:string;completedAt:string|null;}
+export interface GraphProjectionFailure {id:string;requestId:string;batchId:string|null;bookId:string;generationId:string|null;stage:string;errorCode:string;errorDetail:string;retryable:boolean;createdAt:string;}
+export interface GraphProjectionSourceMapping {id:string;bookId:string;generationId:string;elementKind:"vertex"|"edge";graphLabel:string;graphElementKey:string;sourceKind:string;sourceId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;projectionHash:string;status:"active"|"tombstoned";projectedAt:string;tombstonedAt:string|null;}
+export type GraphTraversalKind="neighbors"|"shortest_path"|"character_network"|"event_causal_chain"|"clue_links"|"item_links"|"location_links";
+export interface GraphSourceRef {sourceKind:string;sourceId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;title:string;}
+export interface GraphTraversalEdge extends GraphSourceRef {relationKind:string;}
+export interface GraphTraversalPath {nodes:GraphSourceRef[];edges:GraphTraversalEdge[];hops:number;}
+export interface GraphTraversalResult {bookId:string;generationId:string;queryKind:GraphTraversalKind;paths:GraphTraversalPath[];truncated:boolean;}
+export interface GraphProjectionHealth {availability:GraphProjectionAvailability;config:GraphProjectionConfig|null;state:GraphProjectionBookState;pendingRequests:number;failedRequests:number;activeMappings:number;}
+
 export interface ApiEnvelope<T> {
   success: boolean;
   data?: T;

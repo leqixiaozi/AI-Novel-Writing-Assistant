@@ -32,10 +32,17 @@
 - `AiTask` / `AiTaskStep` / `AiTaskAttempt`：提供通用 AI 执行账本；任务、步骤和多次尝试分层保存，状态事件、租约检查点、技术重试、人工重开、审批与用量均可追溯，任务本身不复制小说事实。
 - `QualityAuditReport` / `QualityIssue` / `QualityFixCandidate` / `QualityRecheck`：冻结一次质量审计的正文、规划、事实和 AI 执行依据；证据、问题版本、修复候选、人工决定、正式采用引用与复检链只追加留痕。
 - `AssetContentObject` / `Asset` / `AssetVersion` / `AssetMount` / `AssetDerivation`：以校验和登记文件内容，以不可变版本保存附件历史，把确切版本挂到书籍生产对象，并记录缩略图、OCR、转码、抽帧、解析文本和封面变体的可重建派生链。
+- `GraphProjectionGeneration` / `GraphProjectionRequest` / `GraphProjectionSourceMapping`：把当前／采用／有效的关系正本投影到 Apache AGE，共享图按书籍和世代隔离，支持可诊断增量同步、墓碑、全量重建与固定关系遍历。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/027_asset_version_ledger.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/028_age_graph_projection.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
+
+AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
+
+> 🏠 **白话比喻**：PostgreSQL 关系表是档案馆的签字原件，AGE 是按原件重印的关系索引册。索引册损坏可以重新印，索引册上的批注不能反过来修改原件。对应到系统：关系表是唯一正本，AGE 只是按书籍和世代隔离的可重建查询投影。
+
+> 🧠 **速记方法**：**原件在表，索引在图；当前才投影，验数再换代；只走固定查询，不开任意 Cypher**。
 
 ## 内置创作资料规格
 
@@ -127,7 +134,7 @@ pnpm dev
 
 浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `025` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、通用任务账本与质量审计数据。默认数据位置：
+首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `028` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、完整故事时间、四层规划版本、AI 执行合同、通用任务账本、质量审计、统一依赖、附件资产与 AGE 图投影数据。028 要求数据库运行包同时提供与 PostgreSQL 主版本匹配的 Apache AGE；缺少扩展或无法 `LOAD` 时初始化会明确失败，不会回退到 SQLite、内存图或其他数据库。默认数据位置：
 
 - 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
 - 仓库开发：`new-design/.data/`
@@ -149,4 +156,4 @@ pnpm --filter @ai-novel/client build
 
 ## 当前范围之外
 
-本模块当前不包含真实审稿模型、自动修文、质量门禁业务编排、质量热力图或审稿 UI，也不包含关系图可视化、AGE、pgvector、旧数据迁移、备份恢复 UI 或数据库主版本升级。后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。
+本模块当前不包含真实审稿模型、自动修文、质量门禁业务编排、质量热力图或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、pgvector、旧数据迁移、备份恢复 UI、图同步后台 worker 或数据库主版本升级。AGE 运行环境、真实迁移、agtype 解析、增量／双世代切换、跨书隔离、重启回读、大图限制、备份恢复和安装包升级仍是 Release Gate 验证债务；后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。

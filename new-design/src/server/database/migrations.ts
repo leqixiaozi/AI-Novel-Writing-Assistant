@@ -104,4 +104,16 @@ export const migrations: Migration[] = [
     id: "025_quality_audit_ledger",
     fileName: "025_quality_audit_ledger.sql",
   },
+  {
+    id: "026_dependency_invalidation_ledger",
+    fileName: "026_dependency_invalidation_ledger.sql",
+  },
+  {
+    id: "027_asset_version_ledger",
+    fileName: "027_asset_version_ledger.sql",
+  },
+  {
+    id: "028_age_graph_projection",
+    fileName: "028_age_graph_projection.sql",
+  },
 ];

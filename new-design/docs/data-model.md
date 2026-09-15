@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -277,6 +277,32 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 #### Release Gate 验证债务
 
 本批按“优先开发、只做静态 review”执行，尚未运行真实 PostgreSQL 迁移、受管文件写入与重启回读、实际缩略图／OCR／转码派生、数据库与文件目录联合备份恢复、桌面安装包路径升级验证。这些项目必须在进入 `beta` 或发布前补做；在完成前不能把附件持久化、跨机器恢复或派生闭环标记为已验收。
+
+### Apache AGE 关系查询投影
+
+`028_age_graph_projection.sql` 明确把 PostgreSQL 关系表保留为唯一正本，AGE 共享图 `new_design_projection` 只保存可重建的当前查询索引。节点和边都携带 `book_id`、来源类型、稳定对象 ID、确切版本 ID、修订、世代与内容哈希，可以反查到原表；客户端不能直接写图，也不能把图属性当成小说事实。一个共享图通过 `book_id + generation_id` 双重隔离书籍和重建世代，所有预定义遍历都同时带这两个条件。
+
+投影只纳入当前／已采用／有效对象：有效书籍和卡片当前版本、章节采用正文、已确认事实、当前认知和状态、有效故事时间与因果关系、采用且未陈旧的规划、书籍直接引用或参考包引用的研究版本，以及附件当前版本和有效挂载。历史版本继续完整留在关系表中，不复制进当前图；资源失效时在当前世代写墓碑，历史审计仍回关系账本读取。
+
+`graph_projection_requests` 接收 026 资源登记和失效事件形成的幂等增量请求。每次执行都会留下 `graph_projection_batches`、不可变 checkpoint、来源映射和可重试失败记录；处理前再次回源确认该版本仍为当前或采用版本。全量重建写入新 generation，完成图内节点／边计数校验后才原子切换 `graph_projection_book_states.active_generation_id`，失败世代不会替换旧的可用世代。增量写入后总量会回写当前世代，完整快照校验和置空，直到下一次全量重建重新冻结。
+
+查询只开放邻居、最短路径、人物关系网、事件因果链、线索关联、道具关联和地点关联七类固定入口。服务端限制深度不超过 6、结果不超过 200、单次语句不超过 5 秒；图名、标签和 Cypher 模板均由服务端固定，用户输入只能作为 agtype 参数，不能提交任意 Cypher。所有 AGE 连接统一执行 `LOAD 'age'`、设置 `search_path` 并集中解析 agtype；扩展、共享图或加载过程缺失时返回明确不可用状态，不回退到其他数据库伪装成功。
+
+| 对象 | 数据责任 | 关键约束 |
+|---|---|---|
+| `graph_projection_configs` / `graph_projection_mapping_definitions` | 固定图名、映射版本和遍历上限 | 配置可诊断，映射不接受客户端拼接 |
+| `graph_projection_generations` / `graph_projection_book_states` | 保存重建世代及当前激活指针 | 新世代校验成功后才切换，失败不影响旧世代 |
+| `graph_projection_requests` / `graph_projection_batches` / `graph_projection_checkpoints` | 保存增量、墓碑和全量重建执行链 | 幂等、可重试、checkpoint 只追加 |
+| `graph_projection_source_mappings` | 把图元素回指关系正本 | 携带书籍、版本、修订、世代和哈希，只能转墓碑 |
+| `graph_projection_failures` | 保存失败阶段和诊断 | 只追加，不用错误文本覆盖历史 |
+
+> 🏠 **白话比喻**：关系表像档案馆里的签字原件，AGE 像按这些原件印出来的关系索引册。索引册能很快查“谁和谁有关”，丢了可以重印；任何人都不能拿索引册上的铅笔批注去改原件。对应到系统：PostgreSQL 表是唯一正本，AGE 是带书籍和世代编号的可重建查询投影。
+
+> 🧠 **速记方法**：**关系库存原件，AGE 印索引；当前才入图，失效打墓碑；新代验数再切换，查询只走固定路**。
+
+#### AGE Release Gate 验证债务
+
+本批按用户要求只完成静态 review，尚未安装并加载与 PostgreSQL 17 匹配的 Apache AGE、执行 028 真实迁移、验证真实 Cypher 与 agtype 解析、运行增量同步和双世代切换、复核跨书隔离与版本归档墓碑、演练失败重试和进程重启回读，也未做大图深度／数量／超时压力、备份恢复和安装包升级验证。上述项目必须在进入 `beta` 或发布前完成；当前不能把 AGE 运行闭环标记为已验收。
 
 > 🏠 **白话比喻**：总计划像建筑总图，卷、章、场景像楼层图、房间图和施工单。总图换版时，施工单不会被人偷偷重画，而是盖上“依据旧图，待复核”的章；采用哪一版则像档案室门口唯一生效的蓝图编号。
 

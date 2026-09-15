@@ -61,6 +61,7 @@ import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeat
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
 import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdge, endDependencyEdge, getDependencyBookSummary, getDependencyInvalidation, listCurrentDependencyStates, listDependencyConflicts, listDependencyHistory, listDependencyReceipts, listDependencyRecomputeRequests, listResourceDependencies, previewDependencyChange, recordDependencyInvalidation, registerDependencyResource, resolveDependencyConflict, startDependencyRecompute } from "../database/dependencies";
 import { addAssetVersion, adoptAssetVersion, archiveAsset, completeAssetDerivation, createAsset, createAssetDerivation, createAssetMount, endAssetMount, getAsset, getAssetBookSummary, getAssetLineage, listAssetDerivations, listAssetMounts, listAssets, listAssetVersions, previewAssetAdoption, recordAssetIntegrityCheck, registerAssetContent, startAssetDerivation } from "../database/assets";
+import { getGraphProjectionBatch, getGraphProjectionHealth, getGraphProjectionState, listGraphProjectionBatches, listGraphProjectionFailures, listGraphProjectionGenerations, listGraphProjectionMappings, listGraphProjectionRequests, processGraphProjectionRequest, rebuildGraphProjection, traverseGraph } from "../database/graph";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -214,6 +215,11 @@ import {
   assetListQuerySchema,
   assetMountListQuerySchema,
   assetDerivationListQuerySchema,
+  graphProjectionRequestQuerySchema,
+  graphProjectionListQuerySchema,
+  graphProjectionMappingQuerySchema,
+  graphProjectionRebuildSchema,
+  graphTraversalSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -518,6 +524,17 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/assets/derivations/:id/complete",asyncRoute(async(req,res)=>success(res,await completeAssetDerivation(String(req.params.id),body(assetDerivationCompleteSchema,req)),201)));
   router.get("/books/:id/assets/derivations",asyncRoute(async(req,res)=>success(res,await listAssetDerivations({bookId:String(req.params.id),...assetDerivationListQuerySchema.parse(req.query)}))));
   router.get("/books/:id/assets/summary",asyncRoute(async(req,res)=>success(res,await getAssetBookSummary(String(req.params.id)))));
+  router.get("/books/:id/graph/health",asyncRoute(async(req,res)=>success(res,await getGraphProjectionHealth(String(req.params.id)))));
+  router.get("/books/:id/graph/state",asyncRoute(async(req,res)=>success(res,await getGraphProjectionState(String(req.params.id)))));
+  router.get("/books/:id/graph/requests",asyncRoute(async(req,res)=>success(res,await listGraphProjectionRequests({bookId:String(req.params.id),...graphProjectionRequestQuerySchema.parse(req.query)}))));
+  router.post("/graph/requests/:id/process",asyncRoute(async(req,res)=>success(res,await processGraphProjectionRequest(String(req.params.id)))));
+  router.get("/graph/requests/:id/batch",asyncRoute(async(req,res)=>success(res,await getGraphProjectionBatch(String(req.params.id)))));
+  router.get("/graph/requests/:id/batches",asyncRoute(async(req,res)=>success(res,await listGraphProjectionBatches(String(req.params.id),graphProjectionListQuerySchema.parse(req.query).limit))));
+  router.post("/books/:id/graph/rebuild",asyncRoute(async(req,res)=>success(res,await rebuildGraphProjection(String(req.params.id),body(graphProjectionRebuildSchema,req)),201)));
+  router.get("/books/:id/graph/generations",asyncRoute(async(req,res)=>success(res,await listGraphProjectionGenerations(String(req.params.id),graphProjectionListQuerySchema.parse(req.query).limit))));
+  router.get("/books/:id/graph/failures",asyncRoute(async(req,res)=>success(res,await listGraphProjectionFailures(String(req.params.id),graphProjectionListQuerySchema.parse(req.query).limit))));
+  router.get("/books/:id/graph/mappings",asyncRoute(async(req,res)=>success(res,await listGraphProjectionMappings({bookId:String(req.params.id),...graphProjectionMappingQuerySchema.parse(req.query)}))));
+  router.post("/books/:id/graph/traverse",asyncRoute(async(req,res)=>success(res,await traverseGraph({bookId:String(req.params.id),...body(graphTraversalSchema,req)}))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

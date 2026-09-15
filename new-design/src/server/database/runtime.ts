@@ -242,7 +242,7 @@ async function applyMigrations(pool: Pool): Promise<void> {
       const sql = await fs.readFile(migrationPath, "utf8");
       await client.query("BEGIN");
       await client.query(sql);
-      await client.query("INSERT INTO new_design.schema_migrations (id) VALUES ($1)", [migration.id]);
+      await client.query("INSERT INTO new_design.schema_migrations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING", [migration.id]);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
