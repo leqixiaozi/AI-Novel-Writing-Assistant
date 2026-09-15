@@ -26,6 +26,7 @@ const facts = require("../dist/server/database/factStore.js");
 const states = require("../dist/server/database/stateStore.js");
 const knowledge = require("../dist/server/database/knowledgeStore.js");
 const storyTimeline = require("../dist/server/database/storyTimeline/index.js");
+const planning = require("../dist/server/database/planning/index.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -280,9 +281,11 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const viewEvents = viewWorkspace.cards.filter((card) => card.typeKey === "event");
   const viewEvent = viewEvents[0];
   const viewChapters = viewWorkspace.cards.filter((card) => card.typeKey === "chapter");
+  const viewVolumes = viewWorkspace.cards.filter((card) => card.typeKey === "volume");
+  const viewScenes = viewWorkspace.cards.filter((card) => card.typeKey === "scene");
   const viewCharacters = viewWorkspace.cards.filter((card) => card.typeKey === "character");
   const viewClue = viewWorkspace.cards.find((card) => ["clue_evidence", "foreshadow"].includes(card.typeKey));
-  assert.ok(viewEvents.length >= 4 && viewChapters.length >= 2 && viewCharacters.length >= 2 && viewClue);
+  assert.ok(viewEvents.length >= 4 && viewVolumes.length >= 1 && viewChapters.length >= 2 && viewScenes.length >= 1 && viewCharacters.length >= 2 && viewClue);
 
   let chapterDocument=await chapterBodies.createChapterDocument({bookId:sampleBook.id,chapterCardId:viewChapters[0].id,logicalOrder:1,title:"第一章正文"});
   const manualBody=await chapterBodies.addChapterBodyVersion(chapterDocument.id,{content:"沈照微在白水驿点亮照骨灯。",source:"manual",createdByKind:"user",createdBy:"integration-test"});
@@ -337,6 +340,43 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(pendingFact.evidence[0].staleAt,null);
   const persistedCorrectedFactId=correctedFact.id,persistedPendingFactId=pendingFact.id;
 
+  let storyPlan=await planning.createPlanningObject({bookId:sampleBook.id,level:"story",title:"照骨山河总计划",sortOrder:0,content:{premise:"守灯人追查父亲旧案",ending:"以失去记忆为代价照见真相"},source:"manual",createdBy:"integration-test"});
+  assert.equal(storyPlan.currentVersion.status,"draft");
+  const storyAdoptKey=`plan-story-adopt-${Date.now()}`;
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyPlan.currentVersionId,expectedRevision:storyPlan.revision,idempotencyKey:storyAdoptKey,actor:"integration-test"});
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyPlan.adoptedVersionId,expectedRevision:1,idempotencyKey:storyAdoptKey,actor:"integration-test"});
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyPlan.adoptedVersionId,expectedRevision:storyPlan.revision,idempotencyKey:`plan-story-readopt-${Date.now()}`,actor:"integration-test"});
+  assert.equal(storyPlan.adoptions[0].action,"readopt");
+  let volumePlan=await planning.createPlanningObject({bookId:sampleBook.id,level:"volume",parentObjectId:storyPlan.id,cardId:viewVolumes[0].id,title:"第一卷计划",sortOrder:0,content:{goal:"进入无灯观",climax:"白水封镇"},source:"ai",basedOnParentVersionId:storyPlan.adoptedVersionId,createdBy:"integration-model"});
+  assert.equal(volumePlan.currentVersion.status,"proposed");
+  assert.equal(volumePlan.adoptedVersionId,null);
+  volumePlan=await planning.addPlanningVersion(volumePlan.id,{content:{goal:"进入无灯观并确认旧案",climax:"白水封镇"},source:"manual",basedOnParentVersionId:storyPlan.adoptedVersionId,expectedRevision:volumePlan.revision,createdBy:"integration-test"});
+  assert.equal(volumePlan.versions.length,2);
+  await assert.rejects(()=>planning.addPlanningVersion(volumePlan.id,{content:{goal:"过期修改"},source:"manual",basedOnParentVersionId:storyPlan.adoptedVersionId,expectedRevision:1,createdBy:"integration-test"}),(error)=>error.status===409&&/其他位置/.test(error.message));
+  volumePlan=await planning.adoptPlanningVersion(volumePlan.id,{versionId:volumePlan.currentVersionId,expectedRevision:volumePlan.revision,idempotencyKey:`plan-volume-adopt-${Date.now()}`,actor:"integration-test"});
+  let chapterPlan=await planning.createPlanningObject({bookId:sampleBook.id,level:"chapter",parentObjectId:volumePlan.id,cardId:viewChapters[0].id,title:"第一章计划",sortOrder:0,content:{goal:"点灯发现旧案残痕"},source:"manual",basedOnParentVersionId:volumePlan.adoptedVersionId,createdBy:"integration-test"});
+  chapterPlan=await planning.adoptPlanningVersion(chapterPlan.id,{versionId:chapterPlan.currentVersionId,expectedRevision:chapterPlan.revision,idempotencyKey:`plan-chapter-adopt-${Date.now()}`,actor:"integration-test"});
+  let scenePlan=await planning.createPlanningObject({bookId:sampleBook.id,level:"scene",parentObjectId:chapterPlan.id,cardId:viewScenes[0].id,title:"第一场计划",sortOrder:0,content:{beat:"夜雨点灯"},source:"ai",basedOnParentVersionId:chapterPlan.adoptedVersionId,createdBy:"integration-model"});
+  scenePlan=await planning.adoptPlanningVersion(scenePlan.id,{versionId:scenePlan.currentVersionId,expectedRevision:scenePlan.revision,idempotencyKey:`plan-scene-adopt-${Date.now()}`,actor:"integration-test"});
+  const originalBodyPointer=(await chapterBodies.getChapterDocument(chapterDocument.id)).adoptedVersionId;
+  chapterPlan=await planning.addPlanningVersion(chapterPlan.id,{content:{goal:"正文揭示父亲旧案残痕"},source:"body_revision",sourceBodyVersionId:candidateB.id,basedOnParentVersionId:volumePlan.adoptedVersionId,expectedRevision:chapterPlan.revision,createdBy:"integration-test"});
+  chapterPlan=await planning.adoptPlanningVersion(chapterPlan.id,{versionId:chapterPlan.currentVersionId,expectedRevision:chapterPlan.revision,idempotencyKey:`plan-chapter-body-adopt-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await chapterBodies.getChapterDocument(chapterDocument.id)).adoptedVersionId,originalBodyPointer);
+  assert.ok((await planning.listPlanningImpacts(sampleBook.id)).some((item)=>item.targetKind==="chapter_body"&&item.targetId===candidateB.id));
+  assert.ok((await planning.listStalePlanningVersions(sampleBook.id)).some((item)=>item.id===scenePlan.adoptedVersionId));
+  scenePlan=await planning.addPlanningVersion(scenePlan.id,{content:{beat:"夜雨点灯后确认旧案"},source:"manual",basedOnParentVersionId:chapterPlan.adoptedVersionId,expectedRevision:scenePlan.revision,createdBy:"integration-test"});
+  scenePlan=await planning.adoptPlanningVersion(scenePlan.id,{versionId:scenePlan.currentVersionId,expectedRevision:scenePlan.revision,idempotencyKey:`plan-scene-refresh-${Date.now()}`,actor:"integration-test"});
+  const adoptedScenePlanVersionId=scenePlan.adoptedVersionId;
+  const sceneContext=await planning.getPlanningVersionContext(adoptedScenePlanVersionId);
+  assert.deepEqual(sceneContext.ancestors.map((item)=>item.object.level),["story","volume","chapter"]);
+  scenePlan=await planning.addPlanningVersion(scenePlan.id,{content:{beat:"待驳回候选"},source:"ai",basedOnParentVersionId:chapterPlan.adoptedVersionId,expectedRevision:scenePlan.revision,createdBy:"integration-model"});
+  scenePlan=await planning.rejectPlanningVersion(scenePlan.id,{versionId:scenePlan.currentVersionId,expectedRevision:scenePlan.revision,actor:"integration-test"});
+  assert.equal(scenePlan.currentVersion.status,"rejected");
+  const planTree=await planning.getAdoptedPlanningTree(sampleBook.id);
+  assert.equal(planTree.object.level,"story");
+  assert.equal(planTree.children[0].children[0].children[0].object.level,"scene");
+  const persistedStoryPlanId=storyPlan.id,persistedScenePlanVersionId=adoptedScenePlanVersionId;
+
   let narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"首次出场" });
   let storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:10,endOrder:12,startLabel:"宗门历七月初三",endLabel:"宗门历七月初五",uncertainty:"" });
   const narrativePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"narrative_placement",input:{ subjectCardId:viewEvent.id,chapterCardId:viewChapters[1].id,role:"appears",note:"改到下一章",revision:narrative.revision } });
@@ -388,7 +428,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   let temporalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"ai",relationFamily:"temporal",relationType:"after",sourceEventCardId:parallelEventB.id,targetEventCardId:parallelEventA.id,evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,confidence:.9,reason:"并行事件在封镇开始后进入高潮。",editor:"integration-model"});
   temporalProposal=await storyTimeline.reviewStoryRelationProposal(temporalProposal.id,{action:"confirm",expectedRevision:temporalProposal.revision,idempotencyKey:`story-temporal-${Date.now()}`,actor:"integration-test"});
   assert.equal((await storyTimeline.listTemporalNeighbors(sampleBook.id,parallelEventA.id))[0].relationType,"before");
-  let causalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"ai",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventB.id,evidenceKind:"body",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,confidence:.86,reason:"封镇迫使队伍进入无灯观。",editor:"integration-model"});
+  let causalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"ai",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventB.id,evidenceKind:"plan_version",planVersionId:adoptedScenePlanVersionId,confidence:.86,reason:"场景计划规定封镇迫使队伍进入无灯观。",editor:"integration-model"});
   causalProposal=await storyTimeline.reviewStoryRelationProposal(causalProposal.id,{action:"confirm",expectedRevision:causalProposal.revision,idempotencyKey:`story-causal-${Date.now()}`,actor:"integration-test"});
   assert.ok((await storyTimeline.listCausalGraph(sampleBook.id,parallelEventB.id,"upstream")).some((item)=>item.id===causalProposal.confirmedRelationId));
   let duplicateCausalProposal=await storyTimeline.proposeStoryRelation({bookId:sampleBook.id,proposalSource:"manual",relationFamily:"causal",relationType:"causes",sourceEventCardId:parallelEventA.id,targetEventCardId:parallelEventB.id,evidenceKind:"manual",reason:"用于验证重复关系保护。",editor:"integration-test"});
@@ -400,11 +440,26 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===parallelEventA.id).lifecycle,"occurred");
   assert.equal((await (await runtime.getNewDesignPool()).query("SELECT status FROM new_design.story_event_timings WHERE id=$1",[plannedTiming.id])).rows[0].status,"superseded");
 
-  let unknownTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:unknownTimeEvent.id,proposalSource:"manual",lifecycle:"planned",timeMode:"unknown",startCertainty:"unknown",endCertainty:"unknown",evidenceKind:"manual",reason:"事件存在，但具体发生时间尚未决定。",editor:"integration-test"});
+  let unknownTimingProposal=await storyTimeline.proposeStoryTime({bookId:sampleBook.id,eventCardId:unknownTimeEvent.id,proposalSource:"manual",lifecycle:"planned",timeMode:"unknown",startCertainty:"unknown",endCertainty:"unknown",evidenceKind:"plan_version",planVersionId:adoptedScenePlanVersionId,reason:"场景计划保留该事件，但具体发生时间尚未决定。",editor:"integration-test"});
   unknownTimingProposal=await storyTimeline.reviewStoryTimeProposal(unknownTimingProposal.id,{action:"confirm",expectedRevision:unknownTimingProposal.revision,idempotencyKey:`story-time-unknown-${Date.now()}`,actor:"integration-test"});
   assert.ok((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).some((item)=>item.eventCardId===unknownTimeEvent.id&&item.normalizedStart===null));
   assert.ok(!(await storyTimeline.listStoryTimingsInRange(sampleBook.id,{normalizedStart:-100,normalizedEnd:100})).some((item)=>item.eventCardId===unknownTimeEvent.id));
   const persistedParallelTimeProposalId=parallelTimingProposal.id,persistedCausalProposalId=causalProposal.id,persistedOccurredTimeProposalId=occurredTimingProposal.id;
+  storyPlan=await planning.addPlanningVersion(storyPlan.id,{content:{premise:"守灯人追查山门与父亲两代旧案",ending:"保留记忆并公开真相"},source:"manual",expectedRevision:storyPlan.revision,createdBy:"integration-test"});
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyPlan.currentVersionId,expectedRevision:storyPlan.revision,idempotencyKey:`plan-story-switch-${Date.now()}`,actor:"integration-test"});
+  const stalePlans=await planning.listStalePlanningVersions(sampleBook.id);
+  assert.ok(stalePlans.some((item)=>item.objectId===volumePlan.id));
+  assert.ok(stalePlans.some((item)=>item.objectId===chapterPlan.id));
+  assert.ok(stalePlans.some((item)=>item.id===adoptedScenePlanVersionId));
+  assert.equal((await storyTimeline.getStoryTimeProposal(unknownTimingProposal.id)).status,"stale");
+  assert.equal((await storyTimeline.getStoryRelationProposal(causalProposal.id)).status,"stale");
+  assert.equal((await chapterBodies.getChapterDocument(chapterDocument.id)).adoptedVersionId,candidateB.id);
+  assert.ok((await planning.listPlanningImpacts(sampleBook.id,"pending_review")).some((item)=>item.targetKind==="story_time"));
+  const storyVersionOne=storyPlan.versions.find((item)=>item.version===1);
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyVersionOne.id,expectedRevision:storyPlan.revision,idempotencyKey:`plan-story-rollback-${Date.now()}`,actor:"integration-test"});
+  assert.equal(storyPlan.adoptions[0].action,"rollback");
+  storyPlan=await planning.adoptPlanningVersion(storyPlan.id,{versionId:storyPlan.currentVersionId,expectedRevision:storyPlan.revision,idempotencyKey:`plan-story-readopt-history-${Date.now()}`,actor:"integration-test"});
+  assert.equal(storyPlan.adoptedVersionId,storyPlan.currentVersionId);
 
   const relationship = await bookViews.saveCharacterRelation(sampleBook.id, { sourceCardId:viewCharacters[0].id,targetCardId:viewCharacters[1].id,sourceLabel:"师父",inverseLabel:"弟子",note:"共同守护山门" });
   const reversePerspective = relationship.sourceCardId === viewCharacters[1].id ? relationship.sourceLabel : relationship.inverseLabel;
@@ -640,6 +695,10 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const bookResearchReferences=await referencePacks.listBookResearchReferences(researchBook.id);
   assert.equal(bookResearchReferences.length,1);
   assert.equal(bookResearchReferences[0].packVersionId,lockedPackVersionId);
+  let isolatedStoryPlan=await planning.createPlanningObject({bookId:researchBook.id,level:"story",title:"研究书独立总计划",sortOrder:0,content:{premise:"独立测试"},source:"manual",createdBy:"integration-test"});
+  isolatedStoryPlan=await planning.adoptPlanningVersion(isolatedStoryPlan.id,{versionId:isolatedStoryPlan.currentVersionId,expectedRevision:isolatedStoryPlan.revision,idempotencyKey:`plan-isolated-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await planning.getAdoptedPlanningTree(researchBook.id)).object.id,isolatedStoryPlan.id);
+  assert.equal((await planning.getAdoptedPlanningTree(sampleBook.id)).object.id,persistedStoryPlanId);
 
   let aiSession = await bookCreation.createBookCreationSession({
     method: "idea",
@@ -805,4 +864,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal((await storyTimeline.getStoryTimeProposal(persistedParallelTimeProposalId)).status,"stale");
   assert.equal((await storyTimeline.getStoryTimeProposal(persistedOccurredTimeProposalId)).status,"confirmed");
   assert.equal((await storyTimeline.listCurrentStoryTimings(sampleBook.id)).find((item)=>item.eventCardId===parallelEventA.id).lifecycle,"occurred");
+  const restartedStoryPlan=await planning.getPlanningObject(persistedStoryPlanId);
+  assert.equal(restartedStoryPlan.versions.length,2);
+  assert.ok((await planning.getPlanningVersionContext(persistedScenePlanVersionId)).ancestors.length===3);
 });

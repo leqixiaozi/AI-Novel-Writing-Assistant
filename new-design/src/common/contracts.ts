@@ -582,6 +582,17 @@ export interface StoryRelationReviewAction {id:string;proposalId:string;proposal
 export interface StoryRelationProposal {id:string;bookId:string;proposalSource:StoryTimeProposalSource;status:"proposed"|"confirmed"|"rejected"|"stale"|"invalidated";currentVersionId:string;confirmedRelationId:string|null;revision:number;currentVersion:StoryRelationProposalVersion;versions:StoryRelationProposalVersion[];reviewActions:StoryRelationReviewAction[];createdAt:string;updatedAt:string;}
 export interface StoryEventRelation {id:string;sequence:number;bookId:string;proposalId:string;proposalVersionId:string;relationFamily:StoryRelationFamily;relationType:Exclude<StoryRelationType,"after">;sourceEventCardId:string;targetEventCardId:string;confidence:number|null;status:"active"|"stale"|"invalidated";confirmedBy:string;reason:string;createdAt:string;}
 
+export type PlanningLevel="story"|"volume"|"chapter"|"scene";
+export type PlanningVersionSource="manual"|"ai"|"import"|"system"|"body_revision";
+export type PlanningVersionStatus="draft"|"proposed"|"adopted"|"superseded"|"rejected";
+export interface PlanningVersion {id:string;objectId:string;bookId:string;version:number;baseVersionId:string|null;basedOnParentVersionId:string|null;source:PlanningVersionSource;status:PlanningVersionStatus;content:Record<string,unknown>;contentHash:string;sourceBodyVersionId:string|null;createdBy:string;staleAt:string|null;staleReason:string;createdAt:string;}
+export interface PlanningAdoption {id:string;objectId:string;bookId:string;fromVersionId:string|null;toVersionId:string;action:"adopt"|"rollback"|"readopt";objectRevision:number;source:"user"|"system"|"import";actor:string;contentHash:string;idempotencyKey:string;createdAt:string;}
+export interface PlanningVersionAction {id:string;objectId:string;versionId:string;action:"create"|"edit"|"reject"|"mark_stale";actor:string;note:string;createdAt:string;}
+export interface PlanningObject {id:string;bookId:string;level:PlanningLevel;parentObjectId:string|null;cardId:string|null;title:string;sortOrder:number;status:"active"|"archived";currentVersionId:string;adoptedVersionId:string|null;revision:number;currentVersion:PlanningVersion;adoptedVersion:PlanningVersion|null;versions:PlanningVersion[];adoptions:PlanningAdoption[];actions:PlanningVersionAction[];createdAt:string;updatedAt:string;}
+export interface PlanningTreeNode {object:PlanningObject;children:PlanningTreeNode[];}
+export interface PlanningVersionContext {version:PlanningVersion;object:PlanningObject;ancestors:Array<{object:PlanningObject;version:PlanningVersion}>;children:Array<{object:PlanningObject;version:PlanningVersion}>;}
+export interface PlanningImpact {id:string;bookId:string;adoptionId:string;sourceObjectId:string;sourceFromVersionId:string;sourceToVersionId:string;targetKind:"plan_version"|"chapter_body"|"story_time"|"story_relation"|"context"|"generation_task"|"analysis";targetId:string;status:"pending_review"|"resolved"|"dismissed";reason:string;createdAt:string;resolvedAt:string|null;}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

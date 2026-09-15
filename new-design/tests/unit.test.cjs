@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, planningObjectInputSchema, planningVersionInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -115,6 +115,20 @@ test("story relations separate temporal and causal semantics",()=>{
   assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"causes"}).success,true);
   assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"overlaps"}).success,false);
   assert.equal(storyRelationProposalInputSchema.safeParse({...base,relationFamily:"causal",relationType:"causes",targetEventCardId:base.sourceEventCardId}).success,false);
+});
+
+test("planning objects enforce the story-volume-chapter-scene ownership shape",()=>{
+  const content={goal:"完成当前层计划"};
+  assert.equal(planningObjectInputSchema.safeParse({level:"story",title:"总计划",sortOrder:0,content,source:"manual"}).success,true);
+  assert.equal(planningObjectInputSchema.safeParse({level:"story",parentObjectId:"10000000-0000-4000-8000-000000000001",title:"错误总计划",sortOrder:0,content,source:"manual"}).success,false);
+  assert.equal(planningObjectInputSchema.safeParse({level:"chapter",title:"缺少归属",sortOrder:0,content,source:"ai"}).success,false);
+});
+
+test("body-origin planning revisions require an exact adopted body version reference",()=>{
+  const base={content:{goal:"依据正文修正规划"},source:"body_revision",expectedRevision:1};
+  assert.equal(planningVersionInputSchema.safeParse(base).success,false);
+  assert.equal(planningVersionInputSchema.safeParse({...base,sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,true);
+  assert.equal(planningVersionInputSchema.safeParse({...base,source:"manual",sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,false);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

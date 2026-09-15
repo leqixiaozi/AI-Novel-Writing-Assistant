@@ -55,6 +55,7 @@ import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonic
 import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
+import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedPlanningTree, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion } from "../database/planning";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -144,6 +145,11 @@ import {
   storyRelationProposalEditSchema,
   causalGraphQuerySchema,
   storyRelationFamilySchema,
+  planningObjectInputSchema,
+  planningVersionInputSchema,
+  planningVersionRejectSchema,
+  planningVersionAdoptSchema,
+  planningImpactStatusSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -351,6 +357,16 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/books/:id/story-events/:eventId/concurrent",asyncRoute(async(req,res)=>success(res,await listConcurrentEvents(String(req.params.id),String(req.params.eventId)))));
   router.get("/books/:id/story-events/:eventId/temporal",asyncRoute(async(req,res)=>success(res,await listTemporalNeighbors(String(req.params.id),String(req.params.eventId)))));
   router.get("/books/:id/story-events/:eventId/causal",asyncRoute(async(req,res)=>{const query=causalGraphQuerySchema.parse(req.query);success(res,await listCausalGraph(String(req.params.id),String(req.params.eventId),query.direction,query.maxDepth));}));
+  router.post("/books/:id/planning-objects",asyncRoute(async(req,res)=>success(res,await createPlanningObject({bookId:String(req.params.id),...body(planningObjectInputSchema,req)}),201)));
+  router.get("/books/:id/planning-tree",asyncRoute(async(req,res)=>success(res,await getAdoptedPlanningTree(String(req.params.id)))));
+  router.get("/books/:id/stale-planning-versions",asyncRoute(async(req,res)=>success(res,await listStalePlanningVersions(String(req.params.id)))));
+  router.get("/books/:id/planning-impacts",asyncRoute(async(req,res)=>success(res,await listPlanningImpacts(String(req.params.id),typeof req.query.status==="string"?planningImpactStatusSchema.parse(req.query.status):undefined))));
+  router.get("/planning-objects/:id",asyncRoute(async(req,res)=>success(res,await getPlanningObject(String(req.params.id)))));
+  router.post("/planning-objects/:id/versions",asyncRoute(async(req,res)=>success(res,await addPlanningVersion(String(req.params.id),body(planningVersionInputSchema,req)),201)));
+  router.post("/planning-objects/:id/reject",asyncRoute(async(req,res)=>success(res,await rejectPlanningVersion(String(req.params.id),body(planningVersionRejectSchema,req)))));
+  router.post("/planning-objects/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptPlanningVersion(String(req.params.id),body(planningVersionAdoptSchema,req)))));
+  router.get("/planning-objects/:id/adoptions",asyncRoute(async(req,res)=>success(res,await listPlanningAdoptions(String(req.params.id)))));
+  router.get("/planning-versions/:id/context",asyncRoute(async(req,res)=>success(res,await getPlanningVersionContext(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

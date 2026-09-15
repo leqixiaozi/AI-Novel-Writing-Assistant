@@ -115,7 +115,7 @@ async function validateEvidence(client:PoolClient,bookId:string,input:EvidenceIn
     if(!input.factId||refs.length!==1)throw new NewDesignError("事实来源必须且只能引用一条已确认事实。",422);
     const row=await client.query("SELECT 1 FROM new_design.canonical_facts WHERE id=$1 AND book_id=$2 AND status='confirmed'",[input.factId,bookId]);if(!row.rowCount)throw new NewDesignError("时间来源事实不存在或尚未确认。",422);return;
   }
-  if(input.evidenceKind==="plan_version"){if(!input.planVersionId||refs.length!==1)throw new NewDesignError("计划来源必须且只能记录上游计划版本 ID。",422);return;}
+  if(input.evidenceKind==="plan_version"){if(!input.planVersionId||refs.length!==1)throw new NewDesignError("计划来源必须且只能记录上游计划版本 ID。",422);const row=await client.query("SELECT 1 FROM new_design.planning_versions version JOIN new_design.planning_objects object ON object.id=version.object_id WHERE version.id=$1 AND version.book_id=$2 AND object.adopted_version_id=version.id AND version.status='adopted' AND version.stale_at IS NULL",[input.planVersionId,bookId]);if(!row.rowCount)throw new NewDesignError("计划版本不属于该书、尚未采用或正在等待复核。",422);return;}
   if(!input.stateProposalId||refs.length!==1)throw new NewDesignError("状态来源必须且只能引用一条状态提案。",422);
   const row=await client.query("SELECT 1 FROM new_design.state_change_proposals WHERE id=$1 AND book_id=$2 AND status IN ('proposed','confirmed')",[input.stateProposalId,bookId]);if(!row.rowCount)throw new NewDesignError("状态提案来源不存在或已经失效。",422);
 }

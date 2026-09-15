@@ -88,4 +88,8 @@ export const migrations: Migration[] = [
     id: "021_story_timeline",
     fileName: "021_story_timeline.sql",
   },
+  {
+    id: "022_planning_versions",
+    fileName: "022_planning_versions.sql",
+  },
 ];

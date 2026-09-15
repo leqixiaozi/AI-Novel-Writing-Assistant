@@ -303,6 +303,14 @@ export const storyRelationProposalInputSchema=z.object({proposalSource:z.enum(["
 export const storyRelationProposalEditSchema=z.object({...storyRelationVersionFields,expectedRevision:z.number().int().positive(),actor:z.string().trim().max(160).default("user"),note:z.string().trim().max(500).default("")}).superRefine(validateStoryRelationSchema);
 export const causalGraphQuerySchema=z.object({direction:z.enum(["upstream","downstream"]),maxDepth:z.coerce.number().int().min(1).max(50).default(10)});
 
+const planningVersionFields={content:z.record(z.string(),z.unknown()),source:z.enum(["manual","ai","import","system","body_revision"]),baseVersionId:z.string().uuid().nullable().optional(),basedOnParentVersionId:z.string().uuid().nullable().optional(),sourceBodyVersionId:z.string().uuid().nullable().optional(),createdBy:z.string().trim().max(160).default("")};
+function validatePlanningVersionSource(value:Record<string,unknown>,ctx:z.RefinementCtx){if(value.source==="body_revision"&&!value.sourceBodyVersionId)ctx.addIssue({code:"custom",path:["sourceBodyVersionId"],message:"正文反向修正规划必须记录正文版本。"});if(value.source!=="body_revision"&&value.sourceBodyVersionId)ctx.addIssue({code:"custom",path:["sourceBodyVersionId"],message:"只有正文反向修正可以记录正文版本。"});}
+export const planningObjectInputSchema=z.object({level:z.enum(["story","volume","chapter","scene"]),parentObjectId:z.string().uuid().nullable().optional(),cardId:z.string().uuid().nullable().optional(),title:z.string().trim().min(1).max(240),sortOrder:z.number().int().min(0),...planningVersionFields}).superRefine((value,ctx)=>{validatePlanningVersionSource(value,ctx);if(value.level==="story"&&(value.parentObjectId||value.cardId))ctx.addIssue({code:"custom",path:["level"],message:"故事总计划不绑定父级或卡片。"});if(value.level!=="story"&&(!value.parentObjectId||!value.cardId))ctx.addIssue({code:"custom",path:["parentObjectId"],message:"卷、章、场景计划必须绑定父级和同类型卡片。"});});
+export const planningVersionInputSchema=z.object({...planningVersionFields,expectedRevision:z.number().int().positive()}).superRefine(validatePlanningVersionSource);
+export const planningVersionRejectSchema=z.object({versionId:z.string().uuid(),expectedRevision:z.number().int().positive(),actor:z.string().trim().max(160).default("user"),note:z.string().trim().max(500).default("")});
+export const planningVersionAdoptSchema=z.object({versionId:z.string().uuid(),expectedRevision:z.number().int().positive(),idempotencyKey:z.string().trim().min(8).max(160),source:z.enum(["user","system","import"]).default("user"),actor:z.string().trim().max(160).default("user")});
+export const planningImpactStatusSchema=z.enum(["pending_review","resolved","dismissed"]);
+
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({
   config:z.object({
