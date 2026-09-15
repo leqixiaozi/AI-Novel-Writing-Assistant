@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, knowledgeStateProposalInputSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
@@ -91,6 +91,14 @@ test("state proposals require explicit before and after values",()=>{
   assert.equal(stateChangeProposalInputSchema.safeParse(withoutBefore).success,false);
   assert.equal(stateChangeProposalInputSchema.safeParse({...common,beforeValue:null,afterValue:"held"}).success,true);
   assert.equal(stateValueMappingSchema.safeParse({spaceId:"40000000-0000-4000-8000-000000000001",typeKey:"character",fieldKey:"energy",ranges:[{min:0,max:30,label:"低",value:"需要恢复"}]}).success,true);
+});
+
+test("AI knowledge proposals require a holder and exact adopted-body evidence",()=>{
+  const common={holderKind:"character",holderCardId:"10000000-0000-4000-8000-000000000001",claim:{subjectCardId:"20000000-0000-4000-8000-000000000001",predicate:"knows_secret",valueKind:"boolean",value:true},source:"ai",stance:"suspects",acquisitionMethod:"inferred",chapterDocumentId:"30000000-0000-4000-8000-000000000001",bodyVersionId:"40000000-0000-4000-8000-000000000001",textAnchorId:"50000000-0000-4000-8000-000000000001",effectiveNarrativeOrder:8,reason:"正文证据"};
+  assert.equal(knowledgeStateProposalInputSchema.safeParse(common).success,true);
+  assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,textAnchorId:null}).success,false);
+  assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,holderCardId:null}).success,false);
+  assert.equal(knowledgeStateProposalInputSchema.safeParse({...common,holderKind:"reader",holderCardId:null,holderKey:"default"}).success,true);
 });
 
 test("public ranking adapters only extract source metadata",()=>{

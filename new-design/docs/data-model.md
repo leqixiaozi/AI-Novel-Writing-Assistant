@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -37,6 +37,7 @@ research_documents 1 ── n research_document_versions
 research_records 1 ── n research_record_versions 1 ── n research_evidence
                                       │
                                       └─ n research_candidate_batches 1 ── n research_candidates
+                                                                    └─ n research_candidate_versions
 research_reference_packs 1 ── n research_reference_pack_versions 1 ── n research_reference_pack_items
 book_creation_sessions 1 ── n book_creation_research_selections ── 1 research/pack exact version
 books 1 ── n book_research_references ── 1 research/pack exact version
@@ -53,13 +54,18 @@ chapter_settlements 1 ── n state_changes
 entity_initial_states + active state_changes ──> current_state_projections
 books 1 ── n state_milestone_snapshots
 state_value_mappings 1 ── n state_value_mapping_versions
+
+books 1 ── n epistemic_claims
+epistemic_claims 1 ── n knowledge_state_proposals 1 ── n knowledge_state_proposal_versions
+knowledge_state_proposals 1 ── 0..1 knowledge_state_changes
+active knowledge_state_changes ──> current_knowledge_state_projections
 ```
 
 ## 研究与分析固定对象
 
 `research_documents` 保存来源资料的稳定身份，`research_document_versions` 保存每次粘贴或导入后的不可变原文版本与内容哈希。`research_records` 保存用户可编辑的标题、标签、收藏、备注和归档状态；每次扫描、市场分析、拆书或稿件诊断都在 `research_record_versions` 新增运行版本，不覆盖上次报告。
 
-运行版本冻结来源范围、模板版本、预算、提示词快照、模型快照、输入、结构结果与可读报告。`research_evidence` 把结论字段回指到原文片段；候选结果先进入 `research_candidate_batches` / `research_candidates`，只有作者明确采用后才由 `research_candidate_adoptions` 记录正式去向。`market_source_snapshots` / `market_ranking_items` 独立保存每次公开榜单扫描，单个平台失败也不会删除以前成功的快照。
+运行版本冻结来源范围、模板版本、预算、提示词快照、模型快照、输入、结构结果与可读报告。`research_evidence` 把结论字段回指到原文片段；候选结果生成后立即进入 `research_candidate_batches` / `research_candidates`，不依赖第二次保存操作。初始内容和作者采用前的每次修改都追加到 `research_candidate_versions`，并通过 `revision` 阻止并发覆盖；只有作者明确采用后才由 `research_candidate_adoptions` 记录正式去向。`market_source_snapshots` / `market_ranking_items` 独立保存每次公开榜单扫描，单个平台失败也不会删除以前成功的快照。
 
 `research_reference_packs` 只保存可编辑的包身份，发布时由 `research_reference_pack_versions` 和 `research_reference_pack_items` 冻结具体研究版本。`book_creation_research_selections` 在开书会话建立时锁定用户选择及完整预填快照；一本书再通过 `book_research_references` 固化精确的研究记录版本或参考包版本。以后重跑研究、重发参考包都不会偷偷改变既有会话或已开书内容。
 
@@ -99,7 +105,7 @@ state_value_mappings 1 ── n state_value_mapping_versions
 
 `state_type_capabilities` 和 `state_field_policies` 决定某类卡片是否必须、可以或禁止参加章节结算，并把字段分为不跟踪、直接跟踪、派生值或仅生命周期。`state_relation_capabilities` 和 `state_relation_dimensions` 对关系采用同样规则，并额外保存正向、反向或双向维度。默认人物、组织和道具为必结，地点可选；人物关系和事件—道具关系为必结；目标、冲突、秘密、线索、伏笔、悬念、剧情线和弧线使用轻量生命周期；世界、策略和参考资料默认禁用。
 
-`entity_initial_states` 保存主体与状态键的稳定身份，`entity_initial_state_versions` 只追加每次初始值修订、哈希、可选确认事实来源和操作人。`state_change_proposals` 必须记录变化前值、变化后值、可选差量、原因、故事时间，并锁定章节正文版本；文本证据可进一步绑定 `chapter_text_anchors`，原因事件可绑定本书 `event` 卡片。AI、人工和导入都只能先写 `proposed`。
+`entity_initial_states` 保存主体与状态键的稳定身份，`entity_initial_state_versions` 只追加每次初始值修订、哈希、可选确认事实来源和操作人。`state_change_proposals` 必须记录变化前值、变化后值、可选差量、原因、故事时间，并锁定章节正文版本；文本证据可进一步绑定 `chapter_text_anchors`，原因事件可绑定本书 `event` 卡片。AI、人工和导入都只能先写 `proposed`；采用前的用户修改会追加到 `state_change_proposal_versions`，主提案只保存当前可操作值与修订号。
 
 `chapter_settlements` 是用户确认的一次章节入账，幂等键保证重复提交不会重复记账。只有当前已采用的正文版本可以提交；服务端会再次比较提案的变化前值与 `current_state_projections`，防止陈旧提案覆盖新状态。通过校验后，每项变化才追加到 `state_changes`。撤销把变化标为 `reverted`，采用其他正文把原结算与变化标为 `superseded/invalidated`；历史行全部保留。
 
@@ -115,6 +121,25 @@ state_value_mappings 1 ── n state_value_mapping_versions
 > 🏠 **白话比喻**：章节结算像仓库交接班。AI 可以先填“谁领走了灯、谁受了伤”的待核单，但仓管员签字后才进入流水；库存看板随流水重算，退单或换掉本章正式稿时只作废对应流水，不撕掉原单。对应到系统里：提案、确认结算、只追加变化和可重建投影各司其职。
 
 > 🧠 **速记方法**：**能力定范围，初值打底；提案对前值，确认才入账；历史不删除，投影随时算**。
+
+### 人物、读者知情与误解状态
+
+`epistemic_claims` 保存“被认知的命题”，包含可选主体卡、谓词、类型化值、对象卡和可选的已确认客观事实引用。它不声明持有者是否相信该命题，因此同一个世界事实、人物误解和读者已知内容可以同时存在，彼此不覆盖。
+
+`knowledge_state_proposals` 保存人物或读者这一持有者的待审提案，`knowledge_state_proposal_versions` 保存每次姿态、置信度、获知方式、来源人物／事件、章节正文、精确锚点、故事时间和叙事位置修订。AI 输出一产生就写入 `proposed` 并保存第一个版本；用户可继续修改，确认或驳回。AI 提案必须绑定正文版本和精确锚点，只有当前采用正文上的提案才能确认。
+
+确认后才向 `knowledge_state_changes` 追加有效流水，并重建 `current_knowledge_state_projections`。人物持有者使用本书人物卡 ID，读者持有者使用独立键；查询某个叙事位置时，只选择 `effective_narrative_order` 不晚于目标位置的最新有效流水。时间未知的记录仍可在当前认知中看到，但不会被猜测到任意历史位置。切换正式正文会把旧版本关联的流水和提案标为 `invalidated`，再重建投影，历史版本和审核动作全部保留。
+
+| 维度 | 关键取值 | 含义 |
+|---|---|---|
+| 持有者 | `character / reader` | 人物所知与读者所知分账 |
+| 认知姿态 | `knows / believes / suspects / misunderstands / unknown` | 区分知道、相信、怀疑、误解与未知 |
+| 获知方式 | `witnessed / told / inferred / read / narration / assumed / forgotten / manual` | 记录信息怎样进入认知 |
+| 时间 | 故事顺序／叙事顺序／系统创建时间 | 分开世界发生、读者看到和数据库修订 |
+
+> 🏠 **白话比喻**：案卷真相、证人口供和观众看到的监控片段是三本账。对应到数据层：`canonical_facts` 管客观真相，人物 `knowledge_state_changes` 管角色口供，读者持有者管当前已揭示信息；即使证人说错，也不能改掉案卷真相。
+
+> 🧠 **速记方法**：**真相一册，角色各册，读者另册；按章翻页，不看后页；时间不明，不替它编**。
 
 ### 市场雷达快照与市场信号
 

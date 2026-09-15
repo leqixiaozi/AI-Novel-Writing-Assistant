@@ -24,6 +24,7 @@ const referencePacks = require("../dist/server/database/referencePackStore.js");
 const chapterBodies = require("../dist/server/database/chapterBodyStore.js");
 const facts = require("../dist/server/database/factStore.js");
 const states = require("../dist/server/database/stateStore.js");
+const knowledge = require("../dist/server/database/knowledgeStore.js");
 const bookAnalysisService = require("../dist/server/research/bookAnalysisService.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
@@ -197,7 +198,12 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(analysisRecord.candidates.length,4);
   assert.ok(analysisRecord.candidates.every((candidate)=>candidate.researchVersionId===analysisRun.versionId));
   const candidatesByTitle = new Map(analysisRecord.candidates.map((candidate)=>[candidate.title,candidate]));
-  const createOutput = await bookAnalysis.applyCandidateDecisions(analysisRecord.id,[{candidateId:candidatesByTitle.get("续写候选人物").id,action:"create_card",targetSpaceId:sampleBook.spaceId}]);
+  const originalCandidate=candidatesByTitle.get("续写候选人物");
+  const editedCandidate=await bookAnalysis.updateResearchCandidate(analysisRecord.id,originalCandidate.id,{title:"续写候选人物（已校订）",values:{...originalCandidate.values,personality:"用户校订后的谨慎性格"},expectedRevision:originalCandidate.revision,actor:"integration-test",note:"AI 自动入库后由用户修改。"});
+  assert.equal(editedCandidate.revision,2);
+  assert.equal(editedCandidate.values.personality,"用户校订后的谨慎性格");
+  assert.equal((await (await runtime.getNewDesignPool()).query("SELECT count(*)::int AS count FROM new_design.research_candidate_versions WHERE candidate_id=$1",[editedCandidate.id])).rows[0].count,2);
+  const createOutput = await bookAnalysis.applyCandidateDecisions(analysisRecord.id,[{candidateId:editedCandidate.id,action:"create_card",targetSpaceId:sampleBook.spaceId}]);
   const persistedAnalysisCardId = createOutput[0].cardId;
   assert.ok(persistedAnalysisCardId);
   let analysisCard = await store.getCard(persistedAnalysisCardId);
@@ -399,6 +405,9 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const proposals=[];
   for (const proposal of proposalInputs) proposals.push(await states.proposeStateChange({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,causeEventCardId:viewEvent.id,effectiveStoryOrder:20,source:"ai",...proposal }));
   assert.ok(proposals.every((proposal) => proposal.status === "proposed"));
+  proposals[0]=await states.editStateChangeProposal(proposals[0].id,{beforeValue:100,afterValue:70,delta:-30,reason:"用户把照骨灯消耗修正为三十点。",effectiveStoryOrder:20,expectedRevision:proposals[0].revision,actor:"integration-test"});
+  assert.equal(proposals[0].revision,2);
+  assert.equal((await (await runtime.getNewDesignPool()).query("SELECT count(*)::int AS count FROM new_design.state_change_proposal_versions WHERE proposal_id=$1",[proposals[0].id])).rows[0].count,2);
   const settlementKey=`state-settlement-${Date.now()}-first`;
   let settlement=await states.commitChapterSettlement({ bookId:sampleBook.id,chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,proposalIds:proposals.map((proposal)=>proposal.id),idempotencyKey:settlementKey,actor:"integration-test",milestone:{kind:"manual",label:"第一章结算"} });
   assert.equal(settlement.changes.length,4);
@@ -406,7 +415,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal(settlement.changes.length,4);
   let projections=await states.listCurrentState(sampleBook.id);
   const projectionValue=(kind,id,key)=>projections.find((item)=>item.subjectKind===kind&&item.subjectId===id&&item.stateKey===key)?.value;
-  assert.equal(projectionValue("card",viewCharacters[0].id,"energy"),72);
+  assert.equal(projectionValue("card",viewCharacters[0].id,"energy"),70);
   assert.equal(projectionValue("relation",relationship.id,"relationship_state"),"建立信任");
   assert.equal(projectionValue("card",prop.id,"holder"),null);
   assert.equal(projectionValue("card",viewClue.id,"lifecycle"),"revealed");
@@ -433,6 +442,53 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal((await states.listCurrentState(sampleBook.id)).find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
   chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateB.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-state-return`,actor:"integration-test"});
   assert.equal((await states.getSettlement(persistedSupersededSettlementId)).status,"superseded");
+
+  let characterKnowledge=await knowledge.proposeKnowledgeState({
+    bookId:sampleBook.id,holderKind:"character",holderCardId:viewCharacters[0].id,
+    claim:{subjectCardId:viewCharacters[0].id,predicate:"current_location",valueKind:"text",value:"青石镇",truthFactId:correctedFact.id},
+    source:"ai",stance:"suspects",confidence:.55,acquisitionMethod:"inferred",sourceEventCardId:viewEvent.id,
+    chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,effectiveStoryOrder:20,effectiveNarrativeOrder:8,
+    reason:"人物根据旧案残痕得出了尚未核实的错误地点。",editor:"integration-model",
+  });
+  assert.equal(characterKnowledge.status,"proposed");
+  assert.ok((await knowledge.listKnowledgeStateProposals(sampleBook.id,"proposed")).some((item)=>item.id===characterKnowledge.id));
+  characterKnowledge=await knowledge.editKnowledgeStateProposal(characterKnowledge.id,{
+    stance:"misunderstands",confidence:.8,acquisitionMethod:"inferred",sourceEventCardId:viewEvent.id,
+    chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,effectiveStoryOrder:20,effectiveNarrativeOrder:8,
+    reason:"用户核对后确认这是人物坚信的误判，而不只是怀疑。",expectedRevision:characterKnowledge.revision,actor:"integration-test",note:"修正人物认知姿态。",
+  });
+  assert.equal(characterKnowledge.versions.length,2);
+  assert.equal(characterKnowledge.currentVersion.stance,"misunderstands");
+  const characterConfirmKey=`knowledge-character-${Date.now()}`;
+  characterKnowledge=await knowledge.reviewKnowledgeStateProposal(characterKnowledge.id,{action:"confirm",expectedRevision:characterKnowledge.revision,idempotencyKey:characterConfirmKey,actor:"integration-test"});
+  characterKnowledge=await knowledge.reviewKnowledgeStateProposal(characterKnowledge.id,{action:"confirm",expectedRevision:1,idempotencyKey:characterConfirmKey,actor:"integration-test"});
+  assert.equal(characterKnowledge.status,"confirmed");
+  assert.equal((await knowledge.listKnowledgeStateAt(sampleBook.id,{holderKind:"character",holderKey:viewCharacters[0].id,narrativeOrder:3})).length,0);
+  assert.equal((await knowledge.listKnowledgeStateAt(sampleBook.id,{holderKind:"character",holderKey:viewCharacters[0].id,narrativeOrder:8}))[0].stance,"misunderstands");
+
+  let readerKnowledge=await knowledge.proposeKnowledgeState({
+    bookId:sampleBook.id,holderKind:"reader",holderKey:"default",
+    claim:{subjectCardId:viewCharacters[0].id,predicate:"current_location",valueKind:"text",value:"白水驿地下灯窟",truthFactId:correctedFact.id},
+    source:"ai",stance:"knows",confidence:1,acquisitionMethod:"narration",chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,
+    effectiveStoryOrder:20,effectiveNarrativeOrder:5,reason:"叙述已经向读者明示真实地点。",editor:"integration-model",
+  });
+  readerKnowledge=await knowledge.reviewKnowledgeStateProposal(readerKnowledge.id,{action:"confirm",expectedRevision:readerKnowledge.revision,idempotencyKey:`knowledge-reader-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await knowledge.listKnowledgeStateAt(sampleBook.id,{holderKind:"reader",holderKey:"default",narrativeOrder:5}))[0].stance,"knows");
+  let unknownTimeKnowledge=await knowledge.proposeKnowledgeState({
+    bookId:sampleBook.id,holderKind:"character",holderCardId:viewCharacters[1].id,
+    claim:{subjectCardId:viewEvent.id,predicate:"has_seen_old_case_trace",valueKind:"boolean",value:true},source:"manual",stance:"suspects",confidence:.4,acquisitionMethod:"manual",
+    chapterDocumentId:chapterDocument.id,bodyVersionId:candidateB.id,textAnchorId:factAnchor.id,reason:"已知人物有怀疑，但暂不编造具体获知章节。",editor:"integration-test",
+  });
+  unknownTimeKnowledge=await knowledge.reviewKnowledgeStateProposal(unknownTimeKnowledge.id,{action:"confirm",expectedRevision:unknownTimeKnowledge.revision,idempotencyKey:`knowledge-unknown-time-${Date.now()}`,actor:"integration-test"});
+  assert.equal((await knowledge.listCurrentKnowledgeState(sampleBook.id)).length,3);
+  assert.equal((await knowledge.listKnowledgeStateAt(sampleBook.id,{holderKind:"character",holderKey:viewCharacters[1].id,narrativeOrder:999})).length,0);
+  assert.equal((await facts.getCanonicalFact(correctedFact.id)).status,"confirmed");
+  const persistedKnowledgeProposalId=characterKnowledge.id;
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:manualBody.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-knowledge-stale`,actor:"integration-test"});
+  assert.equal((await knowledge.getKnowledgeStateProposal(characterKnowledge.id)).status,"invalidated");
+  assert.equal((await knowledge.listCurrentKnowledgeState(sampleBook.id)).length,0);
+  chapterDocument=await chapterBodies.adoptChapterBodyVersion(chapterDocument.id,{versionId:candidateB.id,expectedRevision:chapterDocument.revision,idempotencyKey:`chapter-adopt-${Date.now()}-knowledge-return`,actor:"integration-test"});
+  assert.equal((await knowledge.getKnowledgeStateProposal(characterKnowledge.id)).status,"invalidated");
 
   await assert.rejects(() => bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:50,endOrder:20,startLabel:"",endLabel:"",uncertainty:"",revision:storyTime.revision }), (error) => error.status === 422 && /不能早于/.test(error.message));
   await assert.rejects(() => bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"过期写入",revision:1 }), (error) => error.status === 409 && /其他视图/.test(error.message));
@@ -692,4 +748,7 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.equal((await states.getSettlement(persistedSupersededSettlementId)).status,"superseded");
   assert.equal((await states.getStateValueMapping(persistedStateMappingId)).currentVersion,1);
   assert.equal((await states.listCurrentState(sampleBook.id)).find((item)=>item.subjectId===viewCharacters[0].id&&item.stateKey==="energy").value,100);
+  const restartedKnowledge=await knowledge.getKnowledgeStateProposal(persistedKnowledgeProposalId);
+  assert.equal(restartedKnowledge.status,"invalidated");
+  assert.equal(restartedKnowledge.versions.length,2);
 });

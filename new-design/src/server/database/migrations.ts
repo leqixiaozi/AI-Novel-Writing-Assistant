@@ -80,4 +80,8 @@ export const migrations: Migration[] = [
     id: "019_state_proposal_before_guard",
     fileName: "019_state_proposal_before_guard.sql",
   },
+  {
+    id: "020_knowledge_states",
+    fileName: "020_knowledge_states.sql",
+  },
 ];

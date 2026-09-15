@@ -553,6 +553,16 @@ export interface CurrentStateProjection {bookId:string;subjectKind:StateSubjectK
 export interface StateMilestoneSnapshot {id:string;bookId:string;kind:"initial"|"volume_end"|"major_revision"|"body_switch"|"manual";label:string;chapterDocumentId:string|null;bodyVersionId:string|null;sourceSettlementId:string|null;projectionRevision:number;snapshot:Record<string,unknown>;status:"active"|"stale";createdAt:string;}
 export interface StateValueMapping {id:string;spaceId:string;typeKey:string;fieldKey:string;currentVersionId:string;revision:number;currentVersion:number;ranges:Array<{min:number|null;max:number|null;label:string;value:string}>;promptComponentVersionId:string|null;note:string;createdAt:string;updatedAt:string;}
 
+export type KnowledgeHolderKind="character"|"reader";
+export type KnowledgeStance="knows"|"believes"|"suspects"|"misunderstands"|"unknown";
+export type KnowledgeAcquisitionMethod="witnessed"|"told"|"inferred"|"read"|"narration"|"assumed"|"forgotten"|"manual";
+export interface EpistemicClaim {id:string;bookId:string;subjectCardId:string|null;predicate:string;valueKind:CanonicalFactValueKind;value:unknown;objectCardId:string|null;valueHash:string;truthFactId:string|null;createdBy:string;createdAt:string;}
+export interface KnowledgeStateProposalVersion {id:string;proposalId:string;version:number;stance:KnowledgeStance;confidence:number|null;acquisitionMethod:KnowledgeAcquisitionMethod;sourceCharacterCardId:string|null;sourceEventCardId:string|null;chapterDocumentId:string|null;bodyVersionId:string|null;textAnchorId:string|null;effectiveStoryOrder:number|null;effectiveNarrativeOrder:number|null;reason:string;editor:string;createdAt:string;}
+export interface KnowledgeStateReviewAction {id:string;proposalId:string;proposalVersionId:string;action:"propose"|"edit"|"confirm"|"reject"|"invalidate";actor:string;note:string;idempotencyKey:string|null;createdAt:string;}
+export interface KnowledgeStateProposal {id:string;bookId:string;claim:EpistemicClaim;holderKind:KnowledgeHolderKind;holderKey:string;holderCardId:string|null;currentVersionId:string;source:"ai"|"manual"|"import"|"system";status:"proposed"|"confirmed"|"rejected"|"invalidated";confirmedChangeId:string|null;revision:number;currentVersion:KnowledgeStateProposalVersion;versions:KnowledgeStateProposalVersion[];reviewActions:KnowledgeStateReviewAction[];createdAt:string;updatedAt:string;}
+export interface KnowledgeStateChange {id:string;sequence:number;bookId:string;proposalId:string;proposalVersionId:string;claim:EpistemicClaim;holderKind:KnowledgeHolderKind;holderKey:string;holderCardId:string|null;stance:KnowledgeStance;confidence:number|null;effectiveStoryOrder:number|null;effectiveNarrativeOrder:number|null;status:"active"|"reverted"|"invalidated";confirmedBy:string;createdAt:string;}
+export interface CurrentKnowledgeState {bookId:string;holderKind:KnowledgeHolderKind;holderKey:string;holderCardId:string|null;claim:EpistemicClaim;sourceChangeId:string;stance:KnowledgeStance;confidence:number|null;effectiveStoryOrder:number|null;effectiveNarrativeOrder:number|null;projectionRevision:number;rebuiltAt:string;}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

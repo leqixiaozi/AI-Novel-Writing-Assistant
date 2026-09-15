@@ -48,11 +48,12 @@ import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewSt
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
-import { applyCandidateDecisions } from "../database/bookAnalysisStore";
+import { applyCandidateDecisions, updateResearchCandidate } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
 import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
-import { commitChapterSettlement, createStateMilestone, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
+import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
+import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -105,6 +106,7 @@ import {
   bookAnalysisPresetSchema,
   bookAnalysisPurposeSchema,
   candidateDecisionsSchema,
+  researchCandidateUpdateSchema,
   referencePackPublishSchema,
   researchReusePreviewSchema,
   chapterDocumentInputSchema,
@@ -120,10 +122,17 @@ import {
   stateRelationCapabilitySchema,
   initialStateInputSchema,
   stateChangeProposalInputSchema,
+  stateChangeProposalEditSchema,
   chapterSettlementInputSchema,
   settlementRevertSchema,
   stateMilestoneInputSchema,
   stateValueMappingSchema,
+  knowledgeStateProposalInputSchema,
+  knowledgeStateProposalEditSchema,
+  knowledgeStateReviewSchema,
+  knowledgeStateStatusSchema,
+  knowledgeStateAtQuerySchema,
+  knowledgeHolderKindSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -268,6 +277,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
   router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id)),202);}));
   router.post("/research/book-analyses/:id/candidates/apply",asyncRoute(async(req,res)=>success(res,await applyCandidateDecisions(String(req.params.id),body(candidateDecisionsSchema,req).decisions))));
+  router.put("/research/book-analyses/:id/candidates/:candidateId",asyncRoute(async(req,res)=>success(res,await updateResearchCandidate(String(req.params.id),String(req.params.candidateId),body(researchCandidateUpdateSchema,req)))));
   router.get("/research/reference-packs",asyncRoute(async(_req,res)=>success(res,await listReferencePacks())));
   router.get("/research/reference-packs/:id",asyncRoute(async(req,res)=>success(res,await getReferencePack(String(req.params.id)))));
   router.post("/research/reference-packs/publish",asyncRoute(async(req,res)=>success(res,await publishReferencePack(body(referencePackPublishSchema,req)),201)));
@@ -294,6 +304,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/initial-states/:id",asyncRoute(async(req,res)=>success(res,await getInitialState(String(req.params.id)))));
   router.get("/chapter-documents/:id/state-change-proposals",asyncRoute(async(req,res)=>success(res,await listStateChangeProposals(String(req.params.id)))));
   router.post("/books/:id/state-change-proposals",asyncRoute(async(req,res)=>success(res,await proposeStateChange({bookId:String(req.params.id),...body(stateChangeProposalInputSchema,req)}),201)));
+  router.put("/state-change-proposals/:id",asyncRoute(async(req,res)=>success(res,await editStateChangeProposal(String(req.params.id),body(stateChangeProposalEditSchema,req)))));
   router.post("/books/:id/chapter-settlements",asyncRoute(async(req,res)=>success(res,await commitChapterSettlement({bookId:String(req.params.id),...body(chapterSettlementInputSchema,req)}),201)));
   router.get("/chapter-documents/:id/settlements",asyncRoute(async(req,res)=>success(res,await listChapterSettlements(String(req.params.id)))));
   router.get("/chapter-settlements/:id",asyncRoute(async(req,res)=>success(res,await getSettlement(String(req.params.id)))));
@@ -304,6 +315,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/books/:id/state-milestones",asyncRoute(async(req,res)=>success(res,await createStateMilestone({bookId:String(req.params.id),...body(stateMilestoneInputSchema,req)}),201)));
   router.post("/state-value-mappings/publish",asyncRoute(async(req,res)=>success(res,await publishStateValueMapping(body(stateValueMappingSchema,req)),201)));
   router.get("/state-value-mappings/:id",asyncRoute(async(req,res)=>success(res,await getStateValueMapping(String(req.params.id)))));
+  router.get("/books/:id/knowledge-proposals",asyncRoute(async(req,res)=>success(res,await listKnowledgeStateProposals(String(req.params.id),typeof req.query.status==="string"?knowledgeStateStatusSchema.parse(req.query.status):undefined))));
+  router.post("/books/:id/knowledge-proposals",asyncRoute(async(req,res)=>success(res,await proposeKnowledgeState({bookId:String(req.params.id),...body(knowledgeStateProposalInputSchema,req)}),201)));
+  router.get("/knowledge-proposals/:id",asyncRoute(async(req,res)=>success(res,await getKnowledgeStateProposal(String(req.params.id)))));
+  router.put("/knowledge-proposals/:id",asyncRoute(async(req,res)=>success(res,await editKnowledgeStateProposal(String(req.params.id),body(knowledgeStateProposalEditSchema,req)))));
+  router.post("/knowledge-proposals/:id/review",asyncRoute(async(req,res)=>success(res,await reviewKnowledgeStateProposal(String(req.params.id),body(knowledgeStateReviewSchema,req)))));
+  router.get("/books/:id/current-knowledge",asyncRoute(async(req,res)=>success(res,await listCurrentKnowledgeState(String(req.params.id),typeof req.query.holderKind==="string"?knowledgeHolderKindSchema.parse(req.query.holderKind):undefined,typeof req.query.holderKey==="string"?req.query.holderKey:undefined))));
+  router.get("/books/:id/knowledge-at",asyncRoute(async(req,res)=>success(res,await listKnowledgeStateAt(String(req.params.id),knowledgeStateAtQuerySchema.parse(req.query)))));
+  router.post("/books/:id/current-knowledge/rebuild",asyncRoute(async(req,res)=>success(res,await rebuildKnowledgeState(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));
