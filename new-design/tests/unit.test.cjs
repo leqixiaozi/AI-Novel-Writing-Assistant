@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bookCreationSessionInputSchema, bookViewConfigSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 
 const fields = [
@@ -43,4 +43,20 @@ test("card type tree keeps matching leaves with their ancestor path", () => {
 test("book view config accepts presentation state but rejects fact copies", () => {
   assert.equal(bookViewConfigSchema.safeParse({ config:{ groupBy:"story_time",sort:"start_order",expanded:[] },revision:1 }).success,true);
   assert.equal(bookViewConfigSchema.safeParse({ config:{ copiedEvent:{ title:"不应进入视图配置" } },revision:1 }).success,false);
+});
+
+test("high-impact book changes require a typed preview payload", () => {
+  const cardId = "10000000-0000-4000-8000-000000000001";
+  assert.equal(bookChangePreviewSchema.safeParse({
+    operationKey:"story_time",
+    input:{ cardId,startOrder:8,endOrder:10,startLabel:"初八",endLabel:"初十",uncertainty:"" },
+  }).success,true);
+  assert.equal(bookChangePreviewSchema.safeParse({
+    operationKey:"story_time",
+    input:{ cardId,startOrder:10,endOrder:8,startLabel:"初十",endLabel:"初八",uncertainty:"" },
+  }).success,false);
+  assert.equal(bookChangePreviewSchema.safeParse({
+    operationKey:"character_relation",
+    input:{ cardId,startOrder:8,endOrder:10 },
+  }).success,false);
 });

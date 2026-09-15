@@ -197,7 +197,7 @@ export const storyTimePositionSchema = z.object({
   endLabel: z.string().trim().max(120).default(""),
   uncertainty: z.string().trim().max(300).default(""),
   revision: z.number().int().positive().optional(),
-});
+}).superRefine((value,context)=>{if(value.startOrder!==null&&value.endOrder!==null&&value.endOrder<value.startOrder)context.addIssue({code:"custom",path:["endOrder"],message:"故事结束时间不能早于开始时间。"});});
 
 export const narrativePlacementSchema = z.object({
   subjectCardId: z.string().uuid(),
@@ -228,6 +228,13 @@ export const clueLifecycleSchema = z.object({
   plantAnchorRevision: z.number().int().positive().optional(),
   revealAnchorRevision: z.number().int().positive().optional(),
 });
+
+export const bookChangePreviewSchema=z.discriminatedUnion("operationKey",[
+  z.object({operationKey:z.literal("story_time"),input:storyTimePositionSchema}),
+  z.object({operationKey:z.literal("narrative_placement"),input:narrativePlacementSchema}),
+  z.object({operationKey:z.literal("character_relation"),input:characterRelationSchema}),
+  z.object({operationKey:z.literal("clue_lifecycle"),input:clueLifecycleSchema}),
+]);
 
 export const bookViewKeySchema = z.enum(BOOK_VIEW_KEYS);
 export const bookViewConfigSchema = z.object({

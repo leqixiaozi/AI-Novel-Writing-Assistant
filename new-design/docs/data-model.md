@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间，`007_unified_book_creation.sql` 建立统一开书会话、AI 批次与来源追踪，`008_card_type_categories.sql` 建立六类目录树并补齐 29 种资料规格，`009_strategy_resources.sql` 建立创作策略公共资源与安装快照记录，`010_prompt_components.sql` 新增唯一的“提示词组件”资源类型及四条中性组件，`011_book_multiview.sql` 建立书籍六视图共用的时间、叙事位置、正文锚点、人物关系和视图配置，`012_book_change_sets.sql` 建立高影响修改的预览、确认与应用记录；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -27,6 +27,7 @@ resource card/version 1 ── n resource_adoptions n ── 1 books
                                       └──────────── 1 target card
 
 books 1 ── n book_view_configs
+books 1 ── n book_change_sets
 card 1 ── 0..1 story_time_positions
 card 1 ── n narrative_placements n ── 1 chapter/scene card
 card 1 ── n text_anchors n ── 1 chapter/scene card
@@ -234,6 +235,27 @@ character card n ── n character card（经 card_relations 的单条关系）
 > 🏠 **白话比喻**：同一场足球赛可以出现在赛程表、球队页面和球员履历里，但不能为了每个页面各记一场比赛。对应到系统里：事件卡是比赛事实，故事时间是开赛时间，叙事位置是它被写进哪一章；六个页面只换观察角度。
 
 > 🧠 **速记方法**：**卡片管“是什么”，时间管“何时发生”，叙事位置管“何时讲”，锚点管“文中哪里”，视图配置只管“怎么摆”**。
+
+## 高影响修改预览与统一应用
+
+`012_book_change_sets.sql` 新增 `book_change_sets`。故事时间、叙事章节、人物关系以及线索／伏笔的埋设、揭示和正文锚点，不再通过公开接口直接保存：客户端先提交目标值生成影响预览，作者确认后，服务端在一个事务中重新检查修订号并统一应用。普通卡片标题和动态字段仍沿用即时保存。
+
+| 字段 | 类型 | 约束 | 含义 |
+|---|---|---|---|
+| `id` | `uuid` | 主键 | 一次影响预览的稳定身份 |
+| `book_id` | `uuid` | 外键、非空 | 所属书籍 |
+| `operation_key` | `text` | 四种固定操作 | `story_time`、`narrative_placement`、`character_relation` 或 `clue_lifecycle` |
+| `input` | `jsonb` | 非空 | 经服务端 Schema 校验的待应用输入及基础修订号 |
+| `impacts` | `jsonb` | 非空 | 面向作者展示的原值、新值和保持不变项 |
+| `base_revisions` | `jsonb` | 非空 | 预览时读取到的各对象修订号审计快照 |
+| `status` | `text` | `previewed/applied/dismissed` | 预览处理状态；同一记录只允许应用一次 |
+| `created_at` / `applied_at` | `timestamptz` | 创建非空、应用可空 | 预览与实际应用时间 |
+
+应用时会锁住对应变更集，并由各语义对象的写入函数再次核对 `revision`。如果预览后其他页面已经改过同一对象，本次应用整体回滚并要求刷新，不会用旧预览覆盖新事实。`clue_lifecycle` 同时涉及两条叙事位置和两条正文锚点，四项要么全部成功，要么全部不写。
+
+> 🏠 **白话比喻**：改人物备注像在档案封面补一个电话号码，可以直接保存；挪章节、改人物连线或移动伏笔落点像装修时挪一堵墙，施工前要先看影响清单，确认后一次做完。对应到数据库：普通字段直接修订 `cards`，结构性修改先写 `book_change_sets`，再在单个事务中落到时间、位置、关系和锚点表。
+
+> 🧠 **速记方法**：**小事实直接存，结构改动先预览；确认一次，全成或全不成**。
 
 ### 类型去重口径
 

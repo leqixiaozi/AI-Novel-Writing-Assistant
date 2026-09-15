@@ -376,6 +376,26 @@ export interface BookViewWorkspace {
   viewConfigs: BookViewConfig[];
 }
 
+export type BookChangeOperationKey = "story_time" | "narrative_placement" | "character_relation" | "clue_lifecycle";
+
+export interface BookChangeImpact {
+  label: string;
+  before: string;
+  after: string;
+  unchanged?: string;
+}
+
+export interface BookChangeSet {
+  id: string;
+  bookId: string;
+  operationKey: BookChangeOperationKey;
+  input: Record<string, unknown>;
+  impacts: BookChangeImpact[];
+  status: "previewed" | "applied" | "dismissed";
+  createdAt: string;
+  appliedAt: string | null;
+}
+
 export const BOOK_CREATION_METHODS = [
   "blank",
   "template",

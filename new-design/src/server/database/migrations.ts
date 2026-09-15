@@ -48,4 +48,8 @@ export const migrations: Migration[] = [
     id: "011_book_multiview",
     fileName: "011_book_multiview.sql",
   },
+  {
+    id: "012_book_change_sets",
+    fileName: "012_book_change_sets.sql",
+  },
 ];

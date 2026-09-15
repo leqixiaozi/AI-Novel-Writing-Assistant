@@ -16,6 +16,7 @@ const bookCreation = require("../dist/server/database/bookCreationStore.js");
 const categoriesStore = require("../dist/server/database/categoryStore.js");
 const resources = require("../dist/server/database/resourceStore.js");
 const bookViews = require("../dist/server/database/bookViewStore.js");
+const changeSets = require("../dist/server/database/changeSetStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -158,13 +159,28 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
 
   let narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"首次出场" });
   let storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:10,endOrder:12,startLabel:"宗门历七月初三",endLabel:"宗门历七月初五",uncertainty:"" });
-  narrative = await bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[1].id,role:"appears",note:"改到下一章",revision:narrative.revision });
+  const narrativePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"narrative_placement",input:{ subjectCardId:viewEvent.id,chapterCardId:viewChapters[1].id,role:"appears",note:"改到下一章",revision:narrative.revision } });
+  assert.equal(narrativePreview.status,"previewed");
+  assert.match(narrativePreview.impacts[0].unchanged,/故事发生时间/);
+  assert.equal((await bookViews.getBookViewWorkspace(sampleBook.id)).narrativePlacements.find((item) => item.id === narrative.id).chapterCardId, viewChapters[0].id);
+  await changeSets.applyBookChangeSet(narrativePreview.id);
   viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
-  assert.equal(viewWorkspace.narrativePlacements.find((item) => item.id === narrative.id).chapterCardId, viewChapters[1].id);
+  narrative = viewWorkspace.narrativePlacements.find((item) => item.id === narrative.id);
+  assert.equal(narrative.chapterCardId, viewChapters[1].id);
   assert.equal(viewWorkspace.storyTimePositions.find((item) => item.id === storyTime.id).startOrder, 10);
-  storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:20,endOrder:21,startLabel:"宗门历八月",endLabel:"宗门历八月",uncertainty:"约",revision:storyTime.revision });
+  const timePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"story_time",input:{ cardId:viewEvent.id,startOrder:20,endOrder:21,startLabel:"宗门历八月",endLabel:"宗门历八月",uncertainty:"约",revision:storyTime.revision } });
+  assert.equal((await bookViews.getBookViewWorkspace(sampleBook.id)).storyTimePositions.find((item) => item.id === storyTime.id).startOrder, 10);
+  const appliedTimePreview = await changeSets.applyBookChangeSet(timePreview.id);
+  assert.equal(appliedTimePreview.status,"applied");
+  await assert.rejects(() => changeSets.applyBookChangeSet(timePreview.id), (error) => error.status === 409 && /不能重复/.test(error.message));
   viewWorkspace = await bookViews.getBookViewWorkspace(sampleBook.id);
+  storyTime = viewWorkspace.storyTimePositions.find((item) => item.id === storyTime.id);
   assert.equal(viewWorkspace.narrativePlacements.find((item) => item.id === narrative.id).chapterCardId, viewChapters[1].id);
+  assert.equal(storyTime.startOrder,20);
+
+  const staleTimePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"story_time",input:{ cardId:viewEvent.id,startOrder:30,endOrder:31,startLabel:"宗门历九月",endLabel:"宗门历九月",uncertainty:"",revision:storyTime.revision } });
+  storyTime = await bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:40,endOrder:41,startLabel:"宗门历十月",endLabel:"宗门历十月",uncertainty:"",revision:storyTime.revision });
+  await assert.rejects(() => changeSets.applyBookChangeSet(staleTimePreview.id), (error) => error.status === 409 && /其他视图/.test(error.message));
 
   const relationship = await bookViews.saveCharacterRelation(sampleBook.id, { sourceCardId:viewCharacters[0].id,targetCardId:viewCharacters[1].id,sourceLabel:"师父",inverseLabel:"弟子",note:"共同守护山门" });
   const reversePerspective = relationship.sourceCardId === viewCharacters[1].id ? relationship.sourceLabel : relationship.inverseLabel;
@@ -177,10 +193,12 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const revealPlacement = viewWorkspace.narrativePlacements.find((item) => item.subjectCardId === viewClue.id && item.role === "reveal");
   const plantAnchor = viewWorkspace.textAnchors.find((item) => item.subjectCardId === viewClue.id && item.role === "plant");
   const revealAnchor = viewWorkspace.textAnchors.find((item) => item.subjectCardId === viewClue.id && item.role === "reveal");
-  await bookViews.saveClueLifecycle(sampleBook.id, { clueCardId:viewClue.id,plantChapterId:viewChapters[1].id,revealChapterId:viewChapters[0].id,plantAnchor:"中段铜铃",revealAnchor:"结尾回响",plantPlacementRevision:plantPlacement.revision,revealPlacementRevision:revealPlacement.revision,plantAnchorRevision:plantAnchor.revision,revealAnchorRevision:revealAnchor.revision });
+  const cluePreview = await changeSets.previewBookChangeSet(sampleBook.id, { operationKey:"clue_lifecycle",input:{ clueCardId:viewClue.id,plantChapterId:viewChapters[1].id,revealChapterId:viewChapters[0].id,plantAnchor:"中段铜铃",revealAnchor:"结尾回响",plantPlacementRevision:plantPlacement.revision,revealPlacementRevision:revealPlacement.revision,plantAnchorRevision:plantAnchor.revision,revealAnchorRevision:revealAnchor.revision } });
+  assert.equal(cluePreview.impacts.length,2);
+  await changeSets.applyBookChangeSet(cluePreview.id);
   const lifecycleCounts = await (await runtime.getNewDesignPool()).query("SELECT (SELECT count(*) FROM new_design.narrative_placements WHERE subject_card_id=$1 AND role IN ('plant','reveal') AND status='active')::int AS placements,(SELECT count(*) FROM new_design.text_anchors WHERE subject_card_id=$1 AND role IN ('plant','reveal'))::int AS anchors", [viewClue.id]);
   assert.deepEqual(lifecycleCounts.rows[0], { placements:2, anchors:2 });
-  await assert.rejects(() => bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:30,endOrder:20,startLabel:"",endLabel:"",uncertainty:"",revision:storyTime.revision }), (error) => error.status === 422 && /不能早于/.test(error.message));
+  await assert.rejects(() => bookViews.saveStoryTimePosition(sampleBook.id, { cardId:viewEvent.id,startOrder:50,endOrder:20,startLabel:"",endLabel:"",uncertainty:"",revision:storyTime.revision }), (error) => error.status === 422 && /不能早于/.test(error.message));
   await assert.rejects(() => bookViews.saveNarrativePlacement(sampleBook.id, { subjectCardId:viewEvent.id,chapterCardId:viewChapters[0].id,role:"appears",note:"过期写入",revision:1 }), (error) => error.status === 409 && /其他视图/.test(error.message));
 
   const priorVersionId = formInstance.formVersionId;
@@ -393,4 +411,6 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   const restartedPrompt = await store.getCard(customPrompt.id);
   assert.equal(restartedPrompt.values.content, "已完成一次版本修订。");
   assert.equal(restartedPrompt.status, "active");
+  const persistedChangeSet = await (await runtime.getNewDesignPool()).query("SELECT status FROM new_design.book_change_sets WHERE id=$1", [timePreview.id]);
+  assert.equal(persistedChangeSet.rows[0].status, "applied");
 });
