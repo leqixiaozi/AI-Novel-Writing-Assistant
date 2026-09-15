@@ -1,0 +1,58 @@
+# 新设计卡片内核边界
+
+## 背景
+
+旧小说系统已经承载稳定的页面、编辑流程和 SQLite 数据。新增创作对象如果继续扩张旧专用模型，会让字段、页面和迁移彼此绑定；但直接替换旧系统又会破坏已有作品和工作流。
+
+## 决策
+
+采用“旧外壳保留、新内核隔离”的渐进路线：
+
+- 旧菜单、页面、服务和 SQLite 继续作为原业务正本。
+- 所有新增卡片能力放在仓库顶层 `new-design/`，只通过公开客户端组件和 Express Router 挂载到旧外壳。
+- 新接口只能出现在 `/api/new-design`。
+- 新数据只写入 PostgreSQL `new_design` schema，不读取旧 SQLite，不双写，也不提供模拟持久化回退。
+- 桌面发行携带版本锁定的 PostgreSQL Windows x64 运行文件；数据目录位于安装目录之外。
+
+可以把它理解成商场保留原营业区，同时开设有独立仓库和账本的新区域：顾客仍从同一个大门进入，但新区域不能借用旧仓库的货架编号冒充自己的库存。对应到代码里，菜单和路由只是入口桥接，数据模型、校验和持久化均由 `new-design/` 自己拥有。
+
+## 当前规则
+
+第一阶段的最小对象边界是 `CardSpace`、`CardType`、`CardTypeVersion`、`Card` 和 `CardVersion`：
+
+- 类型字段先保存为可编辑草稿，发布后形成不可变版本。
+- 已发布结构只能增加非必填字段，不能删除或修改稳定字段。
+- 卡片始终按当前已发布类型校验，未知字段、缺失必填项和错误类型会被拒绝。
+- 卡片写入使用 `revision` 防止并发覆盖；每次有效状态变化保存完整快照。
+- 归档只改变状态，恢复沿用原 ID 和版本历史。
+
+## 依赖方向
+
+```text
+旧客户端路由/菜单 ──> @ai-novel/new-design/client
+旧 Express 挂载点 ──> @ai-novel/new-design (Router)
+                         │
+                         ├─> new-design/domain
+                         └─> new-design/database ──> PostgreSQL
+```
+
+箭头不能反向：`new-design/` 不允许导入 `client/src`、`server/src`、旧 Prisma 模型或旧业务 Service。未来删除旧客户端和旧服务端目录时，应能为新设计补充独立壳层，而不重写卡片领域与数据库代码。
+
+## 运行时边界
+
+- 默认只监听 `127.0.0.1`，使用非默认动态端口。
+- 初始化密码随机生成，运行配置和数据库数据一起留在应用数据目录。
+- 迁移只允许非破坏性前进；检测到不完整旧数据时停止并提示，不自动清空。
+- Electron 打包必须把 PostgreSQL 原生目录解出 `app.asar`，并在打包验证中检查三个入口：`postgres.exe`、`initdb.exe`、`pg_ctl.exe`。
+- CI 可通过 `NEW_DESIGN_DATABASE_URL` 接入真实 PostgreSQL，但不得切换到其他数据库实现。
+
+## 后续边界
+
+卡片组表单、模板组、书籍安装、关系图、AGE、pgvector 和旧数据迁移均为后续阶段。第一阶段不得为了展示这些能力提前增加占位表或假数据。
+
+## 相关模块
+
+- `new-design/README.md`
+- `new-design/src/server/database/`
+- `new-design/src/server/domain/`
+- `new-design/src/client/`

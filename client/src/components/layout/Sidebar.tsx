@@ -11,6 +11,7 @@ import {
   House,
   Images,
   LayoutDashboard,
+  Layers3,
   ListTodo,
   MonitorPlay,
   Radar,
@@ -60,6 +61,7 @@ const navGroups: NavGroup[] = [
       { to: "/comic", label: "漫画工作台", icon: SquareStack },
       { to: "/creative-hub", label: "创作中枢", icon: LayoutDashboard },
       { to: "/book-analysis", label: "拆书", icon: ScanSearch },
+      { to: "/new-design", label: "新设计", icon: Layers3 },
     ],
   },
   {

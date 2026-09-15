@@ -64,6 +64,7 @@ module.exports = {
   asar: true,
   asarUnpack: [
     "node_modules/**/*.node",
+    "node_modules/**/@embedded-postgres/windows-x64/native/**/*",
   ],
   npmRebuild: true,
   nativeRebuilder: "sequential",

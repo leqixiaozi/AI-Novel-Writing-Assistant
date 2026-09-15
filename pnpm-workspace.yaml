@@ -1,11 +1,13 @@
 packages:
   - client
   - desktop
+  - new-design
   - server
   - site
   - shared
 injectWorkspacePackages: true
 allowBuilds:
+  '@embedded-postgres/windows-x64': true
   '@prisma/engines': true
   better-sqlite3: true
   electron: false

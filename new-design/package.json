@@ -1,0 +1,57 @@
+{
+  "name": "@ai-novel/new-design",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "main": "dist/server/index.js",
+  "types": "dist/server/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server/index.d.ts",
+      "require": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "require": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "import": "./src/client/index.ts",
+      "default": "./src/client/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "migrations",
+    "src/client",
+    "src/common"
+  ],
+  "scripts": {
+    "build": "pnpm run build:server && pnpm run typecheck:client",
+    "build:server": "tsc -p tsconfig.server.json",
+    "typecheck": "pnpm run build:server && pnpm run typecheck:client",
+    "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
+    "dev": "tsc -p tsconfig.server.json --watch",
+    "test": "pnpm run build:server && node --test tests/unit.test.cjs",
+    "test:integration": "pnpm run build:server && node --test tests/postgres.integration.test.cjs"
+  },
+  "dependencies": {
+    "@embedded-postgres/windows-x64": "17.6.0-beta.15",
+    "express": "^5.2.1",
+    "pg": "8.20.0",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.3.3",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^19.2.14",
+    "typescript": "^5.9.3"
+  }
+}

@@ -28,6 +28,7 @@ const stagedAppUpdateConfig = path.join(buildDir, "resources", "app-update.yml")
 const stagedClientIndex = path.join(buildDir, "resources", "client", "dist", "index.html");
 const unpackedClientIndex = path.join(unpackedDir, "resources", "client", "dist", "index.html");
 const unpackedAppArchive = path.join(unpackedDir, "resources", "app.asar");
+const unpackedAppNativeDir = path.join(unpackedDir, "resources", "app.asar.unpacked");
 const unpackedWindowIcon = path.join(unpackedDir, "resources", "icons", "app-icon.ico");
 const stagedRuntimeFile = path.join(appDir, "dist", "runtime", "server.js");
 
@@ -58,6 +59,20 @@ function assertSomeMatch(entries, pattern, description) {
   }
 }
 
+function findFileWithin(rootDir, relativeSuffix) {
+  if (!fs.existsSync(rootDir)) return null;
+  const pending = [rootDir];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const target = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(target);
+      else if (target.replace(/\\/g, "/").endsWith(relativeSuffix)) return target;
+    }
+  }
+  return null;
+}
+
 function main() {
   assertExists(appPackageJsonPath, "staged desktop package.json");
   assertExists(builderWindowIcon, "builder desktop window icon");
@@ -65,6 +80,13 @@ function main() {
   assertExists(stagedClientIndex, "staged renderer index");
   assertExists(unpackedClientIndex, "packaged renderer index");
   assertExists(unpackedAppArchive, "packaged app archive");
+  for (const executable of ["postgres.exe", "initdb.exe", "pg_ctl.exe"]) {
+    const nativePath = findFileWithin(
+      unpackedAppNativeDir,
+      `/@embedded-postgres/windows-x64/native/bin/${executable}`,
+    );
+    if (!nativePath) throw new Error(`Missing unpacked new-design PostgreSQL executable: ${executable}`);
+  }
   assertExists(unpackedWindowIcon, "packaged desktop window icon");
   assertExists(stagedRuntimeFile, "desktop runtime server bundle");
   assertNotExists(path.join(appDir, "src"), "desktop source directory inside staged app");
@@ -109,6 +131,11 @@ function main() {
     packagedEntries,
     /^node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@ai-novel\/server\/src\/prisma\/migrations\/[^/]+\/migration\.sql$/,
     "bundled Prisma migration files inside app.asar",
+  );
+  assertSomeMatch(
+    packagedEntries,
+    /^node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@ai-novel\/new-design\/migrations\/001_card_kernel\.sql$/,
+    "new-design PostgreSQL migration inside app.asar",
   );
   assertSomeMatch(
     packagedEntries,
