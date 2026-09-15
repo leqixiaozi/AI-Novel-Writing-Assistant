@@ -14,7 +14,7 @@
 
 | 组件 | 锁定版本 | 发布输入 |
 |---|---:|---|
-| 应用 | 0.1.0 | server/client 编译产物与 001—034 SQL |
+| 应用 | 0.1.0 | server/client 编译产物与 001—035 SQL |
 | Node.js | 24.19.0 | `bin/node.exe`，仅用于固定 CLI 入口 |
 | PostgreSQL | 17.6 | `@embedded-postgres/windows-x64@17.6.0-beta.15` 的受控输入 |
 | Apache AGE | 1.6.0 / PG17 | `PG17/v1.6.0-rc0` 对应发布输入 |
@@ -37,7 +37,7 @@ runtime-package/
    ├─ server/           编译后的服务端与 runtime/cli.js
    ├─ client/           客户端静态产物
    ├─ scripts/          start/stop/status/doctor/backup/upgrade PowerShell 入口
-   └─ migrations/       连续的 001—034
+   └─ migrations/       连续的 001—035
 ```
 
 发布阶段使用 `node scripts/assemble-runtime.cjs --source-root <受控目录> --source-manifest <清单> --output-root <空目录>`。assembler 只复制 source manifest 白名单文件，核对组件组合、大小、SHA-256、路径、许可证和迁移连续性；输出目录非空时拒绝覆盖。
@@ -82,7 +82,7 @@ new-design/
 
 ## 启停与恢复规则
 
-启动顺序是：互斥锁 → manifest/逐文件哈希 → 目录与磁盘 → 随机凭据和 ACL → `initdb` → 本机 SCRAM → `pg_ctl` → PID/start time/data dir/instance token → `pg_isready` → AGE/vector/pg_trgm → 001—034 → 030 runner。任一步失败都不得继续可写。
+启动顺序是：互斥锁 → manifest/逐文件哈希 → 目录与磁盘 → 随机凭据和 ACL → `initdb` → 本机 SCRAM → `pg_ctl` → PID/start time/data dir/instance token → `pg_isready` → AGE/vector/pg_trgm → 001—035 → 030 runner。任一步失败都不得继续可写。
 
 停止先把 worker 标为 draining 并归还租约，再关闭连接池，最后 `pg_ctl ... -m fast`。只有运行实例 token、数据世代、PID、启动时间与 `postmaster.pid` 全部一致时才执行；陈旧 PID 不会触发 `kill`。
 
@@ -94,7 +94,7 @@ new-design/
 |---|---|
 | TypeScript server/client `--noEmit` | 已执行 |
 | runtime/source manifest JSON 结构与版本锁 | 已审查 |
-| 001—034 连续性、调用链、固定路径与参数白名单 | 已审查 |
+| 001—035 连续性、调用链、固定路径与参数白名单 | 已审查 |
 | PID/start time/data dir/instance token 防误杀 | 已审查 |
 | 凭据不进入 API、manifest、URL 和命令行 | 已审查 |
 | PowerShell 与 Node 脚本静态语法 | 已执行 |
@@ -102,4 +102,4 @@ new-design/
 
 ## Release Gate：尚未动态验证
 
-本批按开发策略没有运行测试、构建、服务或数据库。发布前必须逐项完成：干净 Windows x64 离线安装与完整二进制/许可证装配；安装器／运行包代码签名和本地篡改模型；首次 `initdb`；随机凭据 ACL 的最小读取权限；本机监听和端口冲突；AGE/vector/pg_trgm 创建与 `LOAD`；001—034 实库迁移；启动、停止、异常退出、重复启动和错误 PID 防误杀；030 runner 租约恢复与停机排空；031 数据库＋附件联合备份和恢复；同主版本与跨主版本升级及失败回滚；覆盖安装和卸载保留数据；长路径、中文用户目录、杀毒与受限权限；磁盘不足；大书性能；安全与日志脱敏。
+本批按开发策略没有运行测试、构建、服务或数据库。发布前必须逐项完成：干净 Windows x64 离线安装与完整二进制/许可证装配；安装器／运行包代码签名和本地篡改模型；首次 `initdb`；随机凭据 ACL 的最小读取权限；本机监听和端口冲突；AGE/vector/pg_trgm 创建与 `LOAD`；001—035 实库迁移；启动、停止、异常退出、重复启动和错误 PID 防误杀；030 runner 租约恢复与停机排空；031 数据库＋附件联合备份和恢复；同主版本与跨主版本升级及失败回滚；覆盖安装和卸载保留数据；长路径、中文用户目录、杀毒与受限权限；磁盘不足；大书性能；安全与日志脱敏。

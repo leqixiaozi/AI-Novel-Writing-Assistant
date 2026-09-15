@@ -70,7 +70,7 @@
     "app/scripts/backup.ps1",
     "app/scripts/upgrade.ps1",
     "app/migrations/001_card_kernel.sql",
-    "app/migrations/034_scoped_field_definitions.sql"
+    "app/migrations/035_association_mount_versions.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -85,7 +85,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "034_scoped_field_definitions.sql",
-    "count": 34
+    "last": "035_association_mount_versions.sql",
+    "count": 35
   }
 }

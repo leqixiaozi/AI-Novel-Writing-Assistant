@@ -259,26 +259,26 @@ export async function saveFormInstance(input: {
     if (input.id) {
       const current = assertFound((await client.query("SELECT * FROM new_design.card_group_form_instances WHERE id=$1 FOR UPDATE", [id])).rows[0], "表单实例不存在。");
       if (Number(current.revision) !== input.revision) throw new NewDesignError("事件规划已在其他页面更新，请刷新后重试。", 409);
-      await client.query("UPDATE new_design.card_relations SET status='archived',updated_at=now() WHERE id IN (SELECT relation_id FROM new_design.card_mounts WHERE form_instance_id=$1)", [id]);
-      await client.query("DELETE FROM new_design.card_mounts WHERE form_instance_id=$1", [id]);
+      const activeMounts=(await client.query("SELECT * FROM new_design.card_mounts WHERE form_instance_id=$1 AND status='active' FOR UPDATE",[id])).rows;
+      for(const mount of activeMounts){
+        const nextRevision=Number(mount.revision)+1;const versionId=randomUUID();
+        await client.query(`INSERT INTO new_design.card_mount_versions(id,card_mount_id,revision,form_version_id,source_card_version_id,slot_key,card_id,sort_order,local_values,status,created_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'ended','legacy_form_editor')`,[versionId,mount.id,nextRevision,input.formVersionId,mount.source_card_version_id,mount.slot_key,mount.card_id,mount.sort_order,JSON.stringify(mount.local_values)]);
+        await client.query("UPDATE new_design.card_mounts SET status='ended',revision=$2,current_version_id=$3,ended_at=now(),ended_by='legacy_form_editor',updated_at=now() WHERE id=$1",[mount.id,nextRevision,versionId]);
+      }
       await client.query("UPDATE new_design.card_group_form_instances SET title=$2,form_version_id=$3,primary_card_id=$4,revision=revision+1,updated_at=now() WHERE id=$1", [id,input.title,input.formVersionId,input.primaryCardId]);
     } else {
       await client.query(`INSERT INTO new_design.card_group_form_instances (id,space_id,form_version_id,primary_card_id,title)
         VALUES ($1,$2,$3,$4,$5)`, [id,input.spaceId,input.formVersionId,input.primaryCardId,input.title]);
     }
-    const relationTypes = await client.query(`SELECT DISTINCT ON (relation_key) * FROM new_design.relation_types
-      WHERE relation_key=ANY($1::text[]) AND status='published' AND (owner_space_id=$2 OR owner_space_id IS NULL)
-      ORDER BY relation_key, owner_space_id NULLS LAST`, [slots.map((slot) => slot.relationTypeKey),input.spaceId]);
-    const relationByKey = new Map(relationTypes.rows.map((row) => [String(row.relation_key),row]));
     for (const mount of input.mounts) {
-      const slot = assertFound(slots.find((candidate) => candidate.key === mount.slotKey), "引用槽不存在。");
-      const relationType = assertFound(relationByKey.get(slot.relationTypeKey ?? ""), `关系类型 ${slot.relationTypeKey} 未发布。`);
-      const relationId = randomUUID();
-      await client.query(`INSERT INTO new_design.card_relations
-        (id,space_id,relation_type_id,source_card_id,target_card_id,status,properties) VALUES ($1,$2,$3,$4,$5,'active',$6::jsonb)`,
-      [relationId,input.spaceId,relationType.id,input.primaryCardId,mount.cardId,JSON.stringify(mount.localValues)]);
-      await client.query(`INSERT INTO new_design.card_mounts (id,form_instance_id,slot_key,card_id,relation_id,sort_order,local_values)
-        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [mount.id ?? randomUUID(),id,mount.slotKey,mount.cardId,relationId,mount.sortOrder,JSON.stringify(mount.localValues)]);
+      const source=assertFound((await client.query("SELECT current_version_id FROM new_design.cards WHERE id=$1 AND space_id=$2",[mount.cardId,input.spaceId])).rows[0],"关联资料不属于当前数据空间。");
+      const mountId=randomUUID(),versionId=randomUUID();
+      await client.query(`INSERT INTO new_design.card_mounts (id,form_instance_id,slot_key,card_id,relation_id,sort_order,local_values,source_card_version_id,status,created_by,current_version_id)
+        VALUES ($1,$2,$3,$4,NULL,$5,$6::jsonb,$7,'active','legacy_form_editor',NULL)`,[mountId,id,mount.slotKey,mount.cardId,mount.sortOrder,JSON.stringify(mount.localValues),source.current_version_id]);
+      await client.query(`INSERT INTO new_design.card_mount_versions(id,card_mount_id,revision,form_version_id,source_card_version_id,slot_key,card_id,sort_order,local_values,status,created_by)
+        VALUES($1,$2,1,$3,$4,$5,$6,$7,$8::jsonb,'active','legacy_form_editor')`,[versionId,mountId,input.formVersionId,source.current_version_id,mount.slotKey,mount.cardId,mount.sortOrder,JSON.stringify(mount.localValues)]);
+      await client.query("UPDATE new_design.card_mounts SET current_version_id=$2 WHERE id=$1",[mountId,versionId]);
     }
     await client.query("COMMIT");
     return assertFound(await readFormInstance(pool,id),"事件规划保存后读取失败。");

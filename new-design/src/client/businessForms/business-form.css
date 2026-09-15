@@ -63,6 +63,27 @@
 .nd-readonly-relations dl div { padding: .55rem .65rem; background: var(--nd-soft); border-radius: calc(var(--radius) - .25rem); }
 .nd-readonly-relations dt { color: var(--nd-muted); font-size: .57rem; }
 .nd-readonly-relations dd { margin: .18rem 0 0; font-size: .66rem; }
+.nd-association-panel { display: grid; gap: .75rem; margin-top: .15rem; padding-top: .9rem; border-top: 1px solid var(--nd-line); }
+.nd-association-heading, .nd-association-slot > div, .nd-association-item header, .nd-association-item footer, .nd-association-results article { display: flex; align-items: flex-start; justify-content: space-between; gap: .7rem; }
+.nd-association-heading h3, .nd-association-slot strong { margin: 0; font-size: .78rem; font-weight: 600; }
+.nd-association-heading p, .nd-association-slot > p, .nd-association-item > p, .nd-association-results p { margin: .16rem 0 0; color: var(--nd-muted); font-size: .61rem; line-height: 1.5; }
+.nd-association-heading > span { color: var(--nd-muted); font-size: .6rem; }
+.nd-association-slot { display: grid; gap: .5rem; padding: .75rem; background: var(--nd-soft); border-radius: calc(var(--radius) - .15rem); }
+.nd-association-slot > div > span, .nd-association-item header > span:first-child, .nd-association-results article > span { display: grid; gap: .12rem; min-width: 0; }
+.nd-association-slot small, .nd-association-item small, .nd-association-results small { color: var(--nd-muted); font-size: .57rem; }
+.nd-association-item { display: grid; gap: .55rem; padding: .7rem; background: var(--nd-paper); border: 1px solid var(--nd-line); border-radius: calc(var(--radius) - .2rem); }
+.nd-association-item header strong, .nd-association-results strong { font-size: .69rem; font-weight: 600; }
+.nd-association-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .25rem; }
+.nd-association-badges i { padding: .18rem .35rem; color: var(--nd-accent); background: hsl(var(--primary) / .09); border-radius: 999px; font-size: .54rem; font-style: normal; }
+.nd-association-badges i.is-muted { color: var(--nd-muted); background: var(--nd-soft); }
+.nd-association-item footer { align-items: center; padding-top: .45rem; border-top: 1px solid var(--nd-line); }
+.nd-association-item footer > span { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; }
+.nd-association-dialog { display: grid; gap: .8rem; width: min(760px, calc(100vw - 2rem)); max-height: min(88dvh, 900px); padding: 1rem; overflow-y: auto; color: var(--nd-ink); background: var(--nd-paper); border-radius: var(--radius); box-shadow: 0 20px 70px hsl(220 35% 6% / .38); }
+.nd-association-dialog .nd-section-heading p:last-child { margin: .2rem 0 0; color: var(--nd-muted); font-size: .61rem; }
+.nd-association-search { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: .55rem; }
+.nd-association-create-row { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; padding: .55rem .65rem; background: var(--nd-soft); border-radius: calc(var(--radius) - .2rem); font-size: .61rem; }
+.nd-association-results, .nd-association-create { display: grid; gap: .5rem; }
+.nd-association-results article { align-items: center; padding: .65rem 0; border-top: 1px solid var(--nd-line); }
 .nd-revision-conflict { display: grid; gap: .55rem; padding: .8rem; color: var(--nd-ink); background: hsl(var(--destructive) / .07); border-left: 3px solid var(--nd-error); border-radius: 0 calc(var(--radius) - .2rem) calc(var(--radius) - .2rem) 0; }
 .nd-revision-conflict > strong { font-size: .72rem; font-weight: 600; }
 .nd-revision-conflict > p { margin: 0; color: var(--nd-muted); font-size: .65rem; line-height: 1.5; }
@@ -91,4 +112,7 @@
   .nd-readonly-relations dl, .nd-conflict-comparison { grid-template-columns: 1fr; }
   .nd-conflict-comparison article { grid-template-columns: 1fr; }
   .nd-scope-picker, .nd-field-builder-row { grid-template-columns: 1fr; }
+  .nd-association-heading, .nd-association-slot > div, .nd-association-item header, .nd-association-item footer, .nd-association-results article { align-items: stretch; flex-direction: column; }
+  .nd-association-search { grid-template-columns: 1fr; }
+  .nd-association-search .nd-button { width: 100%; }
 }

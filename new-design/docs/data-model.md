@@ -2,6 +2,8 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
+`031`—`035` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域，以及表单关联／独立关系的不可变版本合同。运行时迁移范围以 `001_card_kernel.sql` 至 `035_association_mount_versions.sql` 为准。
+
 ## 跨机器同步原则
 
 把 Git 仓库理解成“施工图纸”，把每台电脑上的 PostgreSQL 数据目录理解成“按图建成的房子”。图纸适合跨机器同步，建成后的房子不能把砖墙文件直接复制到另一台机器。对应到开发流程：迁移 SQL、数据字典和确定性基础数据进入 Git；PostgreSQL 二进制数据目录不进入 Git。
@@ -614,11 +616,21 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 ### 034 字段作用域与局部值
 
-`034_scoped_field_definitions.sql` 把字段稳定身份与每版展示／校验规格拆开，并为选项建立独立稳定身份。`field_definitions` 记录 `field_key`、来源、作用域、来源模板／类型／表单版本和当前指针；`field_definition_versions`、`field_option_versions`、`field_scope_adoptions` 与局部值历史只追加。`card_version_local_values` 绑定当前资料修订，`card_mount_local_value_versions` 只预留 U4 合同。
+`034_scoped_field_definitions.sql` 把字段稳定身份与每版展示／校验规格拆开，并为选项建立独立稳定身份。`field_definitions` 记录 `field_key`、来源、作用域、来源模板／类型／表单版本和当前指针；`field_definition_versions`、`field_option_versions`、`field_scope_adoptions` 与局部值历史只追加。`card_version_local_values` 绑定当前资料修订，`card_mount_local_value_versions` 由 035 的关联编辑流程正式写入。
 
 > 🏠 **白话比喻**：字段 key 像居民身份证号，显示名称像姓名；改名换证不会变成另一个人。对应到系统：标签可以出新版本，稳定 key 和 option ID 始终用于识别历史值。
 
 > 🧠 **速记方法**：**key 认身份，label 管显示；同类发新版，单条随修订。** 详细作用域、事务和 API 见 [field-scope-and-versioning.md](./field-scope-and-versioning.md)。
+
+### 035 关联资料与局部信息
+
+`035_association_mount_versions.sql` 为表单内关联补齐来源版本、有效／已移除状态、当前版本指针、操作者和不可变 `card_mount_versions`；`association_actions` 保存新增、移除、恢复、排序、采用最新来源和局部信息写入的幂等回执。`card_relation_versions` 则单独保存业务关系历史，两者不能在同一个动作里同时写入。
+
+关联资料自己的字段值仍只属于来源 `Card`；当前表单里的称谓、立场、出场目的等局部信息使用 `field_definitions.scope='card_mount'` 与 `card_mount_local_value_versions`。来源更新后，挂载仍锁定原来源修订并显示“来源有更新”，只有作者明确采用才生成新的挂载版本。反向引用统计同时计算有效挂载和正式业务关系，归档来源可回看但不能加入新关联或继续编辑。
+
+> 🏠 **白话比喻**：来源资料像通讯录里的联系人，表单关联像把联系人抄进一次会议的参会名单，“本次发言立场”只写在会议名单旁边，不能改掉通讯录。对应到系统：`cards/card_versions` 保存来源正本，`card_mount_versions` 保存本次引用及其局部信息，`card_relations/card_relation_versions` 保存独立业务关系。
+
+> 🧠 **速记方法**：**正本归资料，场景归挂载，关系另立账；换版先提示，采用才前进。** 详细事务与接口见 [association-management.md](./association-management.md)。
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。
 2. 已发布迁移文件不可改写；结构变化必须新增迁移。

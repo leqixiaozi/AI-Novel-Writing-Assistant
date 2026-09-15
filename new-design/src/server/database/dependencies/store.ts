@@ -10,7 +10,7 @@ import { NewDesignError, assertFound } from "../../domain/errors";
 import { asDate, asText, stableHash } from "../aiContracts/integrity";
 import { getNewDesignPool } from "../runtime";
 
-const resourceKinds=new Set<DependencyResourceKind>(["card_type_version","template_group_version","card_version","card_relation","research_document_version","research_record_version","research_reference_pack_version","chapter_body_version","chapter_text_anchor","canonical_fact","chapter_settlement","state_change","knowledge_state_change","story_event_timing","story_event_relation","planning_version","prompt_recipe_version","task_contract_version","context_manifest","model_route_snapshot","ai_task_attempt","quality_audit_report","asset_version"]);
+const resourceKinds=new Set<DependencyResourceKind>(["card_type_version","template_group_version","card_version","card_relation","card_mount","research_document_version","research_record_version","research_reference_pack_version","chapter_body_version","chapter_text_anchor","canonical_fact","chapter_settlement","state_change","knowledge_state_change","story_event_timing","story_event_relation","planning_version","prompt_recipe_version","task_contract_version","context_manifest","model_route_snapshot","ai_task_attempt","quality_audit_report","asset_version"]);
 const dependencyKinds=new Set<DependencyKind>(["generated_from","planned_from","validated_against","evidenced_by","context_included","configured_by","settled_from","audited_from","derived_from"]);
 const asJsonArray=<T>(value:unknown)=>Array.isArray(value)?value as T[]:[];
 const normalizeRequirements=(items:DependencyRecomputeRequest["requiredUpstreamVersions"])=>[...items].sort((left,right)=>left.resourceId.localeCompare(right.resourceId));

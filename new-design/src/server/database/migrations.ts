@@ -140,4 +140,8 @@ export const migrations: Migration[] = [
     id: "034_scoped_field_definitions",
     fileName: "034_scoped_field_definitions.sql",
   },
+  {
+    id: "035_association_mount_versions",
+    fileName: "035_association_mount_versions.sql",
+  },
 ];

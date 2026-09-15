@@ -99,7 +99,7 @@ export const updateCardSchema = z.object({
   localValues: z.record(z.string(), z.unknown()).optional(),
 });
 
-const addInformationFieldSchema = z.object({
+export const addInformationFieldSchema = z.object({
   name: z.string().trim().min(1, "字段名称不能为空。").max(80),
   description: z.string().trim().max(300).default(""),
   type: z.enum(FIELD_TYPES),
@@ -155,6 +155,14 @@ export const archiveScopedFieldSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(160),
   createdBy: z.string().trim().max(160).default("user"),
 });
+
+export const associationSearchSchema=z.object({slotKey:z.string().trim().min(1).max(80),query:z.string().trim().max(120).default(""),offset:z.coerce.number().int().min(0).default(0),limit:z.coerce.number().int().min(1).max(50).default(20)});
+export const associationAddSchema=z.object({slotKey:z.string().trim().min(1).max(80),cardId:z.string().uuid(),expectedInstanceRevision:z.number().int().positive().nullable(),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
+export const associationCreateAndAddSchema=z.object({slotKey:z.string().trim().min(1).max(80),cardTypeId:z.string().uuid(),title:z.string().trim().min(1).max(160),values:z.record(z.string(),z.unknown()),expectedInstanceRevision:z.number().int().positive().nullable(),formVersionId:z.string().uuid().nullable().optional(),formResolutionKind:z.enum(["installed_form","type_schema","system_default","generic","legacy"]).default("installed_form"),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
+export const associationRemoveSchema=z.object({expectedRevision:z.number().int().positive(),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
+export const associationReorderSchema=z.object({items:z.array(z.object({mountId:z.string().uuid(),expectedRevision:z.number().int().positive()})).min(1).max(200),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
+export const associationLocalValuesSchema=z.object({expectedRevision:z.number().int().positive(),values:z.record(z.string(),z.unknown()),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
+export const associationLocalFieldSchema=z.object({expectedRevision:z.number().int().positive(),field:addInformationFieldSchema,initialValue:z.unknown().optional().nullable(),idempotencyKey:z.string().trim().min(8).max(160),createdBy:z.string().trim().max(160).default("user")});
 
 export const dictionaryInputSchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "字典标识需以小写字母开头。"),

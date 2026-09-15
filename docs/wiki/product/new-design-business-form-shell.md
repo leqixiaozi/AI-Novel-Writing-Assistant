@@ -16,7 +16,7 @@
 
 - 页面不得保存渲染后的表单副本；版本记录只引用实际内容规格和创作表单版本。
 - 空白、模板和 AI 只改变初始值，不得分叉编辑组件和保存接口。
-- 关系、状态和时间等跨对象能力在对应批次完成前只读展示，不用本地临时值假装已保存。
+- 关系、状态和时间等跨对象能力必须写入各自正本；表单内关联只写挂载版本，不能顺手再写一条业务关系。
 - 修订冲突必须保留本地输入，明确比较后再采用，禁止最后写入者静默获胜。
 - 历史是不可变快照，只读查看；恢复必须等真实恢复合同存在后再提供按钮。
 - 内容类型没有已发布版本时必须显示不可填写状态，不能从草稿猜测生产表单。
@@ -35,5 +35,7 @@
 - `new-design/src/server/database/store.ts`：当前规格校验、不可变资料修订与表单来源记录。
 - `new-design/migrations/033_business_form_provenance.sql`：保存每次填写实际采用的表单版本与解析来源。
 - `new-design/migrations/034_scoped_field_definitions.sql`：保存字段稳定身份、来源／作用域、不可变版本、选项身份和局部值。
+- `new-design/migrations/035_association_mount_versions.sql`：保存表单关联、来源版本、局部信息、动作回执和独立业务关系版本。
 - `new-design/docs/field-scope-and-versioning.md`：“＋ 添加信息”、影响预览和跨机器同步合同。
+- `new-design/docs/association-management.md`：关联选择、新建并加入、来源换版与局部信息合同。
 - `new-design/docs/business-form-shell.md`：路由、状态和保存合同。

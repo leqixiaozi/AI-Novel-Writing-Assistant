@@ -48,9 +48,9 @@ export async function previewFieldExtension(bookId:string,input:ScopeInput):Prom
     const scope=await assertLocalTarget(client,bookId,input);
     const affected=input.scope==="book_type"?Number((await client.query("SELECT count(*) value FROM new_design.cards WHERE space_id=$1 AND card_type_id=$2 AND status='active'",[scope.space_id,input.cardTypeId])).rows[0]?.value??0):1;
     const requiredNeedsDefault=input.field.required&&affected>0&&isBlank(input.field.defaultValue);
-    const messages=input.scope==="book_type"?[`将加入本书全部“${scope.type_key}”资料，现有 ${affected} 条。`]:input.scope==="card"?["只补充当前资料，不会改变其他同类资料。"]:["当前关联字段已预留数据合同，将在关联编辑开放后使用。"];
+    const messages=input.scope==="book_type"?[`将加入本书全部“${scope.type_key}”资料，现有 ${affected} 条。`]:input.scope==="card"?["只补充当前资料，不会改变其他同类资料。"]:["只补充当前关联，不会写入来源资料或其他引用位置。"];
     if(requiredNeedsDefault)messages.push("设为必填会影响已有资料，请先提供安全默认值；逐条补齐将在后续批次开放。");
-    return{scope:input.scope,affectedCardCount:affected,requiredNeedsDefault,canApply:input.scope!=="card_mount"&&!requiredNeedsDefault,expectedTypeRevision:Number(scope.revision),messages};
+    return{scope:input.scope,affectedCardCount:affected,requiredNeedsDefault,canApply:!requiredNeedsDefault,expectedTypeRevision:Number(scope.revision),messages};
   }finally{client.release();}
 }
 

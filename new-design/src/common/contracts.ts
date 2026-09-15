@@ -357,6 +357,62 @@ export interface CardGroupFormInstance {
   updatedAt: string;
 }
 
+export interface AssociationSlotSpec extends CardGroupFormSlot {
+  storage: "form_context";
+  sectionName: string;
+  relationName: string | null;
+  relationDirection: "directed" | "undirected" | null;
+}
+
+export interface AssociationItem {
+  id: string;
+  slotKey: string;
+  source: CardSummary;
+  attachedSourceVersionId: string;
+  attachedSourceRevision: number;
+  sourceUpdated: boolean;
+  sourceArchived: boolean;
+  sortOrder: number;
+  localValues: Record<string, unknown>;
+  localFields: ScopedFieldDefinition[];
+  revision: number;
+  referenceCount: number;
+}
+
+export interface AssociationWorkspace {
+  formId: string;
+  formVersionId: string;
+  formVersion: number;
+  instanceId: string | null;
+  instanceRevision: number | null;
+  primaryCardId: string;
+  slots: AssociationSlotSpec[];
+  items: AssociationItem[];
+}
+
+export interface AssociationCandidate {
+  id: string;
+  typeKey: string;
+  typeName: string;
+  title: string;
+  summary: string;
+  revision: number;
+  currentVersionId: string;
+  referenceCount: number;
+}
+
+export interface AssociationMountVersion {
+  id: string;
+  revision: number;
+  sourceVersionId: string;
+  sourceRevision: number;
+  sortOrder: number;
+  localValues: Record<string, unknown>;
+  status: "active" | "ended";
+  createdBy: string;
+  createdAt: string;
+}
+
 export interface TemplateGroupVersion {
   id: string;
   version: number;
@@ -836,7 +892,7 @@ export interface TemplateSyncPreview {
 }
 
 export type DependencyResourceKind =
-  | "card_type_version" | "template_group_version" | "card_version" | "card_relation"
+  | "card_type_version" | "template_group_version" | "card_version" | "card_relation" | "card_mount"
   | "research_document_version" | "research_record_version" | "research_reference_pack_version"
   | "chapter_body_version" | "chapter_text_anchor" | "canonical_fact" | "chapter_settlement"
   | "state_change" | "knowledge_state_change" | "story_event_timing" | "story_event_relation"

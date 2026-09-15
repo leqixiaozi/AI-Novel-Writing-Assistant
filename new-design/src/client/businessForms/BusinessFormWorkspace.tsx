@@ -16,6 +16,7 @@ import type {
 import { ApiError, newDesignApi } from "../api";
 import DynamicForm from "../DynamicForm";
 import AddInformationDialog from "./AddInformationDialog";
+import AssociationPanel from "./AssociationPanel";
 import {
   SCOPE_COPY,
   cardsForType,
@@ -267,20 +268,6 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const openFieldHistory=async(definition:ScopedFieldDefinition)=>{setBusy(true);try{setFieldHistory({definition,versions:await newDesignApi.listScopedFieldHistory(book.id,definition.id)});}catch(loadError){setError(loadError instanceof Error?loadError.message:"信息版本暂时无法读取。");}finally{setBusy(false);}};
   const archiveField=async(definition:ScopedFieldDefinition)=>{if(!selectedType)return;setBusy(true);setError("");try{await newDesignApi.archiveScopedField(book.id,definition.id,{expectedRevision:definition.revision,expectedTypeRevision:definition.scope==="book_type"?selectedType.revision:undefined,idempotencyKey:crypto.randomUUID()});await refreshAfterFieldCreate();setNotice(`“${definition.currentVersion.field.name}”已从填写表单隐藏，历史资料仍保留。`);}catch(archiveError){setError(archiveError instanceof Error?archiveError.message:"暂时无法隐藏这项信息。");}finally{setBusy(false);}};
 
-  const relatedItems = useMemo(() => {
-    if (!editing || !workspace) return [];
-    const cardName = (id: string) => workspace.cards.find((card) => card.id === id)?.title ?? "已移除资料";
-    const result: Array<{ label: string; value: string }> = [];
-    workspace.characterRelations.filter((item) => item.sourceCardId === editing.id || item.targetCardId === editing.id).forEach((item) => {
-      const outgoing = item.sourceCardId === editing.id;
-      result.push({ label: outgoing ? item.sourceLabel || "人物关系" : item.inverseLabel || "人物关系", value: cardName(outgoing ? item.targetCardId : item.sourceCardId) });
-    });
-    workspace.storyTimePositions.filter((item) => item.cardId === editing.id).forEach((item) => result.push({ label: "故事时间", value: [item.startLabel, item.endLabel].filter(Boolean).join(" — ") || "已设置顺序" }));
-    workspace.narrativePlacements.filter((item) => item.subjectCardId === editing.id).forEach((item) => result.push({ label: "叙事位置", value: cardName(item.chapterCardId) }));
-    workspace.textAnchors.filter((item) => item.subjectCardId === editing.id).forEach((item) => result.push({ label: "正文锚点", value: `${cardName(item.chapterCardId)}${item.anchorLabel ? ` · ${item.anchorLabel}` : ""}` }));
-    return result;
-  }, [editing, workspace]);
-
   if (!workspace && !error) return <div className="nd-loading-screen" aria-live="polite"><div className="nd-loader"/><strong>正在整理{copy.title}</strong><span>正在读取本书资料和已发布的填写规格。</span></div>;
   if (!workspace) return <div className="nd-fatal"><h2>暂时无法打开填写页面</h2><p>{error}</p><button className="nd-button nd-button-primary" type="button" onClick={() => { setError(""); void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "本书资料暂时无法读取。")); }}>重新读取</button></div>;
   if (availableTypes.length === 0) return <div className="nd-empty nd-empty-page"><strong>这个栏目还没有可填写的内容</strong><span>本书需要先安装并发布对应的内容规格。</span></div>;
@@ -318,10 +305,15 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
 
           <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
 
-          <section className="nd-readonly-relations" aria-labelledby="nd-relation-summary-title">
-            <div><h3 id="nd-relation-summary-title">关联资料</h3><span>只读</span></div>
-            {relatedItems.length ? <dl>{relatedItems.map((item, index) => <div key={`${item.label}-${index}`}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl> : <p>暂未找到已建立的关联。关联编辑将在后续功能中提供。</p>}
-          </section>
+          {editing&&resolution.source==="installed_form"&&<AssociationPanel
+            book={book}
+            primary={editing}
+            cardTypes={liveCardTypes}
+            forms={forms}
+            formVersions={formVersions}
+            hasUnsavedChanges={title!==editing.title||JSON.stringify(values)!==JSON.stringify(editing.values)||JSON.stringify(localValues)!==JSON.stringify(scopedFields.values)}
+            onSourcesChanged={loadWorkspace}
+          />}
 
           {conflict && <section className="nd-revision-conflict" role="alert"><strong>检测到新的服务器修订</strong><p>你的未保存内容仍保留。先读取并比较最新修订，再决定采用哪一份。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={() => void compareLatest()}>{conflict.latest ? "重新比较" : "读取最新修订并比较"}</button>{conflict.latest && <div className="nd-conflict-comparison"><div><strong>你的填写</strong><span>{conflict.localTitle}</span></div><div><strong>服务器修订 {conflict.latest.revision}</strong><span>{conflict.latest.title}</span></div>{changedKeys(conflict.localValues, conflict.latest.values).map((key) => <article key={key}><strong>{resolution.fields.find((field) => field.key === key)?.name ?? key}</strong><p>{displayValue(conflict.localValues[key], resolution.fields.find((field) => field.key === key))}</p><p>{displayValue(conflict.latest?.values[key], resolution.fields.find((field) => field.key === key))}</p></article>)}<div className="nd-conflict-actions"><button className="nd-button nd-button-secondary" type="button" onClick={keepLocalOnLatestRevision}>保留我的填写</button><button className="nd-button nd-button-secondary" type="button" onClick={useLatest}>采用服务器最新内容</button></div></div>}</section>}
           <div aria-live="polite">{error && <p className="nd-message is-error">{error}</p>}{notice && <p className="nd-message is-success">{notice}</p>}</div>

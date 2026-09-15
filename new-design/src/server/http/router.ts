@@ -48,6 +48,7 @@ import { NewDesignError } from "../domain/errors";
 import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
+import { addAssociationLocalField, addExistingAssociation, createAndAddAssociation, getAssociationWorkspace, listAssociationHistory, refreshAssociationSource, removeAssociation, reorderAssociations, saveAssociationLocalValues, searchAssociationCandidates } from "../database/associations";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
@@ -259,6 +260,13 @@ import {
   transferOperationListSchema,
   transferCancelSchema,
   transferConflictResolveSchema,
+  associationSearchSchema,
+  associationAddSchema,
+  associationCreateAndAddSchema,
+  associationRemoveSchema,
+  associationReorderSchema,
+  associationLocalValuesSchema,
+  associationLocalFieldSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -393,6 +401,17 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/books", asyncRoute(async (req, res) => success(res, await createBook(body(bookInputSchema, req)), 201)));
   router.get("/books/:id", asyncRoute(async (req, res) => success(res, await getBook(String(req.params.id)))));
   router.get("/books/:id/view-workspace", asyncRoute(async (req,res)=>success(res,await getBookViewWorkspace(String(req.params.id)))));
+  router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId)))));
+  router.get("/books/:bookId/cards/:cardId/association-candidates",asyncRoute(async(req,res)=>success(res,await searchAssociationCandidates(String(req.params.bookId),String(req.params.cardId),associationSearchSchema.parse(req.query)))));
+  router.post("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await addExistingAssociation(String(req.params.bookId),String(req.params.cardId),body(associationAddSchema,req)),201)));
+  router.post("/books/:bookId/cards/:cardId/associations/create",asyncRoute(async(req,res)=>success(res,await createAndAddAssociation(String(req.params.bookId),String(req.params.cardId),body(associationCreateAndAddSchema,req)),201)));
+  router.post("/books/:bookId/cards/:cardId/associations/reorder",asyncRoute(async(req,res)=>success(res,await reorderAssociations(String(req.params.bookId),String(req.params.cardId),body(associationReorderSchema,req)))));
+  router.post("/books/:bookId/associations/:mountId/remove",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
+  router.post("/books/:bookId/associations/:mountId/restore",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req),true))));
+  router.post("/books/:bookId/associations/:mountId/refresh-source",asyncRoute(async(req,res)=>success(res,await refreshAssociationSource(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
+  router.patch("/books/:bookId/associations/:mountId/local-values",asyncRoute(async(req,res)=>success(res,await saveAssociationLocalValues(String(req.params.bookId),String(req.params.mountId),body(associationLocalValuesSchema,req)))));
+  router.post("/books/:bookId/associations/:mountId/local-fields",asyncRoute(async(req,res)=>success(res,await addAssociationLocalField(String(req.params.bookId),String(req.params.mountId),body(associationLocalFieldSchema,req)),201)));
+  router.get("/books/:bookId/associations/:mountId/history",asyncRoute(async(req,res)=>success(res,await listAssociationHistory(String(req.params.bookId),String(req.params.mountId)))));
   router.put("/books/:id/view-config/:key",asyncRoute(async(req,res)=>success(res,await saveBookViewConfig(String(req.params.id),bookViewKeySchema.parse(req.params.key),body(bookViewConfigSchema,req)))));
   router.post("/books/:id/change-previews",asyncRoute(async(req,res)=>success(res,await previewBookChangeSet(String(req.params.id),body(bookChangePreviewSchema,req)),201)));
   router.post("/book-change-sets/:id/apply",asyncRoute(async(req,res)=>success(res,await applyBookChangeSet(String(req.params.id)))));
