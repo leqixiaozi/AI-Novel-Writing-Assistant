@@ -120,4 +120,8 @@ export const migrations: Migration[] = [
     id: "029_pgvector_semantic_retrieval",
     fileName: "029_pgvector_semantic_retrieval.sql",
   },
+  {
+    id: "030_postgres_outbox_job_runtime",
+    fileName: "030_postgres_outbox_job_runtime.sql",
+  },
 ];

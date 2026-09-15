@@ -63,6 +63,7 @@ import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdg
 import { addAssetVersion, adoptAssetVersion, archiveAsset, completeAssetDerivation, createAsset, createAssetDerivation, createAssetMount, endAssetMount, getAsset, getAssetBookSummary, getAssetLineage, listAssetDerivations, listAssetMounts, listAssets, listAssetVersions, previewAssetAdoption, recordAssetIntegrityCheck, registerAssetContent, startAssetDerivation } from "../database/assets";
 import { getGraphProjectionBatch, getGraphProjectionHealth, getGraphProjectionState, listGraphProjectionBatches, listGraphProjectionFailures, listGraphProjectionGenerations, listGraphProjectionMappings, listGraphProjectionRequests, processGraphProjectionRequest, rebuildGraphProjection, traverseGraph } from "../database/graph";
 import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddingProfile, archiveEmbeddingSourceSnapshot, buildEmbeddingGeneration, completeChunking, completeEmbeddingAttempt, createEmbeddingProfile, createEmbeddingRequest, createEmbeddingSourceSnapshot, getEmbeddingCoverage, getEmbeddingProfile, getEmbeddingRequest, getSemanticRetrievalRun, listEmbeddingGenerations, listEmbeddingRequests, listEmbeddingStaleReasons, listSemanticRetrievalRuns, retrieveSemantic, startEmbeddingAttempt } from "../database/embeddings";
+import { cancelBackgroundJobForBook, getBackgroundBookPause, getBackgroundJob, getBackgroundRuntimeHealth, listBackgroundJobs, listOutboxConsumers, listOutboxEvents, replayBackgroundJobForBook, retryBackgroundJobForBook, setBackgroundBookPause, setOutboxConsumerState } from "../database/outbox";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -236,6 +237,12 @@ import {
   embeddingRequestListQuerySchema,
   embeddingStaleListQuerySchema,
   embeddingSourceArchiveSchema,
+  backgroundJobListQuerySchema,
+  outboxEventListQuerySchema,
+  backgroundJobCancelSchema,
+  backgroundJobReplaySchema,
+  outboxConsumerStateSchema,
+  backgroundBookPauseSchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -571,6 +578,17 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.post("/books/:id/semantic-retrieval",asyncRoute(async(req,res)=>success(res,await retrieveSemantic({bookId:String(req.params.id),...body(semanticRetrievalSchema,req)}),201)));
   router.get("/semantic-retrieval/runs/:id",asyncRoute(async(req,res)=>success(res,await getSemanticRetrievalRun(String(req.params.id)))));
   router.get("/books/:id/semantic-retrieval/runs",asyncRoute(async(req,res)=>success(res,await listSemanticRetrievalRuns(String(req.params.id),embeddingListQuerySchema.parse(req.query).limit))));
+  router.get("/books/:id/runtime/health",asyncRoute(async(req,res)=>success(res,await getBackgroundRuntimeHealth(String(req.params.id)))));
+  router.get("/books/:id/runtime/jobs",asyncRoute(async(req,res)=>success(res,await listBackgroundJobs({bookId:String(req.params.id),...backgroundJobListQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/runtime/jobs/:jobId",asyncRoute(async(req,res)=>success(res,await getBackgroundJob(String(req.params.jobId),String(req.params.id)))));
+  router.get("/books/:id/runtime/outbox",asyncRoute(async(req,res)=>success(res,await listOutboxEvents({bookId:String(req.params.id),...outboxEventListQuerySchema.parse(req.query)}))));
+  router.get("/runtime/consumers",asyncRoute(async(_req,res)=>success(res,await listOutboxConsumers())));
+  router.post("/runtime/consumers/:key/state",asyncRoute(async(req,res)=>success(res,await setOutboxConsumerState({consumerKey:String(req.params.key),...body(outboxConsumerStateSchema,req)}))));
+  router.get("/books/:id/runtime/state",asyncRoute(async(req,res)=>success(res,await getBackgroundBookPause(String(req.params.id)))));
+  router.post("/books/:id/runtime/state",asyncRoute(async(req,res)=>success(res,await setBackgroundBookPause({bookId:String(req.params.id),...body(backgroundBookPauseSchema,req)}))));
+  router.post("/books/:bookId/runtime/jobs/:id/cancel",asyncRoute(async(req,res)=>success(res,await cancelBackgroundJobForBook(String(req.params.bookId),String(req.params.id),body(backgroundJobCancelSchema,req).reason))));
+  router.post("/books/:bookId/runtime/jobs/:id/retry",asyncRoute(async(req,res)=>success(res,await retryBackgroundJobForBook(String(req.params.bookId),String(req.params.id)))));
+  router.post("/books/:bookId/runtime/jobs/:id/replay",asyncRoute(async(req,res)=>success(res,await replayBackgroundJobForBook(String(req.params.bookId),{sourceJobId:String(req.params.id),...body(backgroundJobReplaySchema,req)}),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

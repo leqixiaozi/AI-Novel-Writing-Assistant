@@ -561,3 +561,13 @@ export const embeddingCoverageQuerySchema=z.object({profileId:z.string().uuid()}
 export const embeddingRequestListQuerySchema=z.object({status:z.enum(["pending","running","retry_scheduled","succeeded","failed","stale","cancelled"]).optional(),limit:z.coerce.number().int().min(1).max(200).default(50)});
 export const embeddingStaleListQuerySchema=z.object({status:z.enum(["open","resolved","accepted"]).optional(),limit:z.coerce.number().int().min(1).max(200).default(50)});
 export const embeddingSourceArchiveSchema=z.object({reason:z.string().trim().min(1).max(2000),actor:z.string().trim().max(160).default("")});
+
+export const outboxTopicSchema=z.enum(["dependency.recompute.requested","asset.derivation.requested","graph.projection.requested","embedding.chunking.requested","embedding.generation.requested","embedding.index.requested","ai.task.requested","backup.requested"]);
+export const backgroundHandlerKeySchema=z.enum(["dependency.recompute","asset.derive","graph.project","embedding.chunk","embedding.generate","embedding.index","ai.task","backup.run"]);
+export const backgroundJobStatusSchema=z.enum(["queued","leased","running","succeeded","failed","retry_scheduled","cancel_requested","cancelled","dead_letter","archived"]);
+export const backgroundJobListQuerySchema=z.object({status:backgroundJobStatusSchema.optional(),handlerKey:backgroundHandlerKeySchema.optional(),limit:z.coerce.number().int().min(1).max(200).default(50)});
+export const outboxEventListQuerySchema=z.object({topic:outboxTopicSchema.optional(),limit:z.coerce.number().int().min(1).max(200).default(50)});
+export const backgroundJobCancelSchema=z.object({reason:z.string().trim().min(1).max(2000)});
+export const backgroundJobReplaySchema=z.object({reason:z.string().trim().min(1).max(2000),requestedBy:z.string().trim().min(1).max(160),idempotencyKey:z.string().trim().min(8).max(240)});
+export const outboxConsumerStateSchema=z.object({status:z.enum(["active","paused"]),reason:z.string().trim().max(1000).default(""),expectedRevision:z.number().int().positive()});
+export const backgroundBookPauseSchema=z.object({status:z.enum(["active","paused"]),reason:z.string().trim().max(1000).default(""),actor:z.string().trim().min(1).max(160),expectedRevision:z.number().int().nonnegative()});
