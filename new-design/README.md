@@ -12,7 +12,15 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL 和跨机器同步口径见 `migrations/001_card_kernel.sql` 与 `docs/data-model.md`。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql`、`migrations/002_builtin_novel_cards.sql` 与 `docs/data-model.md`。
+
+## 内置创作卡片
+
+首次初始化会得到 14 种已发布的专业小说卡片类型：作品约定、故事构思、世界观、人物、地点、势力、道具、事件、时间规则、线索与伏笔、卷规划、章节规划、场景规划、研究资料。页面同时提供 4 张可直接编辑的起步卡片，帮助新项目从约定、构思、世界观和时间规则开始。
+
+预置内容由版本化 SQL 管理并进入 Git，因此每台开发机器都能得到同一套基础数据。作者自行创建和填写的业务数据不进入 Git，仍需 PostgreSQL 备份与恢复。
+
+新设计页面只使用主应用共享的语义主题变量，不固化单独配色；Ink、Paper、Night 以及它们的浅色/深色模式会共同作用于背景、卡片、边框、状态色和交互焦点。
 
 ## 运行
 

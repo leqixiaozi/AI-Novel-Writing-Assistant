@@ -12,6 +12,7 @@ export default function NewDesignPage() {
   const [cardTypes, setCardTypes] = useState<CardTypeSummary[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [creatingType, setCreatingType] = useState(false);
+  const [typeQuery, setTypeQuery] = useState("");
   const [database, setDatabase] = useState<{ mode: "bundled" | "external"; postgresVersion: string; port: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState("");
@@ -34,6 +35,11 @@ export default function NewDesignPage() {
   useEffect(() => { void load(); }, []);
 
   const selected = creatingType ? null : cardTypes.find((item) => item.id === selectedTypeId) ?? null;
+  const filteredCardTypes = cardTypes.filter((item) => {
+    const query = typeQuery.trim().toLocaleLowerCase("zh-CN");
+    return !query || `${item.name} ${item.description} ${item.key}`.toLocaleLowerCase("zh-CN").includes(query);
+  });
+  const builtInCount = cardTypes.filter((item) => item.isSystem).length;
   const saveType = (saved: CardTypeSummary) => {
     setCardTypes((current) => {
       const found = current.some((item) => item.id === saved.id);
@@ -68,9 +74,13 @@ export default function NewDesignPage() {
     <div className="nd-shell">
       <header className="nd-page-header">
         <div>
-          <p className="nd-eyebrow">NOVEL OBJECT STUDIO / 01</p>
+          <p className="nd-eyebrow">新系统底座 · 卡片设计中心</p>
           <h1>新设计</h1>
-          <p>先定义信息结构，再用同一份结构创建可追溯的小说卡片。</p>
+          <p>使用开箱即用的小说卡片，也可以扩展自己的字段和表单。</p>
+          <div className="nd-header-facts" aria-label="卡片底座概览">
+            <span>{builtInCount} 个内置类型</span>
+            <span>{cardTypes.length - builtInCount} 个自定义类型</span>
+          </div>
         </div>
         <div className="nd-db-status" title={`PostgreSQL ${database?.postgresVersion ?? ""}`}>
           <i aria-hidden="true" />
@@ -91,10 +101,16 @@ export default function NewDesignPage() {
               <div><p className="nd-kicker">结构目录</p><strong>{cardTypes.length} 种卡片</strong></div>
               <button type="button" title="新建元卡片类型" onClick={() => { setCreatingType(true); setSelectedTypeId(null); }}>＋</button>
             </div>
+            <label className="nd-type-search">
+              <span className="nd-visually-hidden">搜索卡片类型</span>
+              <input value={typeQuery} placeholder="搜索卡片类型" onChange={(event) => setTypeQuery(event.target.value)} />
+            </label>
             <div className="nd-type-list">
               {cardTypes.length === 0 ? (
                 <button className="nd-empty-list-action" type="button" onClick={() => setCreatingType(true)}>创建第一个元卡片类型</button>
-              ) : cardTypes.map((item, index) => (
+              ) : filteredCardTypes.length === 0 ? (
+                <div className="nd-empty nd-empty-compact">没有匹配的卡片类型</div>
+              ) : filteredCardTypes.map((item, index) => (
                 <button
                   key={item.id}
                   type="button"
@@ -102,7 +118,10 @@ export default function NewDesignPage() {
                   onClick={() => { setCreatingType(false); setSelectedTypeId(item.id); }}
                 >
                   <span>{String(index + 1).padStart(2, "0")}</span>
-                  <div><strong>{item.name}</strong><small>{item.currentVersion ? `已发布 v${item.currentVersion}` : "草稿"}</small></div>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <small>{item.isSystem ? "内置" : "自定义"} · {item.currentVersion ? `已发布 v${item.currentVersion}` : "草稿"}</small>
+                  </div>
                   <b>›</b>
                 </button>
               ))}

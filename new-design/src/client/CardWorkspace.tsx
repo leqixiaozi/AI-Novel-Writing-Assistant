@@ -44,7 +44,17 @@ export default function CardWorkspace({ cardTypes }: CardWorkspaceProps) {
     setMessage("");
     if (!cardTypeId) { setTypeVersions([]); setCards([]); return; }
     void Promise.all([newDesignApi.listCardTypeVersions(cardTypeId), newDesignApi.listCards(cardTypeId, archived)])
-      .then(([versions, nextCards]) => { setTypeVersions(versions); setCards(nextCards); })
+      .then(([versions, nextCards]) => {
+        setTypeVersions(versions);
+        setCards(nextCards);
+        const firstCard = nextCards[0];
+        if (firstCard) {
+          setEditing(firstCard);
+          setTitle(firstCard.title);
+          setValues(firstCard.values);
+          setIssues({});
+        }
+      })
       .catch((error) => setMessage(error instanceof Error ? error.message : "卡片加载失败。"));
   }, [cardTypeId, archived]);
 

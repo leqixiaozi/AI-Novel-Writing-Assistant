@@ -19,6 +19,8 @@ function mapCardType(row: Record<string, unknown>): CardTypeSummary {
     key: String(row.type_key),
     name: String(row.name),
     description: String(row.description ?? ""),
+    isSystem: Boolean(row.is_system),
+    sortOrder: Number(row.sort_order ?? 1_000),
     status: row.status as CardTypeSummary["status"],
     revision: Number(row.revision),
     currentVersion: row.current_version === null || row.current_version === undefined ? null : Number(row.current_version),
@@ -75,7 +77,7 @@ export async function listCardTypes(): Promise<CardTypeSummary[]> {
     FROM new_design.card_types ct
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
     WHERE ct.space_id = $1 AND ct.status <> 'archived'
-    ORDER BY ct.updated_at DESC
+    ORDER BY ct.is_system DESC, ct.sort_order ASC, ct.updated_at DESC
   `, [DEFAULT_SPACE_ID]);
   return result.rows.map(mapCardType);
 }

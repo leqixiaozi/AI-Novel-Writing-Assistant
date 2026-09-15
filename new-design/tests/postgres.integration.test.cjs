@@ -28,6 +28,20 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
   assert.match(status.postgresVersion, /^17\./);
   assert.notEqual(status.port, 5432);
 
+  const builtInTypes = await store.listCardTypes();
+  assert.equal(builtInTypes.filter((cardType) => cardType.isSystem).length, 14);
+  assert.deepEqual(
+    builtInTypes.slice(0, 4).map((cardType) => cardType.name),
+    ["作品约定", "故事构思", "世界观", "人物"],
+  );
+  assert.ok(builtInTypes.every((cardType) => cardType.currentVersion === 1));
+
+  const starterCards = await store.listCards({});
+  assert.deepEqual(
+    starterCards.map((card) => card.title).sort(),
+    ["主世界观", "主线时间规则", "新书创作约定", "核心故事构思"].sort(),
+  );
+
   const suffix = Date.now().toString(36);
   let cardType = await store.createCardType({
     key: `character_${suffix}`,

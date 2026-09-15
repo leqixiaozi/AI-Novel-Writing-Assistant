@@ -39,6 +39,8 @@ export interface CardTypeSummary {
   key: string;
   name: string;
   description: string;
+  isSystem: boolean;
+  sortOrder: number;
   status: "draft" | "published" | "archived";
   revision: number;
   currentVersion: number | null;

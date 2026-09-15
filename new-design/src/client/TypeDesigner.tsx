@@ -24,6 +24,8 @@ function blankType(): CardTypeSummary {
     key: `type_${Date.now().toString(36)}`,
     name: "",
     description: "",
+    isSystem: false,
+    sortOrder: 1_000,
     status: "draft",
     revision: 1,
     currentVersion: null,
@@ -98,7 +100,7 @@ export default function TypeDesigner({ selected, onSaved }: TypeDesignerProps) {
               <h1>{draft.id ? draft.name || "未命名类型" : "新建元卡片类型"}</h1>
             </div>
             <span className={`nd-status nd-status-${draft.status}`}>
-              {draft.currentVersion ? `已发布 v${draft.currentVersion}` : "草稿"}
+              {draft.isSystem ? "系统内置 · " : ""}{draft.currentVersion ? `已发布 v${draft.currentVersion}` : "草稿"}
             </span>
           </div>
           <div className="nd-grid-2">
