@@ -750,7 +750,7 @@ export type DependencyResourceKind =
   | "chapter_body_version" | "chapter_text_anchor" | "canonical_fact" | "chapter_settlement"
   | "state_change" | "knowledge_state_change" | "story_event_timing" | "story_event_relation"
   | "planning_version" | "prompt_recipe_version" | "task_contract_version" | "context_manifest"
-  | "model_route_snapshot" | "ai_task_attempt" | "quality_audit_report";
+  | "model_route_snapshot" | "ai_task_attempt" | "quality_audit_report" | "asset_version";
 export type DependencyKind = "generated_from" | "planned_from" | "validated_against" | "evidenced_by" | "context_included" | "configured_by" | "settled_from" | "audited_from" | "derived_from";
 export type DependencyStrength = "hard" | "soft";
 export type DependencyResourceState = "fresh" | "stale" | "invalid" | "needs_review" | "recompute_pending" | "recomputing" | "recomputed" | "accepted_stale";
@@ -768,6 +768,21 @@ export interface DependencyRecomputeReceipt {id:string;requestId:string;bookId:s
 export interface DependencyStaleAcceptance {id:string;bookId:string;resourceId:string;invalidationEventId:string;riskSummary:string;reason:string;actor:string;idempotencyKey:string;createdAt:string;}
 export interface DependencyBookSummary {bookId:string;activeEdges:number;staleResources:number;pendingRecomputes:number;openConflicts:number;invalidations:number;}
 export interface DependencyPage<T> {items:T[];nextCursor:string|null;}
+
+export type AssetKind="attachment"|"cover"|"illustration"|"audio"|"video"|"document"|"dataset"|"font"|"other";
+export type AssetMountOwnerKind="book"|"card_version"|"chapter_body_version"|"research_record_version"|"prompt_recipe_version"|"ai_task_attempt"|"quality_issue_evidence";
+export interface AssetContentObject {id:string;checksumAlgorithm:"sha256";checksum:string;byteSize:number;mimeType:string;storageKind:"managed_file"|"external_object";storageProvider:string;storageLocator:string;integrityState:"pending"|"verified"|"missing"|"corrupt";lastVerifiedAt:string|null;createdBy:string;createdAt:string;}
+export interface AssetContentIntegrityCheck {id:string;contentObjectId:string;expectedChecksum:string;observedChecksum:string|null;expectedByteSize:number;observedByteSize:number|null;outcome:"verified"|"missing"|"corrupt";detail:string;checkedBy:string;checkedAt:string;}
+export interface AssetVersion {id:string;assetId:string;bookId:string;version:number;contentObject:AssetContentObject;baseVersionId:string|null;derivedFromVersionId:string|null;sourceKind:"upload"|"import"|"ai_generated"|"derived"|"external_reference"|"migration";sourceResourceId:string|null;displayFilename:string;title:string;metadata:Record<string,unknown>;rebuildable:boolean;createdBy:string;createdAt:string;}
+export interface AssetAdoption {id:string;assetId:string;bookId:string;fromVersionId:string|null;toVersionId:string;action:"adopt"|"rollback"|"readopt";assetRevision:number;dependencyPreviewId:string|null;idempotencyKey:string;actor:string;createdAt:string;}
+export interface AssetEvent {id:string;assetId:string;bookId:string;assetVersionId:string|null;action:"create"|"add_version"|"adopt"|"rollback"|"readopt"|"archive";fromStatus:string|null;toStatus:string|null;assetRevision:number;dependencyPreviewId:string|null;idempotencyKey:string|null;actor:string;detail:string;createdAt:string;}
+export interface AssetMount {id:string;bookId:string;assetId:string;assetVersionId:string;ownerKind:AssetMountOwnerKind;ownerStableId:string;ownerExactVersionId:string;role:string;label:string;status:"active"|"ended";idempotencyKey:string;createdBy:string;createdAt:string;endedAt:string|null;endReason:string;}
+export interface AssetDerivationEvent {id:string;derivationId:string;fromStatus:string|null;toStatus:AssetDerivation["status"];action:"request"|"start"|"complete"|"fail"|"reject_stale"|"mark_stale"|"queue_rebuild"|"archive";actor:string;detail:string;derivationRevision:number;createdAt:string;}
+export interface AssetDerivationResult {id:string;derivationId:string;bookId:string;sourceAssetVersionId:string;expectedSourceChecksum:string;observedCurrentSourceVersionId:string|null;outputContentObjectId:string|null;outputAssetVersionId:string|null;outputChecksum:string|null;outcome:"applied"|"rejected_stale"|"failed";detail:string;idempotencyKey:string;createdAt:string;}
+export interface AssetDerivation {id:string;bookId:string;sourceAssetVersionId:string;outputAssetId:string;derivativeKind:"thumbnail"|"ocr_text"|"transcode"|"frame_extract"|"parsed_text"|"cover_variant"|"other";recipeKey:string;recipeVersion:string;toolKey:string;toolVersion:string;parameters:Record<string,unknown>;parametersHash:string;expectedSourceChecksum:string;expectedOutputAssetRevision:number;expectedOutputCurrentVersionId:string|null;status:"pending"|"processing"|"succeeded"|"failed"|"stale"|"rebuild_pending"|"archived";revision:number;idempotencyKey:string;createdBy:string;createdAt:string;updatedAt:string;events:AssetDerivationEvent[];results:AssetDerivationResult[];}
+export interface Asset {id:string;spaceId:string;bookId:string;assetKey:string;assetKind:AssetKind;title:string;status:"active"|"archived";currentVersionId:string|null;revision:number;createdBy:string;createdAt:string;updatedAt:string;archivedAt:string|null;}
+export interface AssetDetail extends Asset {versions:AssetVersion[];adoptions:AssetAdoption[];events:AssetEvent[];mounts:AssetMount[];derivations:AssetDerivation[];}
+export interface AssetBookSummary {bookId:string;activeAssets:number;contentObjects:number;activeMounts:number;pendingDerivations:number;staleDerivedAssets:number;missingOrCorruptObjects:number;totalBytes:number;}
 
 export interface ApiEnvelope<T> {
   success: boolean;

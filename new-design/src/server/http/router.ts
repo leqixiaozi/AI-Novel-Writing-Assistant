@@ -60,6 +60,7 @@ import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, c
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
 import { acceptStaleDependency, completeDependencyRecompute, createDependencyEdge, endDependencyEdge, getDependencyBookSummary, getDependencyInvalidation, listCurrentDependencyStates, listDependencyConflicts, listDependencyHistory, listDependencyReceipts, listDependencyRecomputeRequests, listResourceDependencies, previewDependencyChange, recordDependencyInvalidation, registerDependencyResource, resolveDependencyConflict, startDependencyRecompute } from "../database/dependencies";
+import { addAssetVersion, adoptAssetVersion, archiveAsset, completeAssetDerivation, createAsset, createAssetDerivation, createAssetMount, endAssetMount, getAsset, getAssetBookSummary, getAssetLineage, listAssetDerivations, listAssetMounts, listAssets, listAssetVersions, previewAssetAdoption, recordAssetIntegrityCheck, registerAssetContent, startAssetDerivation } from "../database/assets";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import {
@@ -198,6 +199,21 @@ import {
   dependencyConflictResolutionSchema,
   dependencyRecomputeCompletionSchema,
   dependencyStaleAcceptanceSchema,
+  assetContentRegisterSchema,
+  assetIntegrityCheckSchema,
+  assetCreateSchema,
+  assetVersionCreateSchema,
+  assetPreviewSchema,
+  assetAdoptSchema,
+  assetArchiveSchema,
+  assetMountCreateSchema,
+  assetMountEndSchema,
+  assetDerivationCreateSchema,
+  assetDerivationStartSchema,
+  assetDerivationCompleteSchema,
+  assetListQuerySchema,
+  assetMountListQuerySchema,
+  assetDerivationListQuerySchema,
 } from "../domain/validation";
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>): RequestHandler {
@@ -483,6 +499,25 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway } 
   router.get("/books/:id/dependencies/conflicts",asyncRoute(async(req,res)=>success(res,await listDependencyConflicts({bookId:String(req.params.id),...dependencyConflictQuerySchema.parse(req.query)}))));
   router.post("/dependencies/conflicts/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveDependencyConflict(String(req.params.id),body(dependencyConflictResolutionSchema,req)))));
   router.get("/books/:id/dependencies/summary",asyncRoute(async(req,res)=>success(res,await getDependencyBookSummary(String(req.params.id)))));
+  router.post("/assets/content-objects",asyncRoute(async(req,res)=>success(res,await registerAssetContent(body(assetContentRegisterSchema,req)),201)));
+  router.post("/assets/content-integrity-checks",asyncRoute(async(req,res)=>success(res,await recordAssetIntegrityCheck(body(assetIntegrityCheckSchema,req)),201)));
+  router.post("/assets",asyncRoute(async(req,res)=>success(res,await createAsset(body(assetCreateSchema,req)),201)));
+  router.get("/assets/:id",asyncRoute(async(req,res)=>success(res,await getAsset(String(req.params.id)))));
+  router.get("/assets/:id/versions",asyncRoute(async(req,res)=>success(res,await listAssetVersions(String(req.params.id)))));
+  router.get("/assets/:id/lineage",asyncRoute(async(req,res)=>success(res,await getAssetLineage(String(req.params.id)))));
+  router.post("/assets/:id/versions",asyncRoute(async(req,res)=>success(res,await addAssetVersion(String(req.params.id),body(assetVersionCreateSchema,req)),201)));
+  router.post("/assets/:id/change-preview",asyncRoute(async(req,res)=>success(res,await previewAssetAdoption(String(req.params.id),body(assetPreviewSchema,req)),201)));
+  router.post("/assets/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptAssetVersion(String(req.params.id),body(assetAdoptSchema,req)))));
+  router.post("/assets/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveAsset(String(req.params.id),body(assetArchiveSchema,req)))));
+  router.get("/books/:id/assets",asyncRoute(async(req,res)=>success(res,await listAssets({bookId:String(req.params.id),...assetListQuerySchema.parse(req.query)}))));
+  router.post("/assets/mounts",asyncRoute(async(req,res)=>success(res,await createAssetMount(body(assetMountCreateSchema,req)),201)));
+  router.post("/assets/mounts/:id/end",asyncRoute(async(req,res)=>success(res,await endAssetMount(String(req.params.id),body(assetMountEndSchema,req).reason))));
+  router.get("/books/:id/assets/mounts",asyncRoute(async(req,res)=>success(res,await listAssetMounts({bookId:String(req.params.id),...assetMountListQuerySchema.parse(req.query)}))));
+  router.post("/assets/derivations",asyncRoute(async(req,res)=>success(res,await createAssetDerivation(body(assetDerivationCreateSchema,req)),201)));
+  router.post("/assets/derivations/:id/start",asyncRoute(async(req,res)=>success(res,await startAssetDerivation(String(req.params.id),body(assetDerivationStartSchema,req)))));
+  router.post("/assets/derivations/:id/complete",asyncRoute(async(req,res)=>success(res,await completeAssetDerivation(String(req.params.id),body(assetDerivationCompleteSchema,req)),201)));
+  router.get("/books/:id/assets/derivations",asyncRoute(async(req,res)=>success(res,await listAssetDerivations({bookId:String(req.params.id),...assetDerivationListQuerySchema.parse(req.query)}))));
+  router.get("/books/:id/assets/summary",asyncRoute(async(req,res)=>success(res,await getAssetBookSummary(String(req.params.id)))));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

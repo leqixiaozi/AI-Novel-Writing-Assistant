@@ -31,10 +31,11 @@
 - `ContextManifest` / `ModelRouteSnapshot`：记录一次执行实际引用的精确对象版本、排除原因和五层模型路由解析结果；只保存来源 ID、哈希与安全密钥引用状态，不复制正本或泄漏密钥位置。
 - `AiTask` / `AiTaskStep` / `AiTaskAttempt`：提供通用 AI 执行账本；任务、步骤和多次尝试分层保存，状态事件、租约检查点、技术重试、人工重开、审批与用量均可追溯，任务本身不复制小说事实。
 - `QualityAuditReport` / `QualityIssue` / `QualityFixCandidate` / `QualityRecheck`：冻结一次质量审计的正文、规划、事实和 AI 执行依据；证据、问题版本、修复候选、人工决定、正式采用引用与复检链只追加留痕。
+- `AssetContentObject` / `Asset` / `AssetVersion` / `AssetMount` / `AssetDerivation`：以校验和登记文件内容，以不可变版本保存附件历史，把确切版本挂到书籍生产对象，并记录缩略图、OCR、转码、抽帧、解析文本和封面变体的可重建派生链。
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/025_quality_audit_ledger.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的 PostgreSQL 业务数据仍需逻辑备份与恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/027_asset_version_ledger.sql` 与 `docs/data-model.md`。迁移 SQL 和数据文档均随 Git 同步；作者实际填写的结构化数据需要 PostgreSQL 逻辑备份，受管附件还要同步备份文件目录。只恢复其中一份不能视为完整作品恢复。
 
 ## 内置创作资料规格
 
