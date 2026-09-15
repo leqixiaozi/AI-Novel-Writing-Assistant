@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
-import { validateCardValues, validatePublishedEvolution } from "../domain/validation";
+import { validateBookTypeEvolution, validateCardValues, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 
-const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
+export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
@@ -16,6 +16,7 @@ function asDate(value: unknown): string {
 function mapCardType(row: Record<string, unknown>): CardTypeSummary {
   return {
     id: String(row.id),
+    spaceId: String(row.space_id),
     key: String(row.type_key),
     name: String(row.name),
     description: String(row.description ?? ""),
@@ -71,7 +72,7 @@ async function findCurrentTypeFields(queryable: Queryable, cardTypeId: string): 
   return { id: String(row.id), version: Number(row.version), fields: row.fields as FieldDefinition[] };
 }
 
-export async function listCardTypes(): Promise<CardTypeSummary[]> {
+export async function listCardTypes(spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
     SELECT ct.*, ctv.version AS current_version
@@ -79,7 +80,7 @@ export async function listCardTypes(): Promise<CardTypeSummary[]> {
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
     WHERE ct.space_id = $1 AND ct.status <> 'archived'
     ORDER BY ct.is_system DESC, ct.sort_order ASC, ct.updated_at DESC
-  `, [DEFAULT_SPACE_ID]);
+  `, [spaceId]);
   return result.rows.map(mapCardType);
 }
 
@@ -87,7 +88,7 @@ export async function getCardType(id: string): Promise<CardTypeSummary> {
   return assertFound(await findCardType(await getNewDesignPool(), id), "元卡片类型不存在。");
 }
 
-export async function createCardType(input: { key: string; name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[] }): Promise<CardTypeSummary> {
+export async function createCardType(input: { key: string; name: string; description: string; semanticCapabilities: CardTypeCapability[]; fields: FieldDefinition[] }, spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary> {
   const pool = await getNewDesignPool();
   const id = randomUUID();
   try {
@@ -95,7 +96,7 @@ export async function createCardType(input: { key: string; name: string; descrip
       INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields)
       VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb)
       RETURNING *
-    `, [id, DEFAULT_SPACE_ID, input.key, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
+    `, [id, spaceId, input.key, input.name, input.description, JSON.stringify(input.semanticCapabilities), JSON.stringify(input.fields)]);
     return mapCardType({ ...result.rows[0], current_version: null });
   } catch (error) {
     if ((error as { code?: string }).code === "23505") throw new NewDesignError("类型标识已存在，请换一个标识。", 409, { key: "类型标识已存在。" });
@@ -115,8 +116,12 @@ export async function updateCardType(
     if (existing.revision !== input.revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再保存。", 409);
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
-      const issues = validatePublishedEvolution(current.fields, input.fields);
-      if (Object.keys(issues).length > 0) throw new NewDesignError("已发布类型只能增加非必填字段。", 422, issues);
+      const issues = existing.spaceId === DEFAULT_SPACE_ID
+        ? validatePublishedEvolution(current.fields, input.fields)
+        : validateBookTypeEvolution(current.fields, input.fields);
+      if (Object.keys(issues).length > 0) throw new NewDesignError(existing.spaceId === DEFAULT_SPACE_ID
+        ? "已发布系统类型只能增加非必填字段。"
+        : "书内类型可调整显示信息和选项，但不能删除稳定字段、改变数据类型或新增必填约束。", 422, issues);
     }
     const result = await client.query(`
       UPDATE new_design.card_types
@@ -143,8 +148,12 @@ export async function publishCardType(id: string, revision: number): Promise<Car
     if (existing.revision !== revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再发布。", 409);
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
-      const issues = validatePublishedEvolution(current.fields, existing.draftFields);
-      if (Object.keys(issues).length > 0) throw new NewDesignError("发布失败：只能在已发布结构后增加非必填字段。", 422, issues);
+      const issues = existing.spaceId === DEFAULT_SPACE_ID
+        ? validatePublishedEvolution(current.fields, existing.draftFields)
+        : validateBookTypeEvolution(current.fields, existing.draftFields);
+      if (Object.keys(issues).length > 0) throw new NewDesignError(existing.spaceId === DEFAULT_SPACE_ID
+        ? "发布失败：系统类型只能在已发布结构后增加非必填字段。"
+        : "发布失败：书内类型不能删除稳定字段、改变数据类型或新增必填约束。", 422, issues);
       if (JSON.stringify(current.fields) === JSON.stringify(existing.draftFields)) {
         throw new NewDesignError("字段定义没有变化，无需发布新版本。", 422);
       }
@@ -188,9 +197,9 @@ export async function listCardTypeVersions(cardTypeId: string): Promise<CardType
   }));
 }
 
-export async function listCards(input: { cardTypeId?: string; archived?: boolean }): Promise<CardSummary[]> {
+export async function listCards(input: { cardTypeId?: string; archived?: boolean; spaceId?: string }): Promise<CardSummary[]> {
   const pool = await getNewDesignPool();
-  const values: unknown[] = [DEFAULT_SPACE_ID, input.archived ? "archived" : "active"];
+  const values: unknown[] = [input.spaceId ?? DEFAULT_SPACE_ID, input.archived ? "archived" : "active"];
   const typeFilter = input.cardTypeId ? "AND c.card_type_id = $3" : "";
   if (input.cardTypeId) values.push(input.cardTypeId);
   const result = await pool.query(`
@@ -220,7 +229,7 @@ export async function getCard(id: string): Promise<CardSummary> {
   return assertFound(await findCard(await getNewDesignPool(), id), "卡片不存在。");
 }
 
-export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown> }): Promise<CardSummary> {
+export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string }): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const typeVersion = await findCurrentTypeFields(pool, input.cardTypeId);
   const validated = validateCardValues(typeVersion.fields, input.values);
@@ -230,10 +239,13 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     await client.query("BEGIN");
     const cardId = randomUUID();
     const versionId = randomUUID();
+    const spaceId = input.spaceId ?? DEFAULT_SPACE_ID;
+    const typeSpace = await client.query("SELECT 1 FROM new_design.card_types WHERE id=$1 AND space_id=$2", [input.cardTypeId, spaceId]);
+    if (!typeSpace.rows[0]) throw new NewDesignError("卡片类型不属于当前数据空间。", 422);
     await client.query(`
       INSERT INTO new_design.cards (id, space_id, card_type_id, title, status, revision, type_version_id, values)
       VALUES ($1, $2, $3, $4, 'active', 1, $5, $6::jsonb)
-    `, [cardId, DEFAULT_SPACE_ID, input.cardTypeId, input.title, typeVersion.id, JSON.stringify(validated.values)]);
+    `, [cardId, spaceId, input.cardTypeId, input.title, typeVersion.id, JSON.stringify(validated.values)]);
     await client.query(`
       INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source)
       VALUES ($1, $2, 1, $3, $4, $5::jsonb, 'create')

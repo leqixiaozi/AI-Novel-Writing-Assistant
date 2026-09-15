@@ -1,6 +1,6 @@
-# 新设计第一阶段数据模型
+# 新设计数据模型
 
-本文是第一阶段 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供可生产的原创仙侠样例；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 建立卡片内核，`002_builtin_novel_cards.sql` 提供早期起步数据，`003_novel_card_catalog.sql` 收敛 19 类核心卡片和可组合语义能力，`004_xianxia_production_demo.sql` 提供原创仙侠样例，`005_card_composition_kernel.sql` 建立字典、关系、挂载和卡片组表单，`006_template_books.sql` 建立模板版本与独立书籍空间；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
 ## 跨机器同步原则
 
@@ -36,7 +36,7 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 | `name` | `text` | 非空 | 展示名称 |
 | `created_at` | `timestamptz` | 非空 | 创建时间 |
 
-第一阶段只写入默认空间：`00000000-0000-4000-8000-000000000001`。
+默认空间 `00000000-0000-4000-8000-000000000001` 保存结构设计中心的系统定义；每本书另有独立空间。
 
 ## `new_design.card_types`
 
@@ -107,6 +107,32 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 | `source` | `text` | `create/edit/archive/restore` | 形成原因 |
 | `created_at` | `timestamptz` | 非空 | 快照时间 |
 
+## 字典、关系与挂载
+
+`dictionary_definitions` / `dictionary_items` 保存稳定字典和字典项，`relation_types` 保存允许的源类型、目标类型、方向、数量和关系属性，`card_relations` 保存真实关系；`card_mounts` 把引用卡片装入某个表单实例，并把“本事件目标、立场、结果”等局部值存在挂载上。
+
+> 🏠 **白话比喻**：人物卡像演员档案，事件表单像某一场戏的通告单。“沈照微的性格”写回演员档案，“她在这场戏里的目标”只写在通告单上。对应到数据库：稳定事实进 `cards`，局部上下文进 `card_mounts.local_values`，不会污染来源卡片。
+
+> 🧠 **速记方法**：**卡片管本人，关系管连线，挂载管本次用法**。
+
+## 卡片组表单
+
+`card_group_forms` 保存可编辑草稿，`card_group_form_versions` 保存不可变发布版本，`card_group_form_instances` 保存书内实际填写结果。表单定义包含分组、区块、主卡槽、引用槽、允许类型、最少/最多数量及局部字段。设计预览和实际填写均读取同一个发布定义。
+
+> 🏠 **白话比喻**：表单版本像印刷好的装配清单；清单发布后不再改旧纸张，新要求要印 v2。对应到数据库：旧实例继续引用原 `form_version_id`，新实例可采用新版本。
+
+> 🧠 **速记方法**：**草稿可改、发布冻结、实例认版本**。
+
+## 模板组与书籍
+
+`template_groups` / `template_group_versions` 把元卡片类型版本、字典、关系类型、卡片组表单和菜单配置冻结为模板快照。`books` 是固定聚合根，每本书拥有自己的 `card_spaces`；创建书籍时会复制模板快照，不使用前端假筛选。`book_template_syncs` 记录模板升级预览和应用结果。
+
+模板同步只追加新的非必填稳定 `field_key`。模板删除或修改已有字段、本书已存在同键字段、新字段改成必填，都会成为冲突并跳过；同步不会清理、覆盖或回写书内内容。
+
+> 🏠 **白话比喻**：模板像毛坯房图纸，书籍像按图交付后各自装修的住宅。图纸升级可以建议加一个空置储物柜，却不能进门拆掉住户的墙或覆盖家具。对应到数据库：书籍安装的是版本快照，升级只安全追加字段。
+
+> 🧠 **速记方法**：**安装复制、书书隔离、升级只加不改**。
+
 ## 迁移规则
 
 1. 每个迁移文件使用递增编号，应用后记录到 `new_design.schema_migrations`。
@@ -124,7 +150,7 @@ card_spaces 1 ── n card_types 1 ── n card_type_versions
 
 同时提供 4 张可直接修改的起步卡片：新书创作约定、核心故事构思、主世界观、主线时间规则。它们使用稳定 UUID，迁移通过 `ON CONFLICT` 保持幂等；已存在的同 ID 数据不会被启动过程反复插入。
 
-`004_xianxia_production_demo.sql` 另提供原创项目《照骨山河》的 55 张生产样例，覆盖全部 19 类核心卡片，并把第一卷前八章和第一章五个场景填到可直接进入正文生产的粒度。来源分析、原创边界和逐类数量见 `xianxia-production-demo.md`。
+`004_xianxia_production_demo.sql` 提供原创项目《照骨山河》的 55 张生产样例；`006_template_books.sql` 将这些卡片安装到真实的“照骨山河”书籍空间，并移除卡片标题里重复的书名前缀。样例覆盖全部 19 类核心卡片，并把第一卷前八章和第一章五个场景填到可直接进入正文生产的粒度。来源分析、原创边界和逐类数量见 `xianxia-production-demo.md`。
 
 > 🏠 **白话比喻**：迁移 SQL 像随工具箱附带的标准空白表和四张填写示例。对应到数据库里：新机器拉取仓库后能得到同一套类型与示例，但作者后来填写的真实内容仍需要数据库备份来搬家。
 

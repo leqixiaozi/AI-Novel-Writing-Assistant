@@ -10,6 +10,8 @@ delete process.env.NEW_DESIGN_DATABASE_URL;
 
 const runtime = require("../dist/server/database/runtime.js");
 const store = require("../dist/server/database/store.js");
+const composition = require("../dist/server/database/compositionStore.js");
+const templates = require("../dist/server/database/templateStore.js");
 const { validateCardValues } = require("../dist/server/domain/validation.js");
 
 function personFields() {
@@ -54,19 +56,137 @@ test("portable PostgreSQL persists the complete card slice across restart", asyn
     assert.ok(starterCards.some((card) => card.title === title));
   }
 
-  const demoCards = starterCards.filter((card) => card.title.startsWith("《照骨山河》"));
+  const books = await templates.listBooks();
+  const sampleBook = books.find((book) => book.name === "照骨山河");
+  assert.ok(sampleBook);
+  const bookTypes = await store.listCardTypes(sampleBook.spaceId);
+  const demoCards = await store.listCards({ spaceId: sampleBook.spaceId });
   assert.equal(demoCards.length, 55);
+  assert.equal(bookTypes.length, 19);
+  assert.ok(demoCards.every((card) => !card.title.startsWith("《照骨山河》")));
   assert.deepEqual(
-    [...new Set(demoCards.map((card) => systemTypes.find((type) => type.id === card.cardTypeId)?.key))].sort(),
+    [...new Set(demoCards.map((card) => bookTypes.find((type) => type.id === card.cardTypeId)?.key))].sort(),
     systemTypes.map((cardType) => cardType.key).sort(),
   );
-  for (const cardType of systemTypes) {
+  for (const cardType of bookTypes) {
     const currentVersion = (await store.listCardTypeVersions(cardType.id)).find((version) => version.id === cardType.currentVersionId);
     assert.ok(currentVersion, `missing current version for ${cardType.key}`);
     for (const card of demoCards.filter((candidate) => candidate.cardTypeId === cardType.id)) {
       assert.deepEqual(validateCardValues(currentVersion.fields, card.values).issues, {}, `${card.title} should match ${cardType.key}`);
     }
   }
+
+  const dictionaries = await composition.listDictionaries(sampleBook.spaceId);
+  const relationTypes = await composition.listRelationTypes(sampleBook.spaceId);
+  const forms = await composition.listCardGroupForms(sampleBook.spaceId);
+  assert.equal(dictionaries.length, 3);
+  assert.equal(relationTypes.length, 4);
+  assert.equal(forms.length, 1);
+  const eventForm = forms[0];
+  const formVersions = await composition.listCardGroupFormVersions(eventForm.id);
+  assert.equal(formVersions.length, 1);
+
+  const byTitle = new Map(demoCards.map((card) => [card.title, card]));
+  const event = byTitle.get("殓舟夜泊白水驿");
+  const character = byTitle.get("沈照微");
+  const location = byTitle.get("白水驿");
+  const prop = byTitle.get("照骨灯");
+  const plotline = byTitle.get("主线：照骨灯与父亲旧案");
+  assert.ok(event && character && location && prop && plotline);
+  const originalCharacter = structuredClone(character.values);
+  let formInstance = await composition.saveFormInstance({
+    spaceId: sampleBook.spaceId,
+    formVersionId: formVersions[0].id,
+    primaryCardId: event.id,
+    title: "殓舟逆水归驿 · 事件规划",
+    mounts: [
+      { slotKey: "participants", cardId: character.id, sortOrder: 0, localValues: { goal: "确认父亲旧案是否重现", stance: "先救镇民再交证据", result: "被迫点灯" } },
+      { slotKey: "location", cardId: location.id, sortOrder: 0, localValues: {} },
+      { slotKey: "props", cardId: prop.id, sortOrder: 0, localValues: { usage: "照见尸体与地脉旧伤" } },
+      { slotKey: "plotline", cardId: plotline.id, sortOrder: 0, localValues: {} },
+    ],
+  });
+  assert.equal(formInstance.mounts.length, 4);
+  assert.equal((await composition.listFormInstances(formInstance.spaceId, eventForm.id)).length, 1);
+  formInstance.mounts.find((mount) => mount.slotKey === "participants").localValues.result = "失去一段味觉记忆";
+  formInstance = await composition.saveFormInstance(formInstance);
+  assert.equal(formInstance.revision, 2);
+  assert.deepEqual((await store.getCard(character.id)).values, originalCharacter);
+  const relationRows = await (await runtime.getNewDesignPool()).query("SELECT status,properties FROM new_design.card_relations WHERE space_id=$1", [formInstance.spaceId]);
+  assert.equal(relationRows.rows.filter((row) => row.status === "active").length, 4);
+  assert.equal(relationRows.rows.filter((row) => row.status === "archived").length, 4);
+
+  await assert.rejects(
+    () => composition.saveFormInstance({ ...formInstance, mounts: formInstance.mounts.filter((mount) => mount.slotKey !== "location") }),
+    (error) => Boolean(error.status === 422),
+  );
+
+  const priorVersionId = formInstance.formVersionId;
+  let changedForm = await composition.saveCardGroupForm({
+    id: eventForm.id,
+    key: eventForm.key,
+    name: eventForm.name,
+    description: eventForm.description,
+    definition: { ...eventForm.draftDefinition, groups: [...eventForm.draftDefinition.groups] },
+    revision: eventForm.revision,
+  });
+  changedForm = await composition.publishCardGroupForm(changedForm.id, changedForm.revision);
+  assert.equal(changedForm.currentVersion, 2);
+  assert.equal((await composition.listFormInstances(formInstance.spaceId, eventForm.id))[0].formVersionId, priorVersionId);
+
+  const templateGroups = await templates.listTemplates();
+  const defaultTemplate = templateGroups.find((template) => template.name === "通用长篇小说模板");
+  assert.ok(defaultTemplate);
+  const initialTemplateVersion = (await templates.listTemplateVersions(defaultTemplate.id))[0];
+  assert.equal(initialTemplateVersion.version, 1);
+  const secondBook = await templates.createBook({
+    key: `parallel_${Date.now().toString(36)}`,
+    name: "并行样书",
+    description: "验证两本书互不污染。",
+    templateVersionId: initialTemplateVersion.id,
+  });
+  assert.equal((await store.listCards({ spaceId: secondBook.spaceId })).length, 55);
+
+  let localCharacterType = bookTypes.find((type) => type.key === "character");
+  const secondCharacterType = (await store.listCardTypes(secondBook.spaceId)).find((type) => type.key === "character");
+  assert.ok(localCharacterType && secondCharacterType);
+  localCharacterType = await store.updateCardType(localCharacterType.id, {
+    name: "本书人物",
+    description: "只属于照骨山河的角色称呼。",
+    semanticCapabilities: localCharacterType.semanticCapabilities,
+    fields: localCharacterType.draftFields.map((field) => field.key === "story_role"
+      ? { ...field, name: "本书身份", options: field.options.map((option) => option.value === "protagonist" ? { ...option, label: "提灯主角" } : option) }
+      : field),
+    revision: localCharacterType.revision,
+  });
+  localCharacterType = await store.publishCardType(localCharacterType.id, localCharacterType.revision);
+  assert.equal(localCharacterType.name, "本书人物");
+  assert.equal(localCharacterType.draftFields.find((field) => field.key === "story_role").name, "本书身份");
+  assert.equal((await store.getCardType(secondCharacterType.id)).name, "人物");
+  assert.equal((await store.getCardType(secondCharacterType.id)).draftFields.find((field) => field.key === "story_role").name, "人物定位");
+
+  let systemEventType = await store.getCardType(systemTypes.find((type) => type.key === "event").id);
+  systemEventType = await store.updateCardType(systemEventType.id, {
+    name: systemEventType.name,
+    description: systemEventType.description,
+    semanticCapabilities: systemEventType.semanticCapabilities,
+    fields: [...systemEventType.draftFields, {
+      key: "production_note", name: "生产备注", description: "模板后续新增的可选字段", type: "long_text",
+      required: false, defaultValue: null, options: [], group: "生产管理", order: 9_900,
+    }],
+    revision: systemEventType.revision,
+  });
+  await store.publishCardType(systemEventType.id, systemEventType.revision);
+  const currentTemplate = (await templates.listTemplates()).find((template) => template.id === defaultTemplate.id);
+  const publishedTemplate = await templates.publishTemplate(currentTemplate.id, currentTemplate.revision);
+  assert.equal(publishedTemplate.currentVersion, 2);
+  const templateVersion2 = (await templates.listTemplateVersions(defaultTemplate.id))[0];
+  const syncPreview = await templates.previewBookSync(sampleBook.id, templateVersion2.id);
+  assert.ok(syncPreview.additions.some((addition) => addition.typeKey === "event" && addition.fields.some((field) => field.key === "production_note")));
+  assert.equal(syncPreview.conflicts.length, 0);
+  await templates.applyBookSync(syncPreview.id);
+  assert.ok((await store.listCardTypes(sampleBook.spaceId)).find((type) => type.key === "event").draftFields.some((field) => field.key === "production_note"));
+  assert.ok(!(await store.listCardTypes(secondBook.spaceId)).find((type) => type.key === "event").draftFields.some((field) => field.key === "production_note"));
 
   const suffix = Date.now().toString(36);
   let cardType = await store.createCardType({

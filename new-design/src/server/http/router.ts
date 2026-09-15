@@ -17,10 +17,40 @@ import {
   updateCardType,
 } from "../database/store";
 import { getDatabaseRuntimeStatus } from "../database/runtime";
+import {
+  applyBookSync,
+  createBook,
+  getBook,
+  listBooks,
+  listTemplates,
+  listTemplateVersions,
+  previewBookSync,
+  publishTemplate,
+  saveTemplate,
+} from "../database/templateStore";
+import {
+  listCardGroupForms,
+  listCardGroupFormVersions,
+  listDictionaries,
+  listFormInstances,
+  listRelationTypes,
+  publishCardGroupForm,
+  saveCardGroupForm,
+  saveDictionary,
+  saveFormInstance,
+  saveRelationType,
+} from "../database/compositionStore";
 import { NewDesignError } from "../domain/errors";
 import {
   createCardSchema,
   createCardTypeSchema,
+  cardGroupFormInputSchema,
+  bookInputSchema,
+  dictionaryInputSchema,
+  formInstanceInputSchema,
+  relationTypeInputSchema,
+  syncPreviewSchema,
+  templateInputSchema,
   revisionSchema,
   updateCardSchema,
   updateCardTypeSchema,
@@ -54,10 +84,10 @@ export function createNewDesignRouter(): Router {
     success(res, await getDatabaseRuntimeStatus());
   }));
 
-  router.get("/card-types", asyncRoute(async (_req, res) => success(res, await listCardTypes())));
+  router.get("/card-types", asyncRoute(async (req, res) => success(res, await listCardTypes(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
   router.post("/card-types", asyncRoute(async (req, res) => {
     const input = body(createCardTypeSchema, req);
-    success(res, await createCardType({ ...input, fields: normalizeFields(input.fields) }), 201);
+    success(res, await createCardType({ ...input, fields: normalizeFields(input.fields) }, input.spaceId), 201);
   }));
   router.get("/card-types/:id", asyncRoute(async (req, res) => success(res, await getCardType(String(req.params.id)))));
   router.patch("/card-types/:id", asyncRoute(async (req, res) => {
@@ -74,6 +104,7 @@ export function createNewDesignRouter(): Router {
     success(res, await listCards({
       cardTypeId: typeof req.query.cardTypeId === "string" ? req.query.cardTypeId : undefined,
       archived: req.query.archived === "true",
+      spaceId: typeof req.query.spaceId === "string" ? req.query.spaceId : undefined,
     }));
   }));
   router.post("/cards", asyncRoute(async (req, res) => success(res, await createCard(body(createCardSchema, req)), 201)));
@@ -88,6 +119,63 @@ export function createNewDesignRouter(): Router {
     success(res, await restoreCard(String(req.params.id), input.revision));
   }));
   router.get("/cards/:id/versions", asyncRoute(async (req, res) => success(res, await listCardVersions(String(req.params.id)))));
+
+  router.get("/dictionaries", asyncRoute(async (req, res) => success(res, await listDictionaries(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
+  router.post("/dictionaries", asyncRoute(async (req, res) => success(res, await saveDictionary(body(dictionaryInputSchema, req)), 201)));
+  router.patch("/dictionaries/:id", asyncRoute(async (req, res) => {
+    const input = body(dictionaryInputSchema, req);
+    success(res, await saveDictionary({ ...input, id: String(req.params.id) }));
+  }));
+
+  router.get("/relation-types", asyncRoute(async (req, res) => success(res, await listRelationTypes(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
+  router.post("/relation-types", asyncRoute(async (req, res) => success(res, await saveRelationType(body(relationTypeInputSchema, req)), 201)));
+  router.patch("/relation-types/:id", asyncRoute(async (req, res) => {
+    const input = body(relationTypeInputSchema, req);
+    success(res, await saveRelationType({ ...input, id: String(req.params.id), revision: input.revision ?? 0 }));
+  }));
+
+  router.get("/card-group-forms", asyncRoute(async (req, res) => success(res, await listCardGroupForms(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
+  router.post("/card-group-forms", asyncRoute(async (req, res) => success(res, await saveCardGroupForm(body(cardGroupFormInputSchema, req)), 201)));
+  router.patch("/card-group-forms/:id", asyncRoute(async (req, res) => {
+    const input = body(cardGroupFormInputSchema, req);
+    success(res, await saveCardGroupForm({ ...input, id: String(req.params.id) }));
+  }));
+  router.post("/card-group-forms/:id/publish", asyncRoute(async (req, res) => {
+    const input = body(revisionSchema, req);
+    success(res, await publishCardGroupForm(String(req.params.id), input.revision));
+  }));
+  router.get("/card-group-forms/:id/versions", asyncRoute(async (req, res) => success(res, await listCardGroupFormVersions(String(req.params.id)))));
+
+  router.get("/form-instances", asyncRoute(async (req, res) => {
+    if (typeof req.query.spaceId !== "string") throw new NewDesignError("缺少数据空间。", 422);
+    success(res, await listFormInstances(req.query.spaceId, typeof req.query.formId === "string" ? req.query.formId : undefined));
+  }));
+  router.post("/form-instances", asyncRoute(async (req, res) => success(res, await saveFormInstance(body(formInstanceInputSchema, req)), 201)));
+  router.patch("/form-instances/:id", asyncRoute(async (req, res) => {
+    const input = body(formInstanceInputSchema, req);
+    success(res, await saveFormInstance({ ...input, id: String(req.params.id) }));
+  }));
+
+  router.get("/templates", asyncRoute(async (_req, res) => success(res, await listTemplates())));
+  router.post("/templates", asyncRoute(async (req, res) => success(res, await saveTemplate(body(templateInputSchema, req)), 201)));
+  router.patch("/templates/:id", asyncRoute(async (req, res) => {
+    const input = body(templateInputSchema, req);
+    success(res, await saveTemplate({ ...input, id: String(req.params.id) }));
+  }));
+  router.post("/templates/:id/publish", asyncRoute(async (req, res) => {
+    const input = body(revisionSchema, req);
+    success(res, await publishTemplate(String(req.params.id), input.revision));
+  }));
+  router.get("/templates/:id/versions", asyncRoute(async (req, res) => success(res, await listTemplateVersions(String(req.params.id)))));
+
+  router.get("/books", asyncRoute(async (_req, res) => success(res, await listBooks())));
+  router.post("/books", asyncRoute(async (req, res) => success(res, await createBook(body(bookInputSchema, req)), 201)));
+  router.get("/books/:id", asyncRoute(async (req, res) => success(res, await getBook(String(req.params.id)))));
+  router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
+    const input = body(syncPreviewSchema, req);
+    success(res, await previewBookSync(String(req.params.id), input.targetVersionId));
+  }));
+  router.post("/book-syncs/:id/apply", asyncRoute(async (req, res) => success(res, await applyBookSync(String(req.params.id)))));
 
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof ZodError) {

@@ -41,6 +41,7 @@ export const fieldsSchema = z.array(fieldDefinitionSchema).max(100).superRefine(
 });
 
 export const createCardTypeSchema = z.object({
+  spaceId: z.string().uuid().optional(),
   key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "类型标识需以小写字母开头。"),
   name: z.string().trim().min(1, "类型名称不能为空。").max(80),
   description: z.string().trim().max(500).default(""),
@@ -59,6 +60,7 @@ export const updateCardTypeSchema = z.object({
 export const revisionSchema = z.object({ revision: z.number().int().positive() });
 
 export const createCardSchema = z.object({
+  spaceId: z.string().uuid().optional(),
   cardTypeId: z.string().uuid("元卡片类型无效。"),
   title: z.string().trim().min(1, "卡片标题不能为空。").max(160),
   values: z.record(z.string(), z.unknown()).default({}),
@@ -69,6 +71,115 @@ export const updateCardSchema = z.object({
   values: z.record(z.string(), z.unknown()).default({}),
   revision: z.number().int().positive(),
 });
+
+export const dictionaryInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "字典标识需以小写字母开头。"),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).default(""),
+  scope: z.enum(["system", "template", "book"]).default("system"),
+  ownerSpaceId: z.string().uuid().nullable().optional(),
+  revision: z.number().int().positive().optional(),
+  items: z.array(z.object({
+    id: z.string().uuid().optional(),
+    key: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,62}$/, "字典项标识无效。"),
+    label: z.string().trim().min(1).max(80),
+    value: z.record(z.string(), z.unknown()).default({}),
+    sortOrder: z.number().int().min(0).default(1000),
+    status: z.enum(["active", "archived"]).default("active"),
+  })).max(200).default([]),
+});
+
+const relationPropertySchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),
+  name: z.string().trim().min(1).max(80),
+  type: z.enum(FIELD_TYPES),
+  required: z.boolean().default(false),
+});
+
+export const relationTypeInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/, "关系标识需以小写字母开头。"),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).default(""),
+  direction: z.enum(["directed", "undirected"]).default("directed"),
+  sourceTypeKeys: z.array(z.string().trim().min(1)).min(1),
+  targetTypeKeys: z.array(z.string().trim().min(1)).min(1),
+  sourceMax: z.number().int().positive().nullable().default(null),
+  targetMax: z.number().int().positive().nullable().default(null),
+  scope: z.enum(["system", "template", "book"]).default("system"),
+  ownerSpaceId: z.string().uuid().nullable().optional(),
+  propertiesSchema: z.array(relationPropertySchema).max(50).default([]),
+  revision: z.number().int().positive().optional(),
+});
+
+const localFieldSchema = relationPropertySchema;
+const formSlotSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),
+  name: z.string().trim().min(1).max(80),
+  kind: z.enum(["primary_card", "card_reference"]),
+  relationTypeKey: z.string().trim().min(1).optional(),
+  allowedTypeKeys: z.array(z.string().trim().min(1)).min(1),
+  min: z.number().int().min(0),
+  max: z.number().int().positive(),
+  localFields: z.array(localFieldSchema).max(30).default([]),
+}).superRefine((slot, context) => {
+  if (slot.max < slot.min) context.addIssue({ code: "custom", path: ["max"], message: "最大数量不能小于最小数量。" });
+  if (slot.kind === "card_reference" && !slot.relationTypeKey) context.addIssue({ code: "custom", path: ["relationTypeKey"], message: "引用槽必须选择关系类型。" });
+});
+
+export const cardGroupFormDefinitionSchema = z.object({
+  primaryTypeKey: z.string().trim().min(1),
+  groups: z.array(z.object({
+    key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    name: z.string().trim().min(1).max(80),
+    order: z.number().int().min(0),
+    sections: z.array(z.object({
+      key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),
+      name: z.string().trim().min(1).max(80),
+      order: z.number().int().min(0),
+      slots: z.array(formSlotSchema).min(1),
+    })).min(1),
+  })).min(1),
+});
+
+export const cardGroupFormInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(500).default(""),
+  definition: cardGroupFormDefinitionSchema,
+  revision: z.number().int().positive().optional(),
+});
+
+export const formInstanceInputSchema = z.object({
+  spaceId: z.string().uuid(),
+  formVersionId: z.string().uuid(),
+  primaryCardId: z.string().uuid(),
+  title: z.string().trim().min(1).max(160),
+  revision: z.number().int().positive().optional(),
+  mounts: z.array(z.object({
+    id: z.string().uuid().optional(),
+    slotKey: z.string().trim().min(1),
+    cardId: z.string().uuid(),
+    sortOrder: z.number().int().min(0),
+    localValues: z.record(z.string(), z.unknown()).default({}),
+  })).max(200),
+});
+
+export const templateInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/),
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(800).default(""),
+  draftConfig: z.record(z.string(), z.unknown()).default({ includeSystemCatalog: true }),
+  revision: z.number().int().positive().optional(),
+});
+
+export const bookInputSchema = z.object({
+  key: z.string().trim().regex(/^[a-z][a-z0-9_-]{1,62}$/),
+  name: z.string().trim().min(1).max(100),
+  description: z.string().trim().max(800).default(""),
+  templateVersionId: z.string().uuid(),
+});
+
+export const syncPreviewSchema = z.object({ targetVersionId: z.string().uuid() });
 
 function isBlank(value: unknown): boolean {
   return value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
@@ -136,6 +247,25 @@ export function validatePublishedEvolution(previous: FieldDefinition[], next: Fi
   for (const field of next) {
     if (!previousKeys.has(field.key) && field.required) {
       issues[field.key] = `新增字段“${field.name}”必须为非必填，确保旧卡片仍可使用。`;
+    }
+  }
+  return issues;
+}
+
+export function validateBookTypeEvolution(previous: FieldDefinition[], next: FieldDefinition[]): Record<string, string> {
+  const issues: Record<string, string> = {};
+  const nextByKey = new Map(next.map((field) => [field.key, field]));
+  for (const oldField of previous) {
+    const candidate = nextByKey.get(oldField.key);
+    if (!candidate) {
+      issues.fields = `书内稳定字段“${oldField.name}”不能删除。`;
+      continue;
+    }
+    if (candidate.type !== oldField.type) {
+      issues[oldField.key] = `书内字段“${oldField.name}”不能改变数据类型。`;
+    }
+    if (!oldField.required && candidate.required) {
+      issues[oldField.key] = `书内已有卡片时，字段“${oldField.name}”不能改为必填。`;
     }
   }
   return issues;

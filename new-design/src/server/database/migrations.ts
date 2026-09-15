@@ -20,4 +20,12 @@ export const migrations: Migration[] = [
     id: "004_xianxia_production_demo",
     fileName: "004_xianxia_production_demo.sql",
   },
+  {
+    id: "005_card_composition_kernel",
+    fileName: "005_card_composition_kernel.sql",
+  },
+  {
+    id: "006_template_books",
+    fileName: "006_template_books.sql",
+  },
 ];
