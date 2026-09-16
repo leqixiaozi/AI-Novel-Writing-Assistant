@@ -25,9 +25,11 @@ export interface DevelopmentDatabaseRuntime {
 
 const COMPOSE_PROJECT = "ai-novel-new-design-dev";
 const COMPOSE_FILE = path.resolve(__dirname, "../../../docker-compose.dev.yml");
+const DEVELOPMENT_IMAGE = "ai-novel/new-design-postgres-dev:pg17-age1.7-vector0.8.6";
 const RUNTIME_ROOT = path.resolve(__dirname, "../../..", ".data");
 const CONFIG_PATH = path.join(RUNTIME_ROOT, "runtime.json");
 let activeRuntime: DevelopmentDatabaseRuntime | null = null;
+let startingRuntime: Promise<DevelopmentDatabaseRuntime> | null = null;
 
 export function isDevelopmentDatabaseRuntimeEnabled(): boolean {
   return process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME === "1";
@@ -81,7 +83,13 @@ async function startCompose(config: DevelopmentRuntimeConfig): Promise<void> {
     NEW_DESIGN_DEV_DB_NAME: config.database,
   };
   try {
-    await runCommand("docker", ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, "up", "-d", "--build", "--wait"], dockerEnvironment);
+    const imageExists = await runCommand("docker", ["image", "inspect", DEVELOPMENT_IMAGE], dockerEnvironment)
+      .then(() => true)
+      .catch(() => false);
+    if (!imageExists) {
+      await runCommand("docker", ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, "build", "postgres"], dockerEnvironment);
+    }
+    await runCommand("docker", ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, "up", "-d", "--no-build", "--pull", "never", "--wait", "postgres"], dockerEnvironment);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (/dockerDesktopLinuxEngine|daemon|pipe/i.test(detail)) {
@@ -144,8 +152,7 @@ async function applyMigrations(pool: Pool): Promise<number> {
   return Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations")).rows[0]?.value ?? 0);
 }
 
-export async function startDevelopmentDatabaseRuntime(): Promise<DevelopmentDatabaseRuntime> {
-  if (activeRuntime) return activeRuntime;
+async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDatabaseRuntime> {
   if (process.env.NEW_DESIGN_DATABASE_URL?.trim()) throw new Error("开发态不接受系统 PostgreSQL 连接串；只使用项目定义的 AGE + pgvector 数据库容器。");
   const config = await readRuntimeConfig();
   await startCompose(config);
@@ -160,6 +167,16 @@ export async function startDevelopmentDatabaseRuntime(): Promise<DevelopmentData
     await pool.end().catch(() => undefined);
     throw error;
   }
+}
+
+export async function startDevelopmentDatabaseRuntime(): Promise<DevelopmentDatabaseRuntime> {
+  if (activeRuntime) return activeRuntime;
+  if (!startingRuntime) {
+    startingRuntime = initializeDevelopmentDatabaseRuntime().finally(() => {
+      startingRuntime = null;
+    });
+  }
+  return startingRuntime;
 }
 
 export async function stopDevelopmentDatabaseRuntime(): Promise<void> {
