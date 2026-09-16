@@ -1,0 +1,10 @@
+.nd-context-author-group { display: grid; gap: .75rem; margin: .75rem; padding: .75rem; border: 0; border-inline-start: 2px solid var(--nd-line); }
+.nd-context-author-group legend { padding: 0 .25rem; font-size: .85rem; color: var(--nd-ink); }
+.nd-context-author-group > label { display: grid; gap: .3rem; }
+.nd-context-author-group select,.nd-context-author-group input { min-height: 44px; max-width: 100%; color: var(--nd-ink); background: var(--nd-paper); border: 1px solid var(--nd-line); border-radius: var(--radius); padding: .5rem; font-size: 1rem; }
+.nd-context-author-child { display: grid; gap: .35rem; }
+.nd-context-author-child > button { justify-self: end; min-height: 44px; padding: .4rem .6rem; border: 0; background: transparent; color: var(--nd-muted); cursor: pointer; }
+.nd-context-author-child .nd-context-condition-row { grid-template-columns: 1fr; }
+.nd-context-author-child .nd-context-author-group { margin: 0; }
+.nd-context-author-group :is(button,input,select):focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 2px; }
+@media (min-width: 900px) { .nd-context-author-child .nd-context-condition-row { grid-template-columns: repeat(3,minmax(0,1fr)); } }

@@ -1,0 +1,56 @@
+import type { ContextAuthorCatalog, ContextAuthorSource } from "../../../common/contextAuthor";
+import { NewDesignError, assertFound } from "../../domain/errors";
+import { getNewDesignPool } from "../runtime";
+
+export async function getContextAuthorCatalog(bookId:string):Promise<ContextAuthorCatalog>{
+  const pool=await getNewDesignPool(),book=assertFound((await pool.query("SELECT space_id,status FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
+  if(book.status!=="active")throw new NewDesignError("请先恢复书籍，再编辑参考资料规则。",409);
+  const spaceId=String(book.space_id),sources:ContextAuthorSource[]=[];let truncated=false;
+  const bounded=async(sql:string,params:unknown[])=>{const rows=(await pool.query(sql+" LIMIT 201",params)).rows;if(rows.length>200)truncated=true;return rows.slice(0,200);};
+  const types=await bounded("SELECT type_key id,name label FROM new_design.card_types WHERE space_id=$1 AND status='published' ORDER BY name",[spaceId]);
+  const scopes=await bounded("SELECT card.id,card.title label,type.type_key kind FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active' AND type.type_key=ANY($2::text[]) ORDER BY card.title",[spaceId,["volume","chapter","scene"]]);
+  const cards=await bounded(`SELECT card.id stable_id,version.id version_id,version.revision,version.title label,type.type_key,card.current_version_id=version.id current
+    FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id JOIN new_design.card_versions version ON version.card_id=card.id WHERE card.status='active'
+    AND (card.space_id=$1 OR (type.type_key='prompt_component' AND NOT EXISTS(SELECT 1 FROM new_design.books owner WHERE owner.space_id=card.space_id))) ORDER BY card.title,version.revision DESC`,[spaceId]);
+  sources.push(...cards.map(row=>({kind:row.type_key==="prompt_component"?"prompt_component" as const:"card_version" as const,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current)})));
+  const bodies=await bounded(`SELECT document.id stable_id,version.id version_id,version.version revision,document.title label,document.revision document_revision,document.adopted_version_id,document.adopted_version_id=version.id current
+    FROM new_design.chapter_documents document JOIN new_design.chapter_body_versions version ON version.chapter_document_id=document.id WHERE document.book_id=$1 AND document.status='active' ORDER BY document.logical_order,version.version DESC`,[bookId]);
+  sources.push(...bodies.map(row=>({kind:"body_version" as const,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current),checkpoint:{chapterDocumentId:row.stable_id,documentRevision:Number(row.document_revision),...(row.adopted_version_id?{bodyVersionId:row.adopted_version_id}:{})}})));
+  const plans=await bounded(`SELECT object.id stable_id,version.id version_id,version.version revision,object.title label,object.adopted_version_id=version.id current FROM new_design.planning_objects object
+    JOIN new_design.planning_versions version ON version.object_id=object.id WHERE object.book_id=$1 AND object.status<>'archived' AND version.status<>'rejected' ORDER BY object.title,version.version DESC`,[bookId]);
+  sources.push(...plans.map(row=>({kind:"planning_version" as const,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current)})));
+  const fixedQueries=[
+    ["canonical_fact","SELECT id stable_id,id version_id,revision,'已确认事实' label FROM new_design.canonical_facts WHERE book_id=$1 AND status='confirmed' ORDER BY created_at DESC"],
+    ["state_change","SELECT id stable_id,id version_id,sequence revision,'状态变化' label FROM new_design.state_changes WHERE book_id=$1 AND status='active' ORDER BY sequence DESC"],
+    ["knowledge_state_change","SELECT proposal_id stable_id,id version_id,sequence revision,'认知变化' label FROM new_design.knowledge_state_changes WHERE book_id=$1 AND status='active' ORDER BY sequence DESC"],
+    ["story_time","SELECT id stable_id,id version_id,sequence revision,COALESCE(start_label,'故事时间') label FROM new_design.story_event_timings WHERE book_id=$1 AND status='active' ORDER BY sequence DESC"],
+    ["story_event_relation","SELECT proposal_id stable_id,id version_id,sequence revision,'事件关系' label FROM new_design.story_event_relations WHERE book_id=$1 AND status='active' ORDER BY sequence DESC"],
+  ] as const;
+  for(const [kind,sql] of fixedQueries){const rows=await bounded(sql,[bookId]);sources.push(...rows.map(row=>({kind,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:true})));}
+  const records=await bounded(`SELECT DISTINCT record.id stable_id,version.id version_id,version.version revision,record.title label,record.current_version_id=version.id current FROM new_design.research_record_versions version
+    JOIN new_design.research_records record ON record.id=version.record_id JOIN new_design.book_research_references reference ON reference.book_id=$1 AND (reference.research_version_id=version.id OR EXISTS(
+    SELECT 1 FROM new_design.research_reference_pack_items item WHERE item.pack_version_id=reference.pack_version_id AND item.research_version_id=version.id))
+    WHERE record.status='active' AND version.run_status IN ('completed','partial') ORDER BY record.title,version.version DESC`,[bookId]);
+  sources.push(...records.map(row=>({kind:"research_version" as const,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current)})));
+  const docs=await bounded(`SELECT DISTINCT document.id stable_id,version.id version_id,version.version revision,document.title label,document.current_version_id=version.id current FROM new_design.research_documents document
+    JOIN new_design.research_document_versions version ON version.document_id=document.id JOIN new_design.research_records record ON record.source_document_version_id=version.id JOIN new_design.research_record_versions record_version ON record_version.record_id=record.id
+    JOIN new_design.book_research_references reference ON reference.book_id=$1 AND (reference.research_version_id=record_version.id OR EXISTS(SELECT 1 FROM new_design.research_reference_pack_items item WHERE item.pack_version_id=reference.pack_version_id AND item.research_version_id=record_version.id))
+    WHERE document.status='active' ORDER BY document.title,version.version DESC`,[bookId]);
+  sources.push(...docs.map(row=>({kind:"research_document_version" as const,stableId:String(row.stable_id),versionId:String(row.version_id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current)})));
+  const packs=await bounded(`SELECT DISTINCT version.id,pack.name label,pack.id stable_id,version.version revision,pack.current_version_id=version.id current FROM new_design.book_research_references reference
+    JOIN new_design.research_reference_pack_versions version ON version.id=reference.pack_version_id JOIN new_design.research_reference_packs pack ON pack.id=version.pack_id WHERE reference.book_id=$1 AND pack.status='published' ORDER BY pack.name,version.version DESC`,[bookId]);
+  sources.push(...packs.map(row=>({kind:"research_pack_version" as const,stableId:String(row.stable_id),versionId:String(row.id),revision:Number(row.revision),label:String(row.label),current:Boolean(row.current)})));
+  const tags=await bounded(`SELECT tag.id,version.name label,tag.parent_id FROM new_design.material_tags tag JOIN new_design.material_tag_versions version ON version.id=tag.current_version_id
+    JOIN new_design.material_tag_dimensions dimension ON dimension.id=tag.dimension_id WHERE tag.status='active' AND dimension.status='active' AND (dimension.owner_space_id=$1 OR dimension.owner_space_id IS NULL) ORDER BY version.name`,[spaceId]);
+  const views=await bounded("SELECT view.id,version.name label FROM new_design.smart_views view JOIN new_design.smart_view_versions version ON version.id=view.current_version_id WHERE view.book_id=$1 AND view.status='active' ORDER BY version.name",[bookId]);
+  const relations=await bounded("SELECT id,name label FROM new_design.relation_types WHERE status='published' AND (owner_space_id=$1 OR owner_space_id IS NULL) ORDER BY name",[spaceId]);
+  const retrievals=await bounded("SELECT id,COALESCE(NULLIF(query_summary,''),'参考资料检索') label FROM new_design.semantic_retrieval_runs WHERE book_id=$1 AND status='succeeded' ORDER BY created_at DESC",[bookId]);
+  const spaces=await bounded("SELECT space.id,space.name label FROM new_design.card_spaces space WHERE NOT EXISTS(SELECT 1 FROM new_design.books owner WHERE owner.space_id=space.id) ORDER BY space.name",[]);
+  const tasks=await bounded(`SELECT contract.task_key id,contract.name label,version.task_group group_key FROM new_design.task_contracts contract JOIN new_design.task_contract_versions version ON version.id=contract.published_version_id WHERE contract.status='active' ORDER BY contract.name`,[]);
+  const groups=[...new Map(tasks.map(task=>[String(task.group_key),{id:String(task.group_key),label:`${String(task.label)}相关任务`}])).values()];
+  const slots=await bounded(`SELECT DISTINCT slot.slot_key id,COALESCE(NULLIF(slot.variable_contract->>'title',''),'参考位置 '||slot.sort_order::text) label FROM new_design.prompt_recipe_slots slot
+    JOIN new_design.task_contract_versions version ON version.prompt_recipe_version_id=slot.recipe_version_id JOIN new_design.task_contracts contract ON contract.published_version_id=version.id WHERE contract.status='active' ORDER BY id`,[]);
+  const routeOverrides=await bounded("SELECT override_key id,name label FROM new_design.model_route_configs WHERE scope='one_time' AND status='active' AND (book_id=$1 OR book_id IS NULL) ORDER BY name",[bookId]);
+  const choices=(rows:Record<string,unknown>[])=>[...new Map(rows.map(row=>[String(row.id),{id:String(row.id),label:String(row.label),...(row.kind?{kind:String(row.kind)}:{}),...(row.parent_id?{parentId:String(row.parent_id)}:{})}])).values()];
+  return {bookId,types:choices(types),scopes:choices(scopes),sources,tags:choices(tags),views:choices(views),relations:choices(relations),packs:choices(packs),retrievals:choices(retrievals),spaces:choices(spaces),tasks:choices(tasks),groups,slots:choices(slots),routeOverrides:choices(routeOverrides),truncated};
+}

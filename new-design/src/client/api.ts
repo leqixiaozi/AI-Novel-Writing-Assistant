@@ -1,5 +1,6 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import { publicServiceError } from "../common/presentation";
+import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {
   ApiEnvelope,
   AiAssistBatch,
@@ -585,6 +586,7 @@ export const newDesignApi = {
   createContextManifest:(input:ContextManifestInput)=>request<ContextManifest>("/context-manifests",{method:"POST",body:JSON.stringify(input)}),
   getContextManifest:(id:string)=>request<ContextManifest>(`/context-manifests/${id}`),
   listPublishedTaskContracts:()=>request<TaskContract[]>("/task-contracts"),
+  getContextAuthorCatalog:(bookId:string)=>request<ContextAuthorCatalog>(`/books/${bookId}/context-author-catalog`),
   listContextBindings:(input:{bookId?:string;includeGlobal?:boolean;includeArchived?:boolean;limit?:number}={})=>request<ContextBinding[]>(`/context-bindings?${new URLSearchParams(Object.entries(input).filter((entry):entry is [string,string|number|boolean]=>entry[1]!==undefined).map(([key,value])=>[key,String(value)])).toString()}`),
   createContextBinding:(input:ContextBindingCreateInput)=>request<ContextBinding>("/context-bindings",{method:"POST",body:JSON.stringify(input)}),
   getContextBinding:(id:string,bookId?:string)=>request<ContextBinding>(`/context-bindings/${id}${bookId?`?bookId=${encodeURIComponent(bookId)}`:""}`),

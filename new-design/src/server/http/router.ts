@@ -3,6 +3,7 @@ import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
 import { businessFormAiRouter } from "./formAssist";
+import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
   archiveCard,
   createCard,
@@ -668,6 +669,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/context-bindings/:id/archive",asyncRoute(async(req,res)=>success(res,await archiveContextBinding(String(req.params.id),body(contextBindingArchiveSchema,req)))));
   router.post("/context-bindings/validate-rule",asyncRoute(async(req,res)=>{const rule=contextActivationRuleValidationSchema.parse(req.body);success(res,{valid:true,rule});}));
   router.post("/context-bindings/resolve",asyncRoute(async(req,res)=>success(res,await resolveContextBindings(body(contextResolutionSchema,req)))));
+  router.get("/books/:id/context-author-catalog",asyncRoute(async(req,res)=>success(res,await getContextAuthorCatalog(z.string().uuid().parse(req.params.id)))));
   router.post("/context-previews",asyncRoute(async(req,res)=>success(res,await createContextAssemblyPreview(body(contextPreviewCreateSchema,req)),201)));
   router.get("/context-previews/:id",asyncRoute(async(req,res)=>{const bookId=String(req.query.bookId??"");if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bookId))throw new NewDesignError("查看装配预览时必须选择书籍。",422);success(res,await getContextAssemblyPreview(String(req.params.id),bookId));}));
   router.get("/books/:id/context-previews",asyncRoute(async(req,res)=>success(res,await listContextAssemblyPreviews({bookId:String(req.params.id),...contextPreviewListSchema.parse(req.query)}))));
