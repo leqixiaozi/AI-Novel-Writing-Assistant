@@ -1,4 +1,5 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
+import type {PromptCatalog,PromptClassificationInput,PromptSaveInput,PromptReorderInput,PromptCategoryCreateInput,PromptCategoryRevisionInput,PromptCategoryArchiveInput} from "../common/promptManagement";
 import { publicServiceError } from "../common/presentation";
 import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl} from "../common/creationDirector";
@@ -300,6 +301,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  getPromptCatalog:()=>request<PromptCatalog>("/prompt-management/catalog"),
+  createPromptCategory:(input:PromptCategoryCreateInput)=>request<MaterialGroup>("/prompt-management/categories",{method:"POST",body:JSON.stringify(input)}),
+  revisePromptCategory:(id:string,input:PromptCategoryRevisionInput)=>request<MaterialGroup>(`/prompt-management/categories/${id}`,{method:"PATCH",body:JSON.stringify(input)}),
+  archivePromptCategory:(id:string,input:PromptCategoryArchiveInput)=>request<MaterialManagementWorkspace>(`/prompt-management/categories/${id}/archive`,{method:"POST",body:JSON.stringify(input)}),
+  reorderPromptGroups:(input:PromptReorderInput)=>request<PromptCatalog>("/prompt-management/categories/reorder",{method:"POST",body:JSON.stringify(input)}),
+  savePrompt:(input:PromptSaveInput)=>request<CardSummary>("/prompt-management/components",{method:"POST",body:JSON.stringify(input)}),
+  classifyPrompt:(id:string,input:PromptClassificationInput)=>request<PromptCatalog>(`/prompt-management/components/${id}/classification`,{method:"POST",body:JSON.stringify(input)}),
   health: () => request<{ mode: "bundled"; postgresVersion: string; host:"127.0.0.1"; port: number; dataLocator:string; runtimeId:string; manifestSha256:string }>("/health"),
   listCardTypes: (spaceId?: string) => request<CardTypeSummary[]>(`/card-types${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ""}`),
   listCardTypeCategories: () => request<CardTypeCategory[]>("/card-type-categories"),

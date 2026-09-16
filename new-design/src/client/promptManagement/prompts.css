@@ -1,0 +1,11 @@
+.nd-prompt-workspace { display: grid; gap: 1rem; align-items: start; }
+.nd-prompt-navigation { border: 0; margin: 0; padding: 0; min-width: 0; }
+.nd-prompt-navigation .nd-tree-manager { width: 100%; }
+.nd-prompt-editor { background: var(--nd-paper); padding: 1rem; min-width: 0; }
+.nd-prompt-page .nd-type-editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1rem; }
+.nd-prompt-content { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; background: var(--nd-soft); padding: 1rem; }
+.nd-prompt-page .nd-type-recovery { margin-bottom: 1rem; background: var(--nd-soft); border-left: 3px solid var(--nd-error); padding: 1rem; }
+.nd-prompt-page button, .nd-prompt-page summary { cursor: pointer; }
+.nd-prompt-page .nd-action-row { flex-wrap: wrap; }
+.nd-prompt-page button { min-height: 44px; }
+@media (min-width: 850px) { .nd-prompt-workspace { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); } }

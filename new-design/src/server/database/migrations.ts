@@ -198,4 +198,5 @@ export const migrations: Migration[] = [
   },
   { id: "049_business_form_ai_drafts", fileName: "049_business_form_ai_drafts.sql" },
   { id: "050_scoped_database_function_paths", fileName: "050_scoped_database_function_paths.sql" },
+  { id: "051_prompt_component_classification", fileName: "051_prompt_component_classification.sql" },
 ];

@@ -33,7 +33,7 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/resources/dictionaries")return <ResourceTreesPage initialMode="dictionary"/>;
   if(path==="/new-design/resources/tags")return <ResourceTreesPage initialMode="tag"/>;
   if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
-  if(path==="/new-design/resources/ai/prompt-components")return <PromptComponentsPage/>;
+  if((path==="/new-design/resources/ai/prompt-components"||path==="/new-design/resources/prompts"))return <PromptComponentsPage/>;
   if(path==="/new-design/research"||path==="/new-design/research/records")return <ResearchRecordsPage/>;
   if(path==="/new-design/research/market-radar")return <MarketRadarPage/>;
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;
