@@ -97,6 +97,7 @@ import {
   listInspirationCandidates,
   saveDirectionCandidates,
   saveFormAssist,
+  saveBookCreationReview,
   saveInitialCards,
   selectBookDirection,
 } from "../database/bookCreationStore";
@@ -108,6 +109,7 @@ import {
   applyFormAssistSchema,
   bookInputSchema,
   bookCreationSessionInputSchema,
+  bookCreationReviewSchema,
   completeBookCreationSchema,
   dictionaryInputSchema,
   tagDimensionInputSchema,
@@ -833,6 +835,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   }));
   router.post("/book-creation/sessions", asyncRoute(async (req, res) => success(res, await createBookCreationSession(body(bookCreationSessionInputSchema, req)), 201)));
   router.get("/book-creation/sessions/:id", asyncRoute(async (req, res) => success(res, await getBookCreationSession(String(req.params.id)))));
+  router.patch("/book-creation/sessions/:id/review",asyncRoute(async(req,res)=>success(res,await saveBookCreationReview(String(req.params.id),body(bookCreationReviewSchema,req)))));
   router.post("/book-creation/sessions/:id/directions", asyncRoute(async (req, res) => {
     const sessionId = String(req.params.id);
     const batchId = await beginSessionGeneration(sessionId, "directions");

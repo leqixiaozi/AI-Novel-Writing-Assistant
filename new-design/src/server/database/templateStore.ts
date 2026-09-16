@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { BookSummary, BookViewKey, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, ResearchPrefillCard, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
+import type { BookCreationReviewCard, BookSummary, BookViewKey, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, ResearchPrefillCard, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
 import type { StrategyResourceDraft } from "./resourceStore";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
@@ -74,6 +74,7 @@ interface CreateBookOrigin {
 interface CreateBookOptions {
   includeTemplateSeed?: boolean;
   initialCards?: InitialCardDraft[];
+  reviewCards?: BookCreationReviewCard[];
   resourceCards?: StrategyResourceDraft[];
   researchCards?: ResearchPrefillCard[];
   researchReferences?: Array<{researchVersionId:string|null;packVersionId:string|null;purpose:string;compiledSnapshot:Record<string,unknown>}>;
@@ -131,24 +132,24 @@ async function installPayload(
     }
     return next;
   };
-  const cards = [
-    ...(options.includeTemplateSeed === false ? [] : payload.seedCards.map((card) => ({ card, sourceKind: "template" as const, sourceId: card.sourceId, sourceVersionId: null }))),
-    ...(options.initialCards ?? []).map((card) => ({ card, sourceKind: "ai" as const, sourceId: null, sourceVersionId: null })),
-    ...(options.resourceCards ?? []).map((card) => ({ card, sourceKind: "resource" as const, sourceId: card.sourceCardId, sourceVersionId: card.sourceVersionId })),
+  const cards = options.reviewCards?.map((card)=>({card,sourceKind:card.sourceKind==="manual"?"user" as const:card.sourceKind,sourceId:card.sourceId,sourceVersionId:card.sourceVersionId,originalTitle:card.originalTitle,originalValues:card.originalValues,reviewed:true}))??[
+    ...(options.includeTemplateSeed === false ? [] : payload.seedCards.map((card) => ({ card, sourceKind: "template" as const, sourceId: card.sourceId, sourceVersionId: null,originalTitle:card.title,originalValues:card.values,reviewed:false }))),
+    ...(options.initialCards ?? []).map((card) => ({ card, sourceKind: "ai" as const, sourceId: null, sourceVersionId: null,originalTitle:card.title,originalValues:card.values,reviewed:false })),
+    ...(options.resourceCards ?? []).map((card) => ({ card, sourceKind: "resource" as const, sourceId: card.sourceCardId, sourceVersionId: card.sourceVersionId,originalTitle:card.title,originalValues:card.values,reviewed:false })),
   ];
   const installedCards=new Map<string,{id:string;typeVersionId:string;title:string;values:Record<string,unknown>;revision:number}>();
   for (const prepared of cards) {
     const { card, sourceKind } = prepared;
-    const confirmation = sourceKind === "ai" ? "ai_draft" : sourceKind === "template" ? "template_suggestion" : "confirmed";
+    const confirmation = prepared.reviewed?"confirmed":sourceKind === "ai" ? "ai_draft" : sourceKind === "template" ? "template_suggestion" : sourceKind==="user"?"user_content":"confirmed";
     const type = assertFound(typeIds.get(card.typeKey), `模板缺少卡片类型 ${card.typeKey}。`);
     const fields=assertFound(installedFieldsByType.get(card.typeKey),`模板缺少类型定义 ${card.typeKey}。`);
     const allowedKeys = new Set(fields.map((field) => field.key));
     const filteredValues = remapTreeValues(fields,Object.fromEntries(Object.entries(card.values).filter(([key]) => allowedKeys.has(key))));
     const validated = validateCardValues(fields, filteredValues);
-    if (sourceKind !== "template" && Object.keys(validated.issues).length) {
+    if ((prepared.reviewed || sourceKind !== "template") && Object.keys(validated.issues).length) {
       throw new NewDesignError(`${sourceKind === "ai" ? "AI 生成的" : "选用的创作策略"}“${card.title}”未满足模板字段要求。`, 422, validated.issues);
     }
-    const values = sourceKind === "template" ? filteredValues : validated.values;
+    const values = sourceKind === "template" && !prepared.reviewed ? filteredValues : validated.values;
     const treeIssues=await validateDictionaryTreeValues(client,fields,values);
     if(Object.keys(treeIssues).length)throw new NewDesignError(`“${card.title}”引用了当前模板中不可用的字典项。`,422,treeIssues);
     const cardId = randomUUID();
@@ -159,7 +160,8 @@ async function installPayload(
     await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1", [cardId, versionId]);
     installedCards.set(`${card.typeKey}\u0000${card.title}`,{id:cardId,typeVersionId:type.versionId,title:card.title,values,revision:1});
     for (const [fieldKey, value] of [["$title", card.title] as const, ...Object.entries(values)]) {
-      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$8::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, prepared.sourceId, sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null, confirmation, JSON.stringify(value)]);
+      const originalValue=fieldKey==="$title"?prepared.originalTitle:prepared.originalValues[fieldKey];
+      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, prepared.sourceId, sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null, confirmation, JSON.stringify(originalValue??null),JSON.stringify(value)]);
     }
     if (sourceKind === "resource" && prepared.sourceId && prepared.sourceVersionId) {
       await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [randomUUID(), prepared.sourceId, prepared.sourceVersionId, bookId, cardId, JSON.stringify({ typeKey: card.typeKey, title: card.title, values })]);

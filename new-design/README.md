@@ -48,7 +48,7 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/045_planning_ai_candidates.sql`、`docs/data-model.md`、`docs/completion-export-runtime-maintenance.md`、`docs/release-gate-checklist.md` 及各阶段专题。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的正文、完本快照、导出账本、规划候选、结算决定、质量处置、上下文规则和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/048_unified_book_creation_review.sql`、`docs/data-model.md`、`docs/completion-export-runtime-maintenance.md`、`docs/release-gate-checklist.md` 及各阶段专题。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的正文、完本快照、导出账本、规划候选、结算决定、质量处置、上下文规则和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
 新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—045。仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把此状态描述为可安装发布。
 

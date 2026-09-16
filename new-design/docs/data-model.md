@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `045_business_form_shell.sql` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046_unified_dictionary_tag_trees.sql` 建立统一字典树、多维标签树、稳定字段语义与历史路径快照，`047_tree_value_snapshot_paths.sql` 将不同深度路径改为 JSON 数组并为模板同步增加树资源增量。运行时直接执行这些 SQL，不在代码中维护第二份副本。详细规则见 `unified-tree-resources.md`。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `045_business_form_shell.sql` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046_unified_dictionary_tag_trees.sql` 建立统一字典树、多维标签树、稳定字段语义与历史路径快照，`047_tree_value_snapshot_paths.sql` 将不同深度路径改为 JSON 数组并为模板同步增加树资源增量，`048_unified_book_creation_review.sql` 保存创建前统一审阅资料。运行时直接执行这些 SQL，不在代码中维护第二份副本。详细规则见 `unified-tree-resources.md` 与 `unified-book-creation-form.md`。
 
 `031`—`045` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料组织与安全归档、上下文装配、规划中心、章节创作与稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览、多维查看偏好、完本检查、出版导出、发布证据和 AI 规划候选审计。运行时迁移范围以 `001_card_kernel.sql` 至 `045_planning_ai_candidates.sql` 为准。
 
@@ -482,6 +482,8 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 `book_creation_sessions.method` 支持 `blank`、`template`、`idea`、`inspiration`、`market`、`reference`、`continuation`。这些值只描述入口，不改变模板结构。会话通过 `template_version_id` 锁定同一个不可变模板版本，最终通过 `book_id` 指向统一的书籍聚合根。
 
 `book_creation_sessions.status` 使用 `draft/generating/waiting_direction/review/creating/completed/failed`；`stage` 进一步标明理解来源、生成方向、等待确认、匹配字段、生成初始资料、预览和安装模板。失败保留 `last_failed_stage` 与 `error_message`，因此可以只重试当前阶段，也可以保留已有结果建立书籍。
+
+`048_unified_book_creation_review.sql` 增加 `book_creation_sessions.review_cards`。它保存作者创建前逐项审阅的当前值、初始值和来源快照，是最终书籍安装的唯一资料输入。模板、AI、研究与策略只负责准备初值；保存时服务端锁定已有条目的来源元数据，新条目统一记录为手工添加。详细合同见 `unified-book-creation-form.md`。
 
 `card_field_origins` 以 `card_id + field_key` 唯一定位字段来源，并保存 `origin`、`generation_batch_id`、`confirmation_status` 和 `source_payload`。写入 AI 建议前仍检查卡片 `revision`，避免覆盖作者在另一个页面已经保存的修改。
 

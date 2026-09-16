@@ -192,4 +192,8 @@ export const migrations: Migration[] = [
     id: "047_tree_value_snapshot_paths",
     fileName: "047_tree_value_snapshot_paths.sql",
   },
+  {
+    id: "048_unified_book_creation_review",
+    fileName: "048_unified_book_creation_review.sql",
+  },
 ];

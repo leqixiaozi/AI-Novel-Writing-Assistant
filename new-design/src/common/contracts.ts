@@ -1075,6 +1075,24 @@ export interface InitialCardDraft {
   values: Record<string, unknown>;
 }
 
+export type BookCreationReviewSource = "template" | "ai" | "research" | "resource" | "manual";
+
+export interface BookCreationReviewCard extends InitialCardDraft {
+  id: string;
+  sourceKind: BookCreationReviewSource;
+  sourceId: string | null;
+  sourceVersionId: string | null;
+  originalTitle: string;
+  originalValues: Record<string, unknown>;
+}
+
+export interface BookCreationReviewType {
+  key: string;
+  name: string;
+  description: string;
+  fields: FieldDefinition[];
+}
+
 export type BookCreationStatus =
   | "draft"
   | "generating"
@@ -1101,6 +1119,8 @@ export interface BookCreationSession {
   directionCandidates: BookDirectionCandidate[];
   selectedDirectionId: string | null;
   initialCards: InitialCardDraft[];
+  reviewCards: BookCreationReviewCard[];
+  reviewTypes: BookCreationReviewType[];
   lastFailedStage: string | null;
   errorMessage: string | null;
   bookId: string | null;

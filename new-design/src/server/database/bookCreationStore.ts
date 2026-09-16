@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 import type {
   AiAssistBatch,
   BookCreationMethod,
+  BookCreationReviewCard,
   BookCreationSession,
   BookDirectionCandidate,
   CardSummary,
   FieldDefinition,
   InitialCardDraft,
   InspirationCandidate,
+  ResearchPrefillCard,
 } from "../../common/contracts";
 import type { AiSchemaType } from "../ai/gateway";
 import { NewDesignError, assertFound } from "../domain/errors";
+import { validateCardValues } from "../domain/validation";
+import { normalizeBookCreationReview, validateBookCreationReviewCards } from "../domain/bookCreation";
 import { getNewDesignPool } from "./runtime";
 import { getStrategyResourceDrafts } from "./resourceStore";
 import { createBook, type TemplatePayload } from "./templateStore";
@@ -20,6 +24,16 @@ function strategyResourceIds(payload: Record<string, unknown>): string[] {
   return Array.isArray(payload.strategyResourceIds)
     ? payload.strategyResourceIds.filter((value): value is string => typeof value === "string")
     : [];
+}
+
+function reviewCard(card:InitialCardDraft,sourceKind:BookCreationReviewCard["sourceKind"],sourceId:string|null=null,sourceVersionId:string|null=null):BookCreationReviewCard{return{id:randomUUID(),typeKey:card.typeKey,title:card.title,values:structuredClone(card.values),sourceKind,sourceId,sourceVersionId,originalTitle:card.title,originalValues:structuredClone(card.values)};}
+function blank(value:unknown):boolean{return value===null||value===undefined||value===""||Array.isArray(value)&&value.length===0;}
+function mergeReviewCards(groups:BookCreationReviewCard[][]):BookCreationReviewCard[]{const merged=new Map<string,BookCreationReviewCard>();for(const group of groups)for(const card of group){const key=`${card.typeKey}\u0000${card.title}`,existing=merged.get(key);if(!existing){merged.set(key,card);continue;}const values={...existing.values},originalValues={...existing.originalValues};for(const [fieldKey,value] of Object.entries(card.values))if(blank(values[fieldKey])){values[fieldKey]=value;originalValues[fieldKey]=value;}merged.set(key,{...existing,values,originalValues});}return[...merged.values()];}
+async function prepareBaseReviewCards(payload:TemplatePayload,method:BookCreationMethod,inputPayload:Record<string,unknown>,researchCards:ResearchPrefillCard[]):Promise<BookCreationReviewCard[]>{
+  const template=method==="template"?payload.seedCards.map(card=>reviewCard(card,"template",card.sourceId,null)):[];
+  const resources=(await getStrategyResourceDrafts(strategyResourceIds(inputPayload))).map(card=>reviewCard(card,"resource",card.sourceCardId,card.sourceVersionId));
+  const research=researchCards.map(card=>reviewCard(card,"research",card.researchVersionId,card.researchVersionId));
+  return mergeReviewCards([template,resources,research]);
 }
 
 function asDate(value: unknown): string {
@@ -44,6 +58,8 @@ function mapSession(row: Record<string, unknown>): BookCreationSession {
     directionCandidates: row.direction_candidates as BookDirectionCandidate[],
     selectedDirectionId: row.selected_direction_id ? String(row.selected_direction_id) : null,
     initialCards: row.initial_cards as InitialCardDraft[],
+    reviewCards: (row.review_cards??[]) as BookCreationReviewCard[],
+    reviewTypes: [],
     lastFailedStage: row.last_failed_stage ? String(row.last_failed_stage) : null,
     errorMessage: row.error_message ? String(row.error_message) : null,
     bookId: row.book_id ? String(row.book_id) : null,
@@ -90,16 +106,16 @@ export async function createBookCreationSession(input: {
   researchPackVersionIds?: string[];
 }): Promise<BookCreationSession> {
   const pool = await getNewDesignPool();
-  const exists = await pool.query("SELECT 1 FROM new_design.template_group_versions WHERE id=$1", [input.templateVersionId]);
-  if (!exists.rowCount) throw new NewDesignError("所选模板版本不存在。", 404);
-  const id = randomUUID(),preview=await previewResearchReuse({templateVersionId:input.templateVersionId,researchVersionIds:input.researchVersionIds??[],packVersionIds:input.researchPackVersionIds??[],includeTemplateSeed:input.method==="template"}),client=await pool.connect();
-  try{await client.query("BEGIN");await client.query(`INSERT INTO new_design.book_creation_sessions (id,method,template_version_id,book_name,description,source_reference,input_payload) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, [id, input.method, input.templateVersionId, input.bookName, input.description, input.sourceReference, JSON.stringify(input.inputPayload)]);await persistSessionResearchSelections(client,id,preview);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+  const version = (await pool.query("SELECT payload FROM new_design.template_group_versions WHERE id=$1", [input.templateVersionId])).rows[0];
+  if (!version) throw new NewDesignError("所选模板版本不存在。", 404);
+  const id = randomUUID(),preview=await previewResearchReuse({templateVersionId:input.templateVersionId,researchVersionIds:input.researchVersionIds??[],packVersionIds:input.researchPackVersionIds??[],includeTemplateSeed:input.method==="template"}),reviewCards=await prepareBaseReviewCards(version.payload as TemplatePayload,input.method,input.inputPayload,preview.suggestedCards),directReview=input.method==="blank"||input.method==="template",client=await pool.connect();
+  try{await client.query("BEGIN");await client.query(`INSERT INTO new_design.book_creation_sessions (id,method,template_version_id,book_name,description,source_reference,input_payload,status,stage,progress,review_cards) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11::jsonb)`, [id, input.method, input.templateVersionId, input.bookName, input.description, input.sourceReference, JSON.stringify(input.inputPayload),directReview?"review":"draft",directReview?"review_initial_content":"draft",directReview?82:0,JSON.stringify(reviewCards)]);await persistSessionResearchSelections(client,id,preview);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
   return getBookCreationSession(id);
 }
 
 export async function getBookCreationSession(id: string): Promise<BookCreationSession> {
-  const row = (await (await getNewDesignPool()).query("SELECT * FROM new_design.book_creation_sessions WHERE id=$1", [id])).rows[0];
-  const session=mapSession(assertFound(row, "开书流程不存在。")),reuse=await getSessionResearchReuse(id);return{...session,researchVersionIds:reuse.preview.researchVersionIds,researchPackVersionIds:reuse.preview.packVersionIds,researchPreview:reuse.references.length?reuse.preview:null};
+  const pool=await getNewDesignPool(),row = (await pool.query("SELECT * FROM new_design.book_creation_sessions WHERE id=$1", [id])).rows[0];
+  const session=mapSession(assertFound(row, "开书流程不存在。")),reuse=await getSessionResearchReuse(id),version=assertFound((await pool.query("SELECT payload FROM new_design.template_group_versions WHERE id=$1",[session.templateVersionId])).rows[0],"开书模板版本不存在。"),payload=version.payload as TemplatePayload;return{...session,researchVersionIds:reuse.preview.researchVersionIds,researchPackVersionIds:reuse.preview.packVersionIds,researchPreview:reuse.references.length?reuse.preview:null,reviewTypes:payload.cardTypes.map(type=>({key:type.key,name:type.name,description:type.description,fields:type.fields}))};
 }
 
 export async function getSessionAiContext(id: string): Promise<{ session: BookCreationSession; sourceText: string; schemaTypes: AiSchemaType[] }> {
@@ -109,10 +125,12 @@ export async function getSessionAiContext(id: string): Promise<{ session: BookCr
   const payload = version.payload as TemplatePayload;
   const strategies = await getStrategyResourceDrafts(strategyResourceIds(session.inputPayload));
   const sourceText = [
+    session.bookName ? `作品名称：${session.bookName}` : "",
     session.description,
     ...Object.values(session.inputPayload).filter((value): value is string => typeof value === "string"),
     strategies.length ? `选定创作策略：${JSON.stringify(strategies.map(({ typeKey, title, values }) => ({ typeKey, title, values })))}` : "",
     session.researchPreview ? `选定研究资料（只作为参考并保持来源边界）：${JSON.stringify(session.researchPreview.compiledSnapshot)}` : "",
+    session.reviewCards.length ? `作者当前开书表单（以当前修改为基础继续完善）：${JSON.stringify(session.reviewCards.map(({typeKey,title,values})=>({typeKey,title,values})))}` : "",
   ].filter(Boolean).join("\n");
   return {
     session,
@@ -124,12 +142,12 @@ export async function getSessionAiContext(id: string): Promise<{ session: BookCr
 export async function beginSessionGeneration(id: string, operation: "directions" | "initial_content"): Promise<string> {
   const pool = await getNewDesignPool();
   const session = await getBookCreationSession(id);
-  if (session.status === "completed" || session.status === "creating") throw new NewDesignError("此开书流程不能再次生成。", 409);
+  if (["generating","completed","creating"].includes(session.status)) throw new NewDesignError("这次开书正在处理，请等待当前步骤完成。", 409);
   const batchId = randomUUID();
   const stage = operation === "directions" ? "understand_source" : "map_template_fields";
   const progress = operation === "directions" ? 18 : 52;
-  await pool.query(`INSERT INTO new_design.ai_generation_batches (id,session_id,operation,status,stage,progress,input_payload,prompt_id,prompt_version) VALUES ($1,$2,$3,'running',$4,$5,$6::jsonb,$7,'v1')`, [batchId, id, operation, stage, progress, JSON.stringify(session.inputPayload), operation === "directions" ? "new_design.book_creation.directions" : "new_design.book_creation.initial_content"]);
-  await pool.query("UPDATE new_design.book_creation_sessions SET status='generating',stage=$2,progress=$3,error_message=NULL,last_failed_stage=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [id, stage, progress]);
+  const client=await pool.connect();
+  try{await client.query("BEGIN");const claimed=await client.query("UPDATE new_design.book_creation_sessions SET status='generating',stage=$2,progress=$3,error_message=NULL,last_failed_stage=NULL,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$4 AND status NOT IN ('generating','creating','completed') RETURNING id",[id,stage,progress,session.revision]);if(!claimed.rowCount)throw new NewDesignError("开书流程已更新，请等待当前步骤完成。",409);await client.query(`INSERT INTO new_design.ai_generation_batches (id,session_id,operation,status,stage,progress,input_payload,prompt_id,prompt_version) VALUES ($1,$2,$3,'running',$4,$5,$6::jsonb,$7,'v1')`, [batchId, id, operation, stage, progress, JSON.stringify(session.inputPayload), operation === "directions" ? "new_design.book_creation.directions" : "new_design.book_creation.initial_content"]);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
   return batchId;
 }
 
@@ -142,16 +160,27 @@ export async function saveDirectionCandidates(sessionId: string, batchId: string
 
 export async function selectBookDirection(sessionId: string, directionId: string): Promise<BookCreationSession> {
   const session = await getBookCreationSession(sessionId);
+  if(session.status!=="waiting_direction")throw new NewDesignError("请等待方向准备完成后再选择。",409);
   if (!session.directionCandidates.some((item) => item.id === directionId)) throw new NewDesignError("请选择有效的创作方向。", 422);
-  await (await getNewDesignPool()).query("UPDATE new_design.book_creation_sessions SET selected_direction_id=$2,status='draft',stage='direction_selected',progress=45,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, directionId]);
+  const selected=await (await getNewDesignPool()).query("UPDATE new_design.book_creation_sessions SET selected_direction_id=$2,status='draft',stage='direction_selected',progress=45,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$3 AND status='waiting_direction' RETURNING id", [sessionId, directionId,session.revision]);
+  if(!selected.rowCount)throw new NewDesignError("开书方向已更新，请刷新后再选择。",409);
   return getBookCreationSession(sessionId);
 }
 
 export async function saveInitialCards(sessionId: string, batchId: string, cards: InitialCardDraft[]): Promise<BookCreationSession> {
   const pool = await getNewDesignPool();
+  const session=await getBookCreationSession(sessionId),version=assertFound((await pool.query("SELECT payload FROM new_design.template_group_versions WHERE id=$1",[session.templateVersionId])).rows[0],"开书模板版本不存在。"),base=await prepareBaseReviewCards(version.payload as TemplatePayload,session.method,session.inputPayload,session.researchPreview?.suggestedCards??[]),aiCards=cards.map(card=>reviewCard(card,"ai")),reviewCards=mergeReviewCards([aiCards,base]),selected=session.directionCandidates.find(item=>item.id===session.selectedDirectionId),bookName=session.bookName.trim()||selected?.title||"",description=session.description.trim()||selected?.premise||"";
   await pool.query("UPDATE new_design.ai_generation_batches SET status='review',stage='review_initial_content',progress=100,output_payload=$2::jsonb,completed_at=now(),updated_at=now() WHERE id=$1", [batchId, JSON.stringify({ cards })]);
-  await pool.query("UPDATE new_design.book_creation_sessions SET status='review',stage='review_initial_content',progress=82,initial_cards=$2::jsonb,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, JSON.stringify(cards)]);
+  await pool.query("UPDATE new_design.book_creation_sessions SET status='review',stage='review_initial_content',progress=82,book_name=$2,description=$3,initial_cards=$4::jsonb,review_cards=$5::jsonb,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId,bookName,description,JSON.stringify(cards),JSON.stringify(reviewCards)]);
   return getBookCreationSession(sessionId);
+}
+
+export async function saveBookCreationReview(sessionId:string,input:{bookName:string;description:string;reviewCards:BookCreationReviewCard[];revision:number;requireComplete?:boolean}):Promise<BookCreationSession>{
+  const pool=await getNewDesignPool(),client=await pool.connect();
+  try{await client.query("BEGIN");const row=assertFound((await client.query("SELECT * FROM new_design.book_creation_sessions WHERE id=$1 FOR UPDATE",[sessionId])).rows[0],"开书流程不存在。");if(Number(row.revision)!==input.revision)throw new NewDesignError("开书表单已在其他页面更新，请刷新后再保存。",409);if(["creating","completed"].includes(String(row.status)))throw new NewDesignError("这次开书已进入创建阶段，不能继续修改。",409);const version=assertFound((await client.query("SELECT payload FROM new_design.template_group_versions WHERE id=$1",[row.template_version_id])).rows[0],"开书模板版本不存在。"),payload=version.payload as TemplatePayload,validated=validateBookCreationReviewCards(normalizeBookCreationReview(input.reviewCards,(row.review_cards??[]) as BookCreationReviewCard[]),payload.cardTypes,payload.dictionaries,input.requireComplete??false);
+    if(String(row.status)==="generating")throw new NewDesignError("AI 正在准备内容，请等待完成后再保存。",409);
+    if(Object.keys(validated.issues).length)throw new NewDesignError("开书表单中仍有内容需要修改。",422,validated.issues);await client.query("UPDATE new_design.book_creation_sessions SET book_name=$2,description=$3,review_cards=$4::jsonb,status='review',stage='review_initial_content',progress=82,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1",[sessionId,input.bookName,input.description,JSON.stringify(validated.cards)]);await client.query("COMMIT");return getBookCreationSession(sessionId);
+  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 
 export async function failSessionGeneration(sessionId: string, batchId: string, stage: string, error: unknown): Promise<void> {
@@ -161,29 +190,29 @@ export async function failSessionGeneration(sessionId: string, batchId: string, 
   await pool.query("UPDATE new_design.book_creation_sessions SET status='failed',stage=$2,last_failed_stage=$2,error_message=$3,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, stage, message]);
 }
 
-export async function completeBookCreation(sessionId: string, options: { keepCurrentResult?: boolean } = {}): Promise<BookCreationSession> {
+export async function completeBookCreation(sessionId: string, options: { keepCurrentResult?: boolean;expectedRevision:number }): Promise<BookCreationSession> {
   const pool = await getNewDesignPool();
   const session = await getBookCreationSession(sessionId);
   if (session.bookId) return session;
-  const selected = session.directionCandidates.find((item) => item.id === session.selectedDirectionId);
-  const name = session.bookName.trim() || selected?.title || "未命名作品";
-  const description = session.description.trim() || selected?.premise || "";
-  await pool.query("UPDATE new_design.book_creation_sessions SET status='creating',stage='install_template',progress=88,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId]);
+  if(session.revision!==options.expectedRevision)throw new NewDesignError("开书表单已更新，请确认最新内容后再创建。",409);
+  if(!session.bookName.trim())throw new NewDesignError("请先填写书名。",422,{bookName:"请填写书名。"});
+  if(session.status!=="review")throw new NewDesignError("请先完成开书表单审阅。",422);
+  const templateVersion=assertFound((await pool.query("SELECT payload FROM new_design.template_group_versions WHERE id=$1",[session.templateVersionId])).rows[0],"开书模板版本不存在。"),payload=templateVersion.payload as TemplatePayload,validated=validateBookCreationReviewCards(session.reviewCards,payload.cardTypes,payload.dictionaries,true);
+  if(Object.keys(validated.issues).length)throw new NewDesignError("请补齐开书表单后再创建书籍。",422,validated.issues);
+  const name = session.bookName.trim(),description=session.description.trim();
+  const claimed=await pool.query("UPDATE new_design.book_creation_sessions SET status='creating',stage='install_template',progress=88,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND status='review' RETURNING id", [sessionId,options.expectedRevision]);
+  if(!claimed.rowCount)throw new NewDesignError("开书表单已更新，请确认最新内容后再创建。",409);
   try {
     const latestBatch = (await pool.query("SELECT id FROM new_design.ai_generation_batches WHERE session_id=$1 AND operation='initial_content' AND status='review' ORDER BY created_at DESC LIMIT 1", [sessionId])).rows[0];
-    const useAiCards = session.initialCards.length > 0;
-    const resourceCards = await getStrategyResourceDrafts(strategyResourceIds(session.inputPayload));
     const researchReuse=await getSessionResearchReuse(sessionId);
     const book = await createBook({ key: `book_${Date.now().toString(36)}_${session.id.slice(0, 6)}`, name, description, templateVersionId: session.templateVersionId }, {
-      includeTemplateSeed: session.method === "template",
-      initialCards: useAiCards ? session.initialCards : undefined,
-      resourceCards,
-      researchCards:researchReuse.preview.suggestedCards,
+      includeTemplateSeed:false,
+      reviewCards:validated.cards,
       researchReferences:researchReuse.references,
       origin: { sessionId, method: session.method, sourceReference: session.sourceReference, sourcePayload: session.inputPayload, generationBatchId: latestBatch?.id ? String(latestBatch.id) : undefined },
     });
     await pool.query("UPDATE new_design.book_creation_sessions SET status='completed',stage='ready',progress=100,book_id=$2,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, book.id]);
-    if (latestBatch?.id && useAiCards) await pool.query("UPDATE new_design.ai_generation_batches SET status='applied',stage='applied',updated_at=now() WHERE id=$1", [latestBatch.id]);
+    if (latestBatch?.id && session.reviewCards.some(card=>card.sourceKind==="ai")) await pool.query("UPDATE new_design.ai_generation_batches SET status='applied',stage='applied',updated_at=now() WHERE id=$1", [latestBatch.id]);
     return getBookCreationSession(sessionId);
   } catch (error) {
     await pool.query("UPDATE new_design.book_creation_sessions SET status='failed',stage='install_template',last_failed_stage='install_template',error_message=$2,revision=revision+1,updated_at=now() WHERE id=$1", [sessionId, error instanceof Error ? error.message : "创建书籍失败。"]).catch(() => undefined);

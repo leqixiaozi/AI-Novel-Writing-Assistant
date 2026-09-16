@@ -505,7 +505,16 @@ export const bookCreationSessionInputSchema = z.object({
 });
 
 export const selectDirectionSchema = z.object({ directionId: z.string().trim().min(1).max(80) });
-export const completeBookCreationSchema = z.object({ keepCurrentResult: z.boolean().default(false) });
+const bookCreationReviewCardSchema=z.object({
+  id:z.string().uuid(),typeKey:materialKeySchema,title:z.string().trim().min(1,"每条资料都需要标题。").max(160),values:z.record(z.string(),z.unknown()),
+  sourceKind:z.enum(["template","ai","research","resource","manual"]),sourceId:z.string().uuid().nullable(),sourceVersionId:z.string().uuid().nullable(),
+  originalTitle:z.string().max(160),originalValues:z.record(z.string(),z.unknown()),
+});
+export const bookCreationReviewSchema=z.object({bookName:z.string().trim().min(1,"请填写书名。").max(100),description:z.string().trim().max(800).default(""),reviewCards:z.array(bookCreationReviewCardSchema).max(300),revision:z.number().int().positive(),requireComplete:z.boolean().default(false)}).superRefine((input,context)=>{
+  const seen=new Set<string>();
+  input.reviewCards.forEach((card,index)=>{if(seen.has(card.id))context.addIssue({code:"custom",path:["reviewCards",index,"id"],message:"同一条资料不能重复提交。"});seen.add(card.id);});
+});
+export const completeBookCreationSchema = z.object({ keepCurrentResult: z.boolean().default(false),expectedRevision:z.number().int().positive() });
 export const resourceInstallSchema = z.object({ bookId: z.string().uuid() });
 export const formAssistSchema = z.object({
   cardId: z.string().uuid(),

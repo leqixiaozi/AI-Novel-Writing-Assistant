@@ -1,8 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, qualityAuditReportCreateSchema, qualityRecheckSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
+const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationReviewSchema, bookCreationSessionInputSchema, completeBookCreationSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, qualityAuditReportCreateSchema, qualityRecheckSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
 const { selectableTreeNodeIds, treeDescendantIds, validateTreeSelection, wouldCreateTreeCycle } = require("../dist/common/treePolicy.js");
+const { normalizeBookCreationReview, validateBookCreationReviewCards } = require("../dist/server/domain/bookCreation/index.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
 const fields = [
@@ -56,6 +57,33 @@ test("book creation inputs keep entry method separate from template structure", 
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "idea", bookName: "", inputPayload: { idea: "一条真实灵感" } }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "market", bookName: "" }).success, false);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "reference", bookName: "", researchVersionIds:["10000000-0000-4000-8000-000000000001"] }).success, true);
+});
+
+test("book creation review validates one editable contract before creation",()=>{
+  const card={id:"10000000-0000-4000-8000-000000000001",typeKey:"character",title:"主角",values:{name:"林川"},sourceKind:"ai",sourceId:null,sourceVersionId:null,originalTitle:"主角",originalValues:{name:"林川"}};
+  const review={bookName:"守脉者",description:"仙侠悬疑",reviewCards:[card],revision:2};
+  assert.equal(bookCreationReviewSchema.safeParse(review).success,true);
+  assert.equal(bookCreationReviewSchema.safeParse({...review,bookName:""}).success,false);
+  assert.equal(bookCreationReviewSchema.safeParse({...review,reviewCards:[card,card]}).success,false);
+  assert.equal(completeBookCreationSchema.safeParse({expectedRevision:3}).success,true);
+  assert.equal(completeBookCreationSchema.safeParse({}).success,false);
+});
+
+test("book creation review locks provenance and permits incomplete drafts only",()=>{
+  const original={id:"10000000-0000-4000-8000-000000000001",typeKey:"character",title:"主角",values:{name:"林川"},sourceKind:"ai",sourceId:null,sourceVersionId:null,originalTitle:"主角",originalValues:{name:"林川"}};
+  const edited={...original,typeKey:"location",title:"新的标题",values:{name:"周宁"},sourceKind:"research",originalValues:{name:"伪造初稿"}};
+  const normalized=normalizeBookCreationReview([edited,{...edited,id:"20000000-0000-4000-8000-000000000001"}],[original]);
+  assert.equal(normalized[0].typeKey,"character");
+  assert.equal(normalized[0].sourceKind,"ai");
+  assert.deepEqual(normalized[0].originalValues,{name:"林川"});
+  assert.deepEqual(normalized[0].values,{name:"周宁"});
+  assert.equal(normalized[1].sourceKind,"manual");
+  assert.equal(normalized[1].sourceId,null);
+  const types=[{key:"character",name:"人物",description:"",fields}];
+  const empty={...original,values:{}};
+  assert.deepEqual(validateBookCreationReviewCards([empty],types,[],false).issues,{});
+  assert.match(validateBookCreationReviewCards([empty],types,[],true).issues[`${original.id}.name`],/必填/);
+  assert.match(validateBookCreationReviewCards([{...original,values:{age:"十八"}}],types,[],false).issues[`${original.id}.age`],/有效数字/);
 });
 
 test("card type tree keeps matching leaves with their ancestor path", () => {
