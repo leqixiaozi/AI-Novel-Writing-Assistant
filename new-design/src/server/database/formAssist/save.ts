@@ -17,7 +17,7 @@ export async function verifyFormAiSave(db:PoolClient,input:{cardId:string;spaceI
     const snapshot=row.input_payload.snapshot as FormAssistSnapshot,target=snapshot.target;
     if(target.cardTypeId!==input.cardTypeId||target.typeVersionId!==input.typeVersionId||target.formVersionId!==input.formVersionId||target.cardId!== (input.revision===null?null:input.cardId)||target.cardRevision!==input.revision)throw new NewDesignError("AI 来源与这份资料的规格或修订不一致，请复核后重新生成。",409);
     if((await db.query("SELECT 1 FROM new_design.card_version_ai_draft_sources WHERE decision_id=$1",[id])).rows.length)throw new NewDesignError("这份 AI 来源已保存，请重新读取资料。",409);
-    const current=await freezeFormContext(db,target,snapshot.values,snapshot.tagIds);
+    const current=await freezeFormContext(db,target,snapshot.values,snapshot.tagIds,snapshot.referenceCardIds??[]);
     if(current.sourceHash!==row.source_hash)throw new NewDesignError("AI 来源已过期，请复核后重新生成；本地草稿会保留。",409);
     records.push(row);
   }
@@ -29,7 +29,7 @@ export async function recordFormAiSave(db:PoolClient,cardId:string,versionId:str
   for(const row of records){await db.query("INSERT INTO new_design.card_version_ai_draft_sources(card_version_id,decision_id) VALUES($1,$2)",[versionId,row.id]);
     const candidate=row.output_payload.candidates.find((item:any)=>item.id===row.candidate_id);
     if(!candidate)throw new NewDesignError("AI 候选来源不完整，未保存资料。",409);
-    for(const key of row.selected_field_keys){const original=candidate.values[key],current=values[key],status=formHash(original??null)===formHash(current??null)?"confirmed":"user_content";
+    for(const key of row.selected_field_keys){const original=candidate.values[key],current=key==="__title"?(await db.query("SELECT title FROM new_design.cards WHERE id=$1",[cardId])).rows[0]?.title:values[key],status=formHash(original??null)===formHash(current??null)?"confirmed":"user_content";
       await db.query(`INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,generation_batch_id,confirmation_status,original_value,current_value)
         VALUES($1,$2,$3,'ai',$4,$5,$6::jsonb,$7::jsonb) ON CONFLICT(card_id,field_key) DO UPDATE SET source_kind='ai',source_id=NULL,generation_batch_id=EXCLUDED.generation_batch_id,
         confirmation_status=EXCLUDED.confirmation_status,original_value=EXCLUDED.original_value,current_value=EXCLUDED.current_value,updated_at=now()`,[randomUUID(),cardId,key,row.batch_id,status,JSON.stringify(original??null),JSON.stringify(current??null)]);

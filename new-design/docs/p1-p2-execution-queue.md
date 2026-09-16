@@ -48,3 +48,4 @@ P1-2 放在中文与结算补缺后执行，可覆盖三阶段以及用户最终
 - P1-1 第一切片 `4828d399`。研究正式采用复用树校验和快照，真实 HTTP／PostgreSQL 用例通过，证据见 `research-adoption-tree-safety.md`；继续上下文中文对象／版本选择。
 - 全部 P1／P2 尚未完成；最终 push 尚未执行。
 - 上下文中文选择第一切片编码与定向类型／HTTP／PostgreSQL 验证完成，证据及未执行项见 `context-author-selectors-review.md`。本切片收尾后先执行新增 P1-A／P1-B，再继续其余 P1、最后进入 P2。
+- 上下文切片提交 `dcf15033`。P1-A 通用业务表单空白 AI 切片完成，真实人物／世界／事件模型及界面生成、采用和保存通过，双端类型检查、单位及 HTTP／PostgreSQL 共 8 项通过；关联工作区 SQL 别名缺陷一并修复。证据见 `blank-form-ai-review.md`。统一开书审阅的空白 AI 操作随 P1-B 补齐，故 P1-A 全项仍未勾选；继续共用开书阶段执行器，不进入 P2。

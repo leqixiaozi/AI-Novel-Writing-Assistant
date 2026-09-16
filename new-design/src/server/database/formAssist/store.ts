@@ -8,6 +8,7 @@ import { getNewDesignPool } from "../runtime";
 import { formHash, freezeFormContext } from "./context";
 import type { z } from "zod";
 import { selectableTreeNodeIds } from "../../../common/treePolicy";
+import { validateFieldValue } from "../../domain/validation";
 
 function mapRun(row:Record<string,any>):FormAssistRun {
   const output=row.output_payload??{};
@@ -25,7 +26,7 @@ export async function generateBusinessFormAi(request:FormAssistRequest,gateway?:
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`${request.target.bookId}:${request.idempotencyKey}`]);
     const previous=(await db.query("SELECT * FROM new_design.ai_generation_batches WHERE book_id=$1 AND input_payload->>'contract'='business_form_ai_v1' AND input_payload->>'idempotencyKey'=$2",[request.target.bookId,request.idempotencyKey])).rows[0];
     if(previous){if(previous.input_payload.requestHash!==requestHash)throw new NewDesignError("同一次请求的内容发生变化，请重新发起。",409);await db.query("COMMIT");return mapRun(previous);}
-    snapshot=await freezeFormContext(db,request.target,request.values,request.tagIds);
+    snapshot=await freezeFormContext(db,request.target,request.values,request.tagIds,request.referenceCardIds??[]);
     const issues=validateFormDraft(snapshot,request.values);if(Object.keys(issues).length)throw new NewDesignError("请先修正表单中格式或范围有误的项目。",422,issues);
     if(request.fieldKeys.some(key=>!snapshot.fields.some(field=>field.key===key&&!field.hidden)))throw new NewDesignError("选择的字段不属于当前表单。",422);
     await db.query(`INSERT INTO new_design.ai_generation_batches(id,book_id,card_id,operation,status,stage,instruction,input_payload,base_revision,prompt_id,prompt_version)
@@ -39,6 +40,7 @@ export async function generateBusinessFormAi(request:FormAssistRequest,gateway?:
       currentValues:{...request.values,__readonly_context:{relations:snapshot!.relations,trees:snapshot!.trees.filter(tree=>tree.rule.aiSuggestible).map(tree=>({...tree,nodes:tree.nodes.filter(node=>selectableTreeNodeIds(tree.nodes,tree.rule).has(node.id))}))}},fields,instruction:request.instruction})));
     const candidates:FormAssistCandidate[]=[],observations:FormAssistRun["observations"]=[],newNodes:FormAssistRun["newNodes"]=[];
     for(const [index,output] of outputs.entries()){
+      if(["fill_required","prepare_all"].includes(request.action)&&fields.some(field=>field.required&&validateFieldValue(field,output?.[field.key])))throw new NewDesignError("AI 未完整准备本次必填内容，请重新生成；原草稿保留。",422);
       if(!output||Array.isArray(output)||typeof output!=="object"||Object.keys(output).some(key=>!allowed.has(key)))throw new NewDesignError("AI 返回了当前表单范围以外的内容，请重试。",422);
       const candidate:FormAssistCandidate={id:randomUUID(),name:outputs.length>1?`方案 ${index+1}`:"修改建议",values:{},tags:{}};
       for(const [key,value] of Object.entries(output)){
@@ -62,20 +64,20 @@ export async function adoptBusinessFormAi(bookId:string,id:string,input:z.infer<
     const previous=(await db.query("SELECT * FROM new_design.form_ai_draft_decisions WHERE batch_id=$1 AND idempotency_key=$2",[id,input.idempotencyKey])).rows[0];
     if(previous){if(previous.request_hash!==hash)throw new NewDesignError("同一次采用请求的内容发生变化。",409);await db.query("COMMIT");return {decisionId:previous.id,...previous.draft_snapshot};}
     if(run.status!=="review"&&run.status!=="applied")throw new NewDesignError("这组建议不可采用，请重新生成。",409);
-    const current=await freezeFormContext(db,run.snapshot.target,input.values,input.tagIds);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("规格、关联资料或选项已变化，请复核后重新生成；本地草稿会保留。",409);
+    const current=await freezeFormContext(db,run.snapshot.target,input.values,input.tagIds,run.snapshot.referenceCardIds??[]);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("规格、关联资料或选项已变化，请复核后重新生成；本地草稿会保留。",409);
     const candidate=assertFound(run.candidates.find(item=>item.id===input.candidateId),"请先选择一个有效方案。");
     if(!input.fieldKeys.length&&!input.treeKeys.length)throw new NewDesignError("请勾选要采用的建议。",422);
     if(new Set(input.fieldKeys).size!==input.fieldKeys.length||new Set(input.treeKeys).size!==input.treeKeys.length)throw new NewDesignError("采用项目不能重复。",422);
-    const values={...input.values};let tagIds=[...input.tagIds];
-    for(const key of input.fieldKeys){if(!Object.hasOwn(candidate.values,key))throw new NewDesignError("采用字段不属于此方案。",422);if(formHash(input.values[key]??null)!==formHash(run.snapshot.values[key]??null))throw new NewDesignError("勾选项目在生成后有人工修改，请保留草稿并重新生成。",409);values[key]=candidate.values[key];}
+    const values={...input.values};let tagIds=[...input.tagIds],title=input.title??run.snapshot.target.title;
+    for(const key of input.fieldKeys){if(!Object.hasOwn(candidate.values,key))throw new NewDesignError("采用字段不属于此方案。",422);if(key==="__title"){if(formHash(title)!==formHash(run.snapshot.target.title))throw new NewDesignError("资料名称在生成后有人工修改，请保留草稿。",409);title=String(candidate.values[key]).trim();continue;}if(formHash(input.values[key]??null)!==formHash(run.snapshot.values[key]??null))throw new NewDesignError("勾选项目在生成后有人工修改，请保留草稿并重新生成。",409);values[key]=candidate.values[key];}
     for(const key of input.treeKeys){const tree=assertFound(run.snapshot.trees.find(item=>item.kind==="tag"&&item.key===key),"标签维度不属于本书。");if(!Object.hasOwn(candidate.tags,key))throw new NewDesignError("标签建议不属于此方案。",422);const ids=new Set(tree.nodes.map(node=>node.id));
       if(formHash(input.tagIds.filter(id=>ids.has(id)).sort())!==formHash(run.snapshot.tagIds.filter(id=>ids.has(id)).sort()))throw new NewDesignError("标签在生成后有人工修改，请重新生成。",409);
       tagIds=[...tagIds.filter(id=>!ids.has(id)),...candidate.tags[key]];
     }
     const issues=validateFormDraft(current,values);if(Object.keys(issues).length)throw new NewDesignError("合并后的草稿需要修正。",422,issues);
     const decisionId=randomUUID();await db.query(`INSERT INTO new_design.form_ai_draft_decisions(id,batch_id,candidate_id,decision,selected_field_keys,selected_tree_keys,draft_snapshot,source_hash,request_hash,idempotency_key)
-      VALUES($1,$2,$3,'adopt',$4,$5,$6::jsonb,$7,$8,$9)`,[decisionId,id,input.candidateId,input.fieldKeys,input.treeKeys,JSON.stringify({values,tagIds}),run.snapshot.sourceHash,hash,input.idempotencyKey]);
-    await db.query("UPDATE new_design.ai_generation_batches SET revision=revision+1,updated_at=now() WHERE id=$1",[id]);await db.query("COMMIT");return {decisionId,values,tagIds};
+      VALUES($1,$2,$3,'adopt',$4,$5,$6::jsonb,$7,$8,$9)`,[decisionId,id,input.candidateId,input.fieldKeys,input.treeKeys,JSON.stringify({values,tagIds,title}),run.snapshot.sourceHash,hash,input.idempotencyKey]);
+    await db.query("UPDATE new_design.ai_generation_batches SET revision=revision+1,updated_at=now() WHERE id=$1",[id]);await db.query("COMMIT");return {decisionId,values,tagIds,title};
   }catch(error){await db.query("ROLLBACK");throw error;}finally{db.release();}
 }
 export async function discardBusinessFormAi(bookId:string,id:string,key:string):Promise<FormAssistRun>{

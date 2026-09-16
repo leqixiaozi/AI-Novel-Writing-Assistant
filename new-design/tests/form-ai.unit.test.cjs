@@ -41,3 +41,14 @@ test("conditionally invisible fields cannot become AI candidates",()=>{
  assert.deepEqual(aiFormFields(context,"supplement",[]),[]);
  assert.ok(validateFormCandidate(context,{id:uuid,name:"建议",values:{age:20},tags:{}},"supplement").age);
 });
+test("blank forms accept AI preparation and default actions never replace human content",()=>{
+ const context={...snapshot,target:{...snapshot.target,title:"",cardId:null,cardRevision:null},values:{}};
+ assert.equal(formAiRequestSchema.safeParse({target:context.target,action:"fill_required",instruction:"推荐创作方向并填写必填项",values:{},tagIds:[],fieldKeys:[],idempotencyKey:"blank-request"}).success,true);
+ assert.deepEqual(validateFormDraft(context,{}),{});
+ assert.equal(formAiRequestSchema.safeParse({target:context.target,action:"prepare_all",values:{},tagIds:[],fieldKeys:[],idempotencyKey:"blank-default"}).success,true);
+ assert.deepEqual(aiFormFields(context,"fill_required",[]).map(field=>field.key),["name","__title"]);
+ assert.deepEqual(aiFormFields(context,"prepare_all",[]).map(field=>field.key),["name","age","__title"]);
+ for(const action of ["fill_required","supplement","prepare_all"]){assert.equal(aiFormFields(snapshot,action,[]).some(field=>field.key==="name"),false);assert.ok(validateFormCandidate(snapshot,{id:uuid,name:"建议",values:{name:"替换人工"},tags:{}},action).name);}
+ assert.deepEqual(validateFormCandidate(context,{id:uuid,name:"建议",values:{name:"林雾",__title:"林雾"},tags:{}},"fill_required"),{});
+ assert.ok(validateFormCandidate(snapshot,{id:uuid,name:"建议",values:{__title:"替换名称"},tags:{}},"prepare_all").__title);
+});

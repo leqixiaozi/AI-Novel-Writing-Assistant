@@ -327,7 +327,7 @@ export const newDesignApi = {
   }),
   generateBusinessFormAi:(input:FormAssistRequest)=>request<FormAssistRun>(`/books/${input.target.bookId}/form-ai`,{method:"POST",body:JSON.stringify(input)}),
   getBusinessFormAi:(bookId:string,id:string)=>request<FormAssistRun>(`/books/${bookId}/form-ai/${id}`),
-  adoptBusinessFormAi:(bookId:string,id:string,input:{candidateId:string;fieldKeys:string[];treeKeys:string[];values:Record<string,unknown>;tagIds:string[];idempotencyKey:string})=>request<FormAssistAdoption>(`/books/${bookId}/form-ai/${id}/adopt`,{method:"POST",body:JSON.stringify(input)}),
+  adoptBusinessFormAi:(bookId:string,id:string,input:{candidateId:string;fieldKeys:string[];treeKeys:string[];values:Record<string,unknown>;tagIds:string[];title?:string;idempotencyKey:string})=>request<FormAssistAdoption>(`/books/${bookId}/form-ai/${id}/adopt`,{method:"POST",body:JSON.stringify(input)}),
   discardBusinessFormAi:(bookId:string,id:string,idempotencyKey:string)=>request<FormAssistRun>(`/books/${bookId}/form-ai/${id}/discard`,{method:"POST",body:JSON.stringify({idempotencyKey})}),
   confirmFormAiNode:(bookId:string,id:string,input:{suggestionId:string;name:string;idempotencyKey:string})=>request<{nodeId:string;requiresBinding:boolean;message:string}>(`/books/${bookId}/form-ai/${id}/new-node`,{method:"POST",body:JSON.stringify(input)}),
   archiveCard: (id: string, revision: number) => request<CardSummary>(`/cards/${id}/archive`, {

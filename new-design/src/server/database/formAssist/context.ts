@@ -12,8 +12,9 @@ export function formHash(value:unknown):string {
 }
 const DEFAULT_RULE:TreeSelectionRule={mode:"multiple",rootNodeId:null,depthMode:"whole_tree",relativeDepth:null,leafOnly:false,allowParentSelection:true,showFullPath:true,allowInlineCreate:false,aiSuggestible:true,minSelections:0,maxSelections:null};
 
-export async function freezeFormContext(db:Queryable,target:FormAssistTarget,values:Record<string,unknown>,tagIds:string[]):Promise<FormAssistSnapshot> {
+export async function freezeFormContext(db:Queryable,target:FormAssistTarget,values:Record<string,unknown>,tagIds:string[],referenceCardIds:string[]=[]):Promise<FormAssistSnapshot> {
   const book=assertFound((await db.query("SELECT space_id,status FROM new_design.books WHERE id=$1",[target.bookId])).rows[0],"本书不存在。");
+  if(book.status!=="active")throw new NewDesignError("书籍已归档，请先恢复书籍。",409);
   const type=assertFound((await db.query(`SELECT type.type_key,type.current_version_id,type.revision,version.fields FROM new_design.card_types type
     JOIN new_design.card_type_versions version ON version.id=type.current_version_id
     WHERE type.id=$1 AND type.space_id=$2 AND type.status='published'`,[target.cardTypeId,book.space_id])).rows[0],"内容类型不属于本书已发布规格。");
@@ -50,9 +51,11 @@ export async function freezeFormContext(db:Queryable,target:FormAssistTarget,val
     FROM new_design.card_group_form_instances instance JOIN new_design.card_mounts mount ON mount.form_instance_id=instance.id JOIN new_design.cards source ON source.id=mount.card_id
     WHERE instance.primary_card_id=$1 AND instance.space_id=$2 AND source.space_id=$2 ORDER BY mount.id`,[target.cardId,book.space_id])).rows:[];
   // Source fingerprint excludes unsaved draft values/title, but includes their official inputs and allowed scope.
-  const sourceHash=formHash({book,type,card,form,locals,trees,bindings,relations,mounts,savedTags});
+  const references=(await db.query("SELECT id,title,values,revision,current_version_id,type_version_id FROM new_design.cards WHERE id=ANY($1::uuid[]) AND space_id=$2 AND status='active' ORDER BY id",[referenceCardIds,book.space_id])).rows;
+  if(new Set(referenceCardIds).size!==referenceCardIds.length||references.length!==referenceCardIds.length)throw new NewDesignError("参考资料已停用或不属于本书。",422);
+  const sourceHash=formHash({book,type,card,form,locals,trees,bindings,relations,mounts,savedTags,...(referenceCardIds.length?{references}:{})});
   const draftTags=(await db.query("SELECT id FROM new_design.material_tags WHERE id=ANY($1::uuid[]) AND space_id=$2 AND status='active'",[tagIds,book.space_id])).rows;
   if(new Set(tagIds).size!==tagIds.length||draftTags.length!==tagIds.length)throw new NewDesignError("草稿标签已停用或不属于本书。",422);
   for(const tree of trees.filter(tree=>tree.kind==="tag")){const ids=tagIds.filter(id=>tree.nodes.some(node=>node.id===id)),checked=validateTreeSelection(tree.nodes,{...tree.rule,minSelections:0},ids);if(!checked.valid)throw new NewDesignError(`请修正${tree.name}的草稿选择：${checked.message}`,422);}
-  return {target,fields,localFieldKeys:locals.map(row=>String(row.field_key)),values,tagIds,trees,relations:[...relations,...mounts],sourceHash};
+  return {target,fields,localFieldKeys:locals.map(row=>String(row.field_key)),values,tagIds,trees,relations:[...relations,...mounts,...references.map(row=>({...row,referenceKind:"author_selected_card"}))],sourceHash,referenceCardIds};
 }

@@ -1,0 +1,30 @@
+const test=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto'),express=require('express');
+const runtime=require('../dist/server/database/runtime'),store=require('../dist/server/database/store'),templates=require('../dist/server/database/templateStore');
+const {createNewDesignRouter}=require('../dist/server/http/router');
+test('empty author forms generate required content, adopt incrementally and save normally',{skip:process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME!=='1',timeout:60000},async t=>{
+ const pool=await runtime.getNewDesignPool();let server,book;let calls=0;
+ t.after(async()=>{if(server)await new Promise(resolve=>server.close(resolve));if(book)await pool.query("UPDATE new_design.books SET status='archived' WHERE id=$1",[book.id]);await pool.end();});
+ const token=randomUUID().slice(0,12),template=(await pool.query('SELECT id FROM new_design.template_group_versions ORDER BY created_at LIMIT 1')).rows[0];book=await templates.createBook({key:`blank_ai_${token}`,name:`空白AI验证-${token}`,description:'独立验证用书，非作者作品',templateVersionId:template.id});
+ const ai={assistForm:async input=>{calls++;if(input.instruction==='故意缺少必填')return {__title:'只有名称'};return Object.fromEntries(input.fields.map(field=>[field.key,field.key==='__title'?'空白准备名称':field.type==='number'?18:'AI 准备的创作内容']));}};
+ const app=express();app.use(express.json());app.use('/api/new-design',createNewDesignRouter({ai}));server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const base=`http://127.0.0.1:${server.address().port}/api/new-design`;
+ const api=async(path,input)=>{const response=await fetch(base+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)});return {status:response.status,...await response.json()};};
+ for(const [index,name] of ['人物','世界观','事件'].entries()){
+  const field=(key,title,required)=>({key,name:title,type:'short_text',required,description:'',defaultValue:null,options:[],group:name,order:1});let type=await store.createCardType({key:`blank_${token}_${index}`,name:`验证${name}`,description:'',semanticCapabilities:[],fields:[field('core',`${name}必填内容`,true),field('detail','补充内容',false)]},book.spaceId);type=await store.publishCardType(type.id,type.revision);
+  const target={bookId:book.id,cardTypeId:type.id,cardId:null,typeVersionId:type.currentVersionId,cardRevision:null,formVersionId:null,title:''},request={target,action:'fill_required',instruction:'从空白推荐一个一致的创作设定，准备名称和必填内容',values:{},tagIds:[],fieldKeys:[],idempotencyKey:`blank-${token}-${index}`},path=`/books/${book.id}/form-ai`;
+  const run=await api(path,request);assert.equal(run.status,200,JSON.stringify(run));assert.equal(run.data.status,'review',run.data.error);assert.equal(Object.hasOwn(run.data.candidates[0].values,'detail'),false);
+  const before=calls;assert.equal((await api(path,request)).data.id,run.data.id);assert.equal(calls,before);
+  const incomplete=await api(path,{...request,instruction:'故意缺少必填',idempotencyKey:randomUUID()});assert.equal(incomplete.data.status,'failed');assert.match(incomplete.data.error,/必填/);
+  assert.equal((await api(path,{...request,referenceCardIds:[randomUUID()],idempotencyKey:randomUUID()})).status,422);
+  const candidate=run.data.candidates[0],adopt={candidateId:candidate.id,fieldKeys:['__title'],treeKeys:[],values:{},tagIds:[],title:'',idempotencyKey:`title-${token}-${index}`};
+  assert.equal((await api(`${path}/${run.data.id}/adopt`,{...adopt,title:'生成后人工名称',idempotencyKey:randomUUID()})).status,409);
+  const title=await api(`${path}/${run.data.id}/adopt`,adopt);assert.equal(title.status,200,JSON.stringify(title));assert.equal(title.data.title,'空白准备名称');assert.deepEqual(title.data.values,{});
+  const merged=await api(`${path}/${run.data.id}/adopt`,{...adopt,fieldKeys:['core'],title:title.data.title,values:{detail:'生成后人工内容'},idempotencyKey:`core-${token}-${index}`});assert.equal(merged.status,200,JSON.stringify(merged));assert.equal(merged.data.values.detail,'生成后人工内容');assert.equal(Object.hasOwn(merged.data.values,'__title'),false);
+  await assert.rejects(()=>store.createCard({spaceId:book.spaceId,cardTypeId:type.id,title:title.data.title,values:{}}),error=>error.status===422);
+  const saved=await store.createCard({spaceId:book.spaceId,cardTypeId:type.id,title:merged.data.title,values:merged.data.values,formVersionId:null,aiDraftDecisionIds:[title.data.decisionId,merged.data.decisionId],tagIds:[]});assert.equal(saved.revision,1);assert.equal(saved.values.core,'AI 准备的创作内容');assert.equal((await pool.query("SELECT confirmation_status FROM new_design.card_field_origins WHERE card_id=$1 AND field_key='__title'",[saved.id])).rows[0].confirmation_status,'confirmed');
+  const referenced=await api(path,{...request,action:'prepare_all',referenceCardIds:[saved.id],idempotencyKey:randomUUID()});assert.equal(referenced.data.status,'review',referenced.data.error);assert.ok(referenced.data.snapshot.relations.some(row=>row.id===saved.id&&row.referenceKind==='author_selected_card'));
+  await store.updateCard(saved.id,{title:saved.title,values:{...saved.values,detail:'参考资料发生修改'},revision:saved.revision});assert.equal((await api(`${path}/${referenced.data.id}/adopt`,{candidateId:referenced.data.candidates[0].id,fieldKeys:['core'],treeKeys:[],values:{},tagIds:[],title:'',idempotencyKey:randomUUID()})).status,409);
+ }
+ const event=(await pool.query("SELECT card.id FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND type.type_key='event' AND card.status='active' LIMIT 1",[book.spaceId])).rows[0];assert.ok(event,'验证模板应提供事件资料');
+ const associations=await fetch(`${base}/books/${book.id}/cards/${event.id}/associations`);const workspace=await associations.json();assert.equal(associations.status,200,JSON.stringify(workspace));assert.ok(Array.isArray(workspace.data.slots));
+ console.log('blank_form_verified_book',book.id,'entry_types',3,'model_stub_calls',calls,'association_slots',workspace.data.slots.length);
+});
