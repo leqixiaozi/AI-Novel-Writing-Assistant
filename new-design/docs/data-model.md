@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`043` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心、章节写作候选与采用准备、章节稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览和多维查看偏好。运行时迁移范围以 `001_card_kernel.sql` 至 `043_multiview_quality_workspace.sql` 为准。
+`031`—`044` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料组织与安全归档、上下文装配、规划中心、章节创作与稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览、多维查看偏好、完本检查、出版导出和发布证据。运行时迁移范围以 `001_card_kernel.sql` 至 `044_completion_export_release_gate.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -704,6 +704,16 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：043 像给同一份档案增加几种目录标签，不会复印出另一套档案。对应到数据库：保存的是怎么查看，不是查看到的业务内容。
 
 > 🧠 **速记方法**：**偏好可存，事实不抄；视图可换，正本不变。** 详细合同见 [multiview-quality-workspace.md](./multiview-quality-workspace.md)。
+
+### 044 完本、导出与 Release Gate
+
+`044_completion_export_release_gate.sql` 新增完本规则/检查快照、只追加生命周期事件、不可变导出 manifest/章节绑定/产物，以及发布验收定义和证据。它复用 016 的正文版本、040 的稳定检查点、023 的质量账本、030 的 Outbox 后台作业和 031 的备份传输，不建立第二套业务正本。
+
+正式导出冻结采用正文版本、正文哈希和稳定检查点，提交时重新核对；审阅稿也只读采用正文，但允许没有稳定点。文件保存在私有 `exports/` 目录，数据库只登记受控相对 locator、校验和和展示文件名。
+
+> 🏠 **白话比喻**：044 像出版社的交稿单、印刷清单和出厂质检表。书稿仍在原档案里，这三张表只记录检查过什么、印了哪一版、凭什么允许发行。对应到数据库：完本、导出和发布证据引用各领域正本，不复制正本内容。
+
+> 🧠 **速记方法**：**验收留快照，导出冻版本，发布看证据。** 详细合同见 [completion-export-runtime-maintenance.md](./completion-export-runtime-maintenance.md)。
 
 > 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
 

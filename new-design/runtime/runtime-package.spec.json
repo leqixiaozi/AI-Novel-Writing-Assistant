@@ -78,7 +78,8 @@
     "app/migrations/040_chapter_adoption_settlement.sql",
     "app/migrations/041_chapter_revision_recompute.sql",
     "app/migrations/042_research_prompt_runtime_orchestration.sql",
-    "app/migrations/043_multiview_quality_workspace.sql"
+    "app/migrations/043_multiview_quality_workspace.sql",
+    "app/migrations/044_completion_export_release_gate.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -93,7 +94,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "043_multiview_quality_workspace.sql",
-    "count": 43
+    "last": "044_completion_export_release_gate.sql",
+    "count": 44
   }
 }

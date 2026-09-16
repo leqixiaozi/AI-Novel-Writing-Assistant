@@ -176,4 +176,8 @@ export const migrations: Migration[] = [
     id: "043_multiview_quality_workspace",
     fileName: "043_multiview_quality_workspace.sql",
   },
+  {
+    id: "044_completion_export_release_gate",
+    fileName: "044_completion_export_release_gate.sql",
+  },
 ];

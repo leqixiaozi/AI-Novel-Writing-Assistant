@@ -11,6 +11,7 @@ export interface PrivateRuntimeLayout {
   databaseGenerationsDirectory:string;
   attachmentsDirectory:string;
   backupsDirectory:string;
+  exportsDirectory:string;
   importsDirectory:string;
   logsDirectory:string;
   runtimeDirectory:string;
@@ -21,11 +22,11 @@ export function resolvePrivateRuntimeLayout():PrivateRuntimeLayout{
   const hostDataRoot=process.env.AI_NOVEL_APP_DATA_DIR?.trim();
   const localAppData=process.env.LOCALAPPDATA?.trim();if(!hostDataRoot&&!localAppData)throw new NewDesignError("无法确定安装目录外的 Windows 应用数据目录，拒绝把数据库写入程序目录。",503);
   const dataRoot=hostDataRoot?path.join(path.resolve(hostDataRoot),"new-design"):path.join(path.resolve(localAppData!),"AI-Novel-Writing-Assistant-v2","new-design");
-  return{packageRoot,dataRoot,bootstrapDirectory:path.join(dataRoot,"bootstrap"),credentialsDirectory:path.join(dataRoot,"credentials"),lockDirectory:path.join(dataRoot,"locks"),databaseGenerationsDirectory:path.join(dataRoot,"database","generations"),attachmentsDirectory:path.join(dataRoot,"attachments"),backupsDirectory:path.join(dataRoot,"backups"),importsDirectory:path.join(dataRoot,"imports"),logsDirectory:path.join(dataRoot,"logs"),runtimeDirectory:path.join(dataRoot,"runtime")};
+  return{packageRoot,dataRoot,bootstrapDirectory:path.join(dataRoot,"bootstrap"),credentialsDirectory:path.join(dataRoot,"credentials"),lockDirectory:path.join(dataRoot,"locks"),databaseGenerationsDirectory:path.join(dataRoot,"database","generations"),attachmentsDirectory:path.join(dataRoot,"attachments"),backupsDirectory:path.join(dataRoot,"backups"),exportsDirectory:path.join(dataRoot,"exports"),importsDirectory:path.join(dataRoot,"imports"),logsDirectory:path.join(dataRoot,"logs"),runtimeDirectory:path.join(dataRoot,"runtime")};
 }
 
 export async function ensurePrivateRuntimeLayout(layout:PrivateRuntimeLayout):Promise<void>{
-  for(const directory of [layout.dataRoot,layout.bootstrapDirectory,layout.credentialsDirectory,layout.lockDirectory,layout.databaseGenerationsDirectory,layout.attachmentsDirectory,layout.backupsDirectory,layout.importsDirectory,layout.logsDirectory,layout.runtimeDirectory]){
+  for(const directory of [layout.dataRoot,layout.bootstrapDirectory,layout.credentialsDirectory,layout.lockDirectory,layout.databaseGenerationsDirectory,layout.attachmentsDirectory,layout.backupsDirectory,layout.exportsDirectory,layout.importsDirectory,layout.logsDirectory,layout.runtimeDirectory]){
     await assertContained(layout.dataRoot,directory);
     const existing=await fs.lstat(directory).catch(()=>null);
     if(existing&&(!existing.isDirectory()||existing.isSymbolicLink()))throw new NewDesignError("私有运行目录包含文件或重解析点，已停止启动。",503);

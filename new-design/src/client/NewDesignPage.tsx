@@ -16,6 +16,8 @@ import TemplateGroupsPage from "./TemplateGroupsPage";
 import ContextManagementPage from "./ContextManagementPage";
 import { BookOverviewPage, PlanningCenterPage } from "./planningCenter";
 import { ChapterWritingPage } from "./chapterWriting";
+import CompletionExportPage from "./completionExport/CompletionExportPage";
+import OperationsMaintenancePage from "./operations/OperationsMaintenancePage";
 import "./new-design.css";
 import type { BookViewKey } from "../common/contracts";
 
@@ -39,6 +41,8 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(planningMatch)return <PlanningCenterPage bookId={decodeURIComponent(planningMatch[1])}/>;
   const writingMatch=path.match(/^\/new-design\/books\/([^/]+)\/(?:writing|chapters\/([^/]+)\/write)$/);
   if(writingMatch)return <ChapterWritingPage bookId={decodeURIComponent(writingMatch[1])} initialChapterCardId={writingMatch[2]?decodeURIComponent(writingMatch[2]):undefined}/>;
+  const completionMatch=path.match(/^\/new-design\/books\/([^/]+)\/completion$/);
+  if(completionMatch)return <CompletionExportPage bookId={decodeURIComponent(completionMatch[1])}/>;
   const viewMatch=path.match(/^\/new-design\/books\/([^/]+)\/views\/(chapters|characters|relations|events|clues|props|states|rules|comparison|quality|world|resources)$/);
   if(viewMatch)return <BookWorkspacePage bookId={decodeURIComponent(viewMatch[1])} view="views" viewKey={viewMatch[2] as BookViewKey}/>;
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
@@ -48,5 +52,6 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/structure/forms")return <FormDesignerPage/>;
   if(path==="/new-design/structure/templates")return <TemplateGroupsPage/>;
   if(path==="/new-design/structure/context")return <ContextManagementPage/>;
+  if(path==="/new-design/structure/maintenance")return <OperationsMaintenancePage/>;
   return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前新设计导航范围内。</p><a className="nd-button nd-button-primary" href="/new-design">返回创作首页</a></div>;
 }

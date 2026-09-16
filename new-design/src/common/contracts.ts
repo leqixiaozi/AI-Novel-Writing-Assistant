@@ -557,6 +557,22 @@ export interface BookMultiviewWorkspace {
   qualityItems:BookInsightQualityItem[];stableRead:BookMultiviewStableReadContract;
 }
 
+export type CompletionCheckSeverity="blocker"|"warning"|"info";
+export interface CompletionCheckResult {id:string;snapshotId:string;severity:CompletionCheckSeverity;ruleKey:string;title:string;detail:string;sourceKind:string;sourceId:string|null;sourceRoute:string;ordinal:number;createdAt:string;}
+export interface CompletionSnapshotChapter {position:number;chapterDocumentId:string;bodyVersionId:string|null;stableCheckpointId:string|null;chapterOrder:number;title:string;state:"stable"|"pending"|"stale";bodyHash:string|null;updatedAtSnapshot:string;}
+export interface BookCompletionSnapshot {id:string;bookId:string;ruleSetKey:string;ruleSetVersion:number;sourceHash:string;blockerCount:number;warningCount:number;infoCount:number;stableThroughOrder:number;chapterCount:number;createdBy:string;createdAt:string;results:CompletionCheckResult[];chapters:CompletionSnapshotChapter[];isCurrent:boolean;}
+export interface BookLifecycleEvent {id:string;bookId:string;eventKind:"completion_checked"|"completed"|"reopened";snapshotId:string|null;actor:string;reason:string;createdAt:string;}
+export type PublicationExportMode="formal"|"review_draft";
+export type PublicationExportFormat="markdown"|"plain_text"|"docx";
+export type PublicationExportRangeKind="book"|"volume"|"chapters";
+export interface PublicationExportManifestChapter {position:number;chapterDocumentId:string;bodyVersionId:string;stableCheckpointId:string|null;volumeTitle:string;volumeOrder:number|null;chapterTitle:string;chapterOrder:number;bodyVersion:number;bodyHash:string;characterCount:number;updatedAtSnapshot:string;}
+export interface PublicationExportManifest {id:string;bookId:string;completionSnapshotId:string|null;exportMode:PublicationExportMode;format:PublicationExportFormat;rangeKind:PublicationExportRangeKind;rangeRef:Record<string,unknown>;includeVersionManifest:boolean;ruleSetKey:string;ruleSetVersion:number;sourceHash:string;contentHash:string;chapterCount:number;characterCount:number;warningCount:number;createdBy:string;createdAt:string;chapters:PublicationExportManifestChapter[];}
+export interface PublicationExportArtifact {id:string;requestId:string;manifestId:string;format:PublicationExportFormat;displayFilename:string;mediaType:string;checksum:string;byteSize:number;createdAt:string;downloadUrl:string;}
+export interface PublicationExportRecord {requestId:string;manifest:PublicationExportManifest;jobId:string|null;jobStatus:BackgroundJobStatus|null;attemptCount:number;lastErrorSummary:string;artifact:PublicationExportArtifact|null;requestedBy:string;createdAt:string;}
+export interface BookCompletionWorkspace {bookId:string;latestSnapshot:BookCompletionSnapshot|null;lifecycle:BookLifecycleEvent[];latestLifecycle:BookLifecycleEvent|null;exports:PublicationExportRecord[];volumes:Array<{id:string;title:string;sortOrder:number;chapterIds:string[]}>;}
+export interface ReleaseGateAssessment {id:string;gateKey:string;outcome:"unexecuted"|"passed"|"failed"|"blocked";evidence:string;evidenceRef:string;assessedBy:string;assessedAt:string;}
+export interface ReleaseGateItem {gateKey:string;category:"database"|"extensions"|"novel_flow"|"recovery"|"export"|"interface"|"isolation"|"packaging";title:string;acceptance:string;sortOrder:number;latest:ReleaseGateAssessment|null;}
+
 export type MaterialFilterField = "content_type" | "tag" | "card_status" | "canonical_status" | "candidate_status" | "chapter" | "volume" | "story_time" | "relation_exists" | "association_exists" | "source" | "updated_at";
 export type MaterialFilterOperator = "equals" | "not_equals" | "in" | "not_in" | "contains" | "exists" | "not_exists" | "gte" | "lte" | "between";
 export interface MaterialFilterCondition { kind:"condition";field:MaterialFilterField;operator:MaterialFilterOperator;value?:string|string[]|number|boolean|null; }
@@ -1103,9 +1119,9 @@ export interface EmbeddingStaleReason {id:string;bookId:string;targetKind:"sourc
 export interface SemanticRetrievalResult {rank:number;chunkId:string;sourceKind:EmbeddingSourceKind;sourceStableId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;vectorScore:number;ftsScore:number;trigramScore:number;finalScore:number;inclusionReason:string;}
 export interface SemanticRetrievalRun {id:string;bookId:string;callerKind:"user"|"ai_task"|"system"|"debug";callerId:string;profileVersionId:string;generationId:string;queryHash:string;querySummary:string;queryRef:string;filterSnapshot:Record<string,unknown>;sourceKinds:EmbeddingSourceKind[];topK:number;candidateLimit:number;similarityThreshold:number|null;timeoutMs:number;status:"running"|"succeeded"|"failed"|"timed_out";elapsedMs:number|null;resultCount:number;failureCode:string;createdAt:string;completedAt:string|null;results:SemanticRetrievalResult[];}
 
-export type OutboxTopic="dependency.recompute.requested"|"asset.derivation.requested"|"graph.projection.requested"|"embedding.chunking.requested"|"embedding.generation.requested"|"embedding.index.requested"|"ai.task.requested"|"backup.requested";
-export type BackgroundHandlerKey="dependency.recompute"|"asset.derive"|"graph.project"|"embedding.chunk"|"embedding.generate"|"embedding.index"|"ai.task"|"backup.run";
-export type SpecializedRequestKind="dependency_recompute_request"|"asset_derivation"|"graph_projection_request"|"embedding_chunking_request"|"embedding_request"|"embedding_index_generation"|"ai_task"|"backup_request";
+export type OutboxTopic="dependency.recompute.requested"|"asset.derivation.requested"|"graph.projection.requested"|"embedding.chunking.requested"|"embedding.generation.requested"|"embedding.index.requested"|"ai.task.requested"|"backup.requested"|"publication.export.requested";
+export type BackgroundHandlerKey="dependency.recompute"|"asset.derive"|"graph.project"|"embedding.chunk"|"embedding.generate"|"embedding.index"|"ai.task"|"backup.run"|"publication.export";
+export type SpecializedRequestKind="dependency_recompute_request"|"asset_derivation"|"graph_projection_request"|"embedding_chunking_request"|"embedding_request"|"embedding_index_generation"|"ai_task"|"backup_request"|"publication_export_request";
 export type BackgroundJobStatus="queued"|"leased"|"running"|"succeeded"|"failed"|"retry_scheduled"|"cancel_requested"|"cancelled"|"dead_letter"|"archived";
 export type BackgroundFailureKind="technical"|"business_rejected"|"rejected_stale"|"cancelled";
 export interface OutboxEvent {id:string;spaceId:string|null;bookId:string|null;topic:OutboxTopic;eventVersion:number;aggregateKind:string;aggregateId:string;aggregateSequence:number;orderingKey:string;producerKind:"domain_store"|"migration_bridge"|"system"|"operator";producerIdempotencyKey:string;payload:Record<string,unknown>;payloadHash:string;correlationId:string|null;causationId:string|null;traceId:string;occurredAt:string;recordedAt:string;}

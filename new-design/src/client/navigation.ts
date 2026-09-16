@@ -22,6 +22,7 @@ export const NEW_DESIGN_ADVANCED_NAV = [
   { key: "forms", label: "创作表单", href: "/new-design/structure/forms" },
   { key: "templates", label: "开书模板", href: "/new-design/structure/templates" },
   { key: "context", label: "上下文管理", href: "/new-design/structure/context" },
+  { key: "maintenance", label: "运行维护", href: "/new-design/structure/maintenance" },
 ] as const;
 
 export const BOOK_TASK_NAV = [
@@ -31,6 +32,7 @@ export const BOOK_TASK_NAV = [
   { key: "views", label: "多维视图", path: "views/chapters" },
   { key: "materials", label: "本书资料", path: "cards" },
   { key: "settings", label: "本书设置", path: "fields" },
+  { key: "completion", label: "完本与导出", path: "completion" },
 ] as const;
 
 export type BookTaskNavKey = (typeof BOOK_TASK_NAV)[number]["key"];

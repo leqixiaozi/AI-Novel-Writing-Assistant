@@ -76,6 +76,8 @@ import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddi
 import { cancelBackgroundJobForBook, getBackgroundBookPause, getBackgroundJob, getBackgroundRuntimeHealth, listBackgroundJobs, listOutboxConsumers, listOutboxEvents, replayBackgroundJobForBook, retryBackgroundJobForBook, setBackgroundBookPause, setOutboxConsumerState } from "../database/outbox";
 import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
+import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
+import { resolvePublicationExportDownload } from "../publicationExport";
 import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
@@ -289,6 +291,12 @@ import {
   transferOperationListSchema,
   transferCancelSchema,
   transferConflictResolveSchema,
+  completionSnapshotCreateSchema,
+  bookCompletionRecordSchema,
+  bookCompletionReopenSchema,
+  publicationExportManifestSchema,
+  publicationExportSubmitSchema,
+  releaseGateAssessmentSchema,
   associationSearchSchema,
   associationAddSchema,
   associationCreateAndAddSchema,
@@ -778,6 +786,17 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/transfers/operations/:id/cancel",asyncRoute(async(req,res)=>success(res,await cancelTransferOperation(String(req.params.id),body(transferCancelSchema,req)))));
   router.post("/transfers/conflicts/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveTransferConflict(String(req.params.id),body(transferConflictResolveSchema,req)))));
   router.get("/transfers/artifacts/:id/download",(req,res,next)=>{void resolveTransferArtifactDownload(String(req.params.id)).then(file=>{res.type(file.mediaType);res.download(file.path,file.displayFilename,error=>{if(error)next(error);});},next);});
+  router.get("/books/:id/completion-workspace",asyncRoute(async(req,res)=>success(res,await getBookCompletionWorkspace(String(req.params.id)))));
+  router.post("/books/:id/completion-snapshots",asyncRoute(async(req,res)=>success(res,await createBookCompletionSnapshot(String(req.params.id),body(completionSnapshotCreateSchema,req).createdBy),201)));
+  router.post("/books/:id/completion",asyncRoute(async(req,res)=>success(res,await recordBookCompletion(String(req.params.id),body(bookCompletionRecordSchema,req)),201)));
+  router.post("/books/:id/completion/reopen",asyncRoute(async(req,res)=>success(res,await reopenBookCompletion(String(req.params.id),body(bookCompletionReopenSchema,req)),201)));
+  router.post("/books/:id/publication-exports/manifests",asyncRoute(async(req,res)=>success(res,await createPublicationExportManifest({bookId:String(req.params.id),...body(publicationExportManifestSchema,req)}),201)));
+  router.post("/publication-exports/manifests/:id/submit",asyncRoute(async(req,res)=>success(res,await submitPublicationExport(String(req.params.id),body(publicationExportSubmitSchema,req)),202)));
+  router.get("/books/:id/publication-exports",asyncRoute(async(req,res)=>success(res,await listPublicationExports(String(req.params.id)))));
+  router.get("/publication-exports/requests/:id",asyncRoute(async(req,res)=>success(res,await getPublicationExportRecord(String(req.params.id)))));
+  router.get("/publication-exports/artifacts/:id/download",(req,res,next)=>{void resolvePublicationExportDownload(String(req.params.id)).then(file=>{res.type(file.mediaType);res.download(file.path,file.displayFilename,error=>{if(error)next(error);});},next);});
+  router.get("/release-gates",asyncRoute(async(_req,res)=>success(res,await listReleaseGateItems())));
+  router.post("/release-gates/:key/assessments",asyncRoute(async(req,res)=>success(res,await recordReleaseGateAssessment({gateKey:String(req.params.key),...body(releaseGateAssessmentSchema,req)}),201)));
   router.post("/books/:id/sync-preview", asyncRoute(async (req, res) => {
     const input = body(syncPreviewSchema, req);
     success(res, await previewBookSync(String(req.params.id), input.targetVersionId));

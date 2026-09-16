@@ -35,6 +35,8 @@
   - 选项与关联：`/new-design/structure/dictionaries-relations`
   - 创作表单：`/new-design/structure/forms`
   - 开书模板：`/new-design/structure/templates`
+  - 上下文管理：`/new-design/structure/context`
+  - 运行维护：`/new-design/structure/maintenance`
 
 桌面和移动导航都遵循以上顺序。高级设置开关必须是可聚焦按钮，并通过 `aria-expanded` 暴露展开状态。
 
@@ -50,6 +52,7 @@
 | 线索与伏笔 | `/new-design/books/:bookId/views/clues` |
 | 本书资料 | `/new-design/books/:bookId/cards` |
 | 本书设置 | `/new-design/books/:bookId/fields` |
+| 完本与导出 | `/new-design/books/:bookId/completion` |
 
 `/new-design/books/:bookId/forms` 继续作为开书后的默认入口。原有 `/cards`、`/fields`、`/views/*` 深链保持不变，因此旧书签和刷新不会失效。除本书设置外，上述入口共用同一套业务表单外壳，仅默认资料范围不同；解析与保存合同见 `business-form-shell.md`。
 
@@ -59,7 +62,7 @@
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/043_multiview_quality_workspace.sql`，数据说明见 `docs/data-model.md`。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/044_completion_export_release_gate.sql`，数据说明见 `docs/data-model.md`。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 
