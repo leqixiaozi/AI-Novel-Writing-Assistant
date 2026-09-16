@@ -24,6 +24,6 @@
 
 编码完成后已执行 `pnpm --filter @ai-novel/new-design typecheck`，服务端构建及客户端类型检查通过；`node --test new-design/tests/unit.test.cjs new-design/tests/form-ai.unit.test.cjs new-design/tests/presentation.unit.test.cjs` 共 32 条通过。随后仅补充局部 CSS，静态审查排除了旧 JSON 编辑样式对通用表单的两列／等宽字体／复选框宽度干扰；使用既有主题变量，不新增主题体系。此切片未执行研究提案的浏览器交互及真实采用 API 验收；类型化表单原有行为通过共用组件复用，但不冒充本页面动态验收。
 
-仍需盘点上下文的来源对象／版本选择、运行参数、模板冲突、拆书字段、章节结算、多维值显示及管理界面的折叠技术信息。尤其研究批次的正式采用链尚需补全字典树范围验证及版本快照，不能把本次界面保护视为服务端完整树门禁。本记录不是 P1-1 全量完成证明。
+仍需盘点上下文的来源对象／版本选择、运行参数、模板冲突、拆书字段、章节结算、多维值显示及管理界面的折叠技术信息。研究批次正式采用的服务端树校验与来源快照已补齐，实际证据及未执行项见 [研究采用安全](research-adoption-tree-safety.md)。本记录不是 P1-1 全量完成证明。
 
 相关：[执行队列](p1-p2-execution-queue.md)、[通用表单 AI 辅助](business-form-ai-assist.md)。

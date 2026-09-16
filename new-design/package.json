@@ -41,6 +41,7 @@
     "dev": "tsc -p tsconfig.server.json --watch",
     "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs",
     "test:form-ai": "pnpm run build:server && node --test tests/form-ai.postgres.test.cjs tests/form-ai.live-model.test.cjs",
+    "test:research-adoption": "pnpm run build:server && node --test tests/research-adoption.postgres.test.cjs",
     "test:integration": "pnpm run build:server && node --test tests/postgres.integration.test.cjs"
   },
   "dependencies": {
