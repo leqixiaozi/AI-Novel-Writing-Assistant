@@ -4,6 +4,7 @@
 
 ### 2026-09-16
 
+- 模型设置可保存默认／任务模型、备用顺序和用量策略；失败先定位步骤、核对结果，再明确恢复，保留当前编辑与成功凭证。
 - 内容类型校验失败可定位到错误字段，在提示旁修改重试；结果待核对时先检查已保存草稿与发布版本，不重复创建或发布。
 - 独立工作台支持单独启动和主题选择，模型设置可检查专用配置、连接与模型名称。启动说明与实测边界见 [独立开发](docs/standalone-development.md) 和 [本轮验证](docs/independent-runtime-review.md)。
 - 创作资源提供独立“提示词管理”：中文分类树、左右编辑和预览，主分类与额外引用分开维护，移动不复制正文。
@@ -23,7 +24,7 @@
 AI 工作方式见 [通用表单 AI 辅助](docs/business-form-ai-assist.md)、[运行证据](docs/business-form-ai-assist-review.md)；剩余范围见 [P1／P2 执行队列](docs/p1-p2-execution-queue.md)。
 界面合同见 [作者中文界面](docs/chinese-author-interface.md)；交付记录见 [阶段记录](docs/releases.md)。
 
-`new-design/` 提供自有页面、服务、受控 AI 和构建入口，旧产品外壳挂载仅为兼容过渡；独立运行不导入旧业务或借用旧模型配置。旧小说页面和 SQLite 业务保持不变。完整模型路由中心等剩余能力仍见执行队列。
+`new-design/` 提供自有页面、服务、受控 AI 和构建入口，旧产品外壳挂载仅为兼容过渡；独立运行不导入旧业务或借用旧模型配置。模型设置支持默认、备用及任务独立配置；执行与失败恢复见 [模型设置](docs/model-route-runtime-review.md)。旧小说页面和 SQLite 业务保持不变；剩余能力仍见执行队列。
 
 客户界面统一使用“资料、内容类型、创作表单、开书模板”等创作语言，内部代码和数据库仍保留稳定的 `Card` / `CardType` 合同。菜单、路由、兼容深链与跨机器同步口径见 `docs/navigation-and-terminology.md`。
 

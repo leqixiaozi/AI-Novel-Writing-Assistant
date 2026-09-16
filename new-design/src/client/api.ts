@@ -2,6 +2,7 @@ import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../co
 import type {PromptCatalog,PromptClassificationInput,PromptSaveInput,PromptReorderInput,PromptCategoryCreateInput,PromptCategoryRevisionInput,PromptCategoryArchiveInput} from "../common/promptManagement";
 import { publicServiceError } from "../common/presentation";
 import type {AiRuntimeRecovery,IndependentModelStatus} from "../common/aiRuntime";
+import type {ModelRouteCenterCatalog,SaveManagedModelRouteInput,SaveManagedModelRouteResult,ManagedModelConnection,ManagedTaskRoute,ModelTaskKey,ManagedCredentialChoice} from "../common/modelRouting";
 import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl} from "../common/creationDirector";
 import type {
@@ -311,7 +312,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok || !envelope.success || envelope.data === undefined) {
     const technicalDetail = envelope.error ?? "请求失败，请稍后重试。";
     const candidate=envelope.recovery;
-    const recovery=candidate&&typeof candidate.failedStep==="string"&&typeof candidate.summary==="string"&&typeof candidate.savedResult==="string"&&candidate.sourceRoute==="/new-design/structure/models"&&candidate.actionLabel==="打开模型设置"?candidate:null;
+    const safeRecoveryTarget=candidate&&((candidate.sourceRoute==="/new-design/structure/models"&&candidate.actionLabel==="打开模型设置")||(candidate.sourceRoute==="/new-design/structure/maintenance"&&candidate.actionLabel==="打开运行维护"));
+    const recovery=candidate&&typeof candidate.failedStep==="string"&&typeof candidate.summary==="string"&&typeof candidate.savedResult==="string"&&safeRecoveryTarget?candidate:null;
     if(recovery&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
     throw new ApiError(recovery?`${recovery.failedStep}失败：${recovery.summary}`:publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail,recovery);
   }
@@ -319,6 +321,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  getManagedModelCatalog:()=>request<ModelRouteCenterCatalog>("/models/catalog"),
+  saveManagedModelRoute:(input:SaveManagedModelRouteInput)=>request<SaveManagedModelRouteResult>("/models/routes",{method:"POST",body:JSON.stringify(input)}),
+  inheritManagedModelRoute:(id:string,expectedRevision:number)=>request<unknown>(`/models/routes/${encodeURIComponent(id)}/inherit`,{method:"POST",body:JSON.stringify({expectedRevision})}),
+  createManagedModelCredential:(input:{name:string;provider:string;environmentVariable:string})=>request<ManagedCredentialChoice>("/models/credentials",{method:"POST",body:JSON.stringify(input)}),
+  probeManagedModelConnection:(connection:ManagedModelConnection)=>request<{available:boolean;modelFound:boolean;models:string[]}>("/models/probe",{method:"POST",body:JSON.stringify({connection})}),
+  getManagedModelPreview:(taskType:ModelTaskKey)=>request<ManagedTaskRoute>(`/models/preview/${encodeURIComponent(taskType)}`),
   getIndependentModelStatus:()=>request<IndependentModelStatus>("/models/status"),
   probeIndependentModel:()=>request<{available:boolean;modelFound:boolean;models:string[]}>("/models/probe",{method:"POST",body:"{}"}),
   getPromptCatalog:()=>request<PromptCatalog>("/prompt-management/catalog"),

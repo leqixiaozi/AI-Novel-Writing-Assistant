@@ -25,5 +25,6 @@ test("real standalone Express and PostgreSQL read existing facts and expose acti
  assert.deepEqual((await pool.query("SELECT revision,draft_fields,current_version_id FROM new_design.card_types WHERE id=$1",[published.id])).rows[0],before,"rejected field change must not change author data or revision");
  const status=await(await fetch(`${base}/models/status`)).json();assert.equal(status.success,true);assert.equal(status.data.tasks.length,6);
  const health=await(await fetch(`${base}/independent-health`)).json();assert.equal(health.data.recoveryRoute,"/new-design/structure/maintenance");
- if(!status.data.configured){const result=await fetch(`${base}/models/probe`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const failure=await result.json();assert.equal(result.status,422);assert.equal(failure.recovery.failedStep,"配置模型");assert.equal(failure.recovery.sourceRoute,"/new-design/structure/models");}
+ const catalog=await(await fetch(`${base}/models/catalog`)).json();assert.equal(catalog.success,true);assert.equal(catalog.data.tasks.length,6);
+ const result=await fetch(`${base}/models/probe`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const failure=await result.json();assert.equal(result.status,422);assert.equal(failure.recovery.failedStep,"核对连接测试输入");assert.equal(failure.recovery.sourceRoute,"/new-design/structure/models");
 });
