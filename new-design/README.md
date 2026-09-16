@@ -1,5 +1,13 @@
 # 新设计卡片内核
 
+## 最新界面优化
+
+### 2026-09-16
+
+- 字典与标签的项目直接展开在左侧目录树中，支持收起、搜索和上下移；右侧集中编辑当前项目，减少横向占用。
+
+界面规则及验证记录见 [统一树资源](docs/unified-tree-resources.md) 与 [静态审查](docs/unified-tree-resources-static-review.md)。
+
 `new-design/` 是小说系统新增能力的独立演进边界，通过旧产品外壳挂载“新设计”入口，同时保持旧小说页面和 SQLite 业务不变。
 
 客户界面统一使用“资料、内容类型、创作表单、开书模板”等创作语言，内部代码和数据库仍保留稳定的 `Card` / `CardType` 合同。菜单、路由、兼容深链与跨机器同步口径见 `docs/navigation-and-terminology.md`。
