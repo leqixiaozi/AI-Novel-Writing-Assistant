@@ -90,6 +90,7 @@ import type {
   StoryTimeValue,
   PlanningAdoption,
   PlanningCenterWorkspace,
+  PlanningAiCandidateRun,
   PlanningExecutionMode,
   PlanningImpact,
   PlanningLevel,
@@ -258,9 +259,22 @@ type FormInstanceSaveInput = Pick<CardGroupFormInstance, "spaceId" | "formVersio
 };
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly issues: Record<string, string> = {}, public readonly status = 500) {
+  constructor(
+    message: string,
+    public readonly issues: Record<string, string> = {},
+    public readonly status = 500,
+    public readonly technicalDetail = message,
+  ) {
     super(message);
   }
+}
+
+const PRIVATE_RUNTIME_MANIFEST_ERROR = "私有运行包 manifest 不存在或不是受控普通文件；禁止从系统 PostgreSQL 回退。";
+
+function publicApiErrorMessage(message: string): string {
+  return message === PRIVATE_RUNTIME_MANIFEST_ERROR
+    ? "数据服务暂未就绪，请到“运行维护”查看状态。"
+    : message;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -270,7 +284,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const envelope = await response.json() as ApiEnvelope<T>;
   if (!response.ok || !envelope.success || envelope.data === undefined) {
-    throw new ApiError(envelope.error ?? "请求失败，请稍后重试。", envelope.issues, response.status);
+    const technicalDetail = envelope.error ?? "请求失败，请稍后重试。";
+    throw new ApiError(publicApiErrorMessage(technicalDetail), envelope.issues, response.status, technicalDetail);
   }
   return envelope.data;
 }
@@ -517,6 +532,7 @@ export const newDesignApi = {
   listCausalStoryGraph:(bookId:string,eventId:string,direction:"upstream"|"downstream",maxDepth=10)=>request<StoryEventRelation[]>(`/books/${bookId}/story-events/${eventId}/causal?${new URLSearchParams({direction,maxDepth:String(maxDepth)}).toString()}`),
   getBookOverview:(bookId:string)=>request<BookOverview>(`/books/${bookId}/overview`),
   getPlanningCenter:(bookId:string)=>request<PlanningCenterWorkspace>(`/books/${bookId}/planning-center`),
+  generatePlanningCandidate:(bookId:string,input:{targetObjectId?:string|null;instruction:string;createdBy?:string})=>request<PlanningAiCandidateRun>(`/books/${bookId}/planning-ai-candidates`,{method:"POST",body:JSON.stringify(input)}),
   createPlanningObject:(bookId:string,input:PlanningVersionInput&{level:PlanningLevel;parentObjectId?:string|null;cardId?:string|null;title:string;sortOrder:number})=>request<PlanningObject>(`/books/${bookId}/planning-objects`,{method:"POST",body:JSON.stringify(input)}),
   getAdoptedPlanningTree:(bookId:string)=>request<PlanningTreeNode|null>(`/books/${bookId}/planning-tree`),
   getPlanningObject:(id:string)=>request<PlanningObject>(`/planning-objects/${id}`),

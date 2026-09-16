@@ -25,6 +25,12 @@ const initialContentOutputSchema = z.object({
 const formAssistOutputSchema = z.object({ suggestions: z.record(z.string(), scalarSchema) }).strict();
 const marketSignalSchema=z.object({title:z.string().min(1).max(100),signalType:z.enum(["genre","protagonist","advantage","opening","relationship","title","payoff","crowding","differentiation"]),summary:z.string().min(4).max(1000),heat:z.enum(["low","medium","high"]),crowding:z.enum(["low","medium","high"]),trend:z.enum(["rising","stable","falling","uncertain"]),platforms:z.array(z.enum(["fanqie","qidian","jinjiang"])).min(1),audience:z.string().min(2).max(500),differentiation:z.string().min(2).max(800),sourceRefs:z.string().min(2).max(2000),observedAt:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),effectiveUntil:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}).strict();
 const marketAnalysisOutputSchema=z.object({genre:z.array(z.string()).max(12),protagonistIdentities:z.array(z.string()).max(12),coreAdvantages:z.array(z.string()).max(12),openingPatterns:z.array(z.string()).max(12),relationshipHooks:z.array(z.string()).max(12),titlePatterns:z.array(z.string()).max(12),readerPayoffs:z.array(z.string()).max(12),crowdedTropes:z.array(z.string()).max(12),differentiationOpportunities:z.array(z.string()).max(12),evidenceBoundary:z.string().min(4).max(1000),signals:z.array(marketSignalSchema).min(1).max(12)}).strict();
+const planningCandidateOutputSchema=z.object({
+  title:z.string().min(1).max(240),goal:z.string().min(10).max(5000),storyTime:z.string().max(500),
+  mustHappen:z.array(z.string().min(1).max(1000)).min(1).max(30),mustPreserve:z.array(z.string().min(1).max(1000)).max(30),
+  forbiddenBoundaries:z.array(z.string().min(1).max(1000)).max(30),expectedChanges:z.array(z.string().min(1).max(1000)).max(30),
+  characterArc:z.string().max(5000),notes:z.string().max(5000),sourceCardIds:z.array(z.string().uuid()).max(30),
+}).strict();
 
 export interface DirectionPromptInput {
   method: string;
@@ -48,6 +54,7 @@ export interface FormAssistPromptInput {
   instruction: string;
 }
 export interface MarketAnalysisPromptInput {itemsJson:string;focus:string;}
+export interface PlanningCandidatePromptInput {bookName:string;bookDescription:string;targetJson:string;materialsJson:string;adoptedPlansJson:string;instruction:string;}
 
 export const newDesignBookDirectionsPrompt: PromptAsset<DirectionPromptInput, z.infer<typeof directionsOutputSchema>> = {
   id: "new_design.book_creation.directions",
@@ -131,6 +138,21 @@ export const newDesignFormAssistPrompt: PromptAsset<FormAssistPromptInput, z.inf
       "返回 suggestions 对象，键为需要建议的 field key。",
     ].join("\n")),
   ],
+};
+
+export const newDesignPlanningCandidatePrompt:PromptAsset<PlanningCandidatePromptInput,z.infer<typeof planningCandidateOutputSchema>>={
+  id:"new_design.planning.candidate",version:"v1",taskType:"planner",mode:"structured",language:"zh",contextPolicy:{maxTokensBudget:0},outputSchema:planningCandidateOutputSchema,repairPolicy:{maxAttempts:1},semanticRetryPolicy:{maxAttempts:1},
+  render:(input)=>[new SystemMessage([
+    "你是长篇小说的故事规划助手，服务对象可能没有专业写作经验。",
+    "请根据本书资料、已经采用的上级规划和用户本次要求，生成一份具体、可继续生产的规划候选。",
+    "目标是故事总览时，应明确核心目标、主要冲突、阶段推进、读者承诺和不可破坏的边界；目标是卷、章或场景时，必须服从已采用的上级规划。",
+    "不得把候选描述成已经生效；不得改写或覆盖已采用事实。sourceCardIds 只能选择输入资料中真实存在的 cardId，且只选确实用于本候选的资料。",
+    "mustHappen 写必须发生的推进，mustPreserve 写必须保持的一致性，forbiddenBoundaries 写绝不能越过的边界，expectedChanges 写本层规划预期造成的状态变化。",
+    "不要空泛使用‘推进剧情’之类说法，每一项都应可被后续写作或审稿检查。只输出严格 JSON。",
+  ].join("\n")),new HumanMessage([
+    `书名：${input.bookName}`,`简介：${input.bookDescription||"未填写"}`,`本次规划目标：${input.targetJson}`,
+    `已经采用的规划：${input.adoptedPlansJson}`,`可引用的本书资料：${input.materialsJson}`,`用户要求：${input.instruction||"基于现有资料补全一份可生产的规划候选。"}`
+  ].join("\n\n"))],
 };
 
 export const newDesignMarketAnalysisPrompt:PromptAsset<MarketAnalysisPromptInput,z.infer<typeof marketAnalysisOutputSchema>>={

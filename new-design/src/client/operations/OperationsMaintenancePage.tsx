@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BackgroundJob, BookSummary, PrivateRuntimeDiagnostics, ReleaseGateAssessment, ReleaseGateItem, TransferOperation, TransferRuntimeAvailability } from "../../common/contracts";
-import { newDesignApi } from "../api";
+import { ApiError, newDesignApi } from "../api";
 import StructureShell from "../StructureShell";
 import "./operations.css";
 
@@ -8,14 +8,15 @@ const phaseLabel:Record<string,string>={ready:"运行正常",degraded:"部分能
 const jobLabel:Record<string,string>={queued:"排队",leased:"已领取",running:"运行中",succeeded:"成功",failed:"失败",retry_scheduled:"等待重试",cancel_requested:"请求取消",cancelled:"已取消",dead_letter:"死信",archived:"归档"};
 const transferLabel:Record<string,string>={full_backup:"整库备份",book_export:"跨机书籍包",book_import:"书籍导入检查",ready:"可用",failed:"失败",queued:"排队",running:"运行中",verifying:"校验中",cancelled:"已取消",imported:"已导入",restored:"已恢复",archived:"归档"};
 const key=(prefix:string)=>`${prefix}-${Date.now()}-${crypto.randomUUID()}`;
+const maintenanceError=(error:unknown,fallback:string)=>error instanceof ApiError?error.technicalDetail:error instanceof Error?error.message:fallback;
 
 export default function OperationsMaintenancePage(){
   const [books,setBooks]=useState<BookSummary[]>([]),[bookId,setBookId]=useState(new URLSearchParams(location.search).get("bookId")??""),[diagnostics,setDiagnostics]=useState<PrivateRuntimeDiagnostics|null>(null),[transferRuntime,setTransferRuntime]=useState<TransferRuntimeAvailability|null>(null),[jobs,setJobs]=useState<BackgroundJob[]>([]),[transfers,setTransfers]=useState<TransferOperation[]>([]),[gates,setGates]=useState<ReleaseGateItem[]>([]),[recoverable,setRecoverable]=useState<Array<{id:string;taskKey:string;status:string;sourceRoute:string;updatedAt:string}>>([]),[message,setMessage]=useState(""),[busy,setBusy]=useState(false),[gateKey,setGateKey]=useState(""),[gateOutcome,setGateOutcome]=useState<ReleaseGateAssessment["outcome"]>("unexecuted"),[evidence,setEvidence]=useState("");
   const loadBase=()=>Promise.all([newDesignApi.listBooks(),newDesignApi.getPrivateRuntimeDiagnostics(),newDesignApi.getTransferRuntime(),newDesignApi.listTransferOperations({limit:30}),newDesignApi.listReleaseGates()]).then(([nextBooks,nextDiagnostics,nextTransfer,nextTransfers,nextGates])=>{setBooks(nextBooks);setDiagnostics(nextDiagnostics);setTransferRuntime(nextTransfer);setTransfers(nextTransfers);setGates(nextGates);setBookId(current=>current||nextBooks[0]?.id||"");});
   const loadBook=(id:string)=>id?Promise.all([newDesignApi.listBackgroundJobs(id,{limit:50}),newDesignApi.listRecoverableAiTasks(id)]).then(([nextJobs,nextRecoverable])=>{setJobs(nextJobs);setRecoverable(nextRecoverable);}):Promise.resolve();
-  useEffect(()=>{void loadBase().catch(error=>setMessage(error instanceof Error?error.message:"运行维护数据加载失败。"));},[]);
-  useEffect(()=>{void loadBook(bookId).catch(error=>setMessage(error instanceof Error?error.message:"书籍任务加载失败。"));},[bookId]);
-  async function act(run:()=>Promise<unknown>,done:string){setBusy(true);setMessage("");try{await run();await Promise.all([loadBase(),loadBook(bookId)]);setMessage(done);}catch(error){setMessage(error instanceof Error?error.message:"操作未完成。");}finally{setBusy(false);}}
+  useEffect(()=>{void loadBase().catch(error=>setMessage(maintenanceError(error,"运行维护数据加载失败。")));},[]);
+  useEffect(()=>{void loadBook(bookId).catch(error=>setMessage(maintenanceError(error,"书籍任务加载失败。")));},[bookId]);
+  async function act(run:()=>Promise<unknown>,done:string){setBusy(true);setMessage("");try{await run();await Promise.all([loadBase(),loadBook(bookId)]);setMessage(done);}catch(error){setMessage(maintenanceError(error,"操作未完成。"));}finally{setBusy(false);}}
   async function retry(job:BackgroundJob){if(!confirm(`确认重试任务 ${job.jobKind}？`))return;await act(()=>newDesignApi.retryBackgroundJob(bookId,job.id),"任务已进入重试流程。");}
   async function cancel(job:BackgroundJob){const reason=prompt("请输入取消原因：")?.trim();if(!reason)return;await act(()=>newDesignApi.cancelBackgroundJob(bookId,job.id,reason),"取消请求已登记。");}
   async function replay(job:BackgroundJob){const reason=prompt("请输入重新派发原因：")?.trim();if(!reason)return;await act(()=>newDesignApi.replayBackgroundJob(bookId,job.id,{reason,requestedBy:"local-operator",idempotencyKey:key("replay")}),"新任务已派发，旧记录保持不变。");}

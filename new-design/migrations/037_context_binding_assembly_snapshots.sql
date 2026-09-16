@@ -20,7 +20,7 @@ CREATE TABLE context_bindings (
   CHECK((scope_kind IN ('system','public','task_group','task_node') AND book_id IS NULL) OR (scope_kind IN ('book','volume','chapter','scene','one_time') AND book_id IS NOT NULL)),
   CHECK((scope_kind IN ('public','book','volume','chapter','scene','one_time') AND space_id IS NOT NULL) OR (scope_kind IN ('system','task_group','task_node') AND space_id IS NULL)),
   CHECK((scope_kind IN ('system','public','book') AND scope_ref IS NULL) OR (scope_kind NOT IN ('system','public','book') AND length(btrim(scope_ref))>0)),
-  UNIQUE(scope_kind,scope_ref,book_id,binding_key) NULLS NOT DISTINCT
+  UNIQUE NULLS NOT DISTINCT(scope_kind,scope_ref,book_id,binding_key)
 );
 
 CREATE TABLE context_binding_versions (

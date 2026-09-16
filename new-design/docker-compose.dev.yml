@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: ai-novel/new-design-postgres-dev:pg17-age1.7-vector0.8.6
+    build:
+      context: ./docker/dev-postgres
+      args:
+        POSTGRES_MAJOR: "17"
+    container_name: ai-novel-new-design-postgres-dev
+    environment:
+      POSTGRES_USER: ${NEW_DESIGN_DEV_DB_USER}
+      POSTGRES_PASSWORD: ${NEW_DESIGN_DEV_DB_PASSWORD}
+      POSTGRES_DB: ${NEW_DESIGN_DEV_DB_NAME}
+    ports:
+      - "127.0.0.1:${NEW_DESIGN_DEV_DB_PORT}:5432"
+    volumes:
+      - new-design-postgres-data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=age"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  new-design-postgres-data:
+    name: ai-novel-new-design-pg17-data

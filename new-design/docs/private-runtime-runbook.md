@@ -10,11 +10,29 @@
 
 > 🧠 **速记方法**：**先验箱、再验地、后起库；少一件就停，不向系统借。**
 
+## 开发环境启动
+
+开发环境与发布运行包明确分开。根目录执行 `pnpm dev` 时，服务端通过显式环境标记启用 `new-design/docker-compose.dev.yml`，构建并启动项目自己的 PostgreSQL 17 开发容器。镜像固定包含 Apache AGE、pgvector 和 `pg_trgm`，随后执行同一套 `001—045` SQL；不会连接系统 PostgreSQL，也不会把开发容器伪装成已通过 manifest 的发布运行包。
+
+开发机需要先启动 Docker Desktop。首次构建会组合固定的 Apache AGE PG17 1.7.0 与 pgvector 0.8.6 官方镜像；后续启动复用 `ai-novel-new-design-pg17-data` 命名卷。运行维护页会显示三个扩展的实际版本，并把 manifest 检查标记为“开发环境”，不再把发布包缺失错误散落到业务页面。
+
+> 🏠 **白话比喻**：开发容器像工地上的样板间，水电和家具都是真的，方便每天施工和验收；发布运行包像交付给业主的精装房，还要逐项验收、贴封条和保修登记。对应到系统：开发态真实运行 AGE 与 pgvector，但不能因此跳过 Windows 发布包的 manifest、许可证和离线安装验收。
+
+> 🧠 **速记方法**：**开发看容器，发布看清单；功能要真实，交付要验封。**
+
+开发数据不能靠复制正在运行的数据卷同步。跨机器继续开发应使用系统的完整备份／书籍导出；临时数据库级迁移可在停写后使用 `pg_dump`／`pg_restore`。SQL 结构仍以 `new-design/migrations/001—045` 为唯一权威，不在 Docker 初始化脚本中复制第二套表结构。
+
+### PGlite 评估
+
+PGlite 官方已经提供 `@electric-sql/pglite-age` 和 `@electric-sql/pglite-pgvector`，因此“WASM 中能否加载 AGE／pgvector”的答案是可以；它也支持 Node 文件系统持久化和数据目录导出。当前没有把它作为本项目开发底座，因为 PGlite 的基础模型是单用户／单连接，而本项目依赖 `pg.Pool` 多连接、并行 HTTP、后台 Outbox、事务会话和 advisory lock。其 socket 兼容层仍有公开的多连接扩展协议交错／队列死锁问题。参考：[PGlite 扩展清单](https://pglite.dev/extensions/)、[PGlite npm 限制](https://www.npmjs.com/package/@electric-sql/pglite)、[pglite-socket 并发问题](https://github.com/electric-sql/pglite/issues/1046)。
+
+PGlite 可以作为未来“轻量单机版”的专项验证分支，但前提是数据库访问统一串行化，并逐项验证 001—045、AGE Cypher、HNSW、Outbox 租约、备份恢复和进程退出语义；不能只因扩展能加载就直接替换当前 PostgreSQL 运行时。
+
 ## 锁定组合
 
 | 组件 | 锁定版本 | 发布输入 |
 |---|---:|---|
-| 应用 | 0.1.0 | server/client 编译产物与 001—044 SQL |
+| 应用 | 0.1.0 | server/client 编译产物与 001—045 SQL |
 | Node.js | 24.19.0 | `bin/node.exe`，仅用于固定 CLI 入口 |
 | PostgreSQL | 17.6 | `@embedded-postgres/windows-x64@17.6.0-beta.15` 的受控输入 |
 | Apache AGE | 1.6.0 / PG17 | `PG17/v1.6.0-rc0` 对应发布输入 |
@@ -37,7 +55,7 @@ runtime-package/
    ├─ server/           编译后的服务端与 runtime/cli.js
    ├─ client/           客户端静态产物
    ├─ scripts/          start/stop/status/doctor/backup/upgrade PowerShell 入口
-   └─ migrations/       连续的 001—044
+   └─ migrations/       连续的 001—045
 ```
 
 发布阶段使用 `node scripts/assemble-runtime.cjs --source-root <受控目录> --source-manifest <清单> --output-root <空目录>`。assembler 只复制 source manifest 白名单文件，核对组件组合、大小、SHA-256、路径、许可证和迁移连续性；输出目录非空时拒绝覆盖。
@@ -82,7 +100,7 @@ new-design/
 
 ## 启停与恢复规则
 
-启动顺序是：互斥锁 → manifest/逐文件哈希 → 目录与磁盘 → 随机凭据和 ACL → `initdb` → 本机 SCRAM → `pg_ctl` → PID/start time/data dir/instance token → `pg_isready` → AGE/vector/pg_trgm → 001—044 → 030 runner。任一步失败都不得继续可写。
+启动顺序是：互斥锁 → manifest/逐文件哈希 → 目录与磁盘 → 随机凭据和 ACL → `initdb` → 本机 SCRAM → `pg_ctl` → PID/start time/data dir/instance token → `pg_isready` → AGE/vector/pg_trgm → 001—045 → 030 runner。任一步失败都不得继续可写。
 
 停止先把 worker 标为 draining 并归还租约，再关闭连接池，最后 `pg_ctl ... -m fast`。只有运行实例 token、数据世代、PID、启动时间与 `postmaster.pid` 全部一致时才执行；陈旧 PID 不会触发 `kill`。
 
@@ -94,7 +112,7 @@ new-design/
 |---|---|
 | TypeScript server/client 检查 | 本阶段未作为验收结论 |
 | runtime/source manifest JSON 结构与版本锁 | 已审查 |
-| 001—044 连续性、调用链、固定路径与参数白名单 | 静态审查完成 |
+| 001—045 连续性、调用链、固定路径与参数白名单 | 静态审查完成 |
 | PID/start time/data dir/instance token 防误杀 | 已审查 |
 | 凭据不进入 API、manifest、URL 和命令行 | 已审查 |
 | PowerShell 与 Node 脚本静态语法 | 已执行 |
@@ -102,4 +120,4 @@ new-design/
 
 ## Release Gate：尚未动态验证
 
-发布前必须逐项完成：干净 Windows x64 离线安装与完整二进制/许可证装配；安装器／运行包代码签名和本地篡改模型；首次 `initdb`；随机凭据 ACL 的最小读取权限；本机监听和端口冲突；AGE/vector/pg_trgm 创建与 `LOAD`；001—044 实库迁移；启动、停止、异常退出、重复启动和错误 PID 防误杀；030 runner 租约恢复与停机排空；031 数据库＋附件联合备份和恢复；三种出版格式打开校验；同主版本与跨主版本升级及失败回滚；覆盖安装和卸载保留数据；长路径、中文用户目录、杀毒与受限权限；磁盘不足；大书性能；安全与日志脱敏。逐项状态见 [release-gate-checklist.md](./release-gate-checklist.md)。
+发布前必须逐项完成：干净 Windows x64 离线安装与完整二进制/许可证装配；安装器／运行包代码签名和本地篡改模型；首次 `initdb`；随机凭据 ACL 的最小读取权限；本机监听和端口冲突；AGE/vector/pg_trgm 创建与 `LOAD`；001—045 实库迁移；启动、停止、异常退出、重复启动和错误 PID 防误杀；030 runner 租约恢复与停机排空；031 数据库＋附件联合备份和恢复；三种出版格式打开校验；同主版本与跨主版本升级及失败回滚；覆盖安装和卸载保留数据；长路径、中文用户目录、杀毒与受限权限；磁盘不足；大书性能；安全与日志脱敏。逐项状态见 [release-gate-checklist.md](./release-gate-checklist.md)。

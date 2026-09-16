@@ -16,7 +16,7 @@
   },
   "scripts": {
     "dev": "pnpm run dev:api",
-    "dev:api": "node scripts/ensure-dev-prisma.cjs && node scripts/stop-stale-dev-server.cjs && ts-node-dev --respawn --transpile-only src/app.ts",
+    "dev:api": "node scripts/ensure-dev-prisma.cjs && node scripts/stop-stale-dev-server.cjs && node scripts/start-dev-api.cjs",
     "build": "pnpm --filter @ai-novel/new-design build:server && tsc -p tsconfig.json",
     "start": "node dist/app.js",
     "start:api": "node dist/app.js",

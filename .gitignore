@@ -40,4 +40,5 @@ new-design/.logs/
 .claude/memory/
 .spec-workflow/
 .codex-backups/
+.codex-runtime/
 .cursor/

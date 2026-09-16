@@ -17,9 +17,8 @@ import {
   updateCard,
   updateCardType,
 } from "../database/store";
-import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics } from "../database/runtime";
+import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics, getPrivateRuntimeStatus } from "../database/runtime";
 import { archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
-import { getPrivateRuntimeManager } from "../runtime";
 import { scrub } from "../runtime/command";
 import {
   applyBookSync,
@@ -65,7 +64,7 @@ import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonic
 import { commitChapterSettlement, createStateMilestone, editStateChangeProposal, getInitialState, getSettlement, getStateCapabilities, getStateValueMapping, listChapterSettlements, listCurrentState, listInitialStates, listStateChangeProposals, listStateMilestones, proposeStateChange, publishStateValueMapping, rebuildStateProjections, revertChapterSettlement, saveInitialState, saveStateRelationCapability, saveStateTypeCapability } from "../database/stateStore";
 import { editKnowledgeStateProposal, getKnowledgeStateProposal, listCurrentKnowledgeState, listKnowledgeStateAt, listKnowledgeStateProposals, proposeKnowledgeState, rebuildKnowledgeState, reviewKnowledgeStateProposal } from "../database/knowledgeStore";
 import { editStoryRelationProposal, editStoryTimeProposal, getStoryRelationProposal, getStoryTimeProposal, listCausalGraph, listConcurrentEvents, listCurrentStoryTimings, listStoryEventRelations, listStoryOccurrencesByChapter, listStoryRelationProposals, listStoryTimeProposals, listStoryTimingsInRange, listTemporalNeighbors, proposeStoryRelation, proposeStoryTime, reviewStoryRelationProposal, reviewStoryTimeProposal, saveStoryNarrativeOccurrence } from "../database/storyTimeline";
-import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, getAdoptedChapterPlanContract, getAdoptedPlanningTree, getBookOverview, getPlanningCenterWorkspace, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion, setPlanningObjectArchived } from "../database/planning";
+import { addPlanningVersion, adoptPlanningVersion, createPlanningObject, generatePlanningAiCandidate, getAdoptedChapterPlanContract, getAdoptedPlanningTree, getBookOverview, getPlanningCenterWorkspace, getPlanningObject, getPlanningVersionContext, listPlanningAdoptions, listPlanningImpacts, listStalePlanningVersions, rejectPlanningVersion, setPlanningObjectArchived } from "../database/planning";
 import { addModelRouteVersion, addPromptRecipeVersion, addTaskContractVersion, createContextManifest, createModelRouteConfig, createModelRouteSnapshot, createPromptRecipe, createTaskContract, getContextManifest, getModelCredentialRef, getModelRouteConfig, getModelRouteSnapshot, getPromptRecipe, getPublishedTaskContract, getTaskContract, listPromptRecipeDependencies, listPublishedTaskContracts, publishModelRouteVersion, publishPromptRecipeVersion, publishTaskContractVersion, rejectPromptRecipeVersion, rejectTaskContractVersion, resolveModelRoute, saveModelCredentialRef } from "../database/aiContracts";
 import { createAiTask, decideAiApproval, failAiTaskAttempt, getAiTask, heartbeatAiTaskStep, listAiTasks, listFailedAiAttempts, listPendingAiApprovals, listRecoverableAiTasks, recordAiAttemptUsage, recoverExpiredAiTaskStep, requestAiApproval, startAiTaskAttempt, succeedAiTaskAttempt, summarizeAiUsage } from "../database/aiTasks";
 import { createQualityAuditReport, decideQualityFixCandidate, getQualityAuditReport, getQualityFixCandidate, getQualityIssue, listQualityAuditReports, listQualityIssues, listQualityRechecks, recordQualityFixAdoption, recordQualityRecheck, reviseQualityFixCandidate, reviseQualityIssue, transitionQualityIssue } from "../database/qualityAudits";
@@ -198,6 +197,7 @@ import {
   planningVersionAdoptSchema,
   planningObjectArchiveSchema,
   planningImpactStatusSchema,
+  planningAiCandidateSchema,
   promptRecipeCreateSchema,
   promptRecipeVersionSchema,
   taskContractCreateSchema,
@@ -611,6 +611,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/books/:id/planning-objects",asyncRoute(async(req,res)=>success(res,await createPlanningObject({bookId:String(req.params.id),...body(planningObjectInputSchema,req)}),201)));
   router.get("/books/:id/overview",asyncRoute(async(req,res)=>success(res,await getBookOverview(String(req.params.id)))));
   router.get("/books/:id/planning-center",asyncRoute(async(req,res)=>success(res,await getPlanningCenterWorkspace(String(req.params.id)))));
+  router.post("/books/:id/planning-ai-candidates",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("AI 服务尚未连接，请检查模型设置后重试。",503);success(res,await generatePlanningAiCandidate(dependencies.ai,{bookId:String(req.params.id),...body(planningAiCandidateSchema,req)}),201);}));
   router.get("/books/:id/planning-tree",asyncRoute(async(req,res)=>success(res,await getAdoptedPlanningTree(String(req.params.id)))));
   router.get("/books/:id/stale-planning-versions",asyncRoute(async(req,res)=>success(res,await listStalePlanningVersions(String(req.params.id)))));
   router.get("/books/:id/planning-impacts",asyncRoute(async(req,res)=>success(res,await listPlanningImpacts(String(req.params.id),typeof req.query.status==="string"?planningImpactStatusSchema.parse(req.query.status):undefined))));
@@ -768,7 +769,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/books/:id/runtime/jobs/:jobId",asyncRoute(async(req,res)=>success(res,await getBackgroundJob(String(req.params.jobId),String(req.params.id)))));
   router.get("/books/:id/runtime/outbox",asyncRoute(async(req,res)=>success(res,await listOutboxEvents({bookId:String(req.params.id),...outboxEventListQuerySchema.parse(req.query)}))));
   router.get("/runtime/consumers",asyncRoute(async(_req,res)=>success(res,await listOutboxConsumers())));
-  router.get("/runtime/private/status",asyncRoute(async(_req,res)=>success(res,await getPrivateRuntimeManager().status())));
+  router.get("/runtime/private/status",asyncRoute(async(_req,res)=>success(res,await getPrivateRuntimeStatus())));
   router.get("/runtime/private/doctor",asyncRoute(async(_req,res)=>success(res,await getPrivateRuntimeDiagnostics())));
   router.post("/runtime/consumers/:key/state",asyncRoute(async(req,res)=>success(res,await setOutboxConsumerState({consumerKey:String(req.params.key),...body(outboxConsumerStateSchema,req)}))));
   router.get("/books/:id/runtime/state",asyncRoute(async(req,res)=>success(res,await getBackgroundBookPause(String(req.params.id)))));

@@ -10,18 +10,13 @@ const text=(value:unknown)=>typeof value==="string"?value.trim():"";
 export async function getPlanningCenterWorkspace(bookId:string):Promise<PlanningCenterWorkspace>{
   const pool=await getNewDesignPool();
   assertFound((await pool.query("SELECT id FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
-  const [objectRows,materials,contract,settlements]=await Promise.all([
+  const [objectRows,materials,settlements]=await Promise.all([
     pool.query("SELECT id FROM new_design.planning_objects WHERE book_id=$1 ORDER BY CASE level WHEN 'story' THEN 0 WHEN 'volume' THEN 1 WHEN 'chapter' THEN 2 ELSE 3 END,sort_order,id",[bookId]),
     pool.query(`SELECT card.id card_id,card.current_version_id card_version_id,type.type_key,type.name type_name,card.title,card.updated_at
       FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id AND card.status='active'
       JOIN new_design.card_types type ON type.id=card.card_type_id
       WHERE book.id=$1 AND card.current_version_id IS NOT NULL
       ORDER BY type.sort_order,type.name,card.title,card.id`,[bookId]),
-    pool.query(`SELECT contract.task_key,version.id version_id FROM new_design.task_contracts contract
-      JOIN new_design.task_contract_versions version ON version.contract_id=contract.id
-      WHERE contract.status='active' AND version.task_group='planning'
-        AND contract.published_version_id=version.id
-      ORDER BY version.created_at DESC LIMIT 1`),
     pool.query(`SELECT
       (SELECT count(DISTINCT checkpoint.chapter_document_id) FROM new_design.chapter_stable_checkpoints checkpoint WHERE checkpoint.book_id=$1 AND checkpoint.status='stable') stable,
       count(*) FILTER(WHERE session.status IN ('reviewing','adopted_pending_proposals','pending_review','partially_confirmed','settling')) pending,
@@ -33,8 +28,7 @@ export async function getPlanningCenterWorkspace(bookId:string):Promise<Planning
       FROM new_design.chapter_adoption_sessions session WHERE session.book_id=$1`,[bookId]),
   ]);
   const objects:PlanningObject[]=await Promise.all(objectRows.rows.map(row=>getPlanningObject(String(row.id))));
-  const capability=contract.rows[0];
-  const settlement=settlements.rows[0];return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review),revisionRunning:Number(settlement.revision_running),revisionFailed:Number(settlement.revision_failed),downstreamReview:Number(settlement.downstream_review)},aiCapability:capability?{configured:true,taskKey:String(capability.task_key),taskContractVersionId:String(capability.version_id),message:"已识别规划任务合同；AI 候选执行入口仍待接入，可先人工填写计划。"}:{configured:false,taskKey:null,taskContractVersionId:null,message:"规划任务尚未配置。可先人工填写，或到高级设置完成任务合同与模型分工。"},updatedAt:new Date().toISOString()};
+  const settlement=settlements.rows[0];return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review),revisionRunning:Number(settlement.revision_running),revisionFailed:Number(settlement.revision_failed),downstreamReview:Number(settlement.downstream_review)},aiCapability:{configured:true,taskKey:"planning.candidate.generate",taskContractVersionId:null,message:"AI 会读取本书资料和已采用规划，生成一份可比较、可修改的候选，不会自动采用。"},updatedAt:new Date().toISOString()};
 }
 
 export async function getBookOverview(bookId:string):Promise<BookOverview>{

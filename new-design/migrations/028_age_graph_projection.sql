@@ -216,16 +216,20 @@ END $$;
 CREATE TRIGGER graph_projection_mappings_guard BEFORE UPDATE OR DELETE ON graph_projection_source_mappings FOR EACH ROW EXECUTE FUNCTION guard_graph_projection_mapping();
 
 CREATE FUNCTION enqueue_graph_projection_resource() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE target dependency_resources%ROWTYPE;
+DECLARE target dependency_resources%ROWTYPE; request_kind_value text; reason_value text; idempotency_value text;
 BEGIN
-  IF TG_TABLE_NAME='dependency_resources' THEN target:=NEW;
-  ELSE SELECT * INTO target FROM dependency_resources WHERE id=NEW.resource_id;
+  IF TG_TABLE_NAME='dependency_resources' THEN
+    target:=NEW;
+    request_kind_value:='incremental_upsert'; reason_value:='统一依赖资源登记后同步图投影。'; idempotency_value:='resource:'||target.id::text;
+  ELSE
+    SELECT * INTO target FROM dependency_resources WHERE id=(to_jsonb(NEW)->>'resource_id')::uuid;
+    request_kind_value:='tombstone'; reason_value:='统一依赖资源失效后移出当前图投影。'; idempotency_value:='invalidation:'||(to_jsonb(NEW)->>'event_id')||':'||target.id::text;
   END IF;
   IF target.book_id IS NULL THEN RETURN NEW; END IF;
   INSERT INTO graph_projection_book_states(book_id,last_request_at) VALUES(target.book_id,now())
   ON CONFLICT(book_id) DO UPDATE SET last_request_at=excluded.last_request_at,revision=graph_projection_book_states.revision+1,updated_at=now();
   INSERT INTO graph_projection_requests(id,book_id,request_kind,dependency_resource_id,source_kind,source_id,source_version_id,source_revision,source_hash,reason,idempotency_key)
-  VALUES(gen_random_uuid(),target.book_id,CASE WHEN TG_TABLE_NAME='dependency_resources' THEN 'incremental_upsert' ELSE 'tombstone' END,target.id,target.resource_kind,target.stable_object_id,target.exact_version_id,1,target.content_hash,CASE WHEN TG_TABLE_NAME='dependency_resources' THEN '统一依赖资源登记后同步图投影。' ELSE '统一依赖资源失效后移出当前图投影。' END,CASE WHEN TG_TABLE_NAME='dependency_resources' THEN 'resource:' ELSE 'invalidation:'||NEW.event_id::text||':' END||target.id::text)
+  VALUES(gen_random_uuid(),target.book_id,request_kind_value,target.id,target.resource_kind,target.stable_object_id,target.exact_version_id,1,target.content_hash,reason_value,idempotency_value)
   ON CONFLICT(book_id,idempotency_key) DO NOTHING;
   RETURN NEW;
 END $$;

@@ -1,5 +1,54 @@
 SET search_path TO new_design, public;
 
+-- Databases that applied 029 before this repair still carry the original
+-- polymorphic trigger body. Repair it before this migration inserts resources.
+CREATE OR REPLACE FUNCTION enqueue_graph_projection_resource() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE target dependency_resources%ROWTYPE; request_kind_value text; reason_value text; idempotency_value text;
+BEGIN
+  IF TG_TABLE_NAME='dependency_resources' THEN
+    target:=NEW;
+    request_kind_value:='incremental_upsert'; reason_value:='统一依赖资源登记后同步图投影。'; idempotency_value:='resource:'||target.id::text;
+  ELSE
+    SELECT * INTO target FROM dependency_resources WHERE id=(to_jsonb(NEW)->>'resource_id')::uuid;
+    request_kind_value:='tombstone'; reason_value:='统一依赖资源失效后移出当前图投影。'; idempotency_value:='invalidation:'||(to_jsonb(NEW)->>'event_id')||':'||target.id::text;
+  END IF;
+  IF target.book_id IS NULL OR target.resource_kind NOT IN ('card_version','card_relation','canonical_fact','state_change','knowledge_state_change','story_event_timing','story_event_relation','planning_version') THEN RETURN NEW; END IF;
+  INSERT INTO graph_projection_book_states(book_id,last_request_at) VALUES(target.book_id,now()) ON CONFLICT(book_id) DO UPDATE SET last_request_at=excluded.last_request_at,revision=graph_projection_book_states.revision+1,updated_at=now();
+  INSERT INTO graph_projection_requests(id,book_id,request_kind,dependency_resource_id,source_kind,source_id,source_version_id,source_revision,source_hash,reason,idempotency_key)
+  VALUES(gen_random_uuid(),target.book_id,request_kind_value,target.id,target.resource_kind,target.stable_object_id,target.exact_version_id,1,target.content_hash,reason_value,idempotency_value)
+  ON CONFLICT(book_id,idempotency_key) DO NOTHING;
+  RETURN NEW;
+END $$;
+
+-- 030 originally computed ordering_key before a SELECT INTO that clears target
+-- variables when no existing event is found. Repair it before backfill inserts.
+CREATE OR REPLACE FUNCTION enqueue_registered_background_job(request_kind text,request_id uuid,request_space_id uuid,request_book_id uuid,requested_correlation_id uuid,requested_causation_id uuid,requested_producer_kind text DEFAULT 'domain_store') RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE handler background_job_handlers%ROWTYPE; event_id uuid; job_id uuid; sequence_value bigint; payload_value jsonb; ordering_value text; priority_value integer:=0;
+BEGIN
+  SELECT * INTO handler FROM background_job_handlers WHERE specialized_request_kind=request_kind AND status='active';
+  IF NOT FOUND THEN RAISE EXCEPTION 'no active handler registered for %',request_kind USING ERRCODE='23514'; END IF;
+  IF requested_producer_kind NOT IN ('domain_store','migration_bridge') THEN RAISE EXCEPTION 'invalid specialized request producer kind' USING ERRCODE='23514'; END IF;
+  IF request_kind='dependency_recompute_request' THEN SELECT priority INTO priority_value FROM dependency_recompute_requests WHERE id=request_id;
+  ELSIF request_kind='ai_task' THEN SELECT priority INTO priority_value FROM ai_tasks WHERE id=request_id;
+  END IF;
+  payload_value:=jsonb_build_object('specializedRequestKind',request_kind,'specializedRequestId',request_id,'bookId',request_book_id);
+  SELECT id,aggregate_sequence,ordering_key INTO event_id,sequence_value,ordering_value FROM outbox_events WHERE topic=handler.topic AND producer_idempotency_key='request:'||request_kind||':'||request_id::text;
+  IF event_id IS NULL THEN
+    ordering_value:=COALESCE('book:'||request_book_id::text||':handler:'||handler.handler_key,'space:'||request_space_id::text||':handler:'||handler.handler_key);
+    sequence_value:=reserve_outbox_aggregate_sequence(request_space_id,request_book_id,CASE WHEN request_book_id IS NULL THEN 'space_runtime' ELSE 'book_runtime' END,COALESCE(request_book_id,request_space_id));
+    event_id:=gen_random_uuid();
+    INSERT INTO outbox_events(id,space_id,book_id,topic,event_version,aggregate_kind,aggregate_id,aggregate_sequence,ordering_key,producer_kind,producer_idempotency_key,payload,payload_hash,correlation_id,causation_id)
+    VALUES(event_id,request_space_id,request_book_id,handler.topic,handler.event_version,CASE WHEN request_book_id IS NULL THEN 'space_runtime' ELSE 'book_runtime' END,COALESCE(request_book_id,request_space_id),sequence_value,ordering_value,requested_producer_kind,'request:'||request_kind||':'||request_id::text,payload_value,dependency_content_hash(payload_value::text),requested_correlation_id,requested_causation_id);
+  END IF;
+  SELECT id INTO job_id FROM background_jobs WHERE handler_key=handler.handler_key AND specialized_request_kind=request_kind AND specialized_request_id=request_id AND execution_generation=1;
+  IF job_id IS NULL THEN
+    job_id:=gen_random_uuid();
+    INSERT INTO background_jobs(id,outbox_event_id,space_id,book_id,handler_key,job_kind,specialized_request_kind,specialized_request_id,ordering_key,aggregate_sequence,priority,max_attempts)
+    VALUES(job_id,event_id,request_space_id,request_book_id,handler.handler_key,handler.job_kind,request_kind,request_id,ordering_value,sequence_value,priority_value,handler.default_max_attempts);
+  END IF;
+  RETURN job_id;
+END $$;
+
 ALTER TABLE card_mounts
   ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active',
   ADD COLUMN IF NOT EXISTS source_card_version_id uuid REFERENCES card_versions(id),
