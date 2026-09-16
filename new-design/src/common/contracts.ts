@@ -1084,6 +1084,7 @@ export interface BookCreationReviewCard extends InitialCardDraft {
   sourceVersionId: string | null;
   originalTitle: string;
   originalValues: Record<string, unknown>;
+  aiFieldBatchIds?: Record<string,string>;
 }
 
 export interface BookCreationReviewType {

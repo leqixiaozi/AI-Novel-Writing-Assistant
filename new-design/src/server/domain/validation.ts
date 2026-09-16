@@ -498,23 +498,22 @@ export const bookCreationSessionInputSchema = z.object({
   inputPayload: z.record(z.string(), z.unknown()).default({}),
   researchVersionIds:z.array(z.string().uuid()).max(50).default([]),
   researchPackVersionIds:z.array(z.string().uuid()).max(20).default([]),
-}).superRefine((input, context) => {
-  if ((input.method === "blank" || input.method === "template") && !input.bookName) {
-    context.addIssue({ code: "custom", path: ["bookName"], message: "请填写书名。" });
-  }
-  if (!["blank", "template"].includes(input.method)) {
-    const hasSource = input.description || input.sourceReference || input.researchVersionIds.length > 0 || input.researchPackVersionIds.length > 0 || Object.values(input.inputPayload).some((value) => typeof value === "string" && value.trim());
-    if (!hasSource) context.addIssue({ code: "custom", path: ["inputPayload"], message: "请填写创作来源或选择一个灵感。" });
+}).superRefine((input,context)=>{
+  if(["market","reference","continuation"].includes(input.method)){
+    const hasSource=input.description||input.sourceReference||input.researchVersionIds.length||input.researchPackVersionIds.length||Object.values(input.inputPayload).some(value=>typeof value==="string"&&value.trim());
+    if(!hasSource)context.addIssue({code:"custom",path:["inputPayload"],message:"这个起点需要真实来源；没有资料时可选择“没有想法”让 AI 推荐。"});
   }
 });
 
 export const selectDirectionSchema = z.object({ directionId: z.string().trim().min(1).max(80) });
 const bookCreationReviewCardSchema=z.object({
-  id:z.string().uuid(),typeKey:materialKeySchema,title:z.string().trim().min(1,"每条资料都需要标题。").max(160),values:z.record(z.string(),z.unknown()),
+  id:z.string().uuid(),typeKey:materialKeySchema,title:z.string().trim().max(160),values:z.record(z.string(),z.unknown()),
   sourceKind:z.enum(["template","ai","research","resource","manual"]),sourceId:z.string().uuid().nullable(),sourceVersionId:z.string().uuid().nullable(),
   originalTitle:z.string().max(160),originalValues:z.record(z.string(),z.unknown()),
+  aiFieldBatchIds:z.record(z.string(),z.string().uuid()).optional(),
 });
-export const bookCreationReviewSchema=z.object({bookName:z.string().trim().min(1,"请填写书名。").max(100),description:z.string().trim().max(800).default(""),reviewCards:z.array(bookCreationReviewCardSchema).max(300),revision:z.number().int().positive(),requireComplete:z.boolean().default(false)}).superRefine((input,context)=>{
+export const bookCreationReviewSchema=z.object({bookName:z.string().trim().max(100),description:z.string().trim().max(800).default(""),reviewCards:z.array(bookCreationReviewCardSchema).max(300),revision:z.number().int().positive(),requireComplete:z.boolean().default(false)}).superRefine((input,context)=>{
+  if(input.requireComplete&&!input.bookName.trim())context.addIssue({code:"custom",path:["bookName"],message:"请填写书名。"});
   const seen=new Set<string>();
   input.reviewCards.forEach((card,index)=>{if(seen.has(card.id))context.addIssue({code:"custom",path:["reviewCards",index,"id"],message:"同一条资料不能重复提交。"});seen.add(card.id);});
 });

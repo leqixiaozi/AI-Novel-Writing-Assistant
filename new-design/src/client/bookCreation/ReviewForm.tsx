@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { BookCreationReviewCard, BookCreationReviewSource, BookCreationSession, BookCreationReviewType } from "../../common/contracts";
 import { ApiError, newDesignApi } from "../api";
 import DynamicForm from "../DynamicForm";
+import DirectorControls from "./DirectorControls";
+import {creationDirectorState,CREATION_DIRECTOR_STAGES} from "../../common/creationDirector";
+import "./director.css";
 
 const SOURCE_LABELS: Record<BookCreationReviewSource,string> = {
   template:"模板预填",
@@ -32,6 +35,7 @@ export default function BookCreationReviewForm({session,busy,message,onSession,o
   const [newTypeKey,setNewTypeKey]=useState(session.reviewTypes[0]?.key??"");
   const [issues,setIssues]=useState<Record<string,string>>({});
   const [working,setWorking]=useState(false);
+  const [directorWorking,setDirectorWorking]=useState(false);
   const [notice,setNotice]=useState("");
 
   useEffect(()=>{
@@ -46,14 +50,14 @@ export default function BookCreationReviewForm({session,busy,message,onSession,o
   const grouped=useMemo(()=>session.reviewTypes.map(type=>({type,cards:cards.filter(card=>card.typeKey===type.key)})).filter(group=>group.cards.length),[cards,session.reviewTypes]);
   const selected=cards.find(card=>card.id===selectedId)??null;
   const selectedType=selected?typeByKey.get(selected.typeKey)??null:null;
-  const blocked=Boolean(busy||working);
+  const blocked=Boolean(busy||working||directorWorking),director=creationDirectorState(session.inputPayload),canConfirm=!director||director.mode==="manual"||CREATION_DIRECTOR_STAGES.every(stage=>director.completedStages.includes(stage.key));
 
   const patchSelected=(patch:Partial<BookCreationReviewCard>)=>setCards(current=>current.map(card=>card.id===selectedId?{...card,...patch}:card));
   const addCard=()=>{const type=typeByKey.get(newTypeKey);if(!type)return;const id=crypto.randomUUID(),card:BookCreationReviewCard={id,typeKey:type.key,title:`新建${type.name}`,values:initialValues(type),sourceKind:"manual",sourceId:null,sourceVersionId:null,originalTitle:`新建${type.name}`,originalValues:initialValues(type)};setCards(current=>[...current,card]);setSelectedId(id);setIssues({});setNotice("");};
   const removeSelected=()=>{if(!selected)return;const index=cards.findIndex(card=>card.id===selected.id),next=cards.filter(card=>card.id!==selected.id);setCards(next);setSelectedId(next[Math.min(index,next.length-1)]?.id??"");setIssues(current=>Object.fromEntries(Object.entries(current).filter(([key])=>!key.startsWith(selected.id))));setNotice("");};
   const save=async(requireComplete=false)=>{setWorking(true);setIssues({});setNotice("");try{const saved=await newDesignApi.saveBookCreationReview(session.id,{bookName,description,reviewCards:cards,revision:session.revision,requireComplete});onSession(saved);setNotice("开书表单已保存。");return saved;}catch(error){if(error instanceof ApiError){const mapped=Object.fromEntries(Object.entries(error.issues).map(([key,value])=>{const parts=key.split(".");if(parts[0]==="reviewCards"&&cards[Number(parts[1])])return [`${cards[Number(parts[1])].id}.${parts.slice(2).join(".")}`,value];return [key,value];}));setIssues(mapped);const first=cards.find(card=>Object.keys(mapped).some(key=>key.startsWith(card.id)));if(first)setSelectedId(first.id);}setNotice(error instanceof Error?error.message:"开书表单保存失败。");return null;}finally{setWorking(false);}};
   const create=async()=>{const saved=await save(true);if(saved)await onCreate(saved);};
-  const continueAi=async()=>{const saved=await save();if(!saved)return;if(onRegenerate){await onRegenerate();return;}onSession({...saved,status:"generating",stage:"understand_source",progress:18});try{onSession(await newDesignApi.generateBookDirections(saved.id));}catch{onSession(await newDesignApi.getBookCreationSession(saved.id));}};
+  const continueAi=async()=>{const saved=await save();if(!saved)return;if(director){try{onSession(await newDesignApi.prepareCreationDirector(saved.id,{expectedRevision:saved.revision,idempotencyKey:crypto.randomUUID()}));}catch{onSession(await newDesignApi.getBookCreationSession(saved.id));}return;}if(onRegenerate){await onRegenerate();return;}onSession({...saved,status:"generating",stage:"understand_source",progress:18});try{onSession(await newDesignApi.generateBookDirections(saved.id));}catch{onSession(await newDesignApi.getBookCreationSession(saved.id));}};
 
   return <section className="nd-book-review-form">
     <header className="nd-book-review-heading"><div><p className="nd-kicker">创建前审阅</p><h2>把开书资料调整到可以直接使用</h2><p>所有入口最终都在这里确认。左侧选择资料，右侧填写表单；不需要接触内部标识或原始数据。</p></div><span>{cards.length} 项资料</span></header>
@@ -74,6 +78,7 @@ export default function BookCreationReviewForm({session,busy,message,onSession,o
       </>:<div className="nd-empty"><strong>先从左侧选择一项资料</strong><span>也可以添加新的资料，再逐项填写。</span></div>}</main>
     </div>
     {(notice||message)&&<p role="status" aria-live="polite" className={`nd-message${Object.keys(issues).length||notice&&!notice.includes("已保存")||message?" is-error":""}`}>{notice||message}</p>}
-    <footer className="nd-book-review-actions"><div><span>创建前可保存未填完的草稿，再继续补充。</span><button className="nd-text-button" disabled={blocked} type="button" onClick={()=>void continueAi()}>{session.selectedDirectionId?"继续让 AI 完善初稿":"让 AI 准备故事方向"}</button></div><div className="nd-row-actions"><button className="nd-button nd-button-secondary" disabled={blocked} type="button" onClick={()=>void save()}>{working?"正在保存…":"保存表单"}</button><button className="nd-button nd-button-primary" disabled={blocked||!bookName.trim()} type="button" onClick={()=>void create()}>{blocked?"正在处理…":"创建书籍"}</button></div></footer>
+    {director&&<DirectorControls session={session} disabled={blocked} saveDraft={save} onSession={onSession} onBusy={setDirectorWorking}/>}
+    <footer className="nd-book-review-actions"><div><span>创建前可保存未填完的草稿，再继续补充。</span>{!director&&<button className="nd-text-button" disabled={blocked} type="button" onClick={()=>void continueAi()}>{session.selectedDirectionId?"继续让 AI 完善初稿":"让 AI 准备故事方向"}</button>}</div><div className="nd-row-actions"><button className="nd-button nd-button-secondary" disabled={blocked} type="button" onClick={()=>void save()}>{working?"正在保存…":"保存表单"}</button><button className="nd-button nd-button-primary" disabled={blocked||!bookName.trim()||!canConfirm} type="button" onClick={()=>void create()}>{blocked?"正在处理…":"确认开书"}</button></div></footer>
   </section>;
 }

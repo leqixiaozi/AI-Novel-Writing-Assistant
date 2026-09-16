@@ -161,7 +161,9 @@ async function installPayload(
     installedCards.set(`${card.typeKey}\u0000${card.title}`,{id:cardId,typeVersionId:type.versionId,title:card.title,values,revision:1});
     for (const [fieldKey, value] of [["$title", card.title] as const, ...Object.entries(values)]) {
       const originalValue=fieldKey==="$title"?prepared.originalTitle:prepared.originalValues[fieldKey];
-      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`, [randomUUID(), cardId, fieldKey, sourceKind, prepared.sourceId, sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null, confirmation, JSON.stringify(originalValue??null),JSON.stringify(value)]);
+      const fieldBatchId=(card as BookCreationReviewCard).aiFieldBatchIds?.[fieldKey];
+      if(fieldBatchId&&!(await client.query("SELECT 1 FROM new_design.ai_generation_batches WHERE id=$1 AND session_id=$2 AND status='review'",[fieldBatchId,options.origin?.sessionId??null])).rowCount)throw new NewDesignError("开书 AI 来源不属于当前创建会话，未创建书籍。",409);
+      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`, [randomUUID(), cardId, fieldKey, fieldBatchId?"ai":sourceKind, fieldBatchId?null:prepared.sourceId, fieldBatchId??(sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null), confirmation, JSON.stringify(originalValue??null),JSON.stringify(value)]);
     }
     if (sourceKind === "resource" && prepared.sourceId && prepared.sourceVersionId) {
       await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [randomUUID(), prepared.sourceId, prepared.sourceVersionId, bookId, cardId, JSON.stringify({ typeKey: card.typeKey, title: card.title, values })]);
@@ -193,6 +195,12 @@ export async function createBook(
     for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
     if (options.origin) {
       await client.query(`INSERT INTO new_design.book_content_sources (id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'confirmed')`, [randomUUID(), id, options.origin.sessionId ?? null, options.origin.method, options.origin.sourceReference, JSON.stringify(options.origin.sourcePayload)]);
+      if(options.origin.sessionId){
+        const published=await client.query("UPDATE new_design.book_creation_sessions SET status='completed',stage='ready',progress=100,book_id=$2,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1 AND status='creating' AND book_id IS NULL RETURNING id",[options.origin.sessionId,id]);
+        if(!published.rowCount)throw new NewDesignError("当前开书会话已变化，书籍未重复创建。",409);
+        const usedBatches=[...new Set([options.origin.generationBatchId,...(options.reviewCards??[]).flatMap(card=>Object.values(card.aiFieldBatchIds??{}))].filter((id):id is string=>Boolean(id)))];
+        if(usedBatches.length)await client.query("UPDATE new_design.ai_generation_batches SET status='applied',updated_at=now() WHERE id=ANY($1::uuid[]) AND session_id=$2 AND status='review'",[usedBatches,options.origin.sessionId]);
+      }
     }
     await client.query("COMMIT");
     return await getBook(id);

@@ -1,0 +1,5 @@
+.nd-director-controls{display:grid;gap:var(--nd-space-3,12px);padding-block:20px;}
+.nd-director-controls>.nd-control{max-width:360px;}
+.nd-director-stage-list{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0;}
+.nd-director-stage-list button{min-height:44px;white-space:normal;text-align:left;}
+.nd-director-stage-list button[aria-current="step"]{background:var(--nd-soft);color:var(--nd-ink);outline:1px solid var(--nd-border);}

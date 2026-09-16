@@ -3,6 +3,7 @@ import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
 import { businessFormAiRouter } from "./formAssist";
+import { mountCreationDirector } from "./creationDirector";
 import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
   archiveCard,
@@ -366,6 +367,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
+  mountCreationDirector(router,dependencies.ai);
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
   router.use(businessFormAiRouter(dependencies.ai));
 

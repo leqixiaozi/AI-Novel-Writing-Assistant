@@ -40,7 +40,7 @@ export default function FormAiPanel({context,fields,values,disabled}:{context:Fo
     const captured=latest.current,payload={target:captured.target,action,instruction:[ACTIONS.find(item=>item.key===action)!.instruction,instruction.trim()].filter(Boolean).join("\n"),values:captured.values,tagIds:captured.tagIds,fieldKeys,referenceCardIds},signature=JSON.stringify(payload),key=requestKey.current?.signature===signature?requestKey.current.key:crypto.randomUUID();requestKey.current={key,signature};
     try {let result=await newDesignApi.generateBusinessFormAi({...payload,idempotencyKey:key});
       if(sequence!==generation.current)return;choose(result);requestKey.current=null;
-      if(result.status==="failed")setMessage(result.error??"生成失败，请重新发起。");
+      if(result.status==="failed")setMessage(`${result.error??"AI 生成没有完成。"} 未保存的表单内容保留；在本区域点击“重试生成建议”。`);
       if(result.status==="running")setMessage("同一次请求仍在生成，可稍后读取结果。");
     }catch(error){if(sequence===generation.current)setMessage(error instanceof Error?error.message:"生成失败。请重试同一次请求。");}finally{if(sequence===generation.current)setBusy(false);}
   };
@@ -60,7 +60,7 @@ export default function FormAiPanel({context,fields,values,disabled}:{context:Fo
     {action!=="check"&&action!=="recommend"&&<details><summary>指定要完善的项目（不选时参考全部允许项目）</summary><div className="nd-form-ai-fields">{available.map(field=><label key={field.key}><input type="checkbox" disabled={busy||disabled} checked={fieldKeys.includes(field.key)} onChange={event=>{setFieldKeys(keys=>event.target.checked?[...keys,field.key]:keys.filter(key=>key!==field.key));resetRequest();}}/>{field.name}</label>)}</div></details>}
     <FormAiReferences bookId={context.target.bookId} selected={referenceCardIds} disabled={busy||disabled} onChange={ids=>{setReferenceCardIds(ids);resetRequest();}}/>
     <label className="nd-control"><span>补充要求{action==="adjust"?"（必填）":"（可选）"}</span><textarea rows={2} value={instruction} disabled={busy||disabled} placeholder="例如：保留人物动机，补充与宗门之间的冲突" onChange={event=>{setInstruction(event.target.value);resetRequest();}}/></label>
-    <button className="nd-button nd-button-primary" type="button" disabled={busy||disabled||action==="adjust"&&!instruction.trim()} onClick={()=>void generate()}>{busy?"处理中…":"生成建议"}</button>
+    <button className="nd-button nd-button-primary" type="button" disabled={busy||disabled||action==="adjust"&&!instruction.trim()} onClick={()=>void generate()}>{busy?"处理中…":run?.status==="failed"?"重试生成建议":"生成建议"}</button>
     <p className="nd-help-text">可以从空白开始：输入一句想法，或直接让 AI 推荐。必填项在保存时检查；填写与补充保留人工内容。</p>
     {run&&<div className="nd-form-ai-review"><p className="nd-kicker">基于生成时的表单草稿 · 第 {run.snapshot.target.cardRevision??1} 次资料修订</p>
       {run.status==="running"&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void newDesignApi.getBusinessFormAi(context.target.bookId,run.id).then(choose).catch(error=>setMessage(error.message))}>读取生成结果</button>}

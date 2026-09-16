@@ -40,7 +40,7 @@ export async function generateBusinessFormAi(request:FormAssistRequest,gateway?:
       currentValues:{...request.values,__readonly_context:{relations:snapshot!.relations,trees:snapshot!.trees.filter(tree=>tree.rule.aiSuggestible).map(tree=>({...tree,nodes:tree.nodes.filter(node=>selectableTreeNodeIds(tree.nodes,tree.rule).has(node.id))}))}},fields,instruction:request.instruction})));
     const candidates:FormAssistCandidate[]=[],observations:FormAssistRun["observations"]=[],newNodes:FormAssistRun["newNodes"]=[];
     for(const [index,output] of outputs.entries()){
-      if(["fill_required","prepare_all"].includes(request.action)&&fields.some(field=>field.required&&validateFieldValue(field,output?.[field.key])))throw new NewDesignError("AI 未完整准备本次必填内容，请重新生成；原草稿保留。",422);
+      const missing=fields.filter(field=>field.required&&validateFieldValue(field,output?.[field.key]));if(["fill_required","prepare_all"].includes(request.action)&&missing.length)throw new NewDesignError(`AI 未完整准备必填项：${missing.slice(0,5).map(field=>field.key==="__title"?"资料名称":field.name).join("、")}。请在此重试生成建议，原草稿保留。`,422);
       if(!output||Array.isArray(output)||typeof output!=="object"||Object.keys(output).some(key=>!allowed.has(key)))throw new NewDesignError("AI 返回了当前表单范围以外的内容，请重试。",422);
       const candidate:FormAssistCandidate={id:randomUUID(),name:outputs.length>1?`方案 ${index+1}`:"修改建议",values:{},tags:{}};
       for(const [key,value] of Object.entries(output)){

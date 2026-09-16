@@ -11,12 +11,13 @@ function isBlank(value:unknown):boolean{return value===null||value===undefined||
 
 export function normalizeBookCreationReview(incoming:BookCreationReviewCard[],existing:BookCreationReviewCard[]):BookCreationReviewCard[]{
   const byId=new Map(existing.map(card=>[card.id,card]));
-  return incoming.map(card=>{const original=byId.get(card.id);return original?{...card,typeKey:original.typeKey,sourceKind:original.sourceKind,sourceId:original.sourceId,sourceVersionId:original.sourceVersionId,originalTitle:original.originalTitle,originalValues:structuredClone(original.originalValues)}:{...card,sourceKind:"manual" as const,sourceId:null,sourceVersionId:null,originalTitle:card.title,originalValues:structuredClone(card.values)};});
+  return incoming.map(card=>{const original=byId.get(card.id);return original?{...card,typeKey:original.typeKey,sourceKind:original.sourceKind,sourceId:original.sourceId,sourceVersionId:original.sourceVersionId,originalTitle:original.originalTitle,originalValues:structuredClone(original.originalValues),aiFieldBatchIds:structuredClone(original.aiFieldBatchIds??{})}:{...card,sourceKind:"manual" as const,sourceId:null,sourceVersionId:null,originalTitle:card.title,originalValues:structuredClone(card.values),aiFieldBatchIds:{}};});
 }
 
 export function validateBookCreationReviewCards(cards:BookCreationReviewCard[],types:BookCreationReviewType[],dictionaries:ReviewDictionary[],requireComplete:boolean):{cards:BookCreationReviewCard[];issues:Record<string,string>}{
   const typeByKey=new Map(types.map(type=>[type.key,type])),dictionaryById=new Map(dictionaries.map(dictionary=>[dictionary.sourceId,dictionary])),issues:Record<string,string>={};
   const normalized=cards.map(card=>{
+    if(requireComplete&&!card.title.trim())issues[`${card.id}.title`]="请填写资料标题。";
     const type=typeByKey.get(card.typeKey);
     if(!type){issues[card.id]="这类资料不在当前开书模板中。";return card;}
     const validated=validateCardValues(requireComplete?type.fields:type.fields.map(field=>({...field,required:false})),card.values);

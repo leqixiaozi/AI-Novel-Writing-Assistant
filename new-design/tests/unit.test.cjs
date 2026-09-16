@@ -52,10 +52,11 @@ test("published schema only accepts new optional fields", () => {
 
 test("book creation inputs keep entry method separate from template structure", () => {
   const common = { templateVersionId: "40000000-0000-4000-8000-000000000002", description: "", sourceReference: "", inputPayload: {} };
-  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "" }).success, false);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "" }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "blank", bookName: "新书" }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "idea", bookName: "", inputPayload: { idea: "一条真实灵感" } }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "market", bookName: "" }).success, false);
+  assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "inspiration", bookName: "" }).success, true);
   assert.equal(bookCreationSessionInputSchema.safeParse({ ...common, method: "reference", bookName: "", researchVersionIds:["10000000-0000-4000-8000-000000000001"] }).success, true);
 });
 
@@ -63,7 +64,8 @@ test("book creation review validates one editable contract before creation",()=>
   const card={id:"10000000-0000-4000-8000-000000000001",typeKey:"character",title:"主角",values:{name:"林川"},sourceKind:"ai",sourceId:null,sourceVersionId:null,originalTitle:"主角",originalValues:{name:"林川"}};
   const review={bookName:"守脉者",description:"仙侠悬疑",reviewCards:[card],revision:2};
   assert.equal(bookCreationReviewSchema.safeParse(review).success,true);
-  assert.equal(bookCreationReviewSchema.safeParse({...review,bookName:""}).success,false);
+  assert.equal(bookCreationReviewSchema.safeParse({...review,bookName:""}).success,true);
+  assert.equal(bookCreationReviewSchema.safeParse({...review,bookName:"",requireComplete:true}).success,false);
   assert.equal(bookCreationReviewSchema.safeParse({...review,reviewCards:[card,card]}).success,false);
   assert.equal(completeBookCreationSchema.safeParse({expectedRevision:3}).success,true);
   assert.equal(completeBookCreationSchema.safeParse({}).success,false);

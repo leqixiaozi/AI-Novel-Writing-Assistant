@@ -1,6 +1,7 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import { publicServiceError } from "../common/presentation";
 import type { ContextAuthorCatalog } from "../common/contextAuthor";
+import type {CreationDirectorCommand,CreationDirectorControl} from "../common/creationDirector";
 import type {
   ApiEnvelope,
   AiAssistBatch,
@@ -438,6 +439,8 @@ export const newDesignApi = {
   installStrategyResource: (resourceId:string,bookId:string) => request<{resource:StrategyResourceSummary;target:CardSummary;adoption:ResourceAdoption}>(`/resources/strategies/${resourceId}/install`,{method:"POST",body:JSON.stringify({bookId})}),
   createBookCreationSession: (input: { method:BookCreationMethod;templateVersionId:string;bookName:string;description:string;sourceReference:string;inputPayload:Record<string,unknown>;researchVersionIds?:string[];researchPackVersionIds?:string[] }) => request<BookCreationSession>("/book-creation/sessions", {method:"POST",body:JSON.stringify(input)}),
   getBookCreationSession: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}`),
+  controlCreationDirector:(id:string,input:CreationDirectorControl)=>request<BookCreationSession>(`/book-creation/sessions/${id}/director`,{method:"PATCH",body:JSON.stringify(input)}),
+  prepareCreationDirector:(id:string,input:CreationDirectorCommand)=>request<BookCreationSession>(`/book-creation/sessions/${id}/director/prepare`,{method:"POST",body:JSON.stringify(input)}),
   generateBookDirections: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/directions`, {method:"POST",body:"{}"}),
   selectBookDirection: (id:string,directionId:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/select-direction`, {method:"POST",body:JSON.stringify({directionId})}),
   generateBookInitialContent: (id:string) => request<BookCreationSession>(`/book-creation/sessions/${id}/initial-content`, {method:"POST",body:"{}"}),
