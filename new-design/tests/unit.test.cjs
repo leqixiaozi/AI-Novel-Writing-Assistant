@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { aiAttemptFailureSchema, aiAttemptStartSchema, aiAttemptUsageSchema, aiTaskCreateSchema, bookChangePreviewSchema, bookCreationSessionInputSchema, bookViewConfigSchema, canonicalFactInputSchema, canonicalFactReviewSchema, chapterBodyAdoptionSchema, chapterBodyVersionInputSchema, chapterTextAnchorInputSchema, contextManifestCreateSchema, knowledgeStateProposalInputSchema, modelCredentialRefSchema, modelRouteCreateSchema, planningObjectInputSchema, planningVersionInputSchema, promptRecipeCreateSchema, qualityAuditReportCreateSchema, qualityRecheckSchema, researchDocumentInputSchema, stateChangeProposalInputSchema, stateValueMappingSchema, storyRelationProposalInputSchema, storyTimeProposalInputSchema, validateCardValues, validatePublishedEvolution } = require("../dist/server/domain/validation.js");
 const { buildCardTypeTree } = require("../dist/common/cardTypeTree.js");
+const { selectableTreeNodeIds, treeDescendantIds, validateTreeSelection, wouldCreateTreeCycle } = require("../dist/common/treePolicy.js");
 const { isPrimaryMarketList,parseFanqieDetail,parseFanqieRanking,parseQidianRanking,parseJinjiangRanking } = require("../dist/server/research/marketSources.js");
 
 const fields = [
@@ -14,6 +15,31 @@ test("card validation rejects missing, invalid and unknown values", () => {
   assert.equal(result.issues.name, "姓名为必填项。");
   assert.equal(result.issues.age, "年龄需要填写有效数字。");
   assert.match(result.issues.surprise, /不在当前元卡片定义中/);
+});
+
+test("tree rules keep cycles, branches, levels and selection counts deterministic",()=>{
+  const nodes=[
+    {id:"root",parentId:null,status:"active"},
+    {id:"branch",parentId:"root",status:"active"},
+    {id:"leaf",parentId:"branch",status:"active"},
+    {id:"other",parentId:"root",status:"active"},
+    {id:"archived",parentId:"branch",status:"archived"},
+  ];
+  assert.deepEqual([...treeDescendantIds(nodes,"branch")].sort(),["archived","leaf"]);
+  assert.equal(wouldCreateTreeCycle(nodes,"root","leaf"),true);
+  const direct={mode:"multiple",rootNodeId:"root",depthMode:"direct_children",relativeDepth:null,leafOnly:false,allowParentSelection:true,showFullPath:true,allowInlineCreate:false,aiSuggestible:true,minSelections:1,maxSelections:2};
+  assert.deepEqual([...selectableTreeNodeIds(nodes,direct)].sort(),["branch","other"]);
+  assert.equal(validateTreeSelection(nodes,direct,["branch"]).valid,true);
+  assert.match(validateTreeSelection(nodes,direct,["leaf"]).message,/允许分支或层级/);
+  assert.match(validateTreeSelection(nodes,direct,[]).message,/至少选择 1 项/);
+  const relative={...direct,depthMode:"relative_depth",relativeDepth:2};
+  assert.deepEqual([...selectableTreeNodeIds(nodes,relative)].sort(),["branch","leaf","other","root"]);
+});
+
+test("dictionary-backed fields validate stored stable node ids instead of display labels",()=>{
+  const dictionaryField={key:"location",name:"地点",description:"",type:"select",required:true,defaultValue:null,options:[],group:"场景",order:0,optionSource:{kind:"dictionary_tree",dictionaryId:"10000000-0000-4000-8000-000000000001",rule:{mode:"single",rootNodeId:null,depthMode:"whole_tree",relativeDepth:null,leafOnly:false,allowParentSelection:true,showFullPath:true,allowInlineCreate:false,aiSuggestible:true,minSelections:1,maxSelections:1},settleOnChapter:false}};
+  assert.deepEqual(validateCardValues([dictionaryField],{location:"20000000-0000-4000-8000-000000000001"}).issues,{});
+  assert.match(validateCardValues([dictionaryField],{location:["20000000-0000-4000-8000-000000000001"]}).issues.location,/选择无效/);
 });
 
 test("published schema only accepts new optional fields", () => {

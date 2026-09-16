@@ -184,4 +184,12 @@ export const migrations: Migration[] = [
     id: "045_planning_ai_candidates",
     fileName: "045_planning_ai_candidates.sql",
   },
+  {
+    id: "046_unified_dictionary_tag_trees",
+    fileName: "046_unified_dictionary_tag_trees.sql",
+  },
+  {
+    id: "047_tree_value_snapshot_paths",
+    fileName: "047_tree_value_snapshot_paths.sql",
+  },
 ];

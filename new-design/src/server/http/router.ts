@@ -35,6 +35,7 @@ import {
   listCardGroupForms,
   listCardGroupFormVersions,
   listDictionaries,
+  getDictionary,
   listFormInstances,
   listRelationTypes,
   publishCardGroupForm,
@@ -43,6 +44,7 @@ import {
   saveFormInstance,
   saveRelationType,
 } from "../database/compositionStore";
+import { listCardTypeTagBindings, listStandardFieldSemantics, listTagDimensions, previewTreeNodeChange, saveCardTypeTagBinding, saveStandardFieldSemantic, saveTagDimension } from "../database/treeResources";
 import { NewDesignError } from "../domain/errors";
 import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
@@ -108,6 +110,10 @@ import {
   bookCreationSessionInputSchema,
   completeBookCreationSchema,
   dictionaryInputSchema,
+  tagDimensionInputSchema,
+  treeImpactInputSchema,
+  standardFieldSemanticInputSchema,
+  cardTypeTagBindingInputSchema,
   formInstanceInputSchema,
   formAssistSchema,
   relationTypeInputSchema,
@@ -414,11 +420,22 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/books/:bookId/field-definitions/:fieldId/archive",asyncRoute(async(req,res)=>success(res,await archiveScopedField(String(req.params.bookId),String(req.params.fieldId),body(archiveScopedFieldSchema,req)))));
 
   router.get("/dictionaries", asyncRoute(async (req, res) => success(res, await listDictionaries(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
+  router.get("/dictionaries/:id",asyncRoute(async(req,res)=>success(res,await getDictionary(String(req.params.id)))));
   router.post("/dictionaries", asyncRoute(async (req, res) => success(res, await saveDictionary(body(dictionaryInputSchema, req)), 201)));
   router.patch("/dictionaries/:id", asyncRoute(async (req, res) => {
     const input = body(dictionaryInputSchema, req);
     success(res, await saveDictionary({ ...input, id: String(req.params.id) }));
   }));
+  router.post("/tree-nodes/:id/impact-preview",asyncRoute(async(req,res)=>{const input=body(treeImpactInputSchema,req);success(res,await previewTreeNodeChange(input.kind,String(req.params.id),input.action));}));
+  router.get("/tag-dimensions",asyncRoute(async(req,res)=>success(res,await listTagDimensions(typeof req.query.spaceId==="string"?req.query.spaceId:undefined))));
+  router.post("/tag-dimensions",asyncRoute(async(req,res)=>success(res,await saveTagDimension(body(tagDimensionInputSchema,req)),201)));
+  router.patch("/tag-dimensions/:id",asyncRoute(async(req,res)=>success(res,await saveTagDimension({...body(tagDimensionInputSchema,req),id:String(req.params.id)}))));
+  router.get("/standard-field-semantics",asyncRoute(async(_req,res)=>success(res,await listStandardFieldSemantics())));
+  router.post("/standard-field-semantics",asyncRoute(async(req,res)=>success(res,await saveStandardFieldSemantic(body(standardFieldSemanticInputSchema,req)),201)));
+  router.patch("/standard-field-semantics/:id",asyncRoute(async(req,res)=>success(res,await saveStandardFieldSemantic({...body(standardFieldSemanticInputSchema,req),id:String(req.params.id)}))));
+  router.get("/card-types/:id/tag-bindings",asyncRoute(async(req,res)=>success(res,await listCardTypeTagBindings(String(req.params.id)))));
+  router.post("/card-type-tag-bindings",asyncRoute(async(req,res)=>success(res,await saveCardTypeTagBinding(body(cardTypeTagBindingInputSchema,req)),201)));
+  router.patch("/card-type-tag-bindings/:id",asyncRoute(async(req,res)=>success(res,await saveCardTypeTagBinding({...body(cardTypeTagBindingInputSchema,req),id:String(req.params.id)}))));
 
   router.get("/relation-types", asyncRoute(async (req, res) => success(res, await listRelationTypes(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
   router.post("/relation-types", asyncRoute(async (req, res) => success(res, await saveRelationType(body(relationTypeInputSchema, req)), 201)));

@@ -18,6 +18,7 @@ import DynamicForm from "../DynamicForm";
 import AddInformationDialog from "./AddInformationDialog";
 import AssociationPanel from "./AssociationPanel";
 import MaterialManagementPanel from "./MaterialManagementPanel";
+import { CardTagFields } from "../tree";
 import {
   SCOPE_COPY,
   cardsForType,
@@ -306,6 +307,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
             {issues.title && <em>{issues.title}</em>}
           </label>
           <DynamicForm fields={combinedFields} values={{...values,...localValues}} issues={issues} scopeLabelByKey={scopeLabelByKey} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
+          {editing&&selectedType&&<CardTagFields scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing.id}/>}
 
           <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
 

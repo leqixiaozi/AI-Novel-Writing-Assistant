@@ -4,6 +4,7 @@ import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion,
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateBookTypeEvolution, validateCardValues, validateFieldValue, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
+import { snapshotDictionaryTreeValues, validateDictionaryTreeBindings, validateDictionaryTreeValues } from "./treeResources";
 
 export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -120,6 +121,8 @@ export async function createCardType(input: { key: string; name: string; descrip
   const pool = await getNewDesignPool();
   const id = randomUUID();
   try {
+    const bindingIssues=await validateDictionaryTreeBindings(pool,input.fields);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,bindingIssues);
     const result = await pool.query(`
       INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields, category_id)
       VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb, $8)
@@ -142,6 +145,8 @@ export async function updateCardType(
     await client.query("BEGIN");
     const existing = assertFound(await findCardType(client, id, true), "元卡片类型不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再保存。", 409);
+    const bindingIssues=await validateDictionaryTreeBindings(client,input.fields);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,bindingIssues);
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
       const issues = existing.spaceId === DEFAULT_SPACE_ID
@@ -174,6 +179,8 @@ export async function publishCardType(id: string, revision: number): Promise<Car
     await client.query("BEGIN");
     const existing = assertFound(await findCardType(client, id, true), "元卡片类型不存在。");
     if (existing.revision !== revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再发布。", 409);
+    const bindingIssues=await validateDictionaryTreeBindings(client,existing.draftFields);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("发布失败：字典树绑定的字典或范围起点已不可用。",422,bindingIssues);
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
       const issues = existing.spaceId === DEFAULT_SPACE_ID
@@ -283,6 +290,8 @@ export async function createCard(input: { cardTypeId: string; title: string; val
       typeKey: String(typeSpace.rows[0].type_key),
       requireCurrent: true,
     });
+    const treeIssues=await validateDictionaryTreeValues(client,typeVersion.fields,validated.values);
+    if(Object.keys(treeIssues).length)throw new NewDesignError("请选择允许范围内的字典项目。",422,treeIssues);
     await client.query(`
       INSERT INTO new_design.cards (id, space_id, card_type_id, title, status, revision, type_version_id, values)
       VALUES ($1, $2, $3, $4, 'active', 1, $5, $6::jsonb)
@@ -291,6 +300,7 @@ export async function createCard(input: { cardTypeId: string; title: string; val
       INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
       VALUES ($1, $2, 1, $3, $4, $5::jsonb, 'create', $6, $7)
     `, [versionId, cardId, typeVersion.id, input.title, JSON.stringify(validated.values), input.formVersionId??null, input.formResolutionKind??"legacy"]);
+    await snapshotDictionaryTreeValues(client,typeVersion.fields,validated.values,versionId);
     await client.query("UPDATE new_design.cards SET current_version_id = $2 WHERE id = $1", [cardId, versionId]);
     await client.query("COMMIT");
     return assertFound(await findCard(pool, cardId), "卡片创建后读取失败。");
@@ -322,6 +332,8 @@ async function updateCardSnapshot(
     await validateFormProvenance(client,{formVersionId,formResolutionKind,spaceId:String(cardContext.space_id),typeKey:String(cardContext.type_key),requireCurrent:input.formVersionId!==undefined||input.formResolutionKind!==undefined});
     const validated = validateCardValues(typeVersion.fields, incomingValues);
     if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
+    const treeIssues=await validateDictionaryTreeValues(client,typeVersion.fields,validated.values);
+    if(Object.keys(treeIssues).length)throw new NewDesignError("请选择允许范围内的字典项目。",422,treeIssues);
     const localDefinitions=await client.query(`SELECT definition.id,definition.field_key,definition.current_version_id,version.field_schema
       FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id
       WHERE definition.card_id=$1 AND definition.scope='card' AND definition.status='active'`,[id]);
@@ -342,6 +354,7 @@ async function updateCardSnapshot(
       INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
     `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source, formVersionId, formResolutionKind]);
+    await snapshotDictionaryTreeValues(client,typeVersion.fields,validated.values,versionId);
     for(const [key,row] of localByKey){const value=incomingLocalValues[key];if(value===undefined||value===null||value===""||(Array.isArray(value)&&value.length===0))continue;await client.query(`INSERT INTO new_design.card_version_local_values(card_version_id,field_definition_id,field_definition_version_id,value) VALUES($1,$2,$3,$4::jsonb)`,[versionId,row.id,row.current_version_id,JSON.stringify(value)]);}
     await client.query(`
       UPDATE new_design.cards

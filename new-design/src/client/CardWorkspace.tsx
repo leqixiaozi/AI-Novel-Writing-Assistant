@@ -3,6 +3,7 @@ import type { CardSummary, CardTypeCategory, CardTypeSummary, CardTypeVersion, C
 import { buildCardTypeTree, type CardTypeTreeNode } from "../common/cardTypeTree";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
+import { CardTagFields } from "./tree";
 
 interface CardWorkspaceProps {
   cardTypes: CardTypeSummary[];
@@ -238,6 +239,7 @@ export default function CardWorkspace({
               {issues.title && <em>{issues.title}</em>}
             </label>
             <DynamicForm fields={fields} values={values} issues={issues} onChange={setValues} />
+            {editing&&selectedType&&spaceId&&<CardTagFields scope={{spaceId}} spaceId={spaceId} cardTypeId={selectedType.id} cardId={editing.id}/>}
             {message && <p className={`nd-message${Object.keys(issues).length ? " is-error" : " is-success"}`}>{message}</p>}
             <div className="nd-editor-actions">
               <button className="nd-button nd-button-secondary" type="button" onClick={() => { setEditing(null); setCreating(false); }}>取消</button>

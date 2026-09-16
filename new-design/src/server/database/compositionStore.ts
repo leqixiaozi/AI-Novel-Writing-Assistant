@@ -23,6 +23,7 @@ function mapDictionary(row: Record<string, unknown>, items: DictionarySummary["i
   return {
     id: String(row.id), key: String(row.dictionary_key), name: String(row.name), description: String(row.description ?? ""),
     scope: row.scope as DictionarySummary["scope"], ownerSpaceId: row.owner_space_id ? String(row.owner_space_id) : null,
+    sourceDictionaryId: row.source_dictionary_id ? String(row.source_dictionary_id) : null, readOnly: Boolean(row.read_only),
     status: row.status as DictionarySummary["status"], revision: Number(row.revision), items,
     createdAt: asDate(row.created_at), updatedAt: asDate(row.updated_at),
   };
@@ -32,18 +33,31 @@ export async function listDictionaries(spaceId?: string): Promise<DictionarySumm
   const pool = await getNewDesignPool();
   const definitions = await pool.query(`SELECT * FROM new_design.dictionary_definitions WHERE status <> 'archived'
     AND ${spaceId ? "owner_space_id=$1" : "owner_space_id IS NULL"} ORDER BY scope, name`, spaceId ? [spaceId] : []);
-  const items = await pool.query("SELECT * FROM new_design.dictionary_items ORDER BY dictionary_id, sort_order, label");
+  const items = await pool.query(`SELECT item.*,version.path_node_ids,version.path_labels,
+    (SELECT count(*) FROM new_design.dictionary_items child WHERE child.parent_id=item.id AND child.status='active') child_count,
+    (SELECT count(*) FROM new_design.card_tree_value_snapshots snapshot WHERE item.id=ANY(snapshot.node_ids)) reference_count
+    FROM new_design.dictionary_items item LEFT JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id
+    ORDER BY item.dictionary_id,item.sort_order,item.label`);
   return definitions.rows.map((row) => mapDictionary(row, items.rows
     .filter((item) => String(item.dictionary_id) === String(row.id))
     .map((item) => ({
-      id: String(item.id), key: String(item.item_key), label: String(item.label), value: item.value as Record<string, unknown>,
-      sortOrder: Number(item.sort_order), status: item.status as "active" | "archived",
+      id: String(item.id), key: String(item.item_key), label: String(item.label), description: String(item.description ?? ""),
+      parentId: item.parent_id ? String(item.parent_id) : null, value: item.value as Record<string, unknown>,
+      sortOrder: Number(item.sort_order), status: item.status as "active" | "archived", revision: Number(item.revision),
+      currentVersionId: item.current_version_id ? String(item.current_version_id) : null,
+      path: ((item.path_node_ids as string[] | null) ?? [String(item.id)]).map((id,index)=>({id:String(id),label:String((item.path_labels as string[] | null)?.[index] ?? item.label)})),
+      childCount: Number(item.child_count ?? 0), referenceCount: Number(item.reference_count ?? 0),
     }))));
+}
+
+export async function getDictionary(id:string):Promise<DictionarySummary>{
+  const row=assertFound((await(await getNewDesignPool()).query("SELECT owner_space_id FROM new_design.dictionary_definitions WHERE id=$1",[id])).rows[0],"字典不存在。");
+  return assertFound((await listDictionaries(row.owner_space_id?String(row.owner_space_id):undefined)).find(item=>item.id===id),"字典不存在。");
 }
 
 export async function saveDictionary(input: {
   id?: string; key: string; name: string; description: string; scope: DictionarySummary["scope"];
-  ownerSpaceId?: string | null; revision?: number; items: Array<Omit<DictionarySummary["items"][number], "id"> & { id?: string }>;
+  ownerSpaceId?: string | null; revision?: number; readOnly?: boolean; items: Array<Partial<DictionarySummary["items"][number]> & Pick<DictionarySummary["items"][number], "label" | "sortOrder" | "status">>;
 }): Promise<DictionarySummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
@@ -53,20 +67,34 @@ export async function saveDictionary(input: {
     if (input.id) {
       const current = assertFound((await client.query("SELECT * FROM new_design.dictionary_definitions WHERE id = $1 FOR UPDATE", [id])).rows[0], "字典不存在。");
       if (Number(current.revision) !== input.revision) throw new NewDesignError("字典已在其他页面更新，请刷新后重试。", 409);
+      if (current.read_only) throw new NewDesignError("系统字典只用于显示稳定状态，不能修改结构。", 422);
       await client.query(`UPDATE new_design.dictionary_definitions SET name=$2, description=$3, scope=$4, owner_space_id=$5,
-        revision=revision+1, updated_at=now() WHERE id=$1`, [id, input.name, input.description, input.scope, input.ownerSpaceId ?? null]);
-      await client.query("UPDATE new_design.dictionary_items SET status='archived', updated_at=now() WHERE dictionary_id=$1", [id]);
+        read_only=$6,revision=revision+1, updated_at=now() WHERE id=$1`, [id, input.name, input.description, input.scope, input.ownerSpaceId ?? null,input.readOnly??false]);
     } else {
       await client.query(`INSERT INTO new_design.dictionary_definitions
-        (id,dictionary_key,name,description,scope,owner_space_id,status) VALUES ($1,$2,$3,$4,$5,$6,'published')`,
-      [id, input.key, input.name, input.description, input.scope, input.ownerSpaceId ?? null]);
+        (id,dictionary_key,name,description,scope,owner_space_id,status,read_only) VALUES ($1,$2,$3,$4,$5,$6,'published',$7)`,
+      [id, input.key, input.name, input.description, input.scope, input.ownerSpaceId ?? null,input.readOnly??false]);
     }
-    for (const item of input.items) {
-      await client.query(`INSERT INTO new_design.dictionary_items (id,dictionary_id,item_key,label,value,sort_order,status)
-        VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)
-        ON CONFLICT (dictionary_id,item_key) DO UPDATE SET label=EXCLUDED.label,value=EXCLUDED.value,
-        sort_order=EXCLUDED.sort_order,status=EXCLUDED.status,updated_at=now()`,
-      [item.id ?? randomUUID(), id, item.key, item.label, JSON.stringify(item.value), item.sortOrder, item.status]);
+    const preparedItems=input.items.map(item=>{const itemId=item.id??randomUUID();return{...item,id:itemId,key:item.key??`node_${itemId.replace(/-/g,"").slice(0,12)}`};});
+    for (const item of preparedItems) {
+      await client.query(`INSERT INTO new_design.dictionary_items (id,dictionary_id,item_key,label,description,parent_id,value,sort_order,status)
+        VALUES ($1,$2,$3,$4,$5,NULL,$6::jsonb,$7,$8)
+        ON CONFLICT (dictionary_id,item_key) DO UPDATE SET label=EXCLUDED.label,description=EXCLUDED.description,parent_id=NULL,value=EXCLUDED.value,
+        sort_order=EXCLUDED.sort_order,status=EXCLUDED.status,revision=dictionary_items.revision+1,updated_at=now()`,
+      [item.id,id,item.key,item.label,item.description??"",JSON.stringify(item.value??{}),item.sortOrder,item.status]);
+    }
+    for(const item of preparedItems)if(item.parentId)await client.query("UPDATE new_design.dictionary_items SET parent_id=$2 WHERE id=$1",[item.id,item.parentId]);
+    for(const item of preparedItems){
+      const saved=assertFound((await client.query("SELECT * FROM new_design.dictionary_items WHERE id=$1",[item.id])).rows[0],"字典节点保存失败。");
+      const path=(await client.query(`WITH RECURSIVE parents AS (
+        SELECT node.id,node.parent_id,node.label,ARRAY[node.id]::uuid[] ids,ARRAY[node.label]::text[] labels FROM new_design.dictionary_items node WHERE node.id=$1
+        UNION ALL SELECT parent.id,parent.parent_id,parent.label,ARRAY[parent.id]::uuid[]||child.ids,ARRAY[parent.label]::text[]||child.labels
+        FROM new_design.dictionary_items parent JOIN parents child ON child.parent_id=parent.id
+      ) SELECT ids,labels FROM parents WHERE parent_id IS NULL`,[saved.id])).rows[0];
+      const versionId=randomUUID();
+      await client.query(`INSERT INTO new_design.dictionary_item_versions(id,item_id,version,label,description,parent_id,sort_order,value,status,path_node_ids,path_labels,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,'user')`,[versionId,saved.id,saved.revision,saved.label,saved.description,saved.parent_id,saved.sort_order,JSON.stringify(saved.value),saved.status,path?.ids??[saved.id],path?.labels??[saved.label]]);
+      await client.query("UPDATE new_design.dictionary_items SET current_version_id=$2 WHERE id=$1",[saved.id,versionId]);
     }
     await client.query("COMMIT");
     return assertFound((await listDictionaries(input.ownerSpaceId ?? undefined)).find((item) => item.id === id), "字典保存后读取失败。");

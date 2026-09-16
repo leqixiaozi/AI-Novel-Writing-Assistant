@@ -48,7 +48,32 @@ export interface FieldDefinition {
   aiSuggestible?: boolean;
   stateSettlement?: "none" | "tracked" | "lifecycle";
   hidden?: boolean;
+  standardFieldId?: string | null;
+  optionSource?: FieldOptionSource;
 }
+
+export type TreeScope = "system" | "template" | "book";
+export type TreeKind = "dictionary" | "tag";
+export type TreeSelectionMode = "single" | "multiple" | "cascade_single" | "cascade_multiple";
+export type TreeDepthMode = "whole_tree" | "branch" | "direct_children" | "descendants" | "relative_depth";
+
+export interface TreeSelectionRule {
+  mode: TreeSelectionMode;
+  rootNodeId: string | null;
+  depthMode: TreeDepthMode;
+  relativeDepth: number | null;
+  leafOnly: boolean;
+  allowParentSelection: boolean;
+  showFullPath: boolean;
+  allowInlineCreate: boolean;
+  aiSuggestible: boolean;
+  minSelections: number;
+  maxSelections: number | null;
+}
+
+export type FieldOptionSource =
+  | { kind: "inline" }
+  | { kind: "dictionary_tree"; dictionaryId: string; rule: TreeSelectionRule; settleOnChapter: boolean };
 
 export interface CardTypeVersion {
   id: string;
@@ -228,9 +253,16 @@ export interface DictionaryItem {
   id: string;
   key: string;
   label: string;
+  description: string;
+  parentId: string | null;
   value: Record<string, unknown>;
   sortOrder: number;
   status: "active" | "archived";
+  revision: number;
+  currentVersionId: string | null;
+  path: Array<{ id: string; label: string }>;
+  childCount: number;
+  referenceCount: number;
 }
 
 export interface DictionarySummary {
@@ -240,11 +272,67 @@ export interface DictionarySummary {
   description: string;
   scope: DefinitionScope;
   ownerSpaceId: string | null;
+  sourceDictionaryId: string | null;
+  readOnly: boolean;
   status: "draft" | "published" | "archived";
   revision: number;
   items: DictionaryItem[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TreeImpactPreview {
+  treeKind: TreeKind;
+  nodeId: string;
+  action: "move" | "archive";
+  descendantCount: number;
+  directReferenceCount: number;
+  affectedFieldCount: number;
+  affectedCardCount: number;
+  canApply: boolean;
+  messages: string[];
+}
+
+export interface TagDimension {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  scope: TreeScope;
+  ownerSpaceId: string | null;
+  sourceDimensionId: string | null;
+  status: "active" | "archived";
+  revision: number;
+  readOnly: boolean;
+  nodes: MaterialTag[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CardTypeTagBinding {
+  id: string;
+  cardTypeId: string;
+  dimensionId: string;
+  dimensionName: string;
+  rule: TreeSelectionRule;
+  required: boolean;
+  displayArea: "main" | "sidebar" | "metadata";
+  includeInFilters: boolean;
+  includeInAiContext: boolean;
+  revision: number;
+}
+
+export interface StandardFieldSemantic {
+  id: string;
+  name: string;
+  description: string;
+  dataType: FieldType;
+  recommendedDictionaryId: string | null;
+  applicableTypeKeys: string[];
+  allowedSelectionModes: TreeSelectionMode[];
+  settlementSuggestion: "none" | "tracked" | "lifecycle";
+  status: "active" | "archived";
+  revision: number;
 }
 
 export interface RelationPropertyDefinition {
@@ -583,6 +671,7 @@ export interface MaterialSortRule { field:MaterialSortField;direction:"asc"|"des
 
 export interface MaterialTag {
   id:string;spaceId:string;key:string;name:string;aliases:string[];color:string|null;metadata:Record<string,unknown>;
+  dimensionId:string|null;parentId:string|null;sortOrder:number;path:Array<{id:string;name:string}>;childCount:number;
   status:"active"|"archived";revision:number;currentVersionId:string;visibility:"space"|"private";memberCount:number;updatedAt:string;
 }
 
@@ -1042,6 +1131,11 @@ export interface TemplateSyncPreview {
   fromTemplateVersionId: string;
   toTemplateVersionId: string;
   additions: Array<{ typeKey: string; fields: FieldDefinition[] }>;
+  treeAdditions?: {
+    dictionaries:Array<{sourceId:string;key:string;name:string;description:string;items:Array<{sourceId:string;parentSourceId:string|null;key:string;label:string;description:string;value:Record<string,unknown>;sortOrder:number}>}>;
+    tagDimensions:Array<{sourceId:string;key:string;name:string;description:string;nodes:Array<{sourceId:string;parentSourceId:string|null;key:string;name:string;description:string;aliases:string[];color:string|null;metadata:Record<string,unknown>;sortOrder:number}>}>;
+    tagBindings:Array<{sourceTypeId:string;sourceDimensionId:string;config:Record<string,unknown>}>;
+  };
   conflicts: Array<{ typeKey: string; fieldKey: string; reason: string }>;
   status: "previewed" | "applied" | "dismissed";
 }

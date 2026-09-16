@@ -22,7 +22,7 @@ const materialSortSchema=z.array(z.object({field:z.enum(["title","content_type",
 const materialDisplayColumns=["title","content_type","status","tags","groups","source","story_time","created_at","updated_at"] as const;
 const smartViewPayloadSchema=z.object({name:z.string().trim().min(1).max(100),description:z.string().trim().max(500).default(""),filter:boundedMaterialFilterSchema,sort:materialSortSchema,grouping:z.object({field:z.enum(["content_type","tag","group","status","source"]).optional()}).default({}),displayColumns:z.array(z.enum(materialDisplayColumns)).min(1).max(9),layout:z.object({mode:z.enum(["list","table"])}).passthrough(),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
 
-export const materialTagCreateSchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(80),aliases:z.array(z.string().trim().min(1).max(80)).max(30).default([]),color:z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),metadata:z.record(z.string(),z.unknown()).default({}),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
+export const materialTagCreateSchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(80),aliases:z.array(z.string().trim().min(1).max(80)).max(30).default([]),color:z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),metadata:z.record(z.string(),z.unknown()).default({}),dimensionId:z.string().uuid().optional(),parentId:z.string().uuid().nullable().optional(),sortOrder:z.number().int().min(0).max(100000).optional(),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
 export const materialTagRevisionSchema=materialTagCreateSchema.omit({key:true}).extend({expectedRevision:z.number().int().positive()});
 export const materialMembershipSchema=z.object({cardIds:z.array(z.string().uuid()).min(1).max(200),action:z.enum(["add","remove"]),actor:materialActorSchema,idempotencyKey:idempotencySchema});
 export const materialGroupCreateSchema=z.object({key:materialKeySchema,name:z.string().trim().min(1).max(100),parentId:z.string().uuid().nullable().optional(),sortOrder:z.number().int().min(0).max(100000).default(1000),visibility:materialVisibilitySchema,actor:materialActorSchema,idempotencyKey:idempotencySchema});
@@ -48,6 +48,20 @@ const visibilityRuleSchema = z.object({
   value: z.unknown().optional(),
 });
 
+export const treeSelectionRuleSchema=z.object({
+  mode:z.enum(["single","multiple","cascade_single","cascade_multiple"]),
+  rootNodeId:z.string().uuid().nullable().default(null),
+  depthMode:z.enum(["whole_tree","branch","direct_children","descendants","relative_depth"]),
+  relativeDepth:z.number().int().min(1).max(20).nullable().default(null),
+  leafOnly:z.boolean().default(false),allowParentSelection:z.boolean().default(true),showFullPath:z.boolean().default(true),
+  allowInlineCreate:z.boolean().default(false),aiSuggestible:z.boolean().default(true),minSelections:z.number().int().min(0).default(0),maxSelections:z.number().int().positive().nullable().default(null),
+}).superRefine((value,ctx)=>{if(value.maxSelections!==null&&value.maxSelections<value.minSelections)ctx.addIssue({code:"custom",path:["maxSelections"],message:"最多选择数不能小于最少选择数。"});if(value.depthMode!=="whole_tree"&&value.rootNodeId===null)ctx.addIssue({code:"custom",path:["rootNodeId"],message:"请指定可选范围的起点。"});if(value.depthMode==="relative_depth"&&value.relativeDepth===null)ctx.addIssue({code:"custom",path:["relativeDepth"],message:"请指定向下开放的层数。"});if(["single","cascade_single"].includes(value.mode)&&value.maxSelections!==null&&value.maxSelections>1)ctx.addIssue({code:"custom",path:["maxSelections"],message:"单选模式最多只能选择一项。"});});
+
+const fieldOptionSourceSchema=z.discriminatedUnion("kind",[
+  z.object({kind:z.literal("inline")}),
+  z.object({kind:z.literal("dictionary_tree"),dictionaryId:z.string().uuid(),rule:treeSelectionRuleSchema,settleOnChapter:z.boolean().default(false)}),
+]);
+
 export const fieldDefinitionSchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_]{1,62}$/, "字段标识需以小写字母开头，只能包含小写字母、数字和下划线。"),
   name: z.string().trim().min(1, "字段名称不能为空。").max(80),
@@ -62,9 +76,11 @@ export const fieldDefinitionSchema = z.object({
   aiSuggestible: z.boolean().optional(),
   stateSettlement: z.enum(["none", "tracked", "lifecycle"]).optional(),
   hidden: z.boolean().optional(),
+  standardFieldId:z.string().uuid().nullable().optional(),
+  optionSource:fieldOptionSourceSchema.optional(),
 }).superRefine((field, context) => {
   const needsOptions = field.type === "select" || field.type === "multi_select";
-  if (needsOptions && field.options.length === 0) {
+  if (needsOptions && field.options.length === 0 && field.optionSource?.kind!=="dictionary_tree") {
     context.addIssue({ code: "custom", path: ["options"], message: "选择类型至少需要一个选项。" });
   }
   const optionValues = new Set<string>();
@@ -205,15 +221,23 @@ export const dictionaryInputSchema = z.object({
   scope: z.enum(["system", "template", "book"]).default("system"),
   ownerSpaceId: z.string().uuid().nullable().optional(),
   revision: z.number().int().positive().optional(),
+  readOnly:z.boolean().optional(),
   items: z.array(z.object({
     id: z.string().uuid().optional(),
     key: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,62}$/, "字典项标识无效。"),
     label: z.string().trim().min(1).max(80),
+    description:z.string().trim().max(500).default(""),
+    parentId:z.string().uuid().nullable().default(null),
     value: z.record(z.string(), z.unknown()).default({}),
     sortOrder: z.number().int().min(0).default(1000),
     status: z.enum(["active", "archived"]).default("active"),
   })).max(200).default([]),
 });
+
+export const tagDimensionInputSchema=z.object({name:z.string().trim().min(1).max(100),description:z.string().trim().max(500).default(""),scope:z.enum(["system","template","book"]),ownerSpaceId:z.string().uuid().nullable().optional(),revision:z.number().int().positive().optional(),readOnly:z.boolean().optional()});
+export const treeImpactInputSchema=z.object({kind:z.enum(["dictionary","tag"]),action:z.enum(["move","archive"])});
+export const standardFieldSemanticInputSchema=z.object({name:z.string().trim().min(1).max(80),description:z.string().trim().max(500).default(""),dataType:z.enum(FIELD_TYPES),recommendedDictionaryId:z.string().uuid().nullable().default(null),applicableTypeKeys:z.array(z.string().trim().min(1).max(80)).max(100).default([]),allowedSelectionModes:z.array(z.enum(["single","multiple","cascade_single","cascade_multiple"])).min(1),settlementSuggestion:z.enum(["none","tracked","lifecycle"]).default("none"),revision:z.number().int().positive().optional()});
+export const cardTypeTagBindingInputSchema=z.object({cardTypeId:z.string().uuid(),dimensionId:z.string().uuid(),rule:treeSelectionRuleSchema,required:z.boolean().default(false),displayArea:z.enum(["main","sidebar","metadata"]).default("metadata"),includeInFilters:z.boolean().default(true),includeInAiContext:z.boolean().default(true),revision:z.number().int().positive().optional()});
 
 const relationPropertySchema = z.object({
   key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),
@@ -601,14 +625,27 @@ function validateValue(field: FieldDefinition, value: unknown): string | null {
       return typeof value === "number" && Number.isFinite(value) ? null : `${field.name}需要填写有效数字。`;
     case "boolean":
       return typeof value === "boolean" ? null : `${field.name}需要选择是或否。`;
-    case "select":
+    case "select": {
+      if(field.optionSource?.kind==="dictionary_tree"){
+        if(typeof value!=="string"||!value)return `${field.name}的选择无效。`;
+        return field.optionSource.rule.maxSelections!==null&&field.optionSource.rule.maxSelections<1?`${field.name}不允许选择项目。`:null;
+      }
       return typeof value === "string" && field.options.some((option) => option.value === value)
         ? null
         : `${field.name}的选项无效。`;
-    case "multi_select":
+    }
+    case "multi_select": {
+      if(field.optionSource?.kind==="dictionary_tree"){
+        if(!Array.isArray(value)||!value.every(item=>typeof item==="string"&&item.length>0))return `${field.name}包含无效选择。`;
+        const count=new Set(value).size,rule=field.optionSource.rule;
+        if(count<rule.minSelections)return `${field.name}至少选择 ${rule.minSelections} 项。`;
+        if(rule.maxSelections!==null&&count>rule.maxSelections)return `${field.name}最多选择 ${rule.maxSelections} 项。`;
+        return null;
+      }
       return Array.isArray(value) && value.every((item) => typeof item === "string" && field.options.some((option) => option.value === item))
         ? null
         : `${field.name}包含无效选项。`;
+    }
   }
 }
 

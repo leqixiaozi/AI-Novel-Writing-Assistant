@@ -1,6 +1,6 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `045_business_form_shell.sql` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046_unified_dictionary_tag_trees.sql` 建立统一字典树、多维标签树、稳定字段语义与历史路径快照，`047_tree_value_snapshot_paths.sql` 将不同深度路径改为 JSON 数组并为模板同步增加树资源增量。运行时直接执行这些 SQL，不在代码中维护第二份副本。详细规则见 `unified-tree-resources.md`。
 
 `031`—`045` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料组织与安全归档、上下文装配、规划中心、章节创作与稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览、多维查看偏好、完本检查、出版导出、发布证据和 AI 规划候选审计。运行时迁移范围以 `001_card_kernel.sql` 至 `045_planning_ai_candidates.sql` 为准。
 
@@ -451,7 +451,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 ## 字典、关系与挂载
 
-`dictionary_definitions` / `dictionary_items` 保存稳定字典和字典项，`relation_types` 保存允许的源类型、目标类型、方向、数量和关系属性，`card_relations` 保存真实关系；`card_mounts` 把引用卡片装入某个表单实例，并把“本事件目标、立场、结果”等局部值存在挂载上。
+`dictionary_definitions` / `dictionary_items` 保存稳定字典和树节点，`dictionary_item_versions` 保存每次改名、移动、排序或停用后的不可变路径；`card_tree_value_snapshots` 保存卡片版本当时看到的中文路径。`material_tag_dimensions` 把题材、情绪、叙事功能等分类问题分开，每个维度内的 `material_tags` 构成树，类型通过 `card_type_tag_bindings` 声明选择范围和展示规则。`relation_types` 保存允许的源类型、目标类型、方向、数量和关系属性，`card_relations` 保存真实关系；`card_mounts` 把引用卡片装入某个表单实例，并把“本事件目标、立场、结果”等局部值存在挂载上。
 
 > 🏠 **白话比喻**：人物卡像演员档案，事件表单像某一场戏的通告单。“沈照微的性格”写回演员档案，“她在这场戏里的目标”只写在通告单上。对应到数据库：稳定事实进 `cards`，局部上下文进 `card_mounts.local_values`，不会污染来源卡片。
 

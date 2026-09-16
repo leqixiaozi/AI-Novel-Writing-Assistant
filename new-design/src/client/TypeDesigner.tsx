@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeCategory, type CardTypeSummary, type CardTypeVersion, type FieldDefinition } from "../common/contracts";
+import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeCategory, type CardTypeSummary, type CardTypeTagBinding, type CardTypeVersion, type DictionarySummary, type FieldDefinition, type StandardFieldSemantic, type TagDimension, type TreeSelectionMode, type TreeSelectionRule } from "../common/contracts";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 import FieldBuilder from "./FieldBuilder";
@@ -54,11 +54,38 @@ function blankType(spaceId = SYSTEM_SPACE_ID): CardTypeSummary {
   };
 }
 
+function TagBindingEditor({binding,dimension,busy,onChange,onSave}:{binding:CardTypeTagBinding;dimension:TagDimension|null;busy:boolean;onChange:(next:CardTypeTagBinding)=>void;onSave:()=>void}){
+  const patchRule=(next:Partial<TreeSelectionRule>)=>onChange({...binding,rule:{...binding.rule,...next}});
+  return <article>
+    <div><strong>{binding.dimensionName}</strong><small>{binding.includeInAiContext?"进入 AI 参考资料":"仅人工分类"} · {binding.includeInFilters?"可筛选":"不参与筛选"}</small></div>
+    <div className="nd-form-grid">
+      <label className="nd-control"><span>选择方式</span><select value={binding.rule.mode} onChange={event=>{const mode=event.target.value as TreeSelectionMode;patchRule({mode,maxSelections:mode==="single"||mode==="cascade_single"?1:binding.rule.maxSelections});}}><option value="single">单选</option><option value="multiple">多选</option><option value="cascade_single">逐级单选</option><option value="cascade_multiple">逐级多选</option></select></label>
+      <label className="nd-control"><span>可选范围</span><select value={binding.rule.depthMode} onChange={event=>{const depthMode=event.target.value as TreeSelectionRule["depthMode"];patchRule({depthMode,rootNodeId:depthMode==="whole_tree"?null:binding.rule.rootNodeId,relativeDepth:depthMode==="relative_depth"?(binding.rule.relativeDepth??1):null});}}><option value="whole_tree">整棵树</option><option value="branch">包含指定节点的分支</option><option value="direct_children">仅指定节点的直接下级</option><option value="descendants">指定节点的所有后代</option><option value="relative_depth">指定节点以下若干层</option></select></label>
+      {binding.rule.depthMode!=="whole_tree"&&<label className="nd-control"><span>范围起点</span><select value={binding.rule.rootNodeId??""} onChange={event=>patchRule({rootNodeId:event.target.value||null})}><option value="">请选择节点</option>{(dimension?.nodes??[]).filter(node=>node.status==="active").map(node=><option key={node.id} value={node.id}>{node.path.map(part=>part.name).join(" / ")||node.name}</option>)}</select></label>}
+      {binding.rule.depthMode==="relative_depth"&&<label className="nd-control"><span>向下开放层数</span><input type="number" min="1" value={binding.rule.relativeDepth??1} onChange={event=>patchRule({relativeDepth:Math.max(1,Number(event.target.value)||1)})}/></label>}
+      <label className="nd-control"><span>最少选择</span><input type="number" min="0" value={binding.rule.minSelections} onChange={event=>{const minSelections=Math.max(0,Number(event.target.value)||0);onChange({...binding,required:minSelections>0,rule:{...binding.rule,minSelections}});}}/></label>
+      <label className="nd-control"><span>最多选择</span><input type="number" min="1" disabled={binding.rule.mode==="single"||binding.rule.mode==="cascade_single"} placeholder="不限" value={binding.rule.maxSelections??""} onChange={event=>patchRule({maxSelections:event.target.value?Math.max(1,Number(event.target.value)):null})}/></label>
+      <label className="nd-control"><span>显示位置</span><select value={binding.displayArea} onChange={event=>onChange({...binding,displayArea:event.target.value as CardTypeTagBinding["displayArea"]})}><option value="main">主表单</option><option value="sidebar">侧边栏</option><option value="metadata">分类信息</option></select></label>
+    </div>
+    <div className="nd-tree-rule-checks">
+      <label className="nd-check-control"><input type="checkbox" checked={binding.rule.leafOnly} onChange={event=>patchRule({leafOnly:event.target.checked})}/><span>仅允许最末级</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.rule.allowParentSelection} onChange={event=>patchRule({allowParentSelection:event.target.checked})}/><span>允许选择有下级的节点</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.rule.showFullPath} onChange={event=>patchRule({showFullPath:event.target.checked})}/><span>显示完整路径</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.rule.allowInlineCreate} onChange={event=>patchRule({allowInlineCreate:event.target.checked})}/><span>允许原地新增</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.rule.aiSuggestible} onChange={event=>patchRule({aiSuggestible:event.target.checked})}/><span>允许 AI 建议</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.includeInFilters} onChange={event=>onChange({...binding,includeInFilters:event.target.checked})}/><span>可用于筛选</span></label>
+      <label className="nd-check-control"><input type="checkbox" checked={binding.includeInAiContext} onChange={event=>onChange({...binding,includeInAiContext:event.target.checked})}/><span>进入 AI 参考资料</span></label>
+    </div>
+    <button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={onSave}>保存维度规则</button>
+  </article>;
+}
+
 export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID, categories = [] }: TypeDesignerProps) {
   const [draft, setDraft] = useState<CardTypeSummary>(() => selected ?? blankType(spaceId));
   const [versions, setVersions] = useState<CardTypeVersion[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [dictionaries,setDictionaries]=useState<DictionarySummary[]>([]),[semantics,setSemantics]=useState<StandardFieldSemantic[]>([]),[dimensions,setDimensions]=useState<TagDimension[]>([]),[tagBindings,setTagBindings]=useState<CardTypeTagBinding[]>([]),[dimensionId,setDimensionId]=useState("");
 
   useEffect(() => {
     setDraft(selected ?? blankType(spaceId));
@@ -69,6 +96,8 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
     }
     void newDesignApi.listCardTypeVersions(selected.id).then(setVersions).catch(() => setVersions([]));
   }, [selected, spaceId]);
+  useEffect(()=>{void Promise.all([newDesignApi.listDictionaries(spaceId===SYSTEM_SPACE_ID?undefined:spaceId),newDesignApi.listStandardFieldSemantics(),newDesignApi.listTagDimensions(spaceId)]).then(([nextDictionaries,nextSemantics,nextDimensions])=>{setDictionaries(nextDictionaries);setSemantics(nextSemantics);setDimensions(nextDimensions);setDimensionId(current=>current||nextDimensions[0]?.id||"");}).catch(()=>undefined);},[spaceId]);
+  useEffect(()=>{if(!selected?.id){setTagBindings([]);return;}void newDesignApi.listCardTypeTagBindings(selected.id).then(setTagBindings).catch(()=>setTagBindings([]));},[selected?.id]);
 
   const publishedKeys = useMemo(() => new Set((versions[0]?.fields ?? []).map((field) => field.key)), [versions]);
   const toggleCapability = (capability: CardTypeCapability) => {
@@ -113,6 +142,8 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
       setBusy(false);
     }
   };
+  const addTagBinding=async()=>{if(!draft.id||!dimensionId)return;setBusy(true);try{const saved=await newDesignApi.createCardTypeTagBinding({cardTypeId:draft.id,dimensionId,rule:{mode:"multiple",rootNodeId:null,depthMode:"whole_tree",relativeDepth:null,leafOnly:false,allowParentSelection:true,showFullPath:true,allowInlineCreate:true,aiSuggestible:true,minSelections:0,maxSelections:5},required:false,displayArea:"metadata",includeInFilters:true,includeInAiContext:true});setTagBindings(items=>[...items,saved]);setMessage({tone:"success",text:"标签维度已绑定。"});}catch(error){setMessage({tone:"error",text:error instanceof Error?error.message:"标签维度绑定失败。"});}finally{setBusy(false);}};
+  const saveTagBinding=async(binding:CardTypeTagBinding)=>{setBusy(true);try{const saved=await newDesignApi.updateCardTypeTagBinding(binding);setTagBindings(items=>items.map(item=>item.id===saved.id?saved:item));setMessage({tone:"success",text:"标签选择规则已保存。"});}catch(error){setMessage({tone:"error",text:error instanceof Error?error.message:"标签规则保存失败。"});}finally{setBusy(false);}};
 
   return (
     <div className="nd-designer-grid">
@@ -163,7 +194,15 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           </div>
         </section>
 
-        <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />
+        <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} dictionaries={dictionaries} semantics={semantics} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />
+
+        <section className="nd-section nd-tag-binding-section">
+          <div className="nd-section-heading">
+            <div><p className="nd-kicker">多维标签</p><h2>给这类资料绑定标签树</h2><p className="nd-help-text">每个维度独立控制选择范围、数量和 AI 建议，不会写进正式字段值。</p></div>
+            {draft.id&&dimensions.length?<div className="nd-row-actions"><select aria-label="选择标签维度" value={dimensionId} onChange={event=>setDimensionId(event.target.value)}>{dimensions.filter(item=>!tagBindings.some(binding=>binding.dimensionId===item.id)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><button className="nd-button nd-button-secondary" type="button" disabled={busy||!dimensionId||tagBindings.some(item=>item.dimensionId===dimensionId)} onClick={()=>void addTagBinding()}>＋ 绑定维度</button></div>:null}
+          </div>
+          {!draft.id?<div className="nd-empty nd-empty-compact">先保存内容类型，再绑定标签维度。</div>:tagBindings.length?<div className="nd-tag-binding-list">{tagBindings.map((binding,index)=><TagBindingEditor key={binding.id} binding={binding} dimension={dimensions.find(item=>item.id===binding.dimensionId)??null} busy={busy} onChange={next=>setTagBindings(items=>items.map((item,i)=>i===index?next:item))} onSave={()=>void saveTagBinding(binding)}/>)}</div>:<div className="nd-empty nd-empty-compact">还没有绑定标签维度。</div>}
+        </section>
 
         <footer className="nd-sticky-actions">
           <div>

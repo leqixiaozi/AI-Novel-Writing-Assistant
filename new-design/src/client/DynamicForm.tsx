@@ -1,5 +1,7 @@
-import { useId } from "react";
-import type { FieldDefinition } from "../common/contracts";
+import { useEffect, useId, useState } from "react";
+import type { DictionarySummary, FieldDefinition } from "../common/contracts";
+import { newDesignApi } from "./api";
+import { TreeSelector } from "./tree";
 
 interface DynamicFormProps {
   fields: FieldDefinition[];
@@ -30,6 +32,15 @@ function isVisible(field: FieldDefinition, values: Record<string, unknown>): boo
   return Array.isArray(actual) && actual.includes(rule.value);
 }
 
+function DictionaryTreeField({field,value,disabled,onChange}:{field:FieldDefinition;value:unknown;disabled?:boolean;onChange:(value:unknown)=>void}){
+  const source=field.optionSource?.kind==="dictionary_tree"?field.optionSource:null,[dictionary,setDictionary]=useState<DictionarySummary|null>(null),[error,setError]=useState(""),[creatingParent,setCreatingParent]=useState<string|null|undefined>(undefined),[newName,setNewName]=useState(""),[newDescription,setNewDescription]=useState("");
+  useEffect(()=>{if(!source)return;void newDesignApi.getDictionary(source.dictionaryId).then(setDictionary).catch(loadError=>setError(loadError instanceof Error?loadError.message:"字典树加载失败。"));},[source?.dictionaryId]);
+  if(!source)return null;
+  const selectedIds=Array.isArray(value)?value.filter((item):item is string=>typeof item==="string"):typeof value==="string"&&value?[value]:[];
+  const saveChild=async()=>{if(!dictionary||!newName.trim())return;const id=crypto.randomUUID(),next={...dictionary,items:[...dictionary.items,{id,key:`node_${id.replaceAll("-","").slice(0,12)}`,label:newName.trim(),description:newDescription.trim(),parentId:creatingParent??null,value:{},sortOrder:dictionary.items.length*10+10,status:"active" as const,revision:1,currentVersionId:null,path:[],childCount:0,referenceCount:0}]};try{const saved=await newDesignApi.updateDictionary(next);setDictionary(saved);setCreatingParent(undefined);setNewName("");setNewDescription("");const created=saved.items.find(item=>item.id===id)??saved.items.find(item=>item.label===newName.trim()&&item.parentId===(creatingParent??null));if(created)onChange(field.type==="select"?created.id:[...selectedIds,created.id]);}catch(saveError){setError(saveError instanceof Error?saveError.message:"新增字典项失败。");}};
+  return <>{dictionary?<TreeSelector label={field.name} nodes={dictionary.items.map(item=>({id:item.id,parentId:item.parentId,name:item.label,description:item.description,status:item.status,path:item.path.map(part=>part.label)}))} rule={source.rule} selectedIds={selectedIds} disabled={disabled} onChange={ids=>onChange(field.type==="select"?ids[0]??null:ids)} onCreateChild={source.rule.allowInlineCreate&&dictionary.scope==="book"?parentId=>setCreatingParent(parentId):undefined}/>:<p className="nd-help-text">正在读取字典树…</p>}{creatingParent!==undefined&&<div className="nd-tree-inline-editor"><label className="nd-control"><span>中文名称</span><input autoFocus value={newName} onChange={event=>setNewName(event.target.value)}/></label><label className="nd-control"><span>解释</span><input value={newDescription} onChange={event=>setNewDescription(event.target.value)}/></label><div className="nd-row-actions"><button className="nd-button nd-button-secondary" type="button" onClick={()=>setCreatingParent(undefined)}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={!newName.trim()} onClick={()=>void saveChild()}>新增并选中</button></div></div>}{error&&<em role="alert">{error}</em>}</>;
+}
+
 export default function DynamicForm({ fields, values, issues = {}, disabled, preview, scopeLabelByKey = {}, onChange }: DynamicFormProps) {
   const formId = useId().replace(/:/g, "");
   const patch = (field: FieldDefinition, value: unknown) => onChange?.({ ...values, [field.key]: value });
@@ -58,7 +69,9 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
               <div className={`nd-control${issues[field.key] ? " has-error" : ""}`} key={field.key}>
                 <span id={labelId}>{field.name}{field.required && <b aria-label="必填"> *</b>}{scopeLabelByKey[field.key] && <i className="nd-field-capability is-scope">{scopeLabelByKey[field.key]}</i>}{field.aiSuggestible && <i className="nd-field-capability">可由 AI 建议</i>}{field.stateSettlement === "tracked" && <i className="nd-field-capability">跟踪变化</i>}{field.stateSettlement === "lifecycle" && <i className="nd-field-capability">生命周期</i>}</span>
                 {field.description && <small id={helpId}>{field.description}</small>}
-                {field.type === "long_text" ? (
+                {field.optionSource?.kind === "dictionary_tree" ? (
+                  <DictionaryTreeField field={field} value={value} disabled={inputDisabled} onChange={next=>patch(field,next)} />
+                ) : field.type === "long_text" ? (
                   <textarea rows={4} disabled={inputDisabled} value={String(value ?? "")} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={Boolean(issues[field.key])} onChange={(event) => patch(field, event.target.value)} />
                 ) : field.type === "boolean" ? (
                   <select disabled={inputDisabled} value={value === true ? "true" : value === false ? "false" : ""} aria-labelledby={labelId} aria-describedby={describedBy} aria-invalid={Boolean(issues[field.key])} onChange={(event) => patch(field, event.target.value === "" ? null : event.target.value === "true")}>
