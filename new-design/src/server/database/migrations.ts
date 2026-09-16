@@ -220,4 +220,7 @@ export const migrations: Migration[] = [
   { id: "071_structure_write_receipts", fileName: "071_structure_write_receipts.sql" },
   { id: "072_knowledge_embedding_function_scope", fileName: "072_knowledge_embedding_function_scope.sql" },
   { id: "073_knowledge_embedding_profile_parameter", fileName: "073_knowledge_embedding_profile_parameter.sql" },
+  { id: "074_asset_receipt_function_scope", fileName: "074_asset_receipt_function_scope.sql" },
+  { id: "075_asset_locator_regular_expression", fileName: "075_asset_locator_regular_expression.sql" },
+  { id: "076_asset_invalidation_event_identity", fileName: "076_asset_invalidation_event_identity.sql" },
 ];
