@@ -1,0 +1,2 @@
+.nd-model-failure-notice { background: var(--nd-soft); border-left: 3px solid var(--nd-error); padding: 1rem; }
+.nd-model-failure-notice .nd-action-row { flex-wrap: wrap; }

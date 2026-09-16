@@ -1,6 +1,7 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import type {PromptCatalog,PromptClassificationInput,PromptSaveInput,PromptReorderInput,PromptCategoryCreateInput,PromptCategoryRevisionInput,PromptCategoryArchiveInput} from "../common/promptManagement";
 import { publicServiceError } from "../common/presentation";
+import type {AiRuntimeRecovery,IndependentModelStatus} from "../common/aiRuntime";
 import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl} from "../common/creationDirector";
 import type {
@@ -274,6 +275,7 @@ export class ApiError extends Error {
     public readonly issues: Record<string, string> = {},
     public readonly status = 500,
     public readonly technicalDetail = message,
+    public readonly recovery:AiRuntimeRecovery|null=null,
   ) {
     super(message);
   }
@@ -288,19 +290,37 @@ function publicApiErrorMessage(message: string, status: number): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_ROOT}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
-  });
-  const envelope = await response.json() as ApiEnvelope<T>;
+  let response:Response;
+  try {
+    response = await fetch(`${API_ROOT}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...init?.headers },
+    });
+  } catch {
+    throw new ApiError("未能连接数据服务。请打开“运行维护”检查连接；提交过的操作需先核对结果，不要连续重复点击。",{},503);
+  }
+  let envelope:ApiEnvelope<T>&{recovery?:AiRuntimeRecovery};
+  try {
+    const decoded:unknown=await response.json();
+    if(decoded===null||typeof decoded!=="object"||typeof(decoded as ApiEnvelope<T>).success!=="boolean")throw new Error("Invalid response envelope");
+    envelope=decoded as ApiEnvelope<T>&{recovery?:AiRuntimeRecovery};
+  } catch {
+    throw new ApiError("未收到有效的服务器回执。请保留当前编辑，先核对服务器结果；读取操作可重试读取。",{},502);
+  }
+  if(response.ok&&envelope.success&&envelope.data===undefined)throw new ApiError("服务器未返回操作结果。请保留编辑，先核对服务器结果，不要连续重复提交。",{},502);
   if (!response.ok || !envelope.success || envelope.data === undefined) {
     const technicalDetail = envelope.error ?? "请求失败，请稍后重试。";
-    throw new ApiError(publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail);
+    const candidate=envelope.recovery;
+    const recovery=candidate&&typeof candidate.failedStep==="string"&&typeof candidate.summary==="string"&&typeof candidate.savedResult==="string"&&candidate.sourceRoute==="/new-design/structure/models"&&candidate.actionLabel==="打开模型设置"?candidate:null;
+    if(recovery&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
+    throw new ApiError(recovery?`${recovery.failedStep}失败：${recovery.summary}`:publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail,recovery);
   }
   return envelope.data;
 }
 
 export const newDesignApi = {
+  getIndependentModelStatus:()=>request<IndependentModelStatus>("/models/status"),
+  probeIndependentModel:()=>request<{available:boolean;modelFound:boolean;models:string[]}>("/models/probe",{method:"POST",body:"{}"}),
   getPromptCatalog:()=>request<PromptCatalog>("/prompt-management/catalog"),
   createPromptCategory:(input:PromptCategoryCreateInput)=>request<MaterialGroup>("/prompt-management/categories",{method:"POST",body:JSON.stringify(input)}),
   revisePromptCategory:(id:string,input:PromptCategoryRevisionInput)=>request<MaterialGroup>(`/prompt-management/categories/${id}`,{method:"PATCH",body:JSON.stringify(input)}),

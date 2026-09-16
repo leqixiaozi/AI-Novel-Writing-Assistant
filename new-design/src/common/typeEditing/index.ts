@@ -1,4 +1,5 @@
-import type { CardTypeSummary } from "../contracts";
+import type { CardTypeSummary, CardTypeVersion } from "../contracts";
+export { locateTypeIssues, typeFieldIssuePaths, type TypeIssueLocation } from "./issueLocations";
 
 export type TypeWriteStep = "save" | "publish";
 export interface TypeWriteFailure {
@@ -30,6 +31,12 @@ function canonical(value: unknown): string {
 
 export function sameTypeDraft(a: CardTypeSummary, b: CardTypeSummary): boolean {
   return canonical([a.name, a.description, a.categoryId, a.semanticCapabilities, a.draftFields]) === canonical([b.name, b.description, b.categoryId, b.semanticCapabilities, b.draftFields]);
+}
+
+export function confirmedPublicationVersion(latest:CardTypeSummary,submitted:CardTypeSummary,versions:CardTypeVersion[]):CardTypeVersion|null {
+  if(latest.id!==submitted.id||!latest.currentVersionId||latest.currentVersionId===submitted.currentVersionId)return null;
+  const version=versions.find(item=>item.id===latest.currentVersionId);
+  return version&&version.version>(submitted.currentVersion??0)&&canonical(version.fields)===canonical(submitted.draftFields)?version:null;
 }
 
 export function reconcileTypeWrite(current: CardTypeSummary, submitted: CardTypeSummary, saved: CardTypeSummary): CardTypeSummary {

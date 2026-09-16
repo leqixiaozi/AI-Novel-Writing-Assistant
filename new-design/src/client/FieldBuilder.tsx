@@ -16,6 +16,8 @@ interface FieldBuilderProps {
   allowPublishedPresentationEdits?: boolean;
   dictionaries?:DictionarySummary[];
   semantics?:StandardFieldSemantic[];
+  invalidFieldKeys?: Set<string>;
+  fieldIssues?: Record<string, string[]>;
   onChange: (fields: FieldDefinition[]) => void;
 }
 
@@ -49,7 +51,7 @@ function parseDefaultValue(field: FieldDefinition, raw: string): unknown {
   return raw;
 }
 
-export default function FieldBuilder({ fields, publishedKeys, allowPublishedPresentationEdits = false, dictionaries=[],semantics=[],onChange }: FieldBuilderProps) {
+export default function FieldBuilder({ fields, publishedKeys, allowPublishedPresentationEdits = false, dictionaries=[],semantics=[],invalidFieldKeys=new Set(),fieldIssues={},onChange }: FieldBuilderProps) {
   const patch = (index: number, next: Partial<FieldDefinition>) => {
     onChange(fields.map((field, fieldIndex) => fieldIndex === index ? { ...field, ...next } : field));
   };
@@ -84,9 +86,10 @@ export default function FieldBuilder({ fields, publishedKeys, allowPublishedPres
             const dictionarySource = field.optionSource?.kind === "dictionary_tree" ? field.optionSource : null;
             const selectedDictionary = dictionarySource ? dictionaries.find((item) => item.id === dictionarySource.dictionaryId) ?? null : null;
             return (
-              <article className={`nd-field-row${locked ? " is-locked" : ""}`} key={field.key}>
+              <article className={`nd-field-row${locked ? " is-locked" : ""}${invalidFieldKeys.has(field.key) ? " has-error" : ""}`} key={field.key} data-type-field-key={field.key} tabIndex={-1} aria-label={`字段：${field.name || "未命名字段"}`} aria-describedby={invalidFieldKeys.has(field.key)?`nd-type-field-error-${index}`:undefined}>
                 <div className="nd-field-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
                 <div className="nd-field-main">
+                  {invalidFieldKeys.has(field.key)&&<div className="nd-field-validation" id={`nd-type-field-error-${index}`}>{(fieldIssues[field.key]??[]).map(message=><p key={message}>{message}</p>)}</div>}
                   <div className="nd-grid-2">
                     <label className="nd-control">
                       <span>字段名称</span>

@@ -32,13 +32,18 @@
     "src/common"
   ],
   "scripts": {
-    "build": "pnpm run build:server && pnpm run typecheck:client",
+    "build": "npm run build:server && npm run typecheck:client && npm run build:client",
+    "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "typecheck": "pnpm run build:server && pnpm run typecheck:client",
+    "typecheck": "npm run build:server && npm run typecheck:client",
     "typecheck:client": "tsc -p tsconfig.client.json --noEmit",
     "runtime:assemble": "node scripts/assemble-runtime.cjs",
     "runtime:cli": "node dist/server/runtime/cli.js",
-    "dev": "tsc -p tsconfig.server.json --watch",
+    "dev": "tsx src/server/app/development.ts",
+    "dev:server": "tsx watch src/server/app/main.ts",
+    "dev:client": "vite",
+    "start": "node dist/server/app/main.js",
+    "check:boundary": "node --test tests/standalone-boundary.test.cjs",
     "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs",
     "test:form-ai": "pnpm run build:server && node --test tests/form-ai.postgres.test.cjs tests/form-ai.live-model.test.cjs",
     "test:research-adoption": "pnpm run build:server && node --test tests/research-adoption.postgres.test.cjs",
@@ -51,6 +56,8 @@
     "@embedded-postgres/windows-x64": "17.6.0-beta.15",
     "express": "^5.2.1",
     "pg": "8.20.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zod": "^4.3.6"
   },
   "peerDependencies": {
@@ -61,6 +68,9 @@
     "@types/node": "^25.3.3",
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.20.6",
+    "vite": "^7.3.1",
     "typescript": "^5.9.3"
   }
 }

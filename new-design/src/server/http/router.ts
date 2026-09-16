@@ -5,6 +5,8 @@ import type { NewDesignAiGateway } from "../ai/gateway";
 import { businessFormAiRouter } from "./formAssist";
 import { mountCreationDirector } from "./creationDirector";
 import {promptManagementRouter} from "./promptManagement";
+import {modelSettingsRouter} from "./modelSettings";
+import { AiExecutionError } from "../ai";
 import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
   archiveCard,
@@ -368,6 +370,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
+  router.use("/models",modelSettingsRouter());
   router.use(promptManagementRouter());
   mountCreationDirector(router,dependencies.ai);
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
@@ -859,6 +862,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       success(res, await saveDirectionCandidates(sessionId, batchId, candidates));
     } catch (error) {
       await failSessionGeneration(sessionId, batchId, "generate_directions", error);
+      if(error instanceof AiExecutionError)throw error;
       throw new NewDesignError(error instanceof Error ? error.message : "创作方向生成失败。", 502);
     }
   }));
@@ -899,6 +903,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       success(res, await saveFormAssist(batchId, suggestions), 201);
     } catch (error) {
       await failFormAssist(batchId, error);
+      if(error instanceof AiExecutionError)throw error;
       throw new NewDesignError(error instanceof Error ? error.message : "AI 表单建议生成失败。", 502);
     }
   }));
@@ -914,7 +919,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope: ApiEnvelope<null> = { success: false, error: error.message, issues: error.issues };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

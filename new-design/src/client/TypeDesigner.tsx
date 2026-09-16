@@ -4,7 +4,7 @@ import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 import FieldBuilder from "./FieldBuilder";
 import "./typeEditing/recovery.css";
-import { publishTypeDraft, reconcileTypeWrite, sameTypeDraft, typeWriteFailure, type TypeWriteFailure, type TypeWriteStep } from "../common/typeEditing";
+import { confirmedPublicationVersion, locateTypeIssues, publishTypeDraft, reconcileTypeWrite, sameTypeDraft, typeWriteFailure, type TypeIssueLocation, type TypeWriteFailure, type TypeWriteStep } from "../common/typeEditing";
 
 interface TypeDesignerProps {
   selected: CardTypeSummary | null;
@@ -91,7 +91,11 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
   const [failure, setFailure] = useState<TypeWriteFailure | null>(null);
   const [serverComparison, setServerComparison] = useState<CardTypeSummary | null>(null);
   const [readErrors, setReadErrors] = useState<Record<string, string>>({});
-  const [fieldIssues,setFieldIssues]=useState<string[]>([]);
+  const [issueLocations,setIssueLocations]=useState<TypeIssueLocation[]>([]);
+  const invalidFieldKeys=useMemo(()=>new Set(issueLocations.flatMap(issue=>issue.fieldKey?[issue.fieldKey]:[])),[issueLocations]);
+  const fieldIssueMessages=useMemo(()=>{const result:Record<string,string[]>=Object.create(null);for(const issue of issueLocations)if(issue.fieldKey)(result[issue.fieldKey]??=[]).push(issue.message);return result;},[issueLocations]);
+  const editorRoot=useRef<HTMLDivElement>(null);
+  const [confirmedWriteStep,setConfirmedWriteStep]=useState<TypeWriteStep|null>(null);
   const baseline = useRef(draft);
   const selection = useRef<string | null | undefined>(null);
   const pendingWrite = useRef<{step: TypeWriteStep; draft: CardTypeSummary} | null>(null);
@@ -105,7 +109,8 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
     baseline.current = selected ?? blankType(spaceId);
     setMessage(null);
     setFailure(null);
-    setFieldIssues([]);
+    setIssueLocations([]);
+    setConfirmedWriteStep(null);
     setServerComparison(null);
     pendingWrite.current = null;
     if (!selected?.id) {
@@ -124,8 +129,48 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
   useEffect(()=>{let active=true;if(!selected?.id){setTagBindings([]);return;}setTagBindings([]);void newDesignApi.listCardTypeTagBindings(selected.id).then(items=>{if(active)setTagBindings(items);}).catch(()=>{if(active)setReadErrors(current=>({...current,tags:"读取标签绑定失败。请点击“重试读取规格”。"}));});return()=>{active=false;};},[selected?.id]);
   const retryReads=async()=>{setBusy(true);try{await readResources();if(draft.id){const [nextVersions,nextBindings]=await Promise.all([newDesignApi.listCardTypeVersions(draft.id),newDesignApi.listCardTypeTagBindings(draft.id)]);setVersions(nextVersions);setTagBindings(nextBindings);setReadErrors(current=>{const next={...current};delete next.versions;delete next.tags;return next;});}}catch{setReadErrors(current=>({...current,versions:"读取规格失败。请检查“运行维护”，服务恢复后点击“重试读取规格”。"}));}finally{setBusy(false);}};
   const confirmed=(saved:CardTypeSummary)=>{selection.current=saved.id;baseline.current=saved;setDraft(saved);onSaved(saved);};
-  const reportWriteFailure=(error:unknown,step:TypeWriteStep)=>{setFailure(typeWriteFailure(step,error instanceof ApiError?error.status:undefined));setServerComparison(null);setFieldIssues(error instanceof ApiError&&error.status<500?[...new Set(Object.values(error.issues))]:[]);setMessage({tone:"error",text:error instanceof ApiError?error.message:"未收到有效的服务器回执。"});};
-  const checkResult=async()=>{const pending=pendingWrite.current;if(!pending)return;setBusy(true);try{const latest=pending.draft.id?await newDesignApi.getCardType(pending.draft.id):(await newDesignApi.listCardTypes(spaceId)).find(item=>item.key===pending.draft.key);if(!latest){if(pending.step==="save"&&!pending.draft.id){setFailure(null);pendingWrite.current=null;setMessage({tone:"success",text:"服务器未找到该类型。编辑内容仍保留，可点击“保存草稿”重新提交。"});}return;}setServerComparison(latest);if(sameTypeDraft(latest,pending.draft)&&pending.step==="save"){selection.current=latest.id;baseline.current=latest;setDraft(current=>reconcileTypeWrite(current,pending.draft,latest));onSaved(latest);setFailure(null);pendingWrite.current=null;setMessage({tone:"success",text:"已核对：服务器草稿与提交内容一致，无需重复保存。"});}else{setMessage({tone:"error",text:pending.step==="publish"?`服务器显示${latest.currentVersion?`已发布 v${latest.currentVersion}`:"尚无已发布版本"}。请核对保存内容和版本，不能仅凭网络错误判断是否发布成功。`:"请对比服务器内容与当前编辑，再选择如何继续保存。"});}}catch{setMessage({tone:"error",text:"核对服务器结果失败。编辑内容仍保留；请检查“运行维护”，恢复后再次核对。"});}finally{setBusy(false);}};
+  const reportWriteFailure=(error:unknown,step:TypeWriteStep)=>{setFailure(typeWriteFailure(step,error instanceof ApiError?error.status:undefined));setServerComparison(null);setIssueLocations(locateTypeIssues(error instanceof ApiError&&error.status<500?error.issues:{},pendingWrite.current?.draft.draftFields??draft.draftFields));setMessage({tone:"error",text:error instanceof ApiError?error.message:"未收到有效的服务器回执。"});};
+  const focusIssue=(issue:TypeIssueLocation)=>{
+    const root=editorRoot.current;
+    if(!root||!issue.target)return;
+    const field=issue.target==="field"?Array.from(root.querySelectorAll<HTMLElement>("[data-type-field-key]")).find(element=>element.dataset.typeFieldKey===issue.fieldKey):null;
+    const target=field??root.querySelector<HTMLElement>(issue.target==="fields"||issue.target==="field"?"#nd-fields-title":`[data-type-control="${issue.target}"]`);
+    if(!target)return;
+    target.scrollIntoView({block:"center",behavior:"auto"});
+    if(target.tagName==="H2")target.setAttribute("tabindex","-1");
+    target.focus({preventScroll:true});
+  };
+  const checkResult=async()=>{
+    const pending=pendingWrite.current;
+    if(!pending)return;
+    setBusy(true);
+    try{
+      const latest=pending.draft.id?await newDesignApi.getCardType(pending.draft.id):(await newDesignApi.listCardTypes(spaceId)).find(item=>item.key===pending.draft.key);
+      if(!latest){
+        if(pending.step==="save"&&!pending.draft.id){setFailure(null);pendingWrite.current=null;setMessage({tone:"success",text:"服务器未找到该类型。编辑内容仍保留，可点击“保存草稿”重新提交。"});}
+        return;
+      }
+      setServerComparison(latest);
+      if(pending.step==="publish"){
+        const nextVersions=await newDesignApi.listCardTypeVersions(latest.id);
+        const published=confirmedPublicationVersion(latest,pending.draft,nextVersions);
+        if(published){
+          selection.current=latest.id;baseline.current=latest;setVersions(nextVersions);
+          setDraft(current=>({...current,id:latest.id,revision:latest.revision,status:latest.status,currentVersion:latest.currentVersion,currentVersionId:latest.currentVersionId}));
+          onSaved(latest);setFailure(null);pendingWrite.current=null;setServerComparison(null);setConfirmedWriteStep("publish");
+          setMessage({tone:"success",text:`已核对：版本 v${published.version} 与提交字段一致，无需再次发布。当前编辑仍保留。`});
+          return;
+        }
+      }
+      if(sameTypeDraft(latest,pending.draft)&&pending.step==="save"){
+        selection.current=latest.id;baseline.current=latest;setDraft(current=>reconcileTypeWrite(current,pending.draft,latest));onSaved(latest);setFailure(null);pendingWrite.current=null;
+        setMessage({tone:"success",text:"已核对：服务器草稿与提交内容一致，无需重复保存。"});
+      }else{
+        setMessage({tone:"error",text:pending.step==="publish"?`服务器显示${latest.currentVersion?`已发布 v${latest.currentVersion}`:"尚无已发布版本"}。请核对保存内容和版本，不能仅凭网络错误判断是否发布成功。`:"请对比服务器内容与当前编辑，再选择如何继续保存。"});
+      }
+    }catch{setMessage({tone:"error",text:"核对服务器结果失败。编辑内容仍保留；请检查“运行维护”，恢复后再次核对。"});}
+    finally{setBusy(false);}
+  };
   const acceptRevision=()=>{if(!serverComparison)return;setDraft(current=>({...current,id:serverComparison.id,revision:serverComparison.revision,currentVersion:serverComparison.currentVersion,currentVersionId:serverComparison.currentVersionId,status:serverComparison.status}));baseline.current=serverComparison;selection.current=serverComparison.id;onSaved(serverComparison);setFailure(null);pendingWrite.current=null;setServerComparison(null);setMessage({tone:"success",text:"当前编辑仍保留。请检查差异；保存草稿将替换服务器草稿，已发布版本不会改变。"});};
 
   const publishedKeys = useMemo(() => new Set((versions[0]?.fields ?? []).map((field) => field.key)), [versions]);
@@ -139,10 +184,13 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
     setBusy(true);
     setMessage(null);
     setFailure(null);
+    setIssueLocations([]);
+    setConfirmedWriteStep(null);
     pendingWrite.current={step:"save",draft};
     try {
       const saved = draft.id ? await newDesignApi.updateCardType(draft) : await newDesignApi.createCardType(draft);
       confirmed(saved);
+      setConfirmedWriteStep("save");
       pendingWrite.current=null;
       setMessage({ tone: "success", text: "草稿已保存。" });
     } catch (error) {
@@ -155,8 +203,10 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
     setBusy(true);
     setMessage(null);
     setFailure(null);
+    setIssueLocations([]);
+    setConfirmedWriteStep(null);
     try {
-      const published = await publishTypeDraft({draft,needsSave:!sameTypeDraft(draft,baseline.current),save:current=>current.id?newDesignApi.updateCardType(current):newDesignApi.createCardType(current),publish:newDesignApi.publishCardType,confirmed:saved=>confirmed(saved),attempting:(step,current)=>{pendingWrite.current={step,draft:current};}});
+      const published = await publishTypeDraft({draft,needsSave:!sameTypeDraft(draft,baseline.current),save:current=>current.id?newDesignApi.updateCardType(current):newDesignApi.createCardType(current),publish:newDesignApi.publishCardType,confirmed:(saved,step)=>{confirmed(saved);setConfirmedWriteStep(step);},attempting:(step,current)=>{pendingWrite.current={step,draft:current};}});
       pendingWrite.current=null;
       setMessage({ tone: "success", text: `版本 v${published.currentVersion} 已发布，可以创建资料。` });
       try{setVersions(await newDesignApi.listCardTypeVersions(published.id));}catch{setReadErrors(current=>({...current,versions:`版本 v${published.currentVersion} 已发布，但读取版本列表失败。请点击“重试读取规格”，不要再次发布。`}));}
@@ -171,7 +221,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
 
   return (
     <div className="nd-designer-grid">
-      <div className="nd-editor-column">
+      <div className="nd-editor-column" ref={editorRoot}>
         {Object.keys(readErrors).length>0&&<section className="nd-type-recovery" role="alert"><h2>部分规格未读取完成</h2>{Object.values(readErrors).map(text=><p key={text}>{text}</p>)}<div className="nd-action-row"><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void retryReads()}>重试读取规格</button><a className="nd-button nd-button-secondary" href="/new-design/structure/maintenance" target="_blank" rel="noreferrer">打开运行维护</a></div></section>}
         <fieldset className="nd-type-editor-fields" disabled={busy}>
         <section className="nd-section nd-type-overview">
@@ -187,14 +237,14 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           <div className="nd-grid-2">
             <label className="nd-control">
               <span>类型名称</span>
-              <input value={draft.name} placeholder="例如：人物" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+              <input data-type-control="name" aria-invalid={issueLocations.some(issue=>issue.target==="name")} value={draft.name} placeholder="例如：人物" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
             </label>
             <label className="nd-control nd-control-wide">
               <span>用途说明</span>
-              <input value={draft.description} placeholder="这类资料帮助作者记录什么" onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
+              <input data-type-control="description" aria-invalid={issueLocations.some(issue=>issue.target==="description")} value={draft.description} placeholder="这类资料帮助作者记录什么" onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
             </label>
           </div>
-          {categories.length>0&&<label className="nd-control"><span>所属分类</span><select value={draft.categoryId??""} onChange={(event)=>setDraft({...draft,categoryId:event.target.value||null,categoryKey:categories.find((item)=>item.id===event.target.value)?.key??null})}><option value="">未分类</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.parentId?"　":""}{category.name}</option>)}</select><small>分类只管理目录位置，不会让类型继承字段。</small></label>}
+          {categories.length>0&&<label className="nd-control"><span>所属分类</span><select data-type-control="categoryId" aria-invalid={issueLocations.some(issue=>issue.target==="categoryId")} value={draft.categoryId??""} onChange={(event)=>setDraft({...draft,categoryId:event.target.value||null,categoryKey:categories.find((item)=>item.id===event.target.value)?.key??null})}><option value="">未分类</option>{categories.map((category)=><option key={category.id} value={category.id}>{category.parentId?"　":""}{category.name}</option>)}</select><small>分类只管理目录位置，不会让类型继承字段。</small></label>}
           {!draft.id && draft.draftFields.length === 0 && (
             <button className="nd-inline-action" type="button" onClick={() => setDraft({ ...draft, name: draft.name || "人物", description: draft.description || "记录故事人物的身份、职责与性格。", draftFields: personStarterFields() })}>
               使用人物字段示例开始
@@ -220,7 +270,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           </div>
         </section>
 
-        <fieldset className="nd-type-editor-fields" disabled={Boolean(readErrors.versions||readErrors.resources)}><FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} dictionaries={dictionaries} semantics={semantics} onChange={(draftFields) => setDraft({ ...draft, draftFields })} /></fieldset>
+        <fieldset className="nd-type-editor-fields" disabled={Boolean(readErrors.versions||readErrors.resources)}><FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} dictionaries={dictionaries} semantics={semantics} invalidFieldKeys={invalidFieldKeys} fieldIssues={fieldIssueMessages} onChange={(draftFields) => setDraft({ ...draft, draftFields })} /></fieldset>
 
         <section className="nd-section nd-tag-binding-section">
           <div className="nd-section-heading">
@@ -230,7 +280,17 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           {!draft.id?<div className="nd-empty nd-empty-compact">先保存内容类型，再绑定标签维度。</div>:tagBindings.length?<div className="nd-tag-binding-list">{tagBindings.map((binding,index)=><TagBindingEditor key={binding.id} binding={binding} dimension={dimensions.find(item=>item.id===binding.dimensionId)??null} busy={busy} onChange={next=>setTagBindings(items=>items.map((item,i)=>i===index?next:item))} onSave={()=>void saveTagBinding(binding)}/>)}</div>:<div className="nd-empty nd-empty-compact">还没有绑定标签维度。</div>}
         </section>
         </fieldset>
-        {failure&&<section className="nd-type-recovery" role="alert"><h2>{draft.name||"未命名类型"} · {failure.title}</h2><p>{failure.guidance}</p>{fieldIssues.length>0&&<ul>{fieldIssues.map(issue=><li key={issue}>{issue}</li>)}</ul>}<div className="nd-action-row">{(failure.needsReview)&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void checkResult()}>核对服务器结果</button>}<a className="nd-button nd-button-secondary" href="/new-design/structure/maintenance" target="_blank" rel="noreferrer">打开运行维护</a></div>{serverComparison&&<div><h3>服务器保存内容</h3><p>名称：{serverComparison.name}；说明：{serverComparison.description||"未填写"}；发布版本：{serverComparison.currentVersion?`v${serverComparison.currentVersion}`:"未发布"}</p><p>字段：{serverComparison.draftFields.map(field=>field.name).join("、")||"未填写"}</p><details><summary>查看服务器字段表单</summary><DynamicForm fields={serverComparison.draftFields} values={{}} preview/></details><p>继续保存会以当前页面的编辑替换服务器草稿；请先检查差异。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={acceptRevision}>保留我的编辑，按核对后的修订继续</button></div>}</section>}
+        {failure&&<section className="nd-type-recovery" role="alert">
+          <h2>{draft.name||"未命名类型"} · {failure.title}</h2>
+          <p>{confirmedWriteStep==="save"&&failure.step==="publish"?"草稿保存成功。发布版本这一步未完成确认；恢复时无需重新创建类型。":"当前页面的编辑内容仍保留；刷新或关闭页面可能丢失未保存修改。"}</p>
+          <p>{failure.guidance}</p>
+          {issueLocations.length>0&&<ul className="nd-type-issue-list">{issueLocations.map(issue=><li key={issue.path}><span>{issue.label}：{issue.message}</span>{issue.target&&<button type="button" disabled={busy} onClick={()=>focusIssue(issue)}>定位到{issue.target==="field"?"错误字段":issue.label}</button>}</li>)}</ul>}
+          <div className="nd-action-row">
+            {failure.needsReview?<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void checkResult()}>核对服务器结果</button>:<button className="nd-button nd-button-secondary" type="button" disabled={busy||!draft.name.trim()||Boolean(readErrors.versions)||Boolean(failure.step==="publish"&&draft.draftFields.length===0)} onClick={()=>void(failure.step==="save"?save():publish())}>修改后{failure.step==="save"?"重试保存草稿":"重试发布版本"}</button>}
+            <a className="nd-button nd-button-secondary" href="/new-design/structure/maintenance" target="_blank" rel="noreferrer">打开运行维护</a>
+          </div>
+          {serverComparison&&<div><h3>服务器保存内容</h3><p>名称：{serverComparison.name}；说明：{serverComparison.description||"未填写"}；发布版本：{serverComparison.currentVersion?`v${serverComparison.currentVersion}`:"未发布"}</p><p>字段：{serverComparison.draftFields.map(field=>field.name).join("、")||"未填写"}</p><details><summary>查看服务器字段表单</summary><DynamicForm fields={serverComparison.draftFields} values={{}} preview/></details><p>继续保存会以当前页面的编辑替换服务器草稿；请先检查差异。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={acceptRevision}>保留我的编辑，按核对后的修订继续</button></div>}
+        </section>}
         <footer className="nd-sticky-actions">
           <div>
             {message && <p className={`nd-message is-${message.tone}`}>{message.text}</p>}

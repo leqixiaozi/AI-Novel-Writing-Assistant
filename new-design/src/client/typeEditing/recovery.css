@@ -5,3 +5,10 @@
 .nd-type-recovery .nd-action-row { flex-wrap: wrap; }
 .nd-type-recovery button, .nd-type-recovery a { min-height: 44px; }
 .nd-type-editor-fields:disabled { opacity: .75; }
+.nd-type-issue-list { padding-left: 1.25rem; }
+.nd-type-issue-list li { margin-block: .5rem; }
+.nd-type-issue-list button { margin-left: .5rem; color: var(--nd-ink); background: var(--nd-paper); border: 1px solid var(--nd-line); border-radius: .4rem; padding: .4rem .7rem; }
+.nd-field-row.has-error { border-left: 3px solid var(--nd-error); }
+.nd-field-validation { color: var(--nd-error); }
+.nd-field-validation p { margin: 0 0 .5rem; }
+.nd-field-row:focus, .nd-type-editor-fields [aria-invalid="true"] { outline: 2px solid var(--nd-error); outline-offset: 2px; }

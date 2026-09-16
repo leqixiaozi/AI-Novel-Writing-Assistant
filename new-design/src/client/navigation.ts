@@ -22,6 +22,7 @@ export const NEW_DESIGN_ADVANCED_NAV = [
   { key: "forms", label: "创作表单", href: "/new-design/structure/forms" },
   { key: "templates", label: "开书模板", href: "/new-design/structure/templates" },
   { key: "context", label: "上下文管理", href: "/new-design/structure/context" },
+  { key: "models", label: "模型设置", href: "/new-design/structure/models" },
   { key: "maintenance", label: "运行维护", href: "/new-design/structure/maintenance" },
 ] as const;
 

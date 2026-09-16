@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { typeFieldIssuePaths } from "../../common/typeEditing";
 import type { Pool, PoolClient } from "pg";
 import type { CardSummary, CardTypeCapability, CardTypeSummary, CardTypeVersion, CardVersion, FieldDefinition, FormResolutionKind } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
@@ -123,7 +124,7 @@ export async function createCardType(input: { key: string; name: string; descrip
   const id = randomUUID();
   try {
     const bindingIssues=await validateDictionaryTreeBindings(pool,input.fields);
-    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,bindingIssues);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,typeFieldIssuePaths(bindingIssues));
     const result = await pool.query(`
       INSERT INTO new_design.card_types (id, space_id, type_key, name, description, status, semantic_capabilities, draft_fields, category_id)
       VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, $7::jsonb, $8)
@@ -147,7 +148,7 @@ export async function updateCardType(
     const existing = assertFound(await findCardType(client, id, true), "元卡片类型不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再保存。", 409);
     const bindingIssues=await validateDictionaryTreeBindings(client,input.fields);
-    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,bindingIssues);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("字典树绑定无效，请检查字段的字典和范围起点。",422,typeFieldIssuePaths(bindingIssues));
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
       const issues = existing.spaceId === DEFAULT_SPACE_ID
@@ -155,7 +156,7 @@ export async function updateCardType(
         : validateBookTypeEvolution(current.fields, input.fields);
       if (Object.keys(issues).length > 0) throw new NewDesignError(existing.spaceId === DEFAULT_SPACE_ID
         ? "已发布系统类型只能增加非必填字段。"
-        : "书内类型可调整显示信息和选项，但不能删除稳定字段、改变数据类型或新增必填约束。", 422, issues);
+        : "书内类型可调整显示信息和选项，但不能删除稳定字段、改变数据类型或新增必填约束。", 422, typeFieldIssuePaths(issues));
     }
     const result = await client.query(`
       UPDATE new_design.card_types
@@ -181,7 +182,7 @@ export async function publishCardType(id: string, revision: number): Promise<Car
     const existing = assertFound(await findCardType(client, id, true), "元卡片类型不存在。");
     if (existing.revision !== revision) throw new NewDesignError("此元卡片类型已在其他页面更新，请刷新后再发布。", 409);
     const bindingIssues=await validateDictionaryTreeBindings(client,existing.draftFields);
-    if(Object.keys(bindingIssues).length)throw new NewDesignError("发布失败：字典树绑定的字典或范围起点已不可用。",422,bindingIssues);
+    if(Object.keys(bindingIssues).length)throw new NewDesignError("发布失败：字典树绑定的字典或范围起点已不可用。",422,typeFieldIssuePaths(bindingIssues));
     if (existing.currentVersionId) {
       const current = await findCurrentTypeFields(client, id);
       const issues = existing.spaceId === DEFAULT_SPACE_ID
@@ -189,7 +190,7 @@ export async function publishCardType(id: string, revision: number): Promise<Car
         : validateBookTypeEvolution(current.fields, existing.draftFields);
       if (Object.keys(issues).length > 0) throw new NewDesignError(existing.spaceId === DEFAULT_SPACE_ID
         ? "发布失败：系统类型只能在已发布结构后增加非必填字段。"
-        : "发布失败：书内类型不能删除稳定字段、改变数据类型或新增必填约束。", 422, issues);
+        : "发布失败：书内类型不能删除稳定字段、改变数据类型或新增必填约束。", 422, typeFieldIssuePaths(issues));
       if (JSON.stringify(current.fields) === JSON.stringify(existing.draftFields)) {
         throw new NewDesignError("字段定义没有变化，无需发布新版本。", 422);
       }

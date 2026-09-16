@@ -19,6 +19,7 @@ import { BookOverviewPage, PlanningCenterPage } from "./planningCenter";
 import { ChapterWritingPage } from "./chapterWriting";
 import CompletionExportPage from "./completionExport/CompletionExportPage";
 import OperationsMaintenancePage from "./operations/OperationsMaintenancePage";
+import ModelSettingsPage from "./modelSettings";
 import "./new-design.css";
 import type { BookViewKey } from "../common/contracts";
 
@@ -56,5 +57,6 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/structure/templates")return <TemplateGroupsPage/>;
   if(path==="/new-design/structure/context")return <ContextManagementPage/>;
   if(path==="/new-design/structure/maintenance")return <OperationsMaintenancePage/>;
+  if(path==="/new-design/structure/models")return <ModelSettingsPage/>;
   return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前新设计导航范围内。</p><a className="nd-button nd-button-primary" href="/new-design">返回创作首页</a></div>;
 }

@@ -1,0 +1,29 @@
+const test=require("node:test");
+const assert=require("node:assert/strict");
+process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME="1";
+const {createIndependentApplication}=require("../dist/server/app");
+const {getNewDesignPool}=require("../dist/server/database/runtime");
+
+test("real standalone Express and PostgreSQL read existing facts and expose actionable model configuration failure",async t=>{
+ const pool=await getNewDesignPool();
+ const app=createIndependentApplication();
+ const server=app.listen(0,"127.0.0.1");await new Promise(resolve=>server.once("listening",resolve));
+ t.after(async()=>{await new Promise(resolve=>server.close(resolve));await pool.end();});
+ const base=`http://127.0.0.1:${server.address().port}/api/new-design`;
+ const types=await(await fetch(`${base}/card-types`)).json();assert.equal(types.success,true);assert.ok(types.data.length>0);
+ const count=await pool.query("SELECT count(*)::int AS count FROM new_design.card_types WHERE status <> 'archived'");
+ assert.ok(count.rows[0].count>=types.data.length);
+ const published=types.data.find(type=>type.isSystem&&type.currentVersionId&&type.draftFields.length>0);
+ assert.ok(published);
+ const before=(await pool.query("SELECT revision,draft_fields,current_version_id FROM new_design.card_types WHERE id=$1",[published.id])).rows[0];
+ const proposed=published.draftFields.map((field,index)=>index===0?{...field,name:`${field.name}（只验证拒绝）`}:field);
+ const {validatePublishedEvolution}=require("../dist/server/domain/validation");
+ const versions=await(await fetch(`${base}/card-types/${published.id}/versions`)).json();
+ assert.ok(Object.keys(validatePublishedEvolution(versions.data.find(version=>version.id===published.currentVersionId).fields,proposed)).length>0,"static policy must reject before attempting controlled failure check");
+ const rejected=await fetch(`${base}/card-types/${published.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:published.name,description:published.description,revision:published.revision,categoryId:published.categoryId,semanticCapabilities:published.semanticCapabilities,fields:proposed})});
+ const validation=await rejected.json();assert.equal(rejected.status,422);assert.ok(validation.issues[`fieldKey.${published.draftFields[0].key}`]);
+ assert.deepEqual((await pool.query("SELECT revision,draft_fields,current_version_id FROM new_design.card_types WHERE id=$1",[published.id])).rows[0],before,"rejected field change must not change author data or revision");
+ const status=await(await fetch(`${base}/models/status`)).json();assert.equal(status.success,true);assert.equal(status.data.tasks.length,6);
+ const health=await(await fetch(`${base}/independent-health`)).json();assert.equal(health.data.recoveryRoute,"/new-design/structure/maintenance");
+ if(!status.data.configured){const result=await fetch(`${base}/models/probe`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const failure=await result.json();assert.equal(result.status,422);assert.equal(failure.recovery.failedStep,"配置模型");assert.equal(failure.recovery.sourceRoute,"/new-design/structure/models");}
+});
