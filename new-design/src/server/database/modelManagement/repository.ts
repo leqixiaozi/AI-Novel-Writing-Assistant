@@ -30,12 +30,12 @@ export async function readSummary(client: PoolClient, config: DbRow): Promise<Ma
 }
 const credentialVariable = (row: DbRow): string | null => row.status === "active" && providerSchema.safeParse(row.provider).success && /^env:\/\/NEW_DESIGN_AI_[A-Z0-9_]+$/.test(String(row.secret_locator)) ? String(row.secret_locator).slice(6) : null;
 function credentialChoice(row: DbRow): ManagedCredentialChoice { const variable = credentialVariable(row); return { id: row.id, label: row.credential_key, provider: row.provider, available: Boolean(variable && process.env[variable]), status: row.status }; }
+export async function getManagedCredentialCatalog(context?:ManagedDatabaseContext):Promise<Pick<ModelRouteCenterCatalog,"credentials"|"environmentReferences">>{return withClient(context,async client=>{const credentials=(await client.query("SELECT * FROM new_design.model_credential_refs ORDER BY credential_key,id")).rows.map(credentialChoice);const environmentReferences=Object.keys(process.env).filter(name=>/^NEW_DESIGN_AI_[A-Z0-9_]+$/.test(name)&&!["NEW_DESIGN_AI_PROVIDER","NEW_DESIGN_AI_MODEL","NEW_DESIGN_AI_BASE_URL","NEW_DESIGN_AI_TIMEOUT_MS","NEW_DESIGN_AI_MAX_TOKENS"].includes(name)).sort().map(name=>({name,available:Boolean(process.env[name])}));return {credentials,environmentReferences};});}
 export async function getModelRouteCenterCatalog(context?: ManagedDatabaseContext): Promise<ModelRouteCenterCatalog> {
   return withClient(context, async client => {
     const rows = (await client.query("SELECT * FROM new_design.model_route_configs WHERE status='active' AND ((scope='system_default') OR (scope='task' AND task_key=ANY($1::text[]) AND task_group IS NULL)) ORDER BY scope,task_key,id", [MODEL_TASKS.map(item => item.key)])).rows;
     const routes: ManagedRouteSummary[] = []; for (const row of rows) routes.push(await readSummary(client, row));
-    const credentials = (await client.query("SELECT * FROM new_design.model_credential_refs ORDER BY credential_key,id")).rows.map(credentialChoice);
-    const environmentReferences = Object.keys(process.env).filter(name => /^NEW_DESIGN_AI_[A-Z0-9_]+$/.test(name) && !["NEW_DESIGN_AI_PROVIDER", "NEW_DESIGN_AI_MODEL", "NEW_DESIGN_AI_BASE_URL", "NEW_DESIGN_AI_TIMEOUT_MS", "NEW_DESIGN_AI_MAX_TOKENS"].includes(name)).sort().map(name => ({ name, available: Boolean(process.env[name]) }));
+    const {credentials,environmentReferences}=await getManagedCredentialCatalog({...context,client});
     return { routes, credentials, tasks: MODEL_TASKS, environmentReferences };
   });
 }

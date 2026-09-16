@@ -1,11 +1,12 @@
-import type { CompositionRecipe, CompositionDebugPreview, CompositionDebugResult } from "../../../common/promptComposition";
+import type { CompositionRecipe, CompositionDebugPreview, CompositionDebugResult,CompositionKnowledgeSource } from "../../../common/promptComposition";
 import type { ManagedModelSnapshot, ManagedTaskRoute } from "../../../common/modelRouting";
 import type { AiFailureCategory } from "../../../common/contracts";
 import type { AiRuntimeRecovery } from "../../../common/aiRuntime";
 
 export interface ExactCompositionComponent { cardId:string; versionId:string; title:string; enabled:boolean; content:string; componentType:string; taskFamilies:string[]; trustLevel:string }
 export interface ExactCompositionSource { cardId:string; versionId:string; title:string; role:"formal"|"reference"; typeKey:string; values:Record<string,unknown> }
-export interface LoadedCompositionRecipe { recipe:CompositionRecipe; components:ExactCompositionComponent[]; sources:ExactCompositionSource[] }
+export interface ExactCompositionKnowledgeSource extends CompositionKnowledgeSource {parsedAssetId:string;title:string;text:string;spaceId:string;revision:number;resourceId:string;}
+export interface LoadedCompositionRecipe { recipe:CompositionRecipe; components:ExactCompositionComponent[]; sources:ExactCompositionSource[];knowledgeSources?:ExactCompositionKnowledgeSource[] }
 export interface DebugPreviewBundle extends LoadedCompositionRecipe {
   taskInput:Record<string,unknown>; inputSchema:Record<string,unknown>;
   messages:Array<{role:"system"|"user";content:string}>; outputSchema:Record<string,unknown>;

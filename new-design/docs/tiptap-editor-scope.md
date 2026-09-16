@@ -1,12 +1,12 @@
 # P2 正文编辑器接入范围
 
-派发：2026-09-16，讨论任务 `01a0a9cc-294c-72e2-83af-b15fb725a6d1`。只登记需求，不声明已接入或完成验证。唯一执行顺序与证据记录在 `p1-p2-execution-queue.md`，本文件不建立第二套任务清单。
+派发：2026-09-16，讨论任务 `01a0a9cc-294c-72e2-83af-b15fb725a6d1`。正文段落投影、中文工具栏／BubbleMenu、冻结选区对话框及章节工作台接线已编码，尚未运行验证。唯一执行顺序与证据记录在 `p1-p2-execution-queue.md`，本文件不建立第二套任务清单。
 
 ## 最小闭环与依赖
 
 用户动作：选择章节的任意词句／单段／跨段文字，通过自定义对话框仅修改目标范围，再保存并重开同一正文。必要缺口是现有正文编辑缺少可扩展浮动工具栏与稳定选区快照。
 
-按用户确认方向采用 Tiptap 开源核心和可用 MIT 模板／BubbleMenu；接入时核对实际版本、依赖许可及版权声明，不将核心 MIT 许可套用于商业包。官方参考由用户指定：[Simple Editor](https://tiptap.dev/docs/ui-components/templates/simple-editor)、[BubbleMenu](https://tiptap.dev/docs/editor/extensions/functionality/bubble-menu)。本登记未研究链接内容，正式实现前需核验。
+按用户确认方向采用 Tiptap 开源核心与 BubbleMenu。2026-09-16 已只读核对 npm 官方元信息：`@tiptap/core/react/pm/starter-kit` 同版 3.31.3、MIT、React 19 在 peer 范围内。官方 [Simple Editor](https://tiptap.dev/docs/ui-components/templates/simple-editor) 页面声明模板及所含组件为 MIT；[BubbleMenu](https://tiptap.dev/docs/editor/extensions/functionality/bubble-menu) 提供 React `@tiptap/react/menus` 入口。实现不复制官方模板／样式、不执行 CLI 生成器、不引入商业包；保持现有主题和储存合同。源码见 `src/client/bodyEditor`，依赖锁定与执行验收分开记录。
 
 依赖新设计独立前端入口、独立包依赖和既有正文草稿保存／修订合同。排 P2 基础之后、P3 全书编排之前，不打断当前提示词管理。不采购商业 AI／修订／协作、云服务，不扩大 P4 高级版本或 P5 权限。
 

@@ -13,8 +13,10 @@ export interface ExecutionDependencies {
   routeResolver?:(task:ModelTaskKey)=>Promise<ManagedTaskRoute>;
   snapshotWriter?:(task:ModelTaskKey,route:ManagedTaskRoute)=>Promise<ManagedModelSnapshot>;
   credentialResolver?:(id:string,provider:string)=>Promise<string|null>;
+  /** Source workflows with an original unknown receipt must not issue a second provider request. */
+  stopOnUnknownResponse?:boolean;
 }
-interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;requestSent:boolean;}
+interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;requestSent:boolean;responseReceived:boolean;}
 
 export async function configurationForConnection(connection:ManagedModelConnection,policy=DEFAULT_MODEL_POLICY,dependencies:ExecutionDependencies={},allowEmptyModel=false):Promise<ModelConfiguration> {
   if(!connection||typeof connection.endpoint!=="string"||typeof connection.model!=="string"||!["ollama","openai-compatible"].includes(connection.provider)||!(connection.credentialId===null||typeof connection.credentialId==="string"))throw new AiExecutionError("检查模型连接设置","请选择服务类型并填写地址；指定创作模型后才能生成。",422);
@@ -74,20 +76,24 @@ export async function executeManagedPrompt<T>(taskType:ModelTaskKey,prompt:Prepa
     const started=Date.now();
     let attemptUsage:number|null=null;
     let requestSent=false;
+    let responseReceived=false;
     try {
       const configured=fixtureConfig??await configurationForConnection(connection,route.policy,dependencies);
       requestSent=true;
       const result=await invokeStructuredModel({...configured,maxTokens:reservation.maxOutputTokens},prompt,dependencies.fetcher);
+      responseReceived=true;
       if(result.usageReported){knownUsage+=result.usedTokens;attemptUsage=result.usedTokens;}else unknownUsage=true;
       if(result.inputTokens!==null&&result.outputTokens!==null){knownInput+=result.inputTokens;knownOutput+=result.outputTokens;}else breakdownUnknown=true;
       let output:T;
       try{output=prompt.parseOutput(result.value) as T;}catch(error){if(error instanceof AiExecutionError)throw error;throw new AiExecutionError("核对创作结果","模型生成结果不符合此任务的表单规格。本次回复未采用，请在来源页调整输入或检查模型设置，不会因内容校验失败自动换模型。");}
-      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"succeeded",category:null,reservedTokens:reservation.reservedTokens,usedTokens:result.usageReported?result.usedTokens:null,durationMs:Date.now()-started,requestSent});
+      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"succeeded",category:null,reservedTokens:reservation.reservedTokens,usedTokens:result.usageReported?result.usedTokens:null,durationMs:Date.now()-started,requestSent,responseReceived});
       return {output,usedTokens:knownUsage,modelSnapshot:{provider:connection.provider,model:connection.model,routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,timeoutMs:route.policy.timeoutMs,maxTokens:reservation.maxOutputTokens,maxTotalTokens:route.policy.maxTotalTokens,knownTokens:knownUsage,inputTokens:breakdownUnknown?null:knownInput,outputTokens:breakdownUnknown?null:knownOutput,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",budgetExceeded:knownUsage>route.policy.maxTotalTokens,usageReported:!unknownUsage,usageStatus:unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true,fixture:Boolean(fixtureConfig)}};
     }catch(error){
       const failure=error instanceof AiExecutionError?error:new AiExecutionError("生成创作候选","模型执行未完成确认，请检查模型设置后回来源页核对结果。");
-      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"failed",category:failure.category,reservedTokens:reservation.reservedTokens,usedTokens:attemptUsage,durationMs:Date.now()-started,requestSent});
+      if(!responseReceived&&failure.transportReceipt){const receipt=failure.transportReceipt;responseReceived=true;if(receipt.usageReported){knownUsage+=receipt.usedTokens;attemptUsage=receipt.usedTokens;}else unknownUsage=true;if(receipt.inputTokens!==null&&receipt.outputTokens!==null){knownInput+=receipt.inputTokens;knownOutput+=receipt.outputTokens;}else breakdownUnknown=true;}
+      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"failed",category:failure.category,reservedTokens:reservation.reservedTokens,usedTokens:attemptUsage,durationMs:Date.now()-started,requestSent,responseReceived});
       if(requestSent&&attemptUsage===null){unknownUsage=true;breakdownUnknown=true;}
+      if(dependencies.stopOnUnknownResponse&&requestSent&&!responseReceived)throw failureSnapshot(failure);
       if(!failure.category)throw failureSnapshot(failure);
       if(RETRYABLE.has(failure.category)&&retries<route.policy.maxRetries){retries++;await new Promise(resolve=>setTimeout(resolve,route.policy.retryDelayMs));continue;}
       const next=route.fallbacks.findIndex((fallback,index)=>!attemptedFallbacks.has(index+1)&&fallback.failureCategories.includes(failure.category!));

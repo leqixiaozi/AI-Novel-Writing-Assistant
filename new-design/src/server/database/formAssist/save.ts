@@ -17,7 +17,7 @@ export async function verifyFormAiSave(db:PoolClient,input:{cardId:string;spaceI
     const snapshot=row.input_payload.snapshot as FormAssistSnapshot,target=snapshot.target;
     if(target.cardTypeId!==input.cardTypeId||target.typeVersionId!==input.typeVersionId||target.formVersionId!==input.formVersionId||target.cardId!== (input.revision===null?null:input.cardId)||target.cardRevision!==input.revision)throw new NewDesignError("AI 来源与这份资料的规格或修订不一致，请复核后重新生成。",409);
     if((await db.query("SELECT 1 FROM new_design.card_version_ai_draft_sources WHERE decision_id=$1",[id])).rows.length)throw new NewDesignError("这份 AI 来源已保存，请重新读取资料。",409);
-    const current=await freezeFormContext(db,target,snapshot.values,snapshot.tagIds,snapshot.referenceCardIds??[]);
+    const current=await freezeFormContext(db,target,snapshot.values,snapshot.tagIds,snapshot.referenceCardIds??[],snapshot.referenceKnowledgeSources??[]);
     if(current.sourceHash!==row.source_hash)throw new NewDesignError("AI 来源已过期，请复核后重新生成；本地草稿会保留。",409);
     records.push(row);
   }

@@ -16,7 +16,7 @@ function extractedFunctions(filename,names,bindings={}){
   return output;
 }
 test("recovery whitelist accepts only fixed model/maintenance/composition routes and strict preview UUID",()=>{
-  const route="/new-design/resources/ai/prompt-composition",helpers=extractedFunctions("../src/client/api.ts",["safeRecoveryTarget","isGlobalModelRecovery"],{COMPOSITION_ROUTE:route});
+  const route="/new-design/resources/ai/prompt-composition",professional=require('../dist/common/professionalResources').PROFESSIONAL_ROUTE,helpers=extractedFunctions("../src/client/api.ts",["safeRecoveryTarget","isGlobalModelRecovery"],{COMPOSITION_ROUTE:route,PROFESSIONAL_ROUTE:professional});
   const candidate={failedStep:"核对引用版本",summary:"引用需重新预览",savedResult:"草稿保留",sourceRoute:route,actionLabel:"返回提示词组合"};
   assert.ok(helpers.safeRecoveryTarget(candidate));assert.equal(helpers.isGlobalModelRecovery(candidate),false);
   const uuid="21cd93bc-886d-4769-b5e7-2cfcaf859317";
@@ -24,6 +24,8 @@ test("recovery whitelist accepts only fixed model/maintenance/composition routes
   for(const sourceRoute of [route+"?previewId=bad",route+"?previewId="+uuid+"&next=evil",route+"?previewId="+uuid+"#evil",route+"/../books",route+"?other="+uuid,"https://evil.example","javascript:alert(1)","//evil.example"]){assert.equal(helpers.safeRecoveryTarget({...candidate,sourceRoute}),null);}
   assert.equal(helpers.safeRecoveryTarget({...candidate,actionLabel:"任意动作"}),null);
   const model={...candidate,sourceRoute:"/new-design/structure/models",actionLabel:"打开模型设置"};assert.ok(helpers.safeRecoveryTarget(model));assert.equal(helpers.isGlobalModelRecovery(model),true);
+  assert.ok(helpers.safeRecoveryTarget({...candidate,sourceRoute:professional,actionLabel:'返回专业创作资源'}));
+  assert.equal(helpers.safeRecoveryTarget({...candidate,sourceRoute:professional+'?next=evil',actionLabel:'返回专业创作资源'}),null);
   assert.equal(helpers.safeRecoveryTarget({...candidate,savedResult:3}),null);
 });
 test("unknown model submissions remain read-only and successful partial reads are retained",()=>{

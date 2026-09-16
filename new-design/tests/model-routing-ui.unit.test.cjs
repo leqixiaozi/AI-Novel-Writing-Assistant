@@ -13,9 +13,10 @@ const settings = {primary:{provider:"ollama",endpoint:"http://127.0.0.1:11434",m
 function route(scope="system_default", taskType=null, current=settings) {return {id:scope,scope,taskType,name:"模型设置",revision:4,current:{...current,id:"current",version:4},published:{...current,id:"published",version:3},editable:true,configurationIssue:null};}
 function catalog(routes=[route()]) {return {routes,credentials:[],tasks:routing.MODEL_TASKS,environmentReferences:[]};}
 
-test("Chinese tasks include chapter changes and inherit defaults without copying persisted facts", () => {
-  assert.equal(routing.MODEL_TASKS.length,7);
+test("Chinese tasks include chapter changes and chapter generation and inherit defaults without copying persisted facts", () => {
+  assert.equal(routing.MODEL_TASKS.length,8);
   assert.ok(routing.MODEL_TASKS.some(task=>task.key==='chapter_settlement'));
+  assert.ok(routing.MODEL_TASKS.some(task=>task.key==='chapter_generation'&&task.label==='生成章节正文'));
   const value=catalog();
   assert.equal(editing.selectedRoute(value,"form_assist"),null);
   const draft=editing.initialSettings(value,"form_assist");

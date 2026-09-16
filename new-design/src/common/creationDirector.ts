@@ -22,10 +22,18 @@ export interface CreationDirectorState {
 export interface CreationDirectorCommand {expectedRevision:number;idempotencyKey:string;}
 export interface CreationDirectorControl {
   expectedRevision:number;
+  idempotencyKey:string;
   mode:CreationDirectorMode;
   cursor?:number;
   takeOver?:boolean;
   directionId?:string;
+}
+export interface CreationDirectorControlReceipt {
+ sessionId:string;requestKey:string;operation:"director_control";repeated:boolean;session:import("./contracts").BookCreationSession;
+}
+export interface CreationDirectorCommandReceipt {
+ sessionId:string;requestKey:string;status:"running"|"review"|"failed";
+ session:import("./contracts").BookCreationSession;receipts:import("./creationReviewAi").CreationPreparationReceipt[];
 }
 export function creationDirectorState(payload:Record<string,unknown>):CreationDirectorState|null {
   const value=payload.creationDirector as Partial<CreationDirectorState>|undefined;

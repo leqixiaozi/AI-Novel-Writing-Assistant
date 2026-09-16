@@ -18,12 +18,13 @@ function mapAdoption(row:Record<string,unknown>):PlanningAdoption{return{id:Stri
 function mapAction(row:Record<string,unknown>):PlanningVersionAction{return{id:String(row.id),objectId:String(row.object_id),versionId:String(row.version_id),action:row.action as PlanningVersionAction["action"],actor:String(row.actor),note:String(row.note),createdAt:asDate(row.created_at)};}
 function mapImpact(row:Record<string,unknown>):PlanningImpact{return{id:String(row.id),bookId:String(row.book_id),adoptionId:String(row.adoption_id),sourceObjectId:String(row.source_object_id),sourceFromVersionId:String(row.source_from_version_id),sourceToVersionId:String(row.source_to_version_id),targetKind:row.target_kind as PlanningImpact["targetKind"],targetId:String(row.target_id),status:row.status as PlanningImpact["status"],reason:String(row.reason),createdAt:asDate(row.created_at),resolvedAt:row.resolved_at?asDate(row.resolved_at):null};}
 
-async function validateParentBasis(client:PoolClient,object:Record<string,unknown>,basisId:string|null|undefined):Promise<string|null>{
+async function validateParentBasis(client:PoolClient,object:Record<string,unknown>,basisId:string|null|undefined,allowDraftParent=false):Promise<string|null>{
   if(object.level==="story"){if(basisId)throw new NewDesignError("故事总计划不能引用父级规划版本。",422);return null;}
   const parent=assertFound((await client.query("SELECT * FROM new_design.planning_objects WHERE id=$1 AND book_id=$2",[object.parent_object_id,object.book_id])).rows[0],"父级规划对象不存在。");
-  if(!parent.adopted_version_id)throw new NewDesignError("请先采用父级规划版本，再创建子级规划。",409);
+  const requiredParentVersion=allowDraftParent?parent.current_version_id:parent.adopted_version_id;
+  if(!requiredParentVersion)throw new NewDesignError("请先明确保存父级规划版本，再创建子级规划。",409);
   if(!basisId)throw new NewDesignError("子级规划必须记录所依据的父级采用版本。",422);
-  if(String(parent.adopted_version_id)!==basisId)throw new NewDesignError("父级采用版本发生变化，请刷新后重新生成或编辑子计划。",409);
+  if(String(requiredParentVersion)!==basisId)throw new NewDesignError("父级依据版本发生变化，请刷新后重新生成或编辑子计划。",409);
   const version=assertFound((await client.query("SELECT stale_at FROM new_design.planning_versions WHERE id=$1 AND object_id=$2",[basisId,parent.id])).rows[0],"父级规划版本不存在。");
   if(version.stale_at)throw new NewDesignError("父级采用版本正在等待复核，不能作为新的规划依据。",409);
   return basisId;
@@ -39,8 +40,8 @@ async function validateBodySource(client:PoolClient,object:Record<string,unknown
   return bodyVersionId;
 }
 
-async function insertVersion(client:PoolClient,object:Record<string,unknown>,number:number,input:VersionInput,action:"create"|"edit"):Promise<PlanningVersion>{
-  const basis=await validateParentBasis(client,object,input.basedOnParentVersionId);
+async function insertVersion(client:PoolClient,object:Record<string,unknown>,number:number,input:VersionInput,action:"create"|"edit",allowDraftParent=false):Promise<PlanningVersion>{
+  const basis=await validateParentBasis(client,object,input.basedOnParentVersionId,allowDraftParent);
   const bodyVersion=await validateBodySource(client,object,input.source,input.sourceBodyVersionId);
   let base:string|null=input.baseVersionId??(object.current_version_id?String(object.current_version_id):null);
   if(base&&!((await client.query("SELECT 1 FROM new_design.planning_versions WHERE id=$1 AND object_id=$2",[base,object.id])).rowCount))throw new NewDesignError("基础规划版本不存在或属于其他规划对象。",422);
@@ -68,6 +69,20 @@ export async function createPlanningObject(input:CreateInput):Promise<PlanningOb
     const row=(await client.query("INSERT INTO new_design.planning_objects(id,book_id,level,parent_object_id,card_id,title,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[id,input.bookId,input.level,input.parentObjectId??null,input.cardId??null,input.title,input.sortOrder])).rows[0];
     const version=await insertVersion(client,row,1,input,"create");await client.query("INSERT INTO new_design.planning_operation_events(id,book_id,object_id,version_id,action,result_revision,request_hash,idempotency_key,actor) VALUES($1,$2,$3,$4,'create',1,$5,$6,$7)",[randomUUID(),input.bookId,id,version.id,requestHash,input.idempotencyKey,input.createdBy??"user"]);await client.query("COMMIT");return getPlanningObject(id);
   }catch(error){await client.query("ROLLBACK");if((error as {code?:string}).code==="23505"){const repeated=(await pool.query("SELECT object_id,request_hash FROM new_design.planning_operation_events WHERE book_id=$1 AND idempotency_key=$2",[input.bookId,input.idempotencyKey])).rows[0];if(repeated&&String(repeated.request_hash)===requestHash)return getPlanningObject(String(repeated.object_id));throw new NewDesignError("同层规划位置、故事总计划或绑定资料已存在。",409);}if((error as {code?:string}).code==="23514")throw new NewDesignError("规划层级或资料引用不符合当前书籍与内容类型。",422);throw error;}finally{client.release();}
+}
+
+/** Initial installation uses the same version writer in its caller-owned transaction. */
+export async function createPlanningObjectInTransaction(client:PoolClient,input:CreateInput,options:{allowDraftParent?:boolean}={}):Promise<{objectId:string;versionId:string}>{
+ const id=randomUUID(),row=(await client.query("INSERT INTO new_design.planning_objects(id,book_id,level,parent_object_id,card_id,title,sort_order) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",[id,input.bookId,input.level,input.parentObjectId??null,input.cardId??null,input.title,input.sortOrder])).rows[0];
+ const version=await insertVersion(client,row,1,input,"create",options.allowDraftParent??false);await client.query("INSERT INTO new_design.planning_operation_events(id,book_id,object_id,version_id,action,result_revision,request_hash,idempotency_key,actor) VALUES($1,$2,$3,$4,'create',1,$5,$6,$7)",[randomUUID(),input.bookId,id,version.id,contentHash(input),input.idempotencyKey,input.createdBy??"user"]);
+ return{objectId:id,versionId:version.id};
+}
+export async function adoptInitialPlanningVersionInTransaction(client:PoolClient,objectId:string,versionId:string,key:string,actor="user"):Promise<void>{
+ const object=assertFound((await client.query("SELECT * FROM new_design.planning_objects WHERE id=$1 AND status='active' FOR UPDATE",[objectId])).rows[0],"规划对象不可用。"),version=assertFound((await client.query("SELECT * FROM new_design.planning_versions WHERE id=$1 AND object_id=$2",[versionId,objectId])).rows[0],"规划初版不可用。");
+ if(object.adopted_version_id||Number(object.revision)!==1||version.stale_at||!["draft","proposed"].includes(String(version.status)))throw new NewDesignError("只能在安装事务中明确采用未采用的正式规划初版。",409);
+ await validateParentBasis(client,object,version.based_on_parent_version_id);
+ await client.query("UPDATE new_design.planning_versions SET status='adopted' WHERE id=$1",[versionId]);await client.query("UPDATE new_design.planning_objects SET adopted_version_id=$2,revision=2,updated_at=now() WHERE id=$1",[objectId,versionId]);
+ await client.query("INSERT INTO new_design.planning_adoptions(id,object_id,book_id,from_version_id,to_version_id,action,object_revision,source,actor,content_hash,idempotency_key) VALUES($1,$2,$3,NULL,$4,'adopt',2,'user',$5,$6,$7)",[randomUUID(),objectId,object.book_id,versionId,actor,version.content_hash,key]);
 }
 
 export async function addPlanningVersion(objectId:string,input:VersionInput&{expectedRevision:number}):Promise<PlanningObject>{

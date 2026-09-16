@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BookAnalysisPlan,
   BookAnalysisPreset,
@@ -9,9 +9,12 @@ import type {
   ResearchDocumentVersion,
   ResearchRecordDetail,
   ResearchRecordSummary,
+  FieldDefinition,
 } from "../common/contracts";
 import { newDesignApi } from "./api";
 import ResearchShell from "./ResearchShell";
+import { publishedProposalFields } from "../common/presentation";
+import { researchCandidateValueLabel } from "../common/researchInputReview";
 
 const STRATEGY_SPACE = "60000000-0000-4000-8000-000000000001";
 const statusLabels = {
@@ -35,6 +38,8 @@ const reusable = new Set([
 ]);
 
 export default function BookAnalysisPage() {
+  const reportSequence=useRef(0),reportSource=useRef(""),resultRef=useRef<ResearchRecordDetail|null>(null),selectionRef=useRef<string[]>([]),savedSelections=useRef(new Map<string,string[]>());
+  const [candidateSpecs,setCandidateSpecs]=useState<Map<string,{name:string;fields:FieldDefinition[]}>>(new Map()),[dictionaryLabels,setDictionaryLabels]=useState<Map<string,string>>(new Map()),[specNotice,setSpecNotice]=useState("");
   const [documents, setDocuments] = useState<ResearchDocument[]>([]),
     [documentId, setDocumentId] = useState(""),
     [versions, setVersions] = useState<ResearchDocumentVersion[]>([]),
@@ -57,6 +62,9 @@ export default function BookAnalysisPage() {
     [selectedCandidates, setSelectedCandidates] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  resultRef.current=result;selectionRef.current=selectedCandidates;
+  const acceptReport=(next:ResearchRecordDetail)=>{const previous=resultRef.current;if(previous?.id!==next.id||previous.currentVersion.id!==next.currentVersion.id){if(previous)savedSelections.current.set(`${previous.id}:${previous.currentVersion.id}`,[...selectionRef.current]);setSelectedCandidates([]);}else setSelectedCandidates(current=>current.filter(id=>next.candidates.some(candidate=>candidate.id===id&&candidate.researchVersionId===next.currentVersion.id&&candidate.status==="candidate")));resultRef.current=next;setResult(next);};
+  const openReport=async(id:string)=>{if(busy)return;const sequence=++reportSequence.current;reportSource.current=id;setBusy(true);try{const next=await newDesignApi.getResearchRecord(id);if(sequence!==reportSequence.current||reportSource.current!==id)return;if(next.id!==id||!["book_analysis","diagnosis"].includes(next.type))throw new Error("原研究报告范围不匹配，原填写保留，不选择其他报告代替。");acceptReport(next);}catch(error){if(sequence===reportSequence.current)setMessage(error instanceof Error?error.message:"原研究报告读取失败，填写保留。");}finally{if(sequence===reportSequence.current)setBusy(false);}};
   const loadRecords = async () => {
     const [analysis, diagnosis] = await Promise.all([
       newDesignApi.listResearchRecords({ type: "book_analysis" }),
@@ -83,10 +91,7 @@ export default function BookAnalysisPage() {
           setDocumentVersionId(docs[0].currentVersion.id);
           setEndOffset(docs[0].currentVersion.characterCount);
         }
-        if (nextRecords[0])
-          void newDesignApi
-            .getResearchRecord(nextRecords[0].id)
-            .then(setResult);
+        if (nextRecords[0]&&!reportSource.current)void openReport(nextRecords[0].id);
       })
       .catch((error) =>
         setMessage(
@@ -95,8 +100,9 @@ export default function BookAnalysisPage() {
       );
   }, []);
   useEffect(() => {
-    if (!documentId) return;
+    let active=true;setVersions([]);if (!documentId) return;
     void newDesignApi.listResearchDocumentVersions(documentId).then((items) => {
+      if(!active)return;
       setVersions(items);
       setDocumentVersionId((current) =>
         items.some((item) => item.id === current)
@@ -106,28 +112,31 @@ export default function BookAnalysisPage() {
       const selected =
         items.find((item) => item.id === documentVersionId) ?? items[0];
       if (selected) setEndOffset(selected.characterCount);
-    });
+    }).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"原文版本读取失败，填写保留。");});return()=>{active=false;};
   }, [documentId]);
   useEffect(() => {
+    let active=true;
     void newDesignApi
       .getBookAnalysisPlan(purpose, preset)
-      .then(setPlan)
+      .then(value=>{if(active)setPlan(value);})
       .catch((error) =>
-        setMessage(
+        active&&setMessage(
           error instanceof Error ? error.message : "分析计划读取失败。",
         ),
-      );
+      );return()=>{active=false;};
   }, [purpose, preset]);
   const running =
     result && ["queued", "running"].includes(result.currentVersion.runStatus);
   useEffect(() => {
     if (!running || !result) return;
+    let active=true;const id=result.id,versionId=result.currentVersion.id,sequence=reportSequence.current;
     const timer = window.setInterval(
-      () => void newDesignApi.getResearchRecord(result.id).then(setResult),
+      () => void newDesignApi.getResearchRecord(id).then(next=>{if(active&&sequence===reportSequence.current&&reportSource.current===id&&next.id===id){if(next.currentVersion.id!==versionId){setMessage("原报告已有新的运行版本，当前报告与勾选保留；请明确重新打开原报告核对。");return;}acceptReport(next);}}).catch(error=>{if(active&&sequence===reportSequence.current)setMessage(error instanceof Error?error.message:"原报告刷新失败，已读取内容保留。");}),
       1200,
     );
-    return () => window.clearInterval(timer);
-  }, [running, result?.id]);
+    return () => {active=false;window.clearInterval(timer);};
+  }, [running, result?.id,result?.currentVersion.id]);
+  useEffect(()=>{let active=true;setCandidateSpecs(new Map());setDictionaryLabels(new Map());setSpecNotice("正在核对当前已发布的中文内容规格…");void(async()=>{const book=bookId?await newDesignApi.getBook(bookId):null;const [local,shared]=await Promise.all([book?newDesignApi.listCardTypes(book.spaceId):Promise.resolve([]),newDesignApi.listCardTypes()]);const types=[...new Map([...shared,...local].filter(type=>type.status==="published").map(type=>[type.key,type])).values()],specs=new Map<string,{name:string;fields:FieldDefinition[]}>();for(const type of types){const fields=publishedProposalFields(type,await newDesignApi.listCardTypeVersions(type.id));if(fields)specs.set(type.key,{name:type.name,fields});}const dictionaryIds=[...new Set([...specs.values()].flatMap(spec=>spec.fields.flatMap(field=>field.optionSource?.kind==="dictionary_tree"?[field.optionSource.dictionaryId]:[])))],labels=new Map<string,string>();for(const id of dictionaryIds){const dictionary=await newDesignApi.getDictionary(id);if(dictionary.id!==id)throw new Error("字典来源不匹配，原候选保留。");for(const item of dictionary.items)labels.set(`${id}:${item.id}`,item.path.length?item.path.map(part=>part.label).join("／"):item.label);}if(active){setCandidateSpecs(specs);setDictionaryLabels(labels);setSpecNotice("中文标签读取当前已发布规格；原候选与原研究版本不被改写，正式采用仍需核对来源规格。");}})().catch(error=>{if(active)setSpecNotice(error instanceof Error?error.message:"中文内容规格未读取，原候选保留，不猜字段名称。");});return()=>{active=false;};},[bookId]);
   useEffect(() => {
     if (!result) return;
     setRecords((current) =>
@@ -173,7 +182,7 @@ export default function BookAnalysisPage() {
         focus,
         budgetTokens: budget,
       });
-      setResult(await newDesignApi.getResearchRecord(run.recordId));
+      reportSource.current=run.recordId;++reportSequence.current;acceptReport(await newDesignApi.getResearchRecord(run.recordId));
       await loadRecords();
       setMessage(
         "分析已开始；报告、证据和候选都会保存，候选不会自动写入书籍。",
@@ -189,7 +198,7 @@ export default function BookAnalysisPage() {
     setBusy(true);
     try {
       const run = await newDesignApi.retryBookAnalysis(result.id);
-      setResult(await newDesignApi.getResearchRecord(run.recordId));
+      reportSource.current=run.recordId;++reportSequence.current;acceptReport(await newDesignApi.getResearchRecord(run.recordId));
       setMessage(`已新增运行 v${run.version}，旧报告保持不变。`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "拆书重试失败。");
@@ -206,11 +215,11 @@ export default function BookAnalysisPage() {
       expectedRevision?: number;
     }>,
   ) => {
-    if (!result) return;
+    if (!result||busy||decisions.some(decision=>!currentCandidates.some(candidate=>candidate.id===decision.candidateId&&candidate.status==="candidate"))) return;
     setBusy(true);
     try {
       await newDesignApi.applyResearchCandidates(result.id, decisions);
-      setResult(await newDesignApi.getResearchRecord(result.id));
+      const next=await newDesignApi.getResearchRecord(result.id);if(next.id!==result.id||next.currentVersion.id!==result.currentVersion.id)throw new Error("候选处理已提交，原报告版本需要核对；原候选保留，不改选其他版本。");acceptReport(next);
       setSelectedCandidates([]);
       setMessage(
         `已处理 ${decisions.length} 条候选，采用记录与来源版本已保存。`,
@@ -223,7 +232,7 @@ export default function BookAnalysisPage() {
   };
   const targetBook = books.find((item) => item.id === bookId);
   const prepareBookAdoption = async (candidateIds: string[]) => {
-    if (!result || !targetBook || !candidateIds.length) return;
+    if (!result ||busy|| !targetBook || !candidateIds.length||candidateIds.some(id=>!currentCandidates.some(candidate=>candidate.id===id&&candidate.status==="candidate"))) return;
     setBusy(true);
     setMessage("");
     try {
@@ -235,7 +244,7 @@ export default function BookAnalysisPage() {
         idempotencyKey: crypto.randomUUID(),
         createdBy: "user",
       });
-      window.location.href = `/new-design/research/reference-packs?book=${targetBook.id}&adoption=${batch.id}`;
+      if(batch.bookId!==targetBook.id||batch.sourceId!==result.currentVersion.id)throw new Error("采用预览回执与原书籍或研究版本不一致，原勾选与填写保留，请核对原来源。");window.location.href = `/new-design/research/reference-packs?book=${targetBook.id}&adoption=${batch.id}`;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "本书采用预览生成失败。");
       setBusy(false);
@@ -447,9 +456,8 @@ export default function BookAnalysisPage() {
             <button
               className={result?.id === item.id ? "is-selected" : ""}
               key={item.id}
-              onClick={() =>
-                void newDesignApi.getResearchRecord(item.id).then(setResult)
-              }
+              disabled={busy}
+              onClick={() => void openReport(item.id)}
               type="button"
             >
               <span>
@@ -574,6 +582,7 @@ export default function BookAnalysisPage() {
                         <span>目标书籍</span>
                         <select
                           value={bookId}
+                          disabled={busy}
                           onChange={(event) => setBookId(event.target.value)}
                         >
                           <option value="">选择书籍</option>
@@ -585,9 +594,11 @@ export default function BookAnalysisPage() {
                         </select>
                       </label>
                     </div>
+                    {result&&savedSelections.current.get(`${result.id}:${result.currentVersion.id}`)?.length?<p role="status">切换报告时已清除当前选择；此前原版本的勾选仍保留，不会套用到其他报告。<button type="button" className="nd-text-button" disabled={busy} onClick={()=>{const ids=savedSelections.current.get(`${result.id}:${result.currentVersion.id}`)??[];setSelectedCandidates(ids.filter(id=>currentCandidates.some(candidate=>candidate.id===id&&candidate.status==="candidate")));}}>明确恢复本报告原版本的勾选</button></p>:null}
                     <div className="nd-candidate-batch">
                       <label>
                         <input
+                          disabled={busy}
                           checked={
                             selectedCandidates.length ===
                               currentCandidates.filter(
@@ -632,7 +643,7 @@ export default function BookAnalysisPage() {
                               checked={selectedCandidates.includes(
                                 candidate.id,
                               )}
-                              disabled={candidate.status !== "candidate"}
+                              disabled={busy||candidate.status !== "candidate"}
                               onChange={(event) =>
                                 setSelectedCandidates((current) =>
                                   event.target.checked
@@ -647,7 +658,7 @@ export default function BookAnalysisPage() {
                           </label>
                           <div>
                             <span>
-                              {candidate.targetTypeKey} ·{" "}
+                              {candidateSpecs.get(candidate.targetTypeKey)?.name??"未匹配已发布内容类型"} ·{" "}
                               {candidate.confidence === null
                                 ? "置信度未给出"
                                 : `${Math.round(candidate.confidence * 100)}%`}
@@ -657,11 +668,9 @@ export default function BookAnalysisPage() {
                               {Object.entries(candidate.values).map(
                                 ([key, value]) => (
                                   <div key={key}>
-                                    <dt>{key}</dt>
+                                    <dt>{candidateSpecs.get(candidate.targetTypeKey)?.fields.find(field=>field.key===key)?.name??"未匹配来源字段（原值保留）"}</dt>
                                     <dd>
-                                      {Array.isArray(value)
-                                        ? value.join("、")
-                                        : String(value ?? "")}
+                                      {researchCandidateValueLabel(candidateSpecs.get(candidate.targetTypeKey)?.fields.find(field=>field.key===key),value,dictionaryLabels)}
                                     </dd>
                                   </div>
                                 ),
@@ -669,8 +678,9 @@ export default function BookAnalysisPage() {
                             </dl>
                             <small>
                               {candidate.evidenceIds.length} 条证据 · 状态{" "}
-                              {candidate.status}
+                              {{candidate:"待审阅",reference_only:"仅供参考",ignored:"已忽略",adopted:"已采用"}[candidate.status]}
                             </small>
+                            <details><summary>核对原候选内容（只读）</summary><p>{specNotice}</p><pre>{JSON.stringify({type:candidate.targetTypeKey,values:candidate.values},null,2)}</pre></details>
                           </div>
                           {candidate.status === "candidate" && (
                             <aside>

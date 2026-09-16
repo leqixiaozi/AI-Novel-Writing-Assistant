@@ -2,6 +2,7 @@ import type {BookCreationMethod,PlanningLevel,CardTypeSummary,FieldDefinition,Ca
 import {MODEL_TASKS,type ManagedTaskRoute} from "../modelRouting";
 import type {PromptCatalog} from "../promptManagement";
 import type {AiRuntimeRecovery as Recovery} from "../aiRuntime";
+import type {KnowledgeReferenceCandidate} from "../knowledgeReference";
 
 // A new production task does not automatically acquire a supported debug input contract.
 export const COMPOSITION_TASK_KEYS=["directions","initial_content","form_assist","market_analysis","book_analysis","planning_candidate"] as const;
@@ -11,13 +12,14 @@ export const COMPOSITION_TASKS=MODEL_TASKS.filter((task):task is Extract<(typeof
 
 export interface CompositionVariable {key:string;label:string;type:"text"|"number"|"boolean"|"select";options:string[];defaultValue:string|number|boolean;}
 export interface CompositionBinding {cardId:string;versionId:string;enabled:boolean;}
-export interface CompositionContext {bookId:string|null;sources:Array<{cardId:string;versionId:string;role:"formal"|"reference"}>;}
+export interface CompositionKnowledgeSource {assetId:string;sourceVersionId:string;parsedVersionId:string;checksum:string;}
+export interface CompositionContext {bookId:string|null;sources:Array<{cardId:string;versionId:string;role:"formal"|"reference"}>;knowledgeSources?:CompositionKnowledgeSource[];}
 export interface CompositionSettings {taskType:CompositionTaskKey;components:CompositionBinding[];variables:CompositionVariable[];context:CompositionContext;}
 export interface CompositionRecipe extends CompositionSettings {id:string;name:string;description:string;revision:number;versionId:string;version:number;publishedVersionId:string|null;editable:boolean;configurationIssue:string|null;}
 export interface SaveCompositionInput extends CompositionSettings {id:string|null;expectedRevision:number|null;name:string;description:string;idempotencyKey:string;}
 export interface SaveCompositionResult {recipe:CompositionRecipe;savedVersionId:string;savedVersion:number;active:boolean;repeated:boolean;}
 export interface CompositionCatalog {recipes:CompositionRecipe[];prompts:Omit<PromptCatalog,"components">&{components:Array<CardSummary&{currentVersionId:string}>};books:BookSummary[];types:Array<CardTypeSummary&{fields:FieldDefinition[]}>;rankingSnapshots:Array<{id:string;label:string}>;}
-export interface CompositionSources {bookId:string;cards:Array<CardSummary&{currentVersionId:string}>;truncated:boolean;}
+export interface CompositionSources {bookId:string;cards:Array<CardSummary&{currentVersionId:string}>;knowledgeCandidates?:KnowledgeReferenceCandidate[];truncated:boolean;}
 export interface DebugParameters {
   instruction:string;sourceText:string;sourceReference:string;method:BookCreationMethod;
   schemaTypeIds:string[];
@@ -33,6 +35,7 @@ export interface CompositionDebugPreview {
   outputSchema:Record<string,unknown>;assetId:string;assetVersion:string;previewHash:string;
   components:Array<{cardId:string;versionId:string;title:string;enabled:boolean}>;
   sources:Array<{cardId:string;versionId:string;title:string;role:"formal"|"reference"}>;
+  knowledgeSources?:Array<CompositionKnowledgeSource&{title:string}>;
   variables:Array<{label:string;value:string|number|boolean}>;route:ManagedTaskRoute|null;recovery:Recovery|null;
   blockers:string[];estimatedInputUnits:number;taskId:string|null;createdAt:string;
 }

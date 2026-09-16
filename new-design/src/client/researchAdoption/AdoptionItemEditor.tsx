@@ -9,10 +9,11 @@ interface Props {
   bookId: string;
   item: BookResearchAdoptionItem;
   busy: boolean;
+  onDraftDirty?: (itemId:string,dirty:boolean)=>void;
   onSave: (item: BookResearchAdoptionItem, input: {title: string; values: Record<string, unknown>; decision: BookResearchAdoptionItem["decision"]}) => Promise<void>;
 }
 
-export default function AdoptionItemEditor({bookId, item, busy, onSave}: Props) {
+export default function AdoptionItemEditor({bookId, item, busy, onSave,onDraftDirty}: Props) {
   const [title, setTitle] = useState(item.title);
   const [values, setValues] = useState<Record<string, unknown>>(item.values);
   const [type, setType] = useState<CardTypeSummary | null>(null);
@@ -21,6 +22,9 @@ export default function AdoptionItemEditor({bookId, item, busy, onSave}: Props) 
   const [issues, setIssues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const dirty=JSON.stringify({title,values})!==JSON.stringify({title:item.title,values:item.values});
+  useEffect(()=>{onDraftDirty?.(item.id,dirty);},[item.id,dirty,onDraftDirty]);
+  const editValues=(next:Record<string,unknown>)=>{onDraftDirty?.(item.id,JSON.stringify({title,values:next})!==JSON.stringify({title:item.title,values:item.values}));setValues(next);};
 
   useEffect(() => {
     let active = true;
@@ -55,10 +59,10 @@ export default function AdoptionItemEditor({bookId, item, busy, onSave}: Props) 
 
   return <article className={`nd-research-adoption-item is-${item.decision}`}>
     <div className="nd-form-grid">
-      <label className="nd-control"><span>资料名称</span><input value={title} onChange={event => setTitle(event.target.value)} disabled={locked}/></label>
+      <label className="nd-control"><span>资料名称</span><input value={title} onChange={event => {onDraftDirty?.(item.id,JSON.stringify({title:event.target.value,values})!==JSON.stringify({title:item.title,values:item.values}));setTitle(event.target.value);}} disabled={locked}/></label>
       <label className="nd-control"><span>内容类型</span><input value={loading ? "读取中…" : type?.name ?? "本书未安装此类型"} readOnly/></label>
     </div>
-    {loading ? <p role="status">正在读取已发布内容表单…</p> : fields ? <DynamicForm fields={fields} values={values} issues={issues} disabled={locked} onChange={setValues}/> :
+    {loading ? <p role="status">正在读取已发布内容表单…</p> : fields ? <DynamicForm fields={fields} values={values} issues={issues} disabled={locked} onChange={editValues}/> :
       <p className="nd-message">请先到本书设置安装并发布相应内容类型，当前提案保留。<a href={`/new-design/books/${bookId}/fields`}>打开本书设置</a></p>}
     {unknownCount > 0 && <p className="nd-message">有 {unknownCount} 项来源内容不属于当前表单。请先调整内容类型；采用前不会静默删除这些内容。</p>}
     <footer><span>{item.targetCardId ? "已写入本书资料" : item.decision === "adopt" ? "准备采用" : item.decision === "reject" ? "本批次忽略" : "待选择"}</span>

@@ -1,10 +1,14 @@
 import type {IndependentModelStatus} from "../../../common/aiRuntime";
 import {resolveManagedTaskRoute} from "../../database/modelManagement";
-import {listPromptAssets} from "../prompts";
+import {listPromptAssets,type PromptTaskType} from "../prompts";
 import {configurationForConnection} from "./managedExecution";
 import {AiExecutionError} from "./errors";
 
 // Configuration availability is not a successful network/model probe.
+export async function getIndependentTaskAvailability(task:PromptTaskType):Promise<{configured:boolean;message:string}>{
+  try{const route=await resolveManagedTaskRoute(task);await configurationForConnection(route.primary,route.policy);return {configured:true,message:'本任务模型路由已配置，生成仍需明确提交；结果只保存为候选。'};}
+  catch{return {configured:false,message:'本任务模型路由或凭据未配置，请在模型设置保存并启用；人工写稿仍可继续。'};}
+}
 export async function getIndependentModelStatus():Promise<IndependentModelStatus> {
   const tasks=listPromptAssets().map(({taskType,label,assetId,version})=>({taskType,label,assetId,version}));
   try {

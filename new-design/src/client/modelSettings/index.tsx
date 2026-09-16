@@ -3,6 +3,7 @@ import { FALLBACK_LABELS, MODEL_TASKS, type ManagedRouteSettings, type ManagedRo
 import { ApiError, newDesignApi } from "../api";
 import StructureShell from "../StructureShell";
 import { ConnectionEditor } from "./ConnectionEditor";
+import EmbeddingConnectionPanel from "./EmbeddingConnectionPanel";
 import { copySettings, initialSettings, recoveryComparison, selectedRoute, settingsDifferences, type RouteSelection } from "./editing";
 import "./models.css";
 export { ModelFailureNotice } from "./ModelFailureNotice";
@@ -26,7 +27,9 @@ export default function ModelSettingsPage() {
   const [credentialVariable, setCredentialVariable] = useState("");
   const [credentialOutcomeUnknown, setCredentialOutcomeUnknown] = useState(false);
   const [credentialChecked, setCredentialChecked] = useState(false);
-  const locked = busy || Boolean(pending) || credentialOutcomeUnknown;
+  const [embeddingLocked,setEmbeddingLocked]=useState(false);
+  const textLocked=busy||Boolean(pending)||credentialOutcomeUnknown;
+  const locked = textLocked||embeddingLocked;
   const report = (reason: unknown, step: string) => { setFailedStep(reason instanceof ApiError ? reason.recovery?.failedStep ?? step : step); setIssues(reason instanceof ApiError ? reason.issues : {}); setError(reason instanceof Error ? reason.message : "未收到有效服务器回执，请先核对结果。"); };
   const useServer = (value: ModelRouteCenterCatalog, next: RouteSelection) => {
     setCatalog(value); setSelection(next); setBase(selectedRoute(value, next)); setDraft(initialSettings(value, next)); setReplaceUnsupported(false); setPreview(null);
@@ -94,6 +97,7 @@ export default function ModelSettingsPage() {
   };
   const check = pending?.checked && draft ? recoveryComparison(pending.checked, selection, draft, pending.action) : null;
   return <StructureShell title="模型设置" description="选择创作任务，配置模型、备用方案与用量上限。保存后仅影响后续生成，已有资料及运行快照保留。">
+    <nav className="nd-action-row" aria-label="模型用途"><a className="nd-button" href="#knowledge-embedding-model">知识语义索引模型</a></nav>
     {saved && <section className="nd-model-success" role="status"><h2>{saved.active ? "模型设置已保存并启用" : "模型设置已保存"}</h2><p>保存版本：第 {saved.savedVersion} 版。{saved.repeated ? "此回执来自已处理的请求。" : ""}</p><details><summary>保存凭证</summary><code>{saved.savedVersionId}</code></details></section>}
     {notice && <p role="status">{notice}</p>}
     {credentialOutcomeUnknown && <section className="nd-model-recovery"><h2>核对凭据引用创建结果</h2><p>不自动重复新增。请读取并核对目录中的引用名称；已成功创建的引用仍保留。</p>{credentialChecked && <ul>{catalog?.credentials.map(item => <li key={item.id}>{item.label} · {item.available ? "环境变量可用" : "环境变量未配置"}</li>)}</ul>}<div className="nd-action-row"><button className="nd-button" disabled={busy} onClick={() => void read()}>核对服务器结果</button><button className="nd-button" disabled={busy || !credentialChecked} onClick={() => { setCredentialOutcomeUnknown(false); setCredentialName(""); setError(""); setNotice("已明确核对凭据目录，当前模型设置仍保留。请选择需要的凭据引用。"); }}>已核对凭据目录，继续编辑</button></div></section>}
@@ -107,5 +111,6 @@ export default function ModelSettingsPage() {
       <details className="nd-model-credential-details"><summary>环境变量凭据引用</summary><p>这里只选择服务进程的专用环境变量并保存引用，不输入密钥正文。配置后重启独立服务；不要将密钥放入资料、提示词或 Git。</p><fieldset disabled={locked} className="nd-model-form-grid"><label className="nd-control">引用名称<input value={credentialName} onChange={event => setCredentialName(event.target.value)}/></label><label className="nd-control">专用环境变量<select value={credentialVariable} onChange={event => setCredentialVariable(event.target.value)}><option value="">请选择环境变量引用</option>{catalog.environmentReferences.map(item => <option key={item.name} value={item.name}>{item.name}{item.available ? "（服务可读取）" : "（未配置）"}</option>)}</select></label><button className="nd-button" disabled={!credentialName.trim() || !credentialVariable} onClick={() => void addCredential()}>创建凭据引用</button></fieldset></details>
       <div className="nd-action-row"><button className="nd-button nd-button-primary" disabled={locked || Boolean((base?.configurationIssue || base?.editable === false) && !replaceUnsupported)} onClick={() => void save()}>保存并启用</button>{selection !== "default" && <><button className="nd-button" disabled={locked || !base} onClick={() => void inherit()}>此任务恢复默认</button><button className="nd-button" disabled={locked} onClick={() => void readPreview()}>查看已生效路线</button></>}</div>{preview && <section><h3>此任务已生效路线</h3><p>模型：{preview.primary.model}；备用 {preview.fallbacks.length} 个。</p><ol>{preview.sourceLayers.map(layer => <li key={layer.versionId}>{layer.scope === "system_default" ? "默认设置" : "任务独立设置"}<details><summary>版本凭证</summary><code>{layer.versionId}</code></details></li>)}</ol><p>此处只读，不会修改草稿、生成任务或已保存快照。</p></section>}
     </> : <p>正在读取模型路线，读取失败请点击“重新读取目录”。</p>}</section></div>
+    <EmbeddingConnectionPanel disabled={textLocked} onLock={setEmbeddingLocked}/>
   </StructureShell>;
 }

@@ -30,16 +30,14 @@ export async function invokeStructuredModel(config:ModelConfiguration,prompt:Pre
   const maxTokens=Math.min(config.maxTokens,prompt.maxTokens);
   const payload=config.provider==="ollama"?{model:config.model,messages:prompt.messages,stream:false,format:prompt.outputSchema,options:{temperature:prompt.temperature,num_predict:maxTokens}}:{model:config.model,messages:prompt.messages,stream:false,temperature:prompt.temperature,max_tokens:maxTokens,response_format:{type:"json_schema",json_schema:{name:prompt.taskType,strict:false,schema:prompt.outputSchema}}};
   const data=await receive(config,destination(config,config.provider==="ollama"?"/api/chat":"/chat/completions"),{method:"POST",body:JSON.stringify(payload)},"生成创作候选",fetcher);
+  const rawUsage=data.usage&&typeof data.usage==="object"?data.usage as Record<string,unknown>:{},measured=(value:unknown)=>typeof value==="number"&&Number.isSafeInteger(value)&&value>=0?value:null;
+  const inputTokens=measured(config.provider==="ollama"?data.prompt_eval_count:rawUsage.prompt_tokens),outputTokens=measured(config.provider==="ollama"?data.eval_count:rawUsage.completion_tokens),tokens=config.provider==="ollama"?(inputTokens!==null&&outputTokens!==null?inputTokens+outputTokens:null):measured(rawUsage.total_tokens),usageReported=tokens!==null;
+  const receipt={responseReceived:true as const,usedTokens:tokens??0,usageReported,inputTokens,outputTokens};
+  const outputFailure=(message:string,step:string)=>{const failure=new AiExecutionError(step,message);failure.transportReceipt=receipt;return failure;};
   const message=config.provider==="ollama"?data.message:Array.isArray(data.choices)?(data.choices[0] as {message?:unknown}|undefined)?.message:undefined;
   const content=message&&typeof message==="object"?(message as Record<string,unknown>).content:undefined;
-  if(typeof content!=="string")throw new AiExecutionError("读取模型输出","模型未返回可核对的创作内容，请检查模型是否支持结构化输出。");
+  if(typeof content!=="string")throw outputFailure("模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");
   let value:unknown;
-  try {value=JSON.parse(content);}catch{throw new AiExecutionError("解析创作结果","模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。");}
-  const usage=data.usage&&typeof data.usage==="object"?(data.usage as Record<string,unknown>).total_tokens:undefined;
-  const ollamaUsage=typeof data.prompt_eval_count==="number"&&typeof data.eval_count==="number"?data.prompt_eval_count+data.eval_count:undefined;
-  const tokens=config.provider==="ollama"?ollamaUsage:usage;
-  const usageReported=typeof tokens==="number"&&Number.isInteger(tokens)&&tokens>=0;
-  const rawUsage=data.usage&&typeof data.usage==="object"?data.usage as Record<string,unknown>:{};
-  const measured=(value:unknown)=>typeof value==="number"&&Number.isSafeInteger(value)&&value>=0?value:null;
-  return {value,usedTokens:usageReported?tokens as number:0,usageReported,inputTokens:measured(config.provider==="ollama"?data.prompt_eval_count:rawUsage.prompt_tokens),outputTokens:measured(config.provider==="ollama"?data.eval_count:rawUsage.completion_tokens)};
+  try {value=JSON.parse(content);}catch{throw outputFailure("模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。","解析创作结果");}
+  return {value,usedTokens:tokens??0,usageReported,inputTokens,outputTokens};
 }

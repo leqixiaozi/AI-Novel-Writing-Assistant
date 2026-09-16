@@ -1,0 +1,10 @@
+.nd-knowledge-index{display:grid;gap:16px;margin-block:20px;padding:20px;background:var(--nd-surface);border:1px solid var(--nd-line);border-radius:12px;min-width:0}
+.nd-knowledge-index h2,.nd-knowledge-index h3,.nd-knowledge-index h4{font-weight:500;margin:0 0 10px}
+.nd-knowledge-index p{overflow-wrap:anywhere;color:var(--nd-muted)}
+.nd-knowledge-index-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:24px}
+.nd-knowledge-index-grid>section{display:flex;flex-direction:column;gap:12px;min-width:0}
+.nd-knowledge-index-source{display:flex;gap:8px;align-items:center}
+.nd-knowledge-index-request{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-block:10px}.nd-knowledge-index-request small{grid-column:1/-1;color:var(--nd-muted)}
+.nd-knowledge-index-hit{padding:16px;margin-block:12px;background:var(--nd-soft);border-radius:8px}.nd-knowledge-index-hit p{white-space:pre-wrap}
+.nd-knowledge-index input[type=checkbox]{width:auto;min-height:0;flex:0 0 auto}
+@media(max-width:900px){.nd-knowledge-index-grid{grid-template-columns:1fr}.nd-knowledge-index{padding:14px}.nd-knowledge-index-request{grid-template-columns:1fr}}

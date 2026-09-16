@@ -3,3 +3,19 @@
 .nd-director-stage-list{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0;}
 .nd-director-stage-list button{min-height:44px;white-space:normal;text-align:left;}
 .nd-director-stage-list button[aria-current="step"]{background:var(--nd-soft);color:var(--nd-ink);outline:1px solid var(--nd-border);}
+.nd-create-flow fieldset,.nd-book-review-form fieldset{border:0;padding:0;margin:0;min-width:0;display:grid;gap:16px;}
+.nd-create-flow .nd-control input,.nd-create-flow .nd-control textarea,.nd-create-flow .nd-control select,.nd-book-review-form .nd-control input,.nd-book-review-form .nd-control textarea,.nd-book-review-form .nd-control select{font-size:16px;min-height:44px;}
+.nd-create-flow button,.nd-book-review-form button{min-height:44px;}
+.nd-book-review-form input:not([type=checkbox]):not([type=radio]),.nd-book-review-form select,.nd-book-review-form textarea{max-width:100%;font-size:16px;min-height:44px;padding:10px 12px;color:var(--nd-ink);background:var(--nd-canvas);border:1px solid hsl(var(--input));border-radius:8px;}
+.nd-book-review-form{display:grid;gap:24px;min-width:0;}
+.nd-book-review-form .nd-book-review-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;}
+.nd-book-review-form .nd-book-review-catalog nav{display:grid;gap:4px;}
+.nd-book-review-form .nd-book-review-catalog nav button{padding:8px 12px;text-align:left;background:transparent;color:var(--nd-ink);border:0;border-radius:8px;}
+.nd-book-review-form .nd-book-review-catalog nav button.is-selected{background:var(--nd-soft);outline:1px solid hsl(var(--ring));}
+.nd-book-review-form .nd-book-review-editor,.nd-creation-formal-editor,.nd-creation-candidates,.nd-creation-fields{display:grid;gap:16px;min-width:0;}
+.nd-creation-check{display:flex;align-items:center;gap:8px;min-height:44px;font-size:16px;line-height:1.5;}
+.nd-creation-check input[type=checkbox],.nd-creation-check input[type=radio]{width:18px;height:18px;min-height:0;flex:none;accent-color:hsl(var(--primary));}
+.nd-creation-recovery{padding:16px;background:var(--nd-soft);display:grid;gap:12px;line-height:1.6;}
+.nd-creation-reference,.nd-creation-candidates>section{padding-block:16px;border-bottom:1px solid hsl(var(--border));display:grid;gap:12px;}
+.nd-create-flow :is(input,select,textarea,button):focus-visible{outline:2px solid hsl(var(--ring));outline-offset:3px;}
+@media(min-width:800px){.nd-book-review-form .nd-book-review-workspace{grid-template-columns:240px minmax(0,1fr);}.nd-creation-reference{grid-template-columns:repeat(2,minmax(0,1fr));}}

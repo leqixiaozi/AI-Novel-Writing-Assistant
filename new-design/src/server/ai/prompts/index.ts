@@ -2,14 +2,18 @@ import { z } from "zod";
 import { creationAssets } from "./creation";
 import { planningAsset } from "./planning";
 import { chapterSettlementAsset } from "./chapterSettlement";
+import {chapterGenerationAsset} from "./chapterGeneration";
 import { researchAssets } from "./research";
 import { PROMPT_TASK_TYPES, type PreparedPrompt, type PromptAsset, type PromptAssetMetadata, type PromptTaskType } from "./contracts";
 import { AiExecutionError } from "../runtime/errors";
 
 export { PROMPT_TASK_TYPES };
 export type { PreparedPrompt, PromptAssetMetadata, PromptTaskType } from "./contracts";
+export type {CreationPreparationPromptInput} from "./creationPreparation";
+export {creationPreparationPromptInputSchema} from "./creationPreparation";
+export type {ChapterGenerationInput} from "./chapterGeneration";
 
-const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset];
+const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset];
 const registry = new Map<PromptTaskType, PromptAsset>();
 const identity = new Set<string>();
 for (const asset of assets) {
@@ -46,7 +50,7 @@ export function preparePrompt(taskType: PromptTaskType, value: unknown): Prepare
       try{return schema.parse(output);}catch(error){
         if(!describeOutputError)throw error;
         const described=describeOutputError(error,output);
-        throw new AiExecutionError("核对章节变化候选",described.summary,422,null,described.issues);
+        throw new AiExecutionError(asset.taskType==="chapter_settlement"?"核对章节变化候选":`核对${asset.label}`,described.summary,422,null,described.issues);
       }
     },
   };

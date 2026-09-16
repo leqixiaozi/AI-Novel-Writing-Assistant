@@ -20,7 +20,7 @@ export async function confirmFormAiNewNode(bookId:string,runId:string,input:{sug
     if(existing){if(existing.label!==input.name)throw new NewDesignError("此建议已按其他名称确认，请直接编辑书内选项。",409);return {nodeId:existing.id,requiresBinding:tree.scope!=="book",message:"书内选项已创建，请重新生成建议以使用最新范围。"};}
   }else {const existing=(await pool.query("SELECT tag.id,version.name FROM new_design.material_tags tag JOIN new_design.material_tag_versions version ON version.id=tag.current_version_id WHERE tag.tag_key=$1 AND tag.space_id=$2",[key,book.space_id])).rows[0];if(existing){if(existing.name!==input.name)throw new NewDesignError("此建议已按其他名称确认，请直接编辑书内标签。",409);return {nodeId:existing.id,requiresBinding:tree.scope!=="book",message:"书内标签已创建，请重新生成建议。"};}}
   if(run.status!=="review"||!tree.rule.aiSuggestible||!tree.rule.allowInlineCreate)throw new NewDesignError("该范围不允许原地新增，请到创作资源中维护书内选项。",422);
-  const current=await freezeFormContext(pool,run.snapshot.target,run.snapshot.values,run.snapshot.tagIds);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("建议来源已变化，请重新生成后确认新增。",409);
+  const current=await freezeFormContext(pool,run.snapshot.target,run.snapshot.values,run.snapshot.tagIds,run.snapshot.referenceCardIds??[],run.snapshot.referenceKnowledgeSources??[]);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("建议来源已变化，请重新生成后确认新增。",409);
   const nodeId=randomUUID(),proposed={id:nodeId,parentId:suggestion.parentId,name:input.name,status:"active" as const};
   if(!selectableTreeNodeIds([...tree.nodes,proposed],tree.rule).has(nodeId))throw new NewDesignError("新增位置不满足当前分支或层级限制，请到书内选项树维护。",422);
   if(tree.kind==="dictionary"){

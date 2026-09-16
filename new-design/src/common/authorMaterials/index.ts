@@ -1,0 +1,3 @@
+import type {CardSummary,FormResolutionKind} from "../contracts";
+export interface AuthorMaterialWriteInput {requestKey:string;cardTypeId:string;title:string;values:Record<string,unknown>;localValues?:Record<string,unknown>;revision?:number;formVersionId?:string|null;formResolutionKind?:FormResolutionKind;tagIds?:string[];aiDraftDecisionIds?:string[];}
+export interface AuthorMaterialWriteReceipt {bookId:string;requestKey:string;operation:"create"|"update";inputHash:string;cardVersionId:string;repeated:boolean;card:CardSummary;localValues:Record<string,unknown>;tagIds:string[]|null;aiDraftDecisionIds:string[];}

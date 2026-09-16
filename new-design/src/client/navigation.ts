@@ -13,7 +13,10 @@ export const NEW_DESIGN_PRIMARY_NAV = [
   { key: "home", label: "创作首页", href: "/new-design", end: true },
   { key: "books", label: "我的书籍", href: "/new-design/books" },
   { key: "resources", label: "创作资源", href: "/new-design/resources" },
+  { key: "professional", label: "专业创作资源", href: "/new-design/resources/professional" },
   { key: "research", label: "研究与分析", href: "/new-design/research" },
+  { key: "knowledge", label: "知识与参考", href: "/new-design/knowledge" },
+  { key: "records", label: "运行记录", href: "/new-design/operations/records" },
 ] as const;
 
 export const NEW_DESIGN_ADVANCED_NAV = [
@@ -29,9 +32,15 @@ export const NEW_DESIGN_ADVANCED_NAV = [
 export const BOOK_TASK_NAV = [
   { key: "overview", label: "创作概览", path: "overview" },
   { key: "planning", label: "故事规划", path: "planning" },
+  { key: "composition", label: "全书编排", path: "composition" },
+  { key: "director", label: "全书导演", path: "director" },
+  { key: "world", label: "世界设定", path: "world" },
+  { key: "characters", label: "人物维护", path: "characters" },
+  { key: "visual-assets", label: "视觉资产", path: "visual-assets" },
   { key: "writing", label: "章节创作", path: "writing" },
   { key: "views", label: "多维视图", path: "views/chapters" },
   { key: "materials", label: "本书资料", path: "cards" },
+  { key: "knowledge", label: "知识与参考", path: "knowledge" },
   { key: "settings", label: "本书设置", path: "fields" },
   { key: "completion", label: "完本与导出", path: "completion" },
 ] as const;

@@ -26,6 +26,12 @@
 .nd-model-recovery { background: var(--nd-soft); padding: 1rem; border-left: 3px solid var(--nd-warning); margin-bottom: 1rem; }
 .nd-model-route-editor .nd-action-row,.nd-model-recovery .nd-action-row { flex-wrap: wrap; }
 .nd-model-route-editor button,.nd-model-recovery button { min-height: 44px; }
+#knowledge-embedding-model { margin-block-start: 2rem; padding-block: 1.5rem; border-top: 1px solid hsl(var(--border)); font-size: 16px; }
+#knowledge-embedding-model p { font-size: 16px; }
+#knowledge-embedding-model fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+#knowledge-embedding-model input,#knowledge-embedding-model select { font-size: 16px; min-height: 44px; color: var(--nd-ink); background: var(--nd-canvas); border: 1px solid hsl(var(--input)); border-radius: var(--radius); padding: .5rem .75rem; }
+#knowledge-embedding-model input:focus-visible,#knowledge-embedding-model select:focus-visible,#knowledge-embedding-model button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
+#knowledge-embedding-model summary { min-height: 44px; }
 @media (min-width: 850px) {
   .nd-model-route-workspace { grid-template-columns: 15rem minmax(0,1fr); }
   .nd-model-form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }

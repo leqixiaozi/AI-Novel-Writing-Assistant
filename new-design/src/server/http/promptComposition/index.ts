@@ -1,14 +1,14 @@
 import {Router,type NextFunction,type Response} from "express";
 import {z} from "zod";
 import {COMPOSITION_ROUTE,type DebugPreviewInput} from "../../../common/promptComposition";
-import {AiExecutionError,executeManagedPrompt} from "../../ai";
-import {compileDebugBundle,loadDebugTaskSources,debugParametersSchema,replayDebugPrompt} from "../../ai/composition";
+import {AiExecutionError} from "../../ai";
+import {compileDebugBundle,loadDebugTaskSources,debugParametersSchema} from "../../ai/composition";
+import {runPromptCompositionTrial} from "../../application/promptComposition";
 import {
   getCompositionCatalog,getCompositionSources,saveComposition,readCompositionSaveByRequest,
   loadCompositionRecipeVersion,saveDebugPreview,readDebugPreview,readDebugPreviewByRequest,
-  claimDebugRun,finishDebugRun,readDebugResult,
+  readDebugResult,
 } from "../../database/promptComposition";
-import type {DebugRunCompletion} from "../../database/promptComposition";
 import {NewDesignError} from "../../domain/errors";
 
 const uuid=z.string().uuid(),key=z.string().trim().min(8).max(160);
@@ -26,28 +26,6 @@ function failure(step:string,error:unknown,savedResult:string,previewId?:string)
   result.recovery.actionLabel="返回提示词组合";
   result.recovery.sourceRoute=COMPOSITION_ROUTE+(previewId?`?previewId=${previewId}`:"");
   return result;
-}
-
-async function trial(id:string,input:z.infer<typeof runSchema>){
-  const claim=await claimDebugRun(id,input.expectedRevision,input.idempotencyKey);
-  if("priorResult" in claim)return claim.priorResult;
-  let completion:DebugRunCompletion;
-  try {
-    let prepared;
-    try {prepared=replayDebugPrompt(claim.frozenBundle);}catch(error){throw failure("核对冻结请求",error,"冻结输入和旧运行记录保留。本次模型请求尚未发送，请返回组合页重新预览。",id);}
-    const generated=await executeManagedPrompt(claim.preview.taskType,prepared,{
-      routeResolver:async()=>claim.snapshot.route,snapshotWriter:async()=>claim.snapshot,
-    });
-    completion={output:generated.output,modelSnapshot:generated.modelSnapshot};
-  }catch(error){
-    const problem=error instanceof AiExecutionError?error:failure("执行试运行",error,"冻结输入和小说资料保留。请先读取本次运行结果，再明确生成新预览。",id);
-    problem.recovery.savedResult="组合版本、冻结输入和小说资料保留；本次回复未确认为可用结果，也没有采用到小说中。请处理提示的问题，返回组合页生成新预览。";
-    completion={failure:problem.recovery,modelSnapshot:problem.executionSnapshot??null,errorCategory:problem.category??(problem.recovery.failedStep==="核对冻结请求"?"data_integrity":problem.recovery.failedStep==="核对创作结果"?"structure_parse":"unknown")};
-  }
-  // Persistence failure is not a model failure. Never invoke a second time after a lost receipt.
-  try {return await finishDebugRun(claim,completion);}catch(error){
-    throw failure("保存试运行结果",error,"模型调用已经结束，但结果入库未确认。冻结输入与运行标识保留；请点击读取试运行结果核对，禁止直接重发这次模型请求。",id);
-  }
 }
 
 export function promptCompositionRouter():Router {
@@ -72,7 +50,7 @@ export function promptCompositionRouter():Router {
   router.post("/previews/:id/run",(request,response,next)=>{
     let id:string;
     try {id=uuid.parse(String(request.params.id));runSchema.parse(request.body);}catch(error){next(failure("核对试运行请求",error,"本次模型请求尚未发送，请重新读取预览后明确点击确认试运行。"));return;}
-    void trial(id,runSchema.parse(request.body)).then(data=>response.json({success:true,data})).catch(error=>next(error instanceof AiExecutionError?error:failure("提交试运行",error,"提交结果未确认。请保留冻结预览，先读取试运行结果，不重复发送模型请求。",id)));
+    void runPromptCompositionTrial(id,runSchema.parse(request.body)).then(data=>response.json({success:true,data})).catch(error=>next(error instanceof AiExecutionError?error:failure("提交试运行",error,"提交结果未确认。请保留冻结预览，先读取试运行结果，不重复发送模型请求。",id)));
   });
   router.get("/previews/:id/result",(request,response,next)=>respond(response,next,"读取试运行结果","读取失败不改变已保存结果。请按此预览标识继续读取，勿重复发送模型请求。",()=>readDebugResult(uuid.parse(String(request.params.id)))));
   return router;

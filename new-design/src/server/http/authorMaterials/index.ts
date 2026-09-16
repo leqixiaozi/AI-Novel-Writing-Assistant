@@ -1,0 +1,10 @@
+import {Router} from "express";
+import {z} from "zod";
+import {createAuthorMaterial,updateAuthorMaterial,readAuthorMaterialWriteReceipt,authorMaterialWriteSchema,AuthorMaterialWriteError} from "../../database/authorMaterials";
+import {AiExecutionError} from "../../ai";
+import {NewDesignError} from "../../domain/errors";
+export function authorMaterialsRouter(dependencies={createAuthorMaterial,updateAuthorMaterial,readAuthorMaterialWriteReceipt}):Router{const router=Router(),uuid=z.string().uuid();const handle=(step:string,run:(req:any)=>Promise<unknown>)=>async(req:any,res:any,next:any)=>{try{res.json({success:true,data:await run(req)});}catch(error){const issues=error instanceof z.ZodError?Object.fromEntries(error.issues.map(item=>[item.path.join("."),"请核对标识资料填写的格式和允许范围。 "])):error instanceof NewDesignError?error.issues:undefined,failure=new AiExecutionError(step,error instanceof NewDesignError?error.message:error instanceof z.ZodError?"请修正标识的资料信息，原填写保留。":"底座未确认保存结果，保留原请求后只读核对，不连续重复提交。",error instanceof NewDesignError?error.status:error instanceof z.ZodError?422:503,null,issues);failure.recovery.mutationOutcome=error instanceof AuthorMaterialWriteError?error.mutationOutcome:error instanceof z.ZodError?"not_written":"unknown";failure.recovery.savedResult="资料填写与原请求凭证保留；读取原回执后再操作，不按内容相似猜保存成功。";const book=uuid.safeParse(req.params.bookId);if(book.success){failure.recovery.sourceRoute=`/new-design/books/${book.data}/cards`;failure.recovery.actionLabel="返回本书资料";}next(failure);}};
+ router.post("/books/:bookId/author-materials",handle("创建本书资料",req=>dependencies.createAuthorMaterial(uuid.parse(req.params.bookId),authorMaterialWriteSchema.parse(req.body))));
+ router.patch("/books/:bookId/author-materials/:cardId",handle("保存本书资料",req=>dependencies.updateAuthorMaterial(uuid.parse(req.params.bookId),uuid.parse(req.params.cardId),authorMaterialWriteSchema.parse(req.body))));
+ router.get("/books/:bookId/author-material-write-receipts",handle("只读核对原资料保存回执",req=>dependencies.readAuthorMaterialWriteReceipt(uuid.parse(req.params.bookId),uuid.parse(req.query.requestKey))));return router;
+}

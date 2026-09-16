@@ -4,6 +4,7 @@ import type { ContextManifest, ContextManifestEntry, ContextManifestExclusion, C
 import { NewDesignError, assertFound } from "../../domain/errors";
 import { getNewDesignPool } from "../runtime";
 import { asDate, asText, stableHash } from "./integrity";
+import {resolveReadyKnowledgeVersion} from "../knowledgeReference";
 
 export type ContextEntryInput = Omit<ContextManifestEntry,"id"|"slotId"|"sourceSpaceId"|"contentHash">;
 export type ContextExclusionInput = Omit<ContextManifestExclusion,"id"|"slotId">;
@@ -19,6 +20,10 @@ async function resolveReference(client:PoolClient,bookId:string,input:ContextEnt
   const exact=input.exactVersionId??null;
   let row:Record<string,unknown>|undefined;
   switch(input.sourceType){
+    case "asset_version":
+      row=await resolveReadyKnowledgeVersion(client,bookId,input.stableObjectId,exact)??undefined;
+      if(row){const book=assertFound((await client.query("SELECT space_id FROM new_design.books WHERE id=$1",[bookId])).rows[0],"知识来源所属书籍不存在。");return{stableObjectId:String(row.parsed_asset_id),exactVersionId:String(row.parsed_version_id),sourceSpaceId:String(book.space_id),contentHash:String(row.checksum),contentType:"asset_version"};}
+      break;
     case "card_version":
     case "prompt_component": {
       row=(await client.query(`SELECT card.id AS stable_id,version.id AS exact_id,card.space_id,version.revision,version.type_version_id,version.title,version.values,type.type_key

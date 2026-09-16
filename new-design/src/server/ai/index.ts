@@ -5,8 +5,8 @@ import { AiExecutionError } from "./runtime/errors";
 import { executeManagedPrompt, type ExecutionDependencies } from "./runtime/managedExecution";
 
 export { readModelConfiguration } from "./runtime/configuration";
-export { getIndependentModelStatus } from "./runtime/managedStatus";
-export { probeManagedModelConnection } from "./runtime/managedExecution";
+export { getIndependentModelStatus,getIndependentTaskAvailability } from "./runtime/managedStatus";
+export { probeManagedModelConnection,configurationForConnection } from "./runtime/managedExecution";
 export { probeModelConnection } from "./runtime/transport";
 export { AiExecutionError } from "./runtime/errors";
 export {executeManagedPrompt} from "./runtime/managedExecution";

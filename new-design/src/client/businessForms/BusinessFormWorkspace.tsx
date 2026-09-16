@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BookSummary,
   BookViewWorkspace,
@@ -28,11 +28,19 @@ import {
   type BusinessFormScope,
 } from "./model";
 import "./business-form.css";
+import type {AuthorMaterialWriteReceipt} from "../../common/authorMaterials";
+import {businessUuid,readBusinessDraft,retainBusinessDraft,clearBusinessDraft,type BusinessDraftRecovery} from "./draftRecovery";
+
+export interface BusinessEditorState {dirty:boolean;locked:boolean;preserveDraft:()=>boolean;}
 
 interface Props {
   book: BookSummary;
   cardTypes: CardTypeSummary[];
   scope: BusinessFormScope;
+  initialCardId?:string;
+  embedded?:boolean;
+  onEditorStateChange?:(state:BusinessEditorState)=>void;
+  onSaved?:()=>Promise<void>;
 }
 
 interface ConflictState {
@@ -59,7 +67,7 @@ function changedKeys(local: Record<string, unknown>, latest: Record<string, unkn
 const TYPE_LABELS:Record<string,string>={short_text:"短文本",long_text:"长文本",number:"数字",boolean:"是／否",select:"单选",multi_select:"多选",date:"日期"};
 function fieldSourceDetail(item:ScopedFieldDefinition){if(item.origin==="core")return "系统核心规格";if(item.origin==="template")return `随模板安装${item.sourceTemplateVersionId?` · 来源版本 ${item.sourceTemplateVersionId.slice(0,8)}`:""}`;if(item.origin==="book_extension")return `本书独立规格 · 字段版本 ${item.currentVersion.version}`;return `当前资料独立补充 · 字段版本 ${item.currentVersion.version}`;}
 
-export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props) {
+export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCardId,embedded=false,onEditorStateChange,onSaved }: Props) {
   const [browserMode,setBrowserMode]=useState<"types"|"tags"|"groups"|"views">("types");
   const [liveCardTypes,setLiveCardTypes]=useState(cardTypes);
   const availableTypes = useMemo(() => typesForScope(liveCardTypes, scope), [liveCardTypes, scope]);
@@ -86,6 +94,19 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const [history, setHistory] = useState<CardVersion[] | null>(null);
   const [historyTitle, setHistoryTitle] = useState("");
   const [conflict, setConflict] = useState<ConflictState | null>(null);
+  const [unknownWrite,setUnknownWrite]=useState(false),[failureStep,setFailureStep]=useState(""),[savedProof,setSavedProof]=useState("");
+  const [sourcesReady,setSourcesReady]=useState(false);
+  const [requestKey,setRequestKey]=useState<string|null>(null),[notWritten,setNotWritten]=useState(false),[receiptChecked,setReceiptChecked]=useState(false);
+  const editorRef=useRef<HTMLDivElement>(null);
+  const restoringDraft=useRef<BusinessDraftRecovery|null>(null),requestedRef=useRef(""),saveInFlight=useRef(false),liveBook=useRef(book.id),editingScope=useRef(book.id);liveBook.current=book.id;
+  const requestedCardId=initialCardId??new URLSearchParams(location.search).get("selected")??"";
+  const baselineTags=useRef<string[]>([]);
+  const dirty=!!editing&&(title!==editing.title||JSON.stringify(values)!==JSON.stringify(editing.values)||JSON.stringify(localValues)!==JSON.stringify(scopedFields.values)||aiDraftDecisionIds.length>0||draftTagIds!==undefined&&JSON.stringify([...draftTagIds].sort())!==JSON.stringify([...baselineTags.current].sort()));
+  const preserveDraft=()=>{if(!editing&&!creating)return true;if(editingScope.current!==book.id)return false;const cardId=editing?.id??selectedType?.id,cardTypeId=editing?.cardTypeId??selectedType?.id;if(!cardId||!cardTypeId)return false;return retainBusinessDraft({version:1,bookId:book.id,cardId,cardTypeId,revision:editing?.revision??1,title,values,localValues,tagIds:draftTagIds??null,aiDecisionIds:aiDraftDecisionIds,unknownWrite,requestKey,notWritten,creating});};
+  const canLeave=()=>{if(busy||unknownWrite||requestKey||saveInFlight.current){setError("原保存结果待核对；填写和请求记录保留，仅允许只读核对。");return false;}if((dirty||creating)&&!preserveDraft()){setError("未能保留编辑草稿，请先保存填写或检查网站存储权限，再切换资料。");return false;}return true;};
+  const focusIssue=(path:string)=>{const key=path.split(".").filter(part=>!/^\d+$/.test(part)).at(-1)??"",label=key==="title"?editorRef.current?.querySelector('[data-business-title]'):editorRef.current?.querySelector(`[id$="-${CSS.escape(key)}-label"]`)?.closest(".nd-control");label?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();label?.scrollIntoView({block:"nearest"});};
+  const acceptWriteReceipt=(receipt:AuthorMaterialWriteReceipt)=>{if(receipt.bookId!==book.id||receipt.card.cardTypeId!==selectedType?.id||editing&&receipt.card.id!==editing.id)throw new Error("原资料保存回执范围不匹配，填写与凭证保留。");clearBusinessDraft(book.id,editing?.id??selectedType!.id);setEditing(receipt.card);setCreating(false);setTitle(receipt.card.title);setValues(receipt.card.values);setLocalValues(receipt.localValues);setScopedFields(bundle=>({...bundle,values:receipt.localValues}));if(receipt.tagIds){setDraftTagIds(receipt.tagIds);baselineTags.current=receipt.tagIds;}setAiDraftDecisionIds([]);setUnknownWrite(false);setRequestKey(null);setNotWritten(false);setConflict(null);setSavedProof(`原请求保存成功，资料修订 ${receipt.card.revision}；保存凭证和正式版本保留。`);};
+  const readSavedState=async()=>{if(busy)return;setBusy(true);let confirmed=false;try{if(requestKey){const receipt=await newDesignApi.getAuthorMaterialWriteReceipt(book.id,requestKey);if(receipt){if(receipt.requestKey!==requestKey)throw new Error("原请求凭证不匹配，当前填写保留。");acceptWriteReceipt(receipt);confirmed=true;}else setNotice("原请求回执未找到，不能断言未执行；保留原填写和请求凭证，不重复提交。");setReceiptChecked(true);}if(!confirmed&&editing){const latest=await newDesignApi.getCard(editing.id);if(latest.id!==editing.id||latest.cardTypeId!==editing.cardTypeId)throw new Error("资料来源范围不匹配，当前填写保留。");setConflict({localTitle:title,localValues:values,latest});}if(confirmed){await loadWorkspace();await onSaved?.();}}catch(caught){setFailureStep(confirmed?"读取已成功保存的资料来源":"只读核对资料保存结果");setError(caught instanceof Error?caught.message:"服务器内容未读取，已保存证据和填写保留。");}finally{setBusy(false);}};
 
   const selectedType = availableTypes.find((type) => type.id === selectedTypeId) ?? availableTypes[0] ?? null;
   const currentTypeVersion = typeVersions.find((version) => version.id === selectedType?.currentVersionId) ?? typeVersions[0] ?? null;
@@ -106,7 +127,10 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
       newDesignApi.getBookViewWorkspace(book.id),
       newDesignApi.listCardGroupForms(book.spaceId),
     ]);
+    if(liveBook.current!==book.id)return;
+    if(nextWorkspace.bookId!==book.id||nextWorkspace.spaceId!==book.spaceId)throw new Error("资料来源不属于本书，原填写保留。");
     const versionPairs = await Promise.all(nextForms.filter((form) => form.status === "published" && form.currentVersionId).map(async (form) => [form.id, await newDesignApi.listCardGroupFormVersions(form.id)] as const));
+    if(liveBook.current!==book.id)return;
     setWorkspace(nextWorkspace);
     setForms(nextForms);
     setFormVersions(new Map(versionPairs));
@@ -118,6 +142,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     setNotice("");
     void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "本书资料暂时无法读取。"));
   }, [book.id, book.spaceId]);
+  useEffect(()=>{requestedRef.current="";setEditing(null);setUnknownWrite(false);restoringDraft.current=null;},[book.id]);
 
   useEffect(() => {
     const nextTypeId = availableTypes.some((type) => type.id === selectedTypeId) ? selectedTypeId : availableTypes[0]?.id ?? "";
@@ -125,6 +150,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   }, [availableTypes, selectedTypeId]);
 
   useEffect(() => {
+    let active=true;
     setTypeVersions([]);
     setEditing(null);
     setCreating(false);
@@ -134,27 +160,36 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     setNotice("");
     if (!selectedType) return;
     void newDesignApi.listCardTypeVersions(selectedType.id)
-      .then(setTypeVersions)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "内容规格暂时无法读取。"));
+      .then(versions=>{if(active&&liveBook.current===book.id)setTypeVersions(versions);})
+      .catch((loadError) => {if(active)setError(loadError instanceof Error ? loadError.message : "内容规格暂时无法读取。");});
+    return()=>{active=false;};
   }, [selectedType?.id]);
 
   useEffect(()=>{
-    setScopedFields({definitions:[],values:{}});setLocalValues({});
+    let active=true;setSourcesReady(false);setScopedFields({definitions:[],values:{}});if(!restoringDraft.current)setLocalValues({});
     if(!selectedType)return;
-    void newDesignApi.listScopedFields(book.id,selectedType.id,editing?.id).then((bundle)=>{setScopedFields(bundle);setLocalValues(bundle.values);}).catch((loadError)=>setError(loadError instanceof Error?loadError.message:"信息来源暂时无法读取。"));
+    void newDesignApi.listScopedFields(book.id,selectedType.id,editing?.id).then((bundle)=>{if(!active||liveBook.current!==book.id)return;setScopedFields(bundle);const retained=restoringDraft.current;if(retained&&retained.cardId===editing?.id){setLocalValues(retained.localValues);setDraftTagIds(retained.tagIds??undefined);setAiDraftDecisionIds(retained.aiDecisionIds);restoringDraft.current=null;}else setLocalValues(bundle.values);setSourcesReady(true);}).catch((loadError)=>{if(active)setError(loadError instanceof Error?loadError.message:"信息来源暂时无法读取。");});
+    return()=>{active=false;};
   },[book.id,selectedType?.id,editing?.id]);
 
   useEffect(() => {
+    if(requestedCardId)return;
     if (creating || editing || !resolution) return;
+    const retained=selectedType?readBusinessDraft(book.id,selectedType.id):null;
+    if(retained?.creating){editingScope.current=book.id;setCreating(true);setTitle(retained.title);setValues(retained.values);setLocalValues(retained.localValues);setDraftTagIds(retained.tagIds??[]);setAiDraftDecisionIds(retained.aiDecisionIds);setUnknownWrite(retained.unknownWrite);setRequestKey(retained.requestKey??null);setNotWritten(retained.notWritten??false);setReceiptChecked(false);return;}
     const first = cards[0];
     if (first) {
-      setEditing(first);
-      setTitle(first.title);
-      setValues(first.values);
+      selectCard(first);
     }
   }, [cards, creating, editing, resolution]);
 
+  useEffect(()=>{if(!workspace||!requestedCardId||requestedRef.current===requestedCardId||busy||unknownWrite)return;if(!businessUuid.test(requestedCardId)){setFailureStep("核对选中资料来源");setError("选中资料链接无效，请从本书资料列表重新选择。");return;}if(workspace.bookId!==book.id||workspace.spaceId!==book.spaceId)return;const card=workspace.cards.find(item=>item.id===requestedCardId&&item.status==="active"),type=availableTypes.find(item=>item.id===card?.cardTypeId);if(!card||!type){setFailureStep("核对选中资料来源");setError("这项资料不属于本书可编辑范围，保留原选中位置，不自动改选其他资料。");return;}if(editing&&editing.id!==card.id&&!canLeave())return;if(selectedType?.id!==type.id){setSelectedTypeId(type.id);return;}if(!resolution)return;requestedRef.current=requestedCardId;selectCard(card);},[workspace,requestedCardId,selectedType?.id,resolution,busy,unknownWrite]);
+  useEffect(()=>{onEditorStateChange?.({dirty:dirty||creating,locked:busy||unknownWrite||requestKey!==null||!sourcesReady,preserveDraft});},[dirty,creating,busy,unknownWrite,requestKey,sourcesReady,title,values,localValues,draftTagIds,aiDraftDecisionIds,editing?.id,onEditorStateChange]);
+  useEffect(()=>{if(!restoringDraft.current&&(dirty||unknownWrite||creating))preserveDraft();},[title,values,localValues,draftTagIds,aiDraftDecisionIds,editing?.id,unknownWrite,requestKey,notWritten,creating]);
+  useEffect(()=>{const leave=(event:BeforeUnloadEvent)=>{if(dirty||busy||unknownWrite||creating){preserveDraft();event.preventDefault();event.returnValue="";}};addEventListener("beforeunload",leave);return()=>removeEventListener("beforeunload",leave);},[dirty,busy,unknownWrite,creating,title,values,localValues,draftTagIds]);
+
   const selectType = (typeId: string) => {
+    if(!canLeave())return;
     setAiDraftDecisionIds([]);setDraftTagIds(undefined);
     setSelectedTypeId(typeId);
     setEditing(null);
@@ -162,20 +197,27 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   };
 
   const selectCard = (card: CardSummary) => {
+    if(!canLeave())return;
+    const retained=readBusinessDraft(book.id,card.id);restoringDraft.current=retained;
+    editingScope.current=book.id;
     setAiDraftDecisionIds([]);setDraftTagIds(undefined);
-    setEditing(card);
+    setEditing(retained?{...card,revision:retained.revision}:card);
     setCreating(false);
-    setTitle(card.title);
-    setValues(card.values);
-    setLocalValues({});
+    setTitle(retained?.title??card.title);
+    setValues(retained?.values??card.values);
+    setLocalValues(retained?.localValues??{});
+    setUnknownWrite(retained?.unknownWrite??false);
+    setRequestKey(retained?.requestKey??null);setNotWritten(retained?.notWritten??false);setReceiptChecked(false);
     setIssues({});
     setError("");
     setNotice("");
-    setConflict(null);
+    setConflict(retained&&retained.revision!==card.revision?{localTitle:retained.title,localValues:retained.values,latest:null}:null);
   };
 
   const beginCreate = () => {
+    if(!canLeave())return;
     if (!resolution) return;
+    editingScope.current=book.id;setRequestKey(null);setUnknownWrite(false);setNotWritten(false);
     setAiDraftDecisionIds([]);setDraftTagIds([]);
     setEditing(null);
     setCreating(true);
@@ -189,36 +231,23 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   };
 
   const save = async () => {
-    if (!selectedType || !resolution) return;
-    setBusy(true);
-    setIssues({});
-    setError("");
-    setNotice("");
-    setConflict(null);
-    try {
-      const resolvedFormVersionId = resolution.formId
-        ? forms.find((form) => form.id === resolution.formId)?.currentVersionId ?? null
-        : null;
-      const saved = editing
-        ? await newDesignApi.updateCard({ ...editing, title, values, localValues, aiDraftDecisionIds,tagIds:draftTagIds,formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source })
-        : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values, aiDraftDecisionIds,tagIds:draftTagIds,spaceId: book.spaceId, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source });
-      await loadWorkspace();
-      setEditing(saved);
-      setAiDraftDecisionIds([]);
-      setCreating(false);
-      setTitle(saved.title);
-      setValues(saved.values);
-      if(editing){const bundle=await newDesignApi.listScopedFields(book.id,selectedType.id,saved.id);setScopedFields(bundle);setLocalValues(bundle.values);}
-      setNotice(`已保存，当前为修订 ${saved.revision}。`);
-    } catch (saveError) {
-      if (saveError instanceof ApiError) {
-        setIssues(saveError.issues);
-        setError(saveError.message);
-        if (saveError.status === 409 && editing) setConflict({ localTitle: title, localValues: values, latest: null });
-      } else setError("保存失败，请稍后重试。当前填写内容仍保留在页面中。");
-    } finally {
-      setBusy(false);
-    }
+    if(!selectedType||!resolution||busy||unknownWrite||requestKey||!sourcesReady||saveInFlight.current)return;
+    const key=crypto.randomUUID(),scopeCardId=editing?.id??selectedType.id;
+    const original:BusinessDraftRecovery={version:1,bookId:book.id,cardId:scopeCardId,cardTypeId:selectedType.id,revision:editing?.revision??1,title,values,localValues,tagIds:draftTagIds??null,aiDecisionIds:aiDraftDecisionIds,unknownWrite:true,requestKey:key,notWritten:false,creating};
+    if(!retainBusinessDraft(original)){setFailureStep("保留保存恢复凭证");setError("浏览器无法保留原填写，请检查网站存储权限；尚未提交保存。");return;}
+    saveInFlight.current=true;setRequestKey(key);setUnknownWrite(true);setNotWritten(false);setReceiptChecked(false);setBusy(true);setIssues({});setError("");setNotice("");let committed=false;
+    try{
+      const formVersionId=resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null;
+      const input={requestKey:key,cardTypeId:selectedType.id,title,values,aiDraftDecisionIds,tagIds:draftTagIds,formVersionId,formResolutionKind:resolution.source,...(editing?{revision:editing.revision,localValues}:{})};
+      const receipt=editing?await newDesignApi.updateAuthorMaterial(book.id,editing.id,input):await newDesignApi.createAuthorMaterial(book.id,input);
+      if(receipt.requestKey!==key)throw new Error("保存回执未对应原请求，人工填写与凭证保留。");acceptWriteReceipt(receipt);committed=true;
+      await loadWorkspace();await onSaved?.();
+    }catch(caught){
+      if(committed){setFailureStep("读取已成功保存的资料来源");setError(caught instanceof Error?caught.message:"保存已成功；来源读取暂未确认，请只读刷新，不重新保存。");return;}
+      const confirmedNotWritten=caught instanceof ApiError&&caught.recovery?.mutationOutcome==="not_written";setUnknownWrite(!confirmedNotWritten);setNotWritten(confirmedNotWritten);retainBusinessDraft({...original,unknownWrite:!confirmedNotWritten,notWritten:confirmedNotWritten});
+      setFailureStep(caught instanceof ApiError?caught.recovery?.failedStep??"保存本书资料":"核对资料保存回执");setError(caught instanceof Error?caught.message:"保存回执未知；请保留原请求，只读核对，不重复提交。");
+      if(caught instanceof ApiError){setIssues(caught.issues);if(caught.status===409&&editing)setConflict({localTitle:title,localValues:values,latest:null});}
+    }finally{saveInFlight.current=false;setBusy(false);}
   };
 
   const compareLatest = async () => {
@@ -235,6 +264,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   };
 
   const useLatest = () => {
+    if(unknownWrite||requestKey)return;
     if (!conflict?.latest) return;
     setEditing(conflict.latest);
     setTitle(conflict.latest.title);
@@ -245,6 +275,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   };
 
   const keepLocalOnLatestRevision = () => {
+    if(unknownWrite||requestKey)return;
     if (!conflict?.latest) return;
     setEditing(conflict.latest);
     setTitle(conflict.localTitle);
@@ -253,6 +284,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
     setError("");
     setNotice(`已保留你的填写，并以服务器修订 ${conflict.latest.revision} 作为新基线。再次保存前请确认差异。`);
   };
+  const reprepareNotWritten=()=>{if(busy||!requestKey||!notWritten||!receiptChecked)return;if(editing&&!conflict?.latest){setError("请先只读核对服务器最新修订，再明确重新准备；人工填写保留。");return;}if(conflict?.latest){setEditing(conflict.latest);setConflict(null);}setRequestKey(null);setUnknownWrite(false);setNotWritten(false);setReceiptChecked(false);setError("");setNotice("原请求确认未写入，填写保留；按你确认的最新资料修订重新准备，再明确保存。");};
 
   const openHistory = async (card: CardSummary) => {
     setBusy(true);
@@ -282,7 +314,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   if (!workspace) return <div className="nd-fatal"><h2>暂时无法打开填写页面</h2><p>{error}</p><button className="nd-button nd-button-primary" type="button" onClick={() => { setError(""); void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "本书资料暂时无法读取。")); }}>重新读取</button></div>;
   if (availableTypes.length === 0) return <div className="nd-empty nd-empty-page"><strong>这个栏目还没有可填写的内容</strong><span>本书需要先安装并发布对应的内容规格。</span></div>;
 
-  return <div className="nd-business-form-workspace">
+  return <div className={`nd-business-form-workspace${embedded?" nd-business-form-embedded":""}`} ref={editorRef}>
     <header className="nd-business-form-header">
       <div><p className="nd-kicker">{copy.eyebrow}</p><h2>{copy.title}</h2><p>{copy.description}</p></div>
       <button className="nd-button nd-button-primary" type="button" disabled={!resolution} onClick={beginCreate}>＋ 新建{selectedType?.name ?? "资料"}</button>
@@ -305,19 +337,19 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
         {!resolution ? <div className="nd-empty nd-empty-page"><strong>没有可用的已发布填写规格</strong><span>发布内容规格后即可在这里填写，不会生成另一份配置。</span></div> : !creating && !editing ? <div className="nd-empty nd-empty-page"><strong>选择一条资料，或新建内容</strong><span>空白填写、模板生成和 AI 提案进入本书后，都使用同一套编辑页面。</span></div> : <>
           <div className="nd-business-editor-heading">
             <div><p className="nd-kicker">{creating ? "新建内容" : `修订 ${editing?.revision}`}</p><h2>{resolution.title}</h2><p>{selectedType?.description}</p></div>
-            <div className="nd-form-provenance" aria-label="当前填写规格"><span>{resolution.sourceLabel}</span><small>内容规格 v{resolution.typeVersion}</small><button className="nd-text-button" type="button" onClick={()=>setAddingInformation(true)}>＋ 添加信息</button>{editing && <button className="nd-text-button" type="button" onClick={() => void openHistory(editing)}>查看修改记录</button>}</div>
+            <div className="nd-form-provenance" aria-label="当前填写规格"><span>{resolution.sourceLabel}</span><small>内容规格 v{resolution.typeVersion}</small><button className="nd-text-button" type="button" disabled={busy||unknownWrite||dirty} onClick={()=>setAddingInformation(true)}>＋ 添加信息</button>{editing && <button className="nd-text-button" type="button" onClick={() => void openHistory(editing)}>查看修改记录</button>}</div>
           </div>
-          <label className={`nd-control${issues.title ? " has-error" : ""}`}>
+          <label className={`nd-control${issues.title ? " has-error" : ""}`} data-business-title>
             <span>资料标题 <b aria-label="必填">*</b></span>
             <small>用于列表、搜索和关联引用，不会替代正文中的正式名称。</small>
-            <input value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
+            <input disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
             {issues.title && <em>{issues.title}</em>}
           </label>
-          <DynamicForm fields={combinedFields} values={{...values,...localValues}} disabled={busy} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{if(result.title!==undefined)setTitle(result.title);setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
-          {selectedType&&<CardTagFields key={editing?.id??"new"} scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing?.id??""} selectedTagIds={draftTagIds} onDraftChange={setDraftTagIds} onInitialTags={ids=>setDraftTagIds(current=>current??ids)} disabled={busy}/>}
-          {aiDraftDecisionIds.length>0&&<details><summary>已采用的 AI 草稿来源</summary><p className="nd-help-text">保存会再次检查生成来源。若选项或关联资料变化，可复核当前表单后，以人工确认内容保存；表单不会被清空。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>{setAiDraftDecisionIds([]);setNotice("当前表单保留，将以人工确认内容保存。AI 采用审计仍保留在历史记录中。");}}>我已复核，按人工内容保存</button></details>}
+          <DynamicForm fields={combinedFields} values={{...values,...localValues}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{if(result.title!==undefined)setTitle(result.title);setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
+          {selectedType&&<CardTagFields key={editing?.id??"new"} scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing?.id??""} selectedTagIds={draftTagIds} onDraftChange={setDraftTagIds} onInitialTags={ids=>{baselineTags.current=ids;setDraftTagIds(current=>current??ids);}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady}/>}
+          {aiDraftDecisionIds.length>0&&<details><summary>已采用的 AI 草稿来源</summary><p className="nd-help-text">保存会再次检查生成来源。若选项或关联资料变化，可复核当前表单后，以人工确认内容保存；表单不会被清空。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} onClick={()=>{setAiDraftDecisionIds([]);setNotice("当前表单保留，将以人工确认内容保存。AI 采用审计仍保留在历史记录中。");}}>我已复核，按人工内容保存</button></details>}
 
-          <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
+          <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" disabled={busy||unknownWrite||dirty} onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy||unknownWrite||dirty} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
 
           {editing&&resolution.source==="installed_form"&&<AssociationPanel
             book={book}
@@ -325,13 +357,13 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
             cardTypes={liveCardTypes}
             forms={forms}
             formVersions={formVersions}
-            hasUnsavedChanges={title!==editing.title||JSON.stringify(values)!==JSON.stringify(editing.values)||JSON.stringify(localValues)!==JSON.stringify(scopedFields.values)}
+            hasUnsavedChanges={dirty||unknownWrite||requestKey!==null||busy}
             onSourcesChanged={loadWorkspace}
           />}
 
-          {conflict && <section className="nd-revision-conflict" role="alert"><strong>检测到新的服务器修订</strong><p>你的未保存内容仍保留。先读取并比较最新修订，再决定采用哪一份。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={() => void compareLatest()}>{conflict.latest ? "重新比较" : "读取最新修订并比较"}</button>{conflict.latest && <div className="nd-conflict-comparison"><div><strong>你的填写</strong><span>{conflict.localTitle}</span></div><div><strong>服务器修订 {conflict.latest.revision}</strong><span>{conflict.latest.title}</span></div>{changedKeys(conflict.localValues, conflict.latest.values).map((key) => <article key={key}><strong>{resolution.fields.find((field) => field.key === key)?.name ?? key}</strong><p>{displayValue(conflict.localValues[key], resolution.fields.find((field) => field.key === key))}</p><p>{displayValue(conflict.latest?.values[key], resolution.fields.find((field) => field.key === key))}</p></article>)}<div className="nd-conflict-actions"><button className="nd-button nd-button-secondary" type="button" onClick={keepLocalOnLatestRevision}>保留我的填写</button><button className="nd-button nd-button-secondary" type="button" onClick={useLatest}>采用服务器最新内容</button></div></div>}</section>}
-          <div aria-live="polite">{error && <p className="nd-message is-error">{error}</p>}{notice && <p className="nd-message is-success">{notice}</p>}</div>
-          <div className="nd-editor-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={() => { setCreating(false); setEditing(null); setConflict(null); setError(""); setNotice(""); }}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={busy || !title.trim() || Boolean(conflict)} onClick={() => void save()}>{busy ? "保存中…" : "保存资料"}</button></div>
+          {conflict && <section className="nd-revision-conflict" role="alert"><strong>检测到新的服务器修订</strong><p>你的未保存内容仍保留。先读取并比较最新修订，再决定采用哪一份。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={() => void compareLatest()}>{conflict.latest ? "重新比较" : "读取最新修订并比较"}</button>{conflict.latest && <div className="nd-conflict-comparison"><div><strong>你的填写</strong><span>{conflict.localTitle}</span></div><div><strong>服务器修订 {conflict.latest.revision}</strong><span>{conflict.latest.title}</span></div>{changedKeys(conflict.localValues, conflict.latest.values).map((key) => <article key={key}><strong>{resolution.fields.find((field) => field.key === key)?.name ?? key}</strong><p>{displayValue(conflict.localValues[key], resolution.fields.find((field) => field.key === key))}</p><p>{displayValue(conflict.latest?.values[key], resolution.fields.find((field) => field.key === key))}</p></article>)}<div className="nd-conflict-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy||unknownWrite||requestKey!==null} onClick={keepLocalOnLatestRevision}>保留我的填写</button><button className="nd-button nd-button-secondary" type="button" disabled={busy||unknownWrite||requestKey!==null} onClick={useLatest}>采用服务器最新内容</button></div></div>}</section>}
+          <div aria-live="polite">{savedProof&&<p className="nd-message is-success" role="status">{savedProof}</p>}{error&&<section className="nd-message is-error" role="alert"><strong>未完成步骤：{failureStep||"核对资料来源"}</strong><p>{error}</p><p>填写、草稿与已保存结果保留。<a href="/new-design/structure/maintenance">打开运行维护</a>；返回原页只读核对，不重发保存。</p>{Object.entries(issues).map(([key,value])=><p key={key}><button className="nd-text-button" type="button" onClick={()=>focusIssue(key)}>定位{key.endsWith("title")?"资料标题":combinedFields.find(field=>field.key===key.split(".").at(-1))?.name??"填写位置"}</button>：{value}</p>)}{(editing||requestKey)&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void readSavedState()}>只读核对服务器内容</button>}</section>}{notice && <p className="nd-message is-success">{notice}</p>}{unknownWrite&&!error&&<section role="alert"><p>原保存结果未知，保留填写；仅允许只读核对，不再次提交。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void readSavedState()}>只读核对服务器内容</button></section>}{requestKey&&notWritten&&receiptChecked&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={reprepareNotWritten}>保留填写，明确按最新修订重新准备</button>}</div>
+          <div className="nd-editor-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy||unknownWrite} onClick={() => { if(!canLeave())return;setCreating(false); setEditing(null); setConflict(null); setError(""); setNotice(""); }}>保留草稿并取消</button><button className="nd-button nd-button-primary" type="button" disabled={busy || unknownWrite || requestKey!==null || !sourcesReady || !title.trim() || Boolean(conflict)} onClick={() => void save()}>{busy ? "保存中…" : "保存资料"}</button></div>
         </>}
       </section>
     </div>}

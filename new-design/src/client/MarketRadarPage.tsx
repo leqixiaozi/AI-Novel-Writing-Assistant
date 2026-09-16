@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   MarketAnalysisResult,
   MarketScanDetail,
@@ -8,6 +8,12 @@ import type {
 } from "../common/contracts";
 import { newDesignApi } from "./api";
 import ResearchShell from "./ResearchShell";
+import { marketAnalysisMatchesSelection } from "../common/researchInputReview";
+
+interface PendingAnalysis {requestKey:string;input:{scanRecordId:string;scanVersionId:string;itemIds:string[];focus:string;budgetTokens:number};retryRecordId:string|null;expectedVersionId:string|null;recordId:string|null;versionId:string|null;}
+const recoveryKey="new-design:market-analysis:original-request";
+const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function readPendingAnalysis():PendingAnalysis|null{const raw=sessionStorage.getItem(recoveryKey);if(!raw)return null;const parsed:unknown=JSON.parse(raw);if(!parsed||typeof parsed!=="object")throw new Error("原市场分析凭证无法读取，请核对网站存储与原研究记录，不重新分析。");const value=parsed as Record<string,unknown>,input=value.input;if(!input||typeof input!=="object")throw new Error("原市场分析输入凭证无效，不重新分析。");const snapshot=input as Record<string,unknown>;if(typeof value.requestKey!=="string"||!uuidPattern.test(value.requestKey)||typeof snapshot.scanRecordId!=="string"||!uuidPattern.test(snapshot.scanRecordId)||typeof snapshot.scanVersionId!=="string"||!uuidPattern.test(snapshot.scanVersionId)||!Array.isArray(snapshot.itemIds)||!snapshot.itemIds.every(id=>typeof id==="string"&&uuidPattern.test(id))||typeof snapshot.focus!=="string"||typeof snapshot.budgetTokens!=="number"||!Number.isInteger(snapshot.budgetTokens)||snapshot.budgetTokens<1||!([value.retryRecordId,value.expectedVersionId,value.recordId,value.versionId].every(id=>id===null||typeof id==="string"&&uuidPattern.test(id))))throw new Error("原市场分析来源凭证不完整，不重新分析。");return{requestKey:value.requestKey,input:{scanRecordId:snapshot.scanRecordId,scanVersionId:snapshot.scanVersionId,itemIds:snapshot.itemIds.filter((id):id is string=>typeof id==="string"),focus:snapshot.focus,budgetTokens:snapshot.budgetTokens},retryRecordId:value.retryRecordId as string|null,expectedVersionId:value.expectedVersionId as string|null,recordId:value.recordId as string|null,versionId:value.versionId as string|null};}
 
 const statusLabel = {
   queued: "等待开始",
@@ -46,6 +52,9 @@ const defaultAnalysisItems = (scan: MarketScanDetail) => {
 };
 
 export default function MarketRadarPage() {
+  const scopeSequence=useRef(0),writeFlight=useRef(false),[pending,setPending]=useState<PendingAnalysis|null>(null),[recoveryBlocked,setRecoveryBlocked]=useState(false);
+  const pendingRef=useRef<PendingAnalysis|null>(null);pendingRef.current=pending;
+  const persistPending=(value:PendingAnalysis|null)=>{try{if(value)sessionStorage.setItem(recoveryKey,JSON.stringify(value));else sessionStorage.removeItem(recoveryKey);pendingRef.current=value;setPending(value);return true;}catch{setRecoveryBlocked(true);setMessage("原市场分析凭证无法安全保存，填写与此前报告保留；核对前不发起新的分析。");return false;}};
   const [sources, setSources] = useState<MarketSourceDefinition[]>([]),
     [sourceKeys, setSourceKeys] = useState<string[]>([]),
     [records, setRecords] = useState<ResearchRecordSummary[]>([]);
@@ -64,54 +73,58 @@ export default function MarketRadarPage() {
     return next;
   };
   useEffect(() => {
+    let active=true;try{const original=readPendingAnalysis();pendingRef.current=original;setPending(original);}catch(error){setRecoveryBlocked(true);setMessage(error instanceof Error?error.message:"原分析凭证无法读取，不重新分析。");}
     void Promise.all([
       newDesignApi.listMarketSources(),
       loadRecords(),
       newDesignApi.listResearchRecords({ type: "market_analysis" }),
     ])
       .then(([nextSources, nextRecords, analyses]) => {
+        if(!active)return;
         setSources(nextSources);
         setSourceKeys(
           nextSources.map((item) => `${item.platform}:${item.listKey}`),
         );
-        if (nextRecords[0]) {
-          void newDesignApi.getMarketScan(nextRecords[0].id).then(setScan);
+        if (nextRecords[0]&&!pendingRef.current&&!recoveryBlocked) {
+          const sequence=scopeSequence.current,id=nextRecords[0].id;
+          void newDesignApi.getMarketScan(id).then(detail=>{if(active&&sequence===scopeSequence.current&&detail.record.id===id)setScan(detail);}).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"原扫描读取失败。");});
           const related = analyses.find(
             (item) =>
               item.currentVersion.sourceScope.scanRecordId ===
               nextRecords[0].id,
           );
           if (related)
-            void newDesignApi.getResearchRecord(related.id).then(setAnalysis);
+            void newDesignApi.getResearchRecord(related.id).then(detail=>{if(active&&sequence===scopeSequence.current&&detail.id===related.id&&detail.currentVersion.sourceScope.scanRecordId===id)setAnalysis(detail);}).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"原分析读取失败。");});
         }
       })
       .catch((error) =>
-        setMessage(
+        active&&setMessage(
           error instanceof Error ? error.message : "市场雷达加载失败。",
         ),
-      );
+      );return()=>{active=false;++scopeSequence.current;};
   }, []);
   const scanRunning =
       scan &&
-      ["queued", "running"].includes(scan.record.currentVersion.runStatus),
+      ["queued", "running"].includes(scan.version.runStatus),
     analysisRunning =
       analysis &&
       ["queued", "running"].includes(analysis.currentVersion.runStatus);
   useEffect(() => {
     if (!scanRunning && !analysisRunning) return;
+    let active=true;const sequence=scopeSequence.current;
     const timer = window.setInterval(() => {
       if (scanRunning && scan)
-        void newDesignApi.getMarketScan(scan.record.id).then(setScan);
+        void newDesignApi.getMarketScan(scan.record.id,scan.version.id).then(detail=>{if(active&&sequence===scopeSequence.current&&detail.record.id===scan.record.id&&detail.version.id===scan.version.id)setScan(detail);}).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"原扫描刷新失败，已读取快照保留。");});
       if (analysisRunning && analysis)
-        void newDesignApi.getResearchRecord(analysis.id).then(setAnalysis);
-      void loadRecords();
+        void newDesignApi.getResearchRecord(analysis.id).then(detail=>{if(active&&sequence===scopeSequence.current&&detail.id===analysis.id){const version=detail.versions.find(item=>item.id===analysis.currentVersion.id);if(version)setAnalysis({...detail,currentVersion:version});else setMessage("原分析版本不存在，已读取报告保留，不选最新版本代替。");}}).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"原分析刷新失败，已读取报告保留。");});
+      void loadRecords().catch(error=>{if(active)setMessage(error instanceof Error?error.message:"扫描目录刷新失败，原报告保留。");});
     }, 1200);
-    return () => window.clearInterval(timer);
-  }, [scan?.record.id, scanRunning, analysis?.id, analysisRunning]);
+    return () => {active=false;window.clearInterval(timer);};
+  }, [scan?.record.id,scan?.version.id, scanRunning, analysis?.id,analysis?.currentVersion.id, analysisRunning]);
   useEffect(() => {
     if (scan && !scanRunning && !selectedItems.length)
       setSelectedItems(defaultAnalysisItems(scan));
-  }, [scan?.record.currentVersion.id, scanRunning]);
+  }, [scan?.version.id, scanRunning]);
   const grouped = useMemo(
     () =>
       sources.reduce<Record<string, MarketSourceDefinition[]>>((all, item) => {
@@ -124,36 +137,36 @@ export default function MarketRadarPage() {
     | Partial<MarketAnalysisResult>
     | undefined;
   const beginScan = async () => {
+    if(writeFlight.current||pendingRef.current||recoveryBlocked)return;writeFlight.current=true;++scopeSequence.current;
     setBusy(true);
     setMessage("");
-    setAnalysis(null);
-    setSelectedItems([]);
     try {
       const run = await newDesignApi.startMarketScan(sourceKeys);
       const detail = await newDesignApi.getMarketScan(run.recordId);
       setScan(detail);
+      setAnalysis(null);setSelectedItems([]);
       await loadRecords();
       setMessage("扫描已开始；只采集公开榜单元数据，不会调用 AI。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "扫描启动失败。");
     } finally {
       setBusy(false);
+      writeFlight.current=false;
     }
   };
   const openScan = async (id: string) => {
+    if(writeFlight.current||pendingRef.current||recoveryBlocked)return;const sequence=++scopeSequence.current;
     setBusy(true);
-    setAnalysis(null);
-    setSelectedItems([]);
     try {
-      setScan(await newDesignApi.getMarketScan(id));
+      const detail=await newDesignApi.getMarketScan(id);if(sequence!==scopeSequence.current)return;if(detail.record.id!==id)throw new Error("原扫描来源不匹配，不能选择其他记录代替。");setScan(detail);setAnalysis(null);setSelectedItems([]);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "扫描记录加载失败。");
+      if(sequence===scopeSequence.current)setMessage(error instanceof Error ? error.message : "扫描记录加载失败。");
     } finally {
-      setBusy(false);
+      if(sequence===scopeSequence.current)setBusy(false);
     }
   };
   const retry = async () => {
-    if (!scan) return;
+    if (!scan||writeFlight.current||pendingRef.current||recoveryBlocked) return;writeFlight.current=true;++scopeSequence.current;
     setBusy(true);
     try {
       await newDesignApi.retryMarketScan(scan.record.id);
@@ -164,9 +177,11 @@ export default function MarketRadarPage() {
       setMessage(error instanceof Error ? error.message : "重试失败。");
     } finally {
       setBusy(false);
+      writeFlight.current=false;
     }
   };
   const cancel = async (versionId: string) => {
+    if(writeFlight.current||pendingRef.current||recoveryBlocked)return;
     try {
       await newDesignApi.cancelResearchRun(versionId);
       setMessage("已请求取消，当前已保存的来源快照会保留。");
@@ -174,32 +189,34 @@ export default function MarketRadarPage() {
       setMessage(error instanceof Error ? error.message : "取消失败。");
     }
   };
-  const beginAnalysis = async () => {
-    if (!scan) return;
+  const checkAnalysis=async()=>{const original=pendingRef.current;if(!original||writeFlight.current)return;writeFlight.current=true;setBusy(true);try{const detail=await newDesignApi.getMarketAnalysisByKey(original.input.scanRecordId,original.requestKey);if(!detail){setMessage("原请求尚未读到回执，不证明未执行；原输入和凭证保留，只读核对，不重新分析。");return;}const version=detail.currentVersion;if(detail.type!=="market_analysis"||version.sourceScope.requestKey!==original.requestKey||version.sourceScope.scanRecordId!==original.input.scanRecordId||version.sourceScope.scanVersionId!==original.input.scanVersionId||version.inputSnapshot.focus!==original.input.focus||version.budgetTokens!==original.input.budgetTokens||JSON.stringify(version.sourceScope.itemIds)!==JSON.stringify(original.input.itemIds)||original.retryRecordId&&detail.id!==original.retryRecordId||original.expectedVersionId&&version.parentVersionId!==original.expectedVersionId||original.recordId&&detail.id!==original.recordId||original.versionId&&version.id!==original.versionId)throw new Error("原分析回执与冻结输入不一致，凭证与填写保留，不按其他报告代替。");const source=await newDesignApi.getMarketScan(original.input.scanRecordId,original.input.scanVersionId);if(source.record.id!==original.input.scanRecordId||source.version.id!==original.input.scanVersionId)throw new Error("原扫描版本未核对，原分析回执保留。");++scopeSequence.current;setScan(source);setAnalysis(detail);setSelectedItems(original.input.itemIds);setFocus(original.input.focus);setBudget(original.input.budgetTokens);persistPending(null);setMessage("原市场分析请求已核对，只读取原报告与版本，没有再次调用模型。");}catch(error){setMessage(error instanceof Error?error.message:"核对原市场分析失败，原凭证与输入保留。");}finally{writeFlight.current=false;setBusy(false);}};
+  const beginAnalysis = async (retryOriginal=false) => {
+    if (!scan||writeFlight.current||pendingRef.current||recoveryBlocked||analysisRunning||!selectedItems.length) return;
+    if(retryOriginal&&(!analysis||!marketAnalysisMatchesSelection(analysis,scan,selectedItems,focus,budget))){setMessage("当前勾选或输入与原分析不一致。请明确按当前选择新建分析，不会偷偷重跑旧输入。");return;}
+    const input={scanRecordId:scan.record.id,scanVersionId:scan.version.id,itemIds:[...selectedItems],focus,budgetTokens:budget},original:PendingAnalysis={requestKey:crypto.randomUUID(),input,retryRecordId:retryOriginal&&analysis?analysis.id:null,expectedVersionId:retryOriginal&&analysis?analysis.currentVersion.id:null,recordId:null,versionId:null};if(!persistPending(original))return;writeFlight.current=true;++scopeSequence.current;
     setBusy(true);
     setMessage("");
     try {
-      const run = analysis
-        ? await newDesignApi.retryMarketAnalysis(analysis.id)
+      const run = retryOriginal&&analysis
+        ? await newDesignApi.retryMarketAnalysis(analysis.id,{requestKey:original.requestKey,expectedVersionId:analysis.currentVersion.id})
         : await newDesignApi.startMarketAnalysis({
-            scanRecordId: scan.record.id,
-            itemIds: selectedItems,
-            focus,
-            budgetTokens: budget,
+            ...input,requestKey:original.requestKey,
           });
-      setAnalysis(await newDesignApi.getResearchRecord(run.recordId));
+      persistPending({...original,recordId:run.recordId,versionId:run.versionId});const detail=await newDesignApi.getMarketAnalysisByKey(input.scanRecordId,original.requestKey);if(!detail||detail.id!==run.recordId||detail.currentVersion.id!==run.versionId)throw new Error("分析已提交，原回执尚未核对；仅核对原请求，不再次生成。");setAnalysis(detail);persistPending(null);
       setMessage(
-        analysis
+        retryOriginal
           ? `已新增市场分析 v${run.version}，旧报告保持不变。`
         : "AI 只会分析你勾选的作品；结果先成为候选，不会自动建书或写入正式资料。",
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "市场分析启动失败。");
+      setMessage(`未完成步骤：准备市场分析或读取原回执。${error instanceof Error ? error.message : "执行结果待核对。"} 原勾选、输入、旧报告与原凭证保留，请点击“只读核对原分析请求”，不重新调用模型。`);
     } finally {
       setBusy(false);
+      writeFlight.current=false;
     }
   };
   const adopt = async (id: string) => {
+    if(writeFlight.current||pendingRef.current||recoveryBlocked||!analysis?.candidates.some(candidate=>candidate.id===id&&candidate.researchVersionId===analysis.currentVersion.id&&candidate.status==="candidate"))return;
     setBusy(true);
     try {
       const card = await newDesignApi.adoptMarketSignal(id);
@@ -215,6 +232,7 @@ export default function MarketRadarPage() {
   return (
     <ResearchShell active="radar">
       <main className="nd-market-radar">
+        {(pending||recoveryBlocked)&&<div className="nd-message" role="alert"><p>原分析请求需要核对，填写、旧报告与原凭证保留；不能新建或重跑分析。</p>{pending&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void checkAnalysis()}>只读核对原分析请求</button>}<a href="/new-design/research/records">打开原研究记录核对来源</a></div>}
         <section className="nd-radar-source-panel">
           <div className="nd-section-heading">
             <div>
@@ -224,7 +242,7 @@ export default function MarketRadarPage() {
             </div>
             <button
               className="nd-button nd-button-primary"
-              disabled={busy || !sourceKeys.length}
+              disabled={busy ||pending!==null||recoveryBlocked|| !sourceKeys.length}
               onClick={() => void beginScan()}
               type="button"
             >
@@ -240,6 +258,7 @@ export default function MarketRadarPage() {
                   return (
                     <label key={key}>
                       <input
+                        disabled={busy||pending!==null||recoveryBlocked}
                         checked={sourceKeys.includes(key)}
                         onChange={(event) =>
                           setSourceKeys((current) =>
@@ -281,6 +300,7 @@ export default function MarketRadarPage() {
               <button
                 className={scan?.record.id === record.id ? "is-selected" : ""}
                 key={record.id}
+                disabled={busy||pending!==null||recoveryBlocked}
                 onClick={() => void openScan(record.id)}
                 type="button"
               >
@@ -301,10 +321,10 @@ export default function MarketRadarPage() {
             <div className="nd-radar-run-head">
               <div>
                 <p className="nd-kicker">
-                  扫描 v{scan.record.currentVersion.version}
+                  扫描 v{scan.version.version}
                 </p>
                 <h2>
-                  {statusLabel[scan.record.currentVersion.runStatus]} ·{" "}
+                  {statusLabel[scan.version.runStatus]} ·{" "}
                   {scan.snapshots.reduce(
                     (sum, item) => sum + item.items.length,
                     0,
@@ -312,8 +332,8 @@ export default function MarketRadarPage() {
                   条
                 </h2>
                 <p>
-                  {scan.record.currentVersion.report ||
-                    scan.record.currentVersion.lastError ||
+                  {scan.version.report ||
+                    scan.version.lastError ||
                     "正在逐个读取所选公开榜单。"}
                 </p>
               </div>
@@ -321,7 +341,8 @@ export default function MarketRadarPage() {
                 {scanRunning && (
                   <button
                     className="nd-button nd-button-secondary"
-                    onClick={() => void cancel(scan.record.currentVersion.id)}
+                    disabled={busy||pending!==null||recoveryBlocked}
+                    onClick={() => void cancel(scan.version.id)}
                     type="button"
                   >
                     取消扫描
@@ -330,6 +351,7 @@ export default function MarketRadarPage() {
                 {!scanRunning && (
                   <button
                     className="nd-button nd-button-secondary"
+                    disabled={busy||pending!==null||recoveryBlocked}
                     onClick={() => void retry()}
                     type="button"
                   >
@@ -338,7 +360,7 @@ export default function MarketRadarPage() {
                 )}
               </div>
             </div>
-            <progress max="100" value={scan.record.currentVersion.progress} />
+            <progress max="100" value={scan.version.progress} />
             <div className="nd-radar-snapshots">
               {scan.snapshots.map((snapshot) => (
                 <details
@@ -366,6 +388,7 @@ export default function MarketRadarPage() {
                     {snapshot.items.map((item) => (
                       <label key={item.id}>
                         <input
+                          disabled={busy||pending!==null||recoveryBlocked||Boolean(analysisRunning)}
                           checked={selectedItems.includes(item.id)}
                           onChange={(event) =>
                             setSelectedItems((current) =>
@@ -415,18 +438,20 @@ export default function MarketRadarPage() {
                 <button
                   className="nd-button nd-button-primary"
                   disabled={
-                    busy || !selectedItems.length || Boolean(analysisRunning)
+                    busy ||pending!==null||recoveryBlocked|| !selectedItems.length || Boolean(analysisRunning)
                   }
-                  onClick={() => void beginAnalysis()}
+                  onClick={() => void beginAnalysis(false)}
                   type="button"
                 >
-                  开始 AI 分析
+                  {analysis?"按当前选择新建 AI 分析":"开始 AI 分析"}
                 </button>
+                {analysis&&<button className="nd-button nd-button-secondary" type="button" disabled={busy||pending!==null||recoveryBlocked||Boolean(analysisRunning)||!marketAnalysisMatchesSelection(analysis,scan,selectedItems,focus,budget)} onClick={()=>void beginAnalysis(true)}>明确重跑原输入（新增版本）</button>}
               </div>
               <div className="nd-radar-analysis-controls">
                 <label className="nd-control">
                   <span>这次重点看什么</span>
                   <input
+                    disabled={busy||pending!==null||recoveryBlocked}
                     value={focus}
                     onChange={(event) => setFocus(event.target.value)}
                   />
@@ -434,6 +459,7 @@ export default function MarketRadarPage() {
                 <label className="nd-control">
                   <span>最大输出预算</span>
                   <select
+                    disabled={busy||pending!==null||recoveryBlocked}
                     value={budget}
                     onChange={(event) => setBudget(Number(event.target.value))}
                   >
@@ -456,6 +482,7 @@ export default function MarketRadarPage() {
                     {analysisRunning && (
                       <button
                         className="nd-button nd-button-secondary"
+                        disabled={busy||pending!==null||recoveryBlocked}
                         onClick={() => void cancel(analysis.currentVersion.id)}
                         type="button"
                       >
@@ -489,7 +516,7 @@ export default function MarketRadarPage() {
                           <p className="nd-kicker">待你确认</p>
                           <h3>市场信号候选</h3>
                         </div>
-                        {analysis.candidates.map((candidate) => (
+                        {analysis.candidates.filter(candidate=>candidate.researchVersionId===analysis.currentVersion.id).map((candidate) => (
                           <article key={candidate.id}>
                             <div>
                               <small>
@@ -504,7 +531,7 @@ export default function MarketRadarPage() {
                             </div>
                             <button
                               className="nd-button nd-button-secondary"
-                              disabled={busy || candidate.status === "adopted"}
+                              disabled={busy||pending!==null||recoveryBlocked || candidate.status !== "candidate"}
                               onClick={() => void adopt(candidate.id)}
                               type="button"
                             >

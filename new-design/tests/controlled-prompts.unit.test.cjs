@@ -8,11 +8,12 @@ const direction = { id: "direction-1", title: "守脉者", premise: "少年守�
 const planningInput = { bookName: "守脉者", bookDescription: "记忆谜案", target: { level: "story", title: "", currentContent: null, parentContent: null }, materials: [{ cardId: "provided-id", typeKey: "character", typeName: "人物", title: "陆脉", values: { goal: "找回记忆" } }], adoptedPlans: [], instruction: "" };
 const planningOutput = { title: "主线规划", goal: "找回记忆", storyTime: "三个月", mustHappen: ["发现失忆"], mustPreserve: [], forbiddenBoundaries: [], expectedChanges: [], characterArc: "从逃避到承担", notes: "", sourceCardIds: ["provided-id"] };
 
-test("registered assets include chapter changes and expose only public metadata", () => {
+test("registered assets include chapter changes and chapter generation and expose only public metadata", () => {
   const assets = listPromptAssets();
-  assert.equal(assets.length, 7);
+  assert.equal(assets.length, 8);
   assert.deepEqual(new Set(assets.map(item => item.taskType)), new Set(PROMPT_TASK_TYPES));
-  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, 7);
+  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, 8);
+  assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v1" && item.label === "生成章节正文"));
   assert.ok(assets.every(item => item.contextPolicy === "explicit_task_snapshot_only" && item.version === "v1"));
   assert.ok(assets.every(item => !Object.hasOwn(item, "instruction") && !Object.hasOwn(item, "messages")));
 });

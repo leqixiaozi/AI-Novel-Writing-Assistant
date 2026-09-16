@@ -1,4 +1,8 @@
 .nd-business-form-workspace { display: grid; gap: .9rem; min-width: 0; }
+.nd-business-form-embedded>.nd-business-form-header,.nd-business-form-embedded>.nd-material-mode-tabs,.nd-business-form-embedded .nd-business-form-browser{display:none}
+.nd-business-form-embedded>.nd-business-form-layout{grid-template-columns:minmax(0,1fr)}
+.nd-business-form-embedded :is(input:not([type=checkbox]):not([type=radio]),select,textarea){font-size:16px;min-height:44px}
+.nd-business-form-embedded :is(button,a.nd-button){min-height:44px}
 .nd-business-form-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 1rem 1.1rem; background: var(--nd-paper); border-radius: var(--radius); }
 .nd-business-form-header h2, .nd-business-editor-heading h2 { margin: .15rem 0 .3rem; font-size: 1.08rem; font-weight: 620; }
 .nd-business-form-header p:last-child, .nd-business-editor-heading p:last-child { max-width: 46rem; margin: 0; color: var(--nd-muted); font-size: .69rem; line-height: 1.55; }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ModelTaskKey, ManagedModelConnection } from "../../../common/modelRouting";
 import { getIndependentModelStatus, probeManagedModelConnection, AiExecutionError } from "../../ai";
 import { NewDesignError } from "../../domain/errors";
-import { getModelRouteCenterCatalog, saveManagedModelRoute, inheritManagedModelRoute, createManagedCredential, resolveManagedTaskRoute, probeConnectionSchema } from "../../database/modelManagement";
+import { getModelRouteCenterCatalog, saveManagedModelRoute, inheritManagedModelRoute, createManagedCredential, resolveManagedTaskRoute, probeConnectionSchema,getManagedEmbeddingCatalog,saveManagedEmbeddingConnection,readManagedEmbeddingSaveReceipt,readManagedEmbeddingConnectionVersion,embeddingConnectionInputSchema,ManagedEmbeddingConfigurationError } from "../../database/modelManagement";
 
 function recoveryError(step:string,error:unknown,savedResult:string):AiExecutionError {
   if(error instanceof AiExecutionError)return error;
@@ -16,6 +16,11 @@ function recoveryError(step:string,error:unknown,savedResult:string):AiExecution
 
 export function modelSettingsRouter():Router {
   const router=Router();
+  const embeddingRoute=(step:string,write:boolean,action:(request:import("express").Request)=>Promise<unknown>):import("express").RequestHandler=>(request,response,next)=>{void Promise.resolve().then(()=>action(request)).then(data=>response.json({success:true,data})).catch(error=>{const failure=recoveryError(step,error,"当前向量模型输入、已保存连接版本和知识索引保留；未知原请求只核对，不重复保存或生成向量。");failure.recovery.sourceRoute="/new-design/structure/models";failure.recovery.actionLabel="打开模型设置";if(write)failure.recovery.mutationOutcome=error instanceof ManagedEmbeddingConfigurationError?error.mutationOutcome:error instanceof z.ZodError?"not_written":"unknown";next(failure);});};
+  router.get("/embedding/catalog",embeddingRoute("读取知识语义索引模型",false,()=>getManagedEmbeddingCatalog()));
+  router.post("/embedding/connections",embeddingRoute("保存并启用知识语义索引模型",true,request=>saveManagedEmbeddingConnection(embeddingConnectionInputSchema.parse(request.body))));
+  router.get("/embedding/connections/by-request/:key",embeddingRoute("只读核对原向量模型保存回执",false,request=>readManagedEmbeddingSaveReceipt(z.string().uuid().parse(request.params.key))));
+  router.get("/embedding/connections/:id",embeddingRoute("读取所选原向量模型版本",false,request=>readManagedEmbeddingConnectionVersion(z.string().uuid().parse(request.params.id))));
   router.get("/status",(_request,response,next)=>{void getIndependentModelStatus().then(data=>response.json({success:true,data})).catch(next);});
   router.get("/catalog",(_request,response,next)=>{void getModelRouteCenterCatalog().then(data=>response.json({success:true,data})).catch(error=>next(recoveryError("读取模型设置",error,"已保存模型版本和小说资料均保留。请点击重新读取目录后核对。")));});
   router.post("/routes",(request,response,next)=>{void saveManagedModelRoute(request.body).then(data=>response.json({success:true,data})).catch(error=>next(recoveryError("保存并启用模型设置",error,"本次保存未确认成功；旧版本和当前输入均保留。请先点击核对服务器结果，确认版本后再点击保存并启用。")));});

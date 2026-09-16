@@ -1,0 +1,8 @@
+.nd-author-usage { border-top:1px solid var(--nd-line); }
+.nd-author-usage header { display:flex; align-items:center; justify-content:space-between; gap:.7rem; flex-wrap:wrap; }
+.nd-author-usage dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.6rem 1rem; }
+.nd-author-usage dl div { min-width:0; }
+.nd-author-usage dt { font-weight:400; }
+.nd-author-usage dd { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.nd-author-usage a:focus-visible,.nd-author-usage button:focus-visible { outline:2px solid var(--nd-accent); outline-offset:3px; }
+@media(max-width:600px) { .nd-author-usage dl { grid-template-columns:minmax(0,1fr); } }

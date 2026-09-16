@@ -9,7 +9,21 @@ import {modelSettingsRouter} from "./modelSettings";
 import {promptCompositionRouter} from "./promptComposition";
 import {chapterSettlementEditingRouter} from "./chapterSettlementEditing";
 import {settlementRelationConfigurationRouter} from "./settlementRelationConfiguration";
+import {createKnowledgeReferenceRouter} from "./knowledgeReference";
+import {multiviewAuthorRouter} from "./multiviewAuthor";
+import {authorTasksRouter} from "./authorTasks";
+import {authorMaterialsRouter} from "./authorMaterials";
+import {professionalResourcesRouter} from "./professionalResources";
+import {ProfessionalResourceError} from "../database/professionalResources";
+import {bookCompositionRouter} from "./bookComposition";
+import {productionDirectorRouter} from "./productionDirector";
+import {createWorldCharacterMaintenanceRouter} from "./worldCharacterMaintenance";
+import {visualAssetsRouter} from "./visualAssets";
+import {VisualSourceError} from "../database/visualAssets";
+import {knowledgeIndexRouter} from "./knowledgeIndex";
+import {readStructureWriteReceipt,structureRequestKeySchema,StructureWriteError,strictFormInputSchema,parseStructureWriteInput} from "../database/structureWrites";
 import { AiExecutionError } from "../ai";
+import {chapterProductionRouter} from './chapterProduction';
 import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
   archiveCard,
@@ -37,6 +51,7 @@ import {
   listTemplates,
   listTemplateVersions,
   previewBookSync,
+  readBookTemplateSync,
   publishTemplate,
   saveTemplate,
 } from "../database/templateStore";
@@ -67,8 +82,8 @@ import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, 
 import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
 import { applyCandidateDecisions, updateResearchCandidate } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
-import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, getChapterDocument, listChapterDocuments } from "../database/chapterBodyStore";
-import { createChapterWritingRequest, getChapterAdoptionPreparation, getChapterWritingRequest, getChapterWritingWorkspace, ingestChapterWritingResult, listChapterWritingRequests, prepareChapterAdoption, saveChapterCandidate } from "../database/chapterWriting";
+import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, listChapterDocuments } from "../database/chapterBodyStore";
+import { getChapterAdoptionPreparation, ingestChapterWritingResult, prepareChapterAdoption } from "../database/chapterWriting";
 import { addChapterSettlementItem, createChapterProposalExtractionRequest, decideChapterSettlementItems, getChapterBodySwitchImpactContract, getChapterSettlementWorkspace, getNextChapterStableContext, ingestChapterProposalExtractionResult, settleChapterAdoptionSession, startChapterAdoptionSession, updateChapterSettlementItem } from "../database/chapterSettlement";
 import { createChapterRevisionPreview, executeChapterRevisionPlan, getChapterRevisionStableReadContract, getChapterRevisionWorkspace, resolveChapterRevisionReviewFlag, saveChapterRevisionPlan } from "../database/chapterRevision";
 import { getCanonicalFact, listCanonicalFacts, listFactConflicts, proposeCanonicalFact, resolveFactConflict, reviewCanonicalFact } from "../database/factStore";
@@ -88,10 +103,10 @@ import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
 import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
 import { resolvePublicationExportDownload } from "../publicationExport";
-import { ensureResearchRecovery, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
+import { ensureResearchRecovery, getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
-import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, submitAiRunPreview } from "../database/aiRunOrchestration";
+import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, readAiRunPreviewByRequest, readAiRunSubmissionByRequest, submitAiRunPreview } from "../database/aiRunOrchestration";
 import {
   applyFormAssist,
   beginFormAssist,
@@ -113,7 +128,6 @@ import {
 import {
   createCardSchema,
   createCardTypeSchema,
-  cardGroupFormInputSchema,
   cardTypeCategoryInputSchema,
   applyFormAssistSchema,
   bookInputSchema,
@@ -162,8 +176,6 @@ import {
   chapterDocumentInputSchema,
   chapterBodyVersionInputSchema,
   chapterBodyAdoptionSchema,
-  chapterCandidateSaveSchema,
-  chapterWritingRequestSchema,
   chapterWritingResultSchema,
   chapterAdoptionPreparationSchema,
   chapterAdoptionSessionStartSchema,
@@ -379,6 +391,37 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(settlementRelationConfigurationRouter());
   router.use(promptManagementRouter());
   mountCreationDirector(router,dependencies.ai);
+  router.use(createKnowledgeReferenceRouter());
+  router.use(knowledgeIndexRouter());
+  router.use(multiviewAuthorRouter());
+  router.use(authorTasksRouter());
+  router.use(authorMaterialsRouter());
+  router.use("/professional-resources",professionalResourcesRouter());
+  router.use(bookCompositionRouter());
+  router.use(productionDirectorRouter());
+  router.use(chapterProductionRouter());
+  router.use(createWorldCharacterMaintenanceRouter());
+  router.use(visualAssetsRouter());
+  router.get("/book-syncs/:id",asyncRoute(async(req,res)=>{
+    success(res,await readBookTemplateSync(z.string().uuid().parse(req.params.id)));
+  }));
+  router.get("/structure-write-receipts/:kind/:key",asyncRoute(async(req,res)=>{
+    success(res,await readStructureWriteReceipt(z.enum(['form','template']).parse(req.params.kind),structureRequestKeySchema.parse(req.params.key)));
+  }));
+  // Original-request reads must precede the research recovery middleware: checking
+  // an uncertain receipt must not recover runs, create tasks or invoke models.
+  router.get("/research/market/analyses/by-key/:requestKey",asyncRoute(async(req,res)=>{
+    const scope=z.object({scanRecordId:z.string().uuid(),requestKey:z.string().uuid()}).parse({scanRecordId:req.query.scanRecordId,requestKey:req.params.requestKey});
+    success(res,await getMarketAnalysisByKey(scope.scanRecordId,scope.requestKey));
+  }));
+  router.get("/books/:id/ai-runtime/run-previews/by-request/:requestKey",asyncRoute(async(req,res)=>{
+    const scope=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid()}).parse({bookId:req.params.id,requestKey:req.params.requestKey});
+    success(res,await readAiRunPreviewByRequest(scope.bookId,scope.requestKey));
+  }));
+  router.get("/books/:id/ai-runtime/run-submissions/by-request/:requestKey",asyncRoute(async(req,res)=>{
+    const scope=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid()}).parse({bookId:req.params.id,requestKey:req.params.requestKey});
+    success(res,await readAiRunSubmissionByRequest(scope.bookId,scope.requestKey));
+  }));
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
   router.use(businessFormAiRouter(dependencies.ai));
 
@@ -463,14 +506,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   }));
 
   router.get("/card-group-forms", asyncRoute(async (req, res) => success(res, await listCardGroupForms(typeof req.query.spaceId === "string" ? req.query.spaceId : undefined))));
-  router.post("/card-group-forms", asyncRoute(async (req, res) => success(res, await saveCardGroupForm(body(cardGroupFormInputSchema, req)), 201)));
+  router.post("/card-group-forms", asyncRoute(async (req, res) => success(res, await saveCardGroupForm(parseStructureWriteInput('form','save',strictFormInputSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body)), 201)));
   router.patch("/card-group-forms/:id", asyncRoute(async (req, res) => {
-    const input = body(cardGroupFormInputSchema, req);
+    const input = parseStructureWriteInput('form','save',strictFormInputSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body);
     success(res, await saveCardGroupForm({ ...input, id: String(req.params.id) }));
   }));
   router.post("/card-group-forms/:id/publish", asyncRoute(async (req, res) => {
-    const input = body(revisionSchema, req);
-    success(res, await publishCardGroupForm(String(req.params.id), input.revision));
+    const input = parseStructureWriteInput('form','publish',revisionSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body);
+    success(res, await publishCardGroupForm(String(req.params.id), input.revision,input.requestKey));
   }));
   router.get("/card-group-forms/:id/versions", asyncRoute(async (req, res) => success(res, await listCardGroupFormVersions(String(req.params.id)))));
 
@@ -485,14 +528,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   }));
 
   router.get("/templates", asyncRoute(async (_req, res) => success(res, await listTemplates())));
-  router.post("/templates", asyncRoute(async (req, res) => success(res, await saveTemplate(body(templateInputSchema, req)), 201)));
+  router.post("/templates", asyncRoute(async (req, res) => success(res, await saveTemplate(parseStructureWriteInput('template','save',templateInputSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body)), 201)));
   router.patch("/templates/:id", asyncRoute(async (req, res) => {
-    const input = body(templateInputSchema, req);
+    const input = parseStructureWriteInput('template','save',templateInputSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body);
     success(res, await saveTemplate({ ...input, id: String(req.params.id) }));
   }));
   router.post("/templates/:id/publish", asyncRoute(async (req, res) => {
-    const input = body(revisionSchema, req);
-    success(res, await publishTemplate(String(req.params.id), input.revision));
+    const input = parseStructureWriteInput('template','publish',revisionSchema.extend({requestKey:structureRequestKeySchema.optional()}), req.body);
+    success(res, await publishTemplate(String(req.params.id), input.revision,input.requestKey));
   }));
   router.get("/templates/:id/versions", asyncRoute(async (req, res) => success(res, await listTemplateVersions(String(req.params.id)))));
 
@@ -545,7 +588,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/research/market/scans/:id/retry",asyncRoute(async(req,res)=>success(res,await retryMarketScan(String(req.params.id)),202)));
   router.post("/research/runs/:id/cancel",asyncRoute(async(req,res)=>{await requestMarketScanCancellation(String(req.params.id));success(res,{cancelRequested:true});}));
   router.post("/research/market/analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await startMarketAnalysis(dependencies.ai,body(marketAnalysisInputSchema,req)),202);}));
-  router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await retryMarketAnalysis(dependencies.ai,String(req.params.id)),202);}));
+  router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);const input=body(z.object({requestKey:z.string().uuid().optional(),expectedVersionId:z.string().uuid().optional()}).strict(),req);success(res,await retryMarketAnalysis(dependencies.ai,z.string().uuid().parse(req.params.id),input),202);}));
   router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
   router.get("/research/book-analysis/plan",asyncRoute(async(req,res)=>success(res,(await buildBookAnalysisPlan(bookAnalysisPurposeSchema.parse(req.query.purpose),bookAnalysisPresetSchema.parse(req.query.preset))).plan)));
   router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
@@ -563,12 +606,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/research/reuse-preview",asyncRoute(async(req,res)=>success(res,await previewResearchReuse(body(researchReusePreviewSchema,req)))));
   router.get("/books/:id/research-references",asyncRoute(async(req,res)=>success(res,await listBookResearchReferences(String(req.params.id)))));
   router.get("/books/:id/chapter-documents",asyncRoute(async(req,res)=>success(res,await listChapterDocuments(String(req.params.id)))));
-  router.get("/books/:id/chapter-writing",asyncRoute(async(req,res)=>success(res,await getChapterWritingWorkspace(String(req.params.id)))));
   router.post("/books/:id/chapter-documents",asyncRoute(async(req,res)=>success(res,await createChapterDocument({bookId:String(req.params.id),...body(chapterDocumentInputSchema,req)}),201)));
-  router.get("/chapter-documents/:id",asyncRoute(async(req,res)=>success(res,await getChapterDocument(String(req.params.id)))));
-  router.post("/chapter-documents/:id/candidates",asyncRoute(async(req,res)=>success(res,await saveChapterCandidate(String(req.params.id),body(chapterCandidateSaveSchema,req)),201)));
-  router.get("/chapter-documents/:id/writing-requests",asyncRoute(async(req,res)=>success(res,await listChapterWritingRequests(String(req.params.id)))));
-  router.post("/chapter-documents/:id/writing-requests",asyncRoute(async(req,res)=>success(res,await createChapterWritingRequest(String(req.params.id),body(chapterWritingRequestSchema,req)),202)));
   router.post("/chapter-documents/:id/adoption-preparations",asyncRoute(async(req,res)=>success(res,await prepareChapterAdoption(String(req.params.id),body(chapterAdoptionPreparationSchema,req)),201)));
   router.post("/chapter-adoption-preparations/:id/sessions",asyncRoute(async(req,res)=>success(res,await startChapterAdoptionSession(String(req.params.id),body(chapterAdoptionSessionStartSchema,req)),201)));
   router.get("/chapter-adoption-sessions/:id",asyncRoute(async(req,res)=>success(res,await getChapterSettlementWorkspace(String(req.params.id)))));
@@ -586,7 +624,6 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/chapter-revision-plans/:id/execute",asyncRoute(async(req,res)=>success(res,await executeChapterRevisionPlan(String(req.params.id),body(chapterRevisionExecuteSchema,req)),202)));
   router.post("/chapter-revision-review-flags/:id/resolve",asyncRoute(async(req,res)=>success(res,await resolveChapterRevisionReviewFlag(String(req.params.id),body(chapterRevisionReviewResolutionSchema,req)))));
   router.get("/books/:bookId/chapter-revision-state",asyncRoute(async(req,res)=>{const chapterDocumentId=req.query.chapterDocumentId===undefined?null:z.string().uuid().parse(req.query.chapterDocumentId);success(res,await getChapterRevisionStableReadContract(String(req.params.bookId),chapterDocumentId));}));
-  router.get("/chapter-writing-requests/:id",asyncRoute(async(req,res)=>success(res,await getChapterWritingRequest(String(req.params.id)))));
   router.post("/chapter-writing-requests/:id/result",asyncRoute(async(req,res)=>success(res,await ingestChapterWritingResult(String(req.params.id),body(chapterWritingResultSchema,req)),201)));
   router.get("/chapter-adoption-preparations/:id",asyncRoute(async(req,res)=>success(res,await getChapterAdoptionPreparation(String(req.params.id)))));
   router.post("/chapter-documents/:id/versions",asyncRoute(async(req,res)=>success(res,await addChapterBodyVersion(String(req.params.id),body(chapterBodyVersionInputSchema,req)),201)));
@@ -925,7 +962,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

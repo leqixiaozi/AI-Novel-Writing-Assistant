@@ -23,8 +23,8 @@ test("real standalone Express and PostgreSQL read existing facts and expose acti
  const rejected=await fetch(`${base}/card-types/${published.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:published.name,description:published.description,revision:published.revision,categoryId:published.categoryId,semanticCapabilities:published.semanticCapabilities,fields:proposed})});
  const validation=await rejected.json();assert.equal(rejected.status,422);assert.ok(validation.issues[`fieldKey.${published.draftFields[0].key}`]);
  assert.deepEqual((await pool.query("SELECT revision,draft_fields,current_version_id FROM new_design.card_types WHERE id=$1",[published.id])).rows[0],before,"rejected field change must not change author data or revision");
- const status=await(await fetch(`${base}/models/status`)).json();assert.equal(status.success,true);assert.equal(status.data.tasks.length,7);
+ const status=await(await fetch(`${base}/models/status`)).json();assert.equal(status.success,true);assert.equal(status.data.tasks.length,8);assert.ok(status.data.tasks.some(task=>task.taskType==='chapter_generation'));
  const health=await(await fetch(`${base}/independent-health`)).json();assert.equal(health.data.recoveryRoute,"/new-design/structure/maintenance");
- const catalog=await(await fetch(`${base}/models/catalog`)).json();assert.equal(catalog.success,true);assert.equal(catalog.data.tasks.length,7);
+ const catalog=await(await fetch(`${base}/models/catalog`)).json();assert.equal(catalog.success,true);assert.equal(catalog.data.tasks.length,8);assert.ok(catalog.data.tasks.some(task=>task.key==='chapter_generation'));
  const result=await fetch(`${base}/models/probe`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});const failure=await result.json();assert.equal(result.status,422);assert.equal(failure.recovery.failedStep,"核对连接测试输入");assert.equal(failure.recovery.sourceRoute,"/new-design/structure/models");
 });

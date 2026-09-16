@@ -12,6 +12,7 @@ import type {
 } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
+import {executeStructureWrite} from "./structureWrites";
 
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
@@ -168,18 +169,19 @@ export async function listCardGroupForms(spaceId?: string): Promise<CardGroupFor
 }
 
 export async function saveCardGroupForm(input: {
-  id?: string; key: string; name: string; description: string; definition: CardGroupFormDefinition; revision?: number;
+  id?: string; key: string; name: string; description: string; definition: CardGroupFormDefinition; revision?: number;requestKey?:string;
 }): Promise<CardGroupFormSummary> {
-  const pool = await getNewDesignPool();
+  const {requestKey,...payload}=input;
+  return executeStructureWrite("form","save",requestKey,payload,async(pool)=>{
   const id = input.id ?? randomUUID();
   if (input.id) {
     const result = await pool.query(`UPDATE new_design.card_group_forms SET name=$2,description=$3,draft_definition=$4::jsonb,
-      revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$5 RETURNING *,NULL::integer AS current_version`,
+      revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$5 AND status<>'archived' RETURNING *,NULL::integer AS current_version`,
     [id,input.name,input.description,JSON.stringify(input.definition),input.revision]);
     if (!result.rows[0]) throw new NewDesignError("卡片组表单已在其他页面更新，请刷新后重试。", 409);
     const saved = mapForm(result.rows[0]);
-    const current = (await listCardGroupForms(result.rows[0].space_id ? String(result.rows[0].space_id) : undefined)).find((item) => item.id === id);
-    return current ? { ...saved, currentVersion: current.currentVersion } : saved;
+    const version=(await pool.query("SELECT version FROM new_design.card_group_form_versions WHERE id=$1",[saved.currentVersionId])).rows[0];
+    return {...saved,currentVersion:version?Number(version.version):null};
   }
   try {
     const result = await pool.query(`INSERT INTO new_design.card_group_forms
@@ -190,24 +192,20 @@ export async function saveCardGroupForm(input: {
     if ((error as { code?: string }).code === "23505") throw new NewDesignError("表单标识已存在。", 409);
     throw error;
   }
+  });
 }
 
-export async function publishCardGroupForm(id: string, revision: number): Promise<CardGroupFormSummary> {
-  const pool = await getNewDesignPool();
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const form = assertFound((await client.query("SELECT * FROM new_design.card_group_forms WHERE id=$1 FOR UPDATE", [id])).rows[0], "卡片组表单不存在。");
+export async function publishCardGroupForm(id: string, revision: number,requestKey?:string): Promise<CardGroupFormSummary> {
+  return executeStructureWrite("form","publish",requestKey,{id,revision},async(client)=>{
+    const form = assertFound((await client.query("SELECT * FROM new_design.card_group_forms WHERE id=$1 AND status<>'archived' FOR UPDATE", [id])).rows[0], "创作表单不存在。");
     if (Number(form.revision) !== revision) throw new NewDesignError("卡片组表单已在其他页面更新，请刷新后重试。", 409);
     const version = Number((await client.query("SELECT COALESCE(MAX(version),0)+1 AS version FROM new_design.card_group_form_versions WHERE form_id=$1", [id])).rows[0].version);
     const versionId = randomUUID();
     await client.query("INSERT INTO new_design.card_group_form_versions (id,form_id,version,definition) VALUES ($1,$2,$3,$4::jsonb)",
       [versionId,id,version,JSON.stringify(form.draft_definition)]);
-    await client.query("UPDATE new_design.card_group_forms SET status='published',current_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1", [id,versionId]);
-    await client.query("COMMIT");
-    return assertFound((await listCardGroupForms(form.space_id ? String(form.space_id) : undefined)).find((item) => item.id === id), "表单发布后读取失败。");
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
+    const updated=assertFound((await client.query("UPDATE new_design.card_group_forms SET status='published',current_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *", [id,versionId])).rows[0],"无法核对表单发布结果。");
+    return mapForm({...updated,current_version:version});
+  });
 }
 
 export async function listCardGroupFormVersions(formId: string): Promise<CardGroupFormVersion[]> {

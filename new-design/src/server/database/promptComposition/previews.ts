@@ -9,6 +9,7 @@ import { captureManagedModelSnapshot,resolveManagedTaskRoute,getManagedCredentia
 import { database,iso,lock,type CompositionDatabaseContext } from "./database";
 import { loadCompositionRecipeVersion } from "./recipes";
 import type { DebugFrozenPlan,DebugPreviewBundle } from "./contracts";
+import {compositionFrozenReferences} from "./knowledge";
 
 type Row=Record<string,any>;
 export const DEBUG_KIND="prompt_composition_debug";
@@ -17,7 +18,7 @@ const object=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&ty
 export const frozenHash=(plan:DebugFrozenPlan,inputHash:string)=>stableHash({format:1,plan,inputHash});
 export function previewFromRow(row:Row,taskId:string|null=null):CompositionDebugPreview {
   const plan=row.prompt_plan as DebugFrozenPlan;
-  return {id:row.id,recipeId:plan.recipe.id,recipeVersionId:row.prompt_recipe_version_id,recipeVersion:plan.recipeVersion,taskType:plan.recipe.taskType,bookId:row.book_id,revision:Number(row.revision),status:row.status,messages:plan.messages,outputSchema:plan.outputSchema,assetId:plan.assetId,assetVersion:plan.assetVersion,previewHash:row.preview_hash,components:plan.components.map(({cardId,versionId,title,enabled})=>({cardId,versionId,title,enabled})),sources:plan.sources.map(({cardId,versionId,title,role})=>({cardId,versionId,title,role})),variables:plan.variables,route:plan.route,recovery:plan.recovery,blockers:plan.blockers,estimatedInputUnits:plan.estimatedInputUnits,taskId,createdAt:iso(row.created_at)};
+  return {id:row.id,recipeId:plan.recipe.id,recipeVersionId:row.prompt_recipe_version_id,recipeVersion:plan.recipeVersion,taskType:plan.recipe.taskType,bookId:row.book_id,revision:Number(row.revision),status:row.status,messages:plan.messages,outputSchema:plan.outputSchema,assetId:plan.assetId,assetVersion:plan.assetVersion,previewHash:row.preview_hash,components:plan.components.map(({cardId,versionId,title,enabled})=>({cardId,versionId,title,enabled})),sources:plan.sources.map(({cardId,versionId,title,role})=>({cardId,versionId,title,role})),...(plan.knowledgeSources?.length?{knowledgeSources:plan.knowledgeSources.map(({assetId,sourceVersionId,parsedVersionId,checksum,title})=>({assetId,sourceVersionId,parsedVersionId,checksum,title}))}:{}),variables:plan.variables,route:plan.route,recovery:plan.recovery,blockers:plan.blockers,estimatedInputUnits:plan.estimatedInputUnits,taskId,createdAt:iso(row.created_at)};
 }
 export async function readPreviewRow(client:PoolClient,id:string):Promise<Row>{
   return assertFound((await client.query("SELECT preview.*,submission.ai_task_id FROM new_design.ai_run_previews preview LEFT JOIN new_design.ai_run_submissions submission ON submission.preview_id=preview.id WHERE preview.id=$1 AND preview.source_kind=$2",[id,DEBUG_KIND])).rows[0],"组合预览不存在，请重新读取组合后生成预览。");
@@ -61,14 +62,14 @@ async function freezeTaskContract(client:PoolClient,bundle:DebugPreviewBundle):P
   return id;
 }
 async function freezeContext(client:PoolClient,bundle:DebugPreviewBundle,contractId:string,snapshotId:string|null):Promise<string>{
-  const id=randomUUID(),references=[...bundle.components.filter(item=>item.enabled).map(item=>({kind:"prompt_component",...item,role:"reference"})),...bundle.sources.map(item=>({kind:"card_version",...item}))];
+  const id=randomUUID(),references=compositionFrozenReferences(bundle);
   const entries=[];
-  for(const reference of references){const version=assertFound((await client.query("SELECT version.*,card.space_id FROM new_design.card_versions version JOIN new_design.cards card ON card.id=version.card_id WHERE version.id=$1 AND card.id=$2",[reference.versionId,reference.cardId])).rows[0],"冻结上下文时精确版本未读取。");entries.push({reference,spaceId:version.space_id,revision:Number(version.revision),hash:stableHash({revision:version.revision,typeVersionId:version.type_version_id,title:version.title,values:version.values})});}
+  for(const reference of references){if(reference.kind==="asset_version"&&"checksum" in reference){const version=assertFound((await client.query("SELECT version.version,asset.space_id FROM new_design.asset_versions version JOIN new_design.assets asset ON asset.id=version.asset_id WHERE version.id=$1 AND asset.id=$2 AND version.book_id=$3 AND asset.book_id=$3",[reference.versionId,reference.cardId,bundle.recipe.context.bookId])).rows[0],"冻结知识上下文时精确解析版本未读取。");entries.push({reference,spaceId:version.space_id,revision:Number(version.version),hash:reference.checksum});}else{const version=assertFound((await client.query("SELECT version.*,card.space_id FROM new_design.card_versions version JOIN new_design.cards card ON card.id=version.card_id WHERE version.id=$1 AND card.id=$2",[reference.versionId,reference.cardId])).rows[0],"冻结上下文时精确版本未读取。");entries.push({reference,spaceId:version.space_id,revision:Number(version.revision),hash:stableHash({revision:version.revision,typeVersionId:version.type_version_id,title:version.title,values:version.values})});}}
   const manifestHash=stableHash({bookId:bundle.recipe.context.bookId,recipeVersionId:bundle.recipe.versionId,entries}),sourceSetHash=stableHash(entries);
   await client.query("INSERT INTO new_design.context_manifests(id,book_id,task_contract_version_id,prompt_recipe_version_id,node_key,status,manifest_hash,created_by,task_group,model_route_snapshot_id,source_set_hash,decision_summary) VALUES($1,$2,$3,$4,'prompt_composition_debug','complete',$5,'prompt_composition','prompt_composition_debug',$6,$7,$8::jsonb)",[id,bundle.recipe.context.bookId,contractId,bundle.recipe.versionId,manifestHash,snapshotId,sourceSetHash,JSON.stringify({selection:"explicit_exact_versions",trust:"user_data_only"})]);
   for(const [index,key]of ["author_additions","explicit_context"].entries()){
     const slotId=randomUUID();await client.query("INSERT INTO new_design.context_manifest_slots(id,manifest_id,slot_key,sort_order,required,token_budget) VALUES($1,$2,$3,$4,false,NULL)",[slotId,id,key,index]);
-    const selected=entries.filter(item=>key==="author_additions"?item.reference.kind==="prompt_component":item.reference.kind==="card_version");
+    const selected=entries.filter(item=>key==="author_additions"?item.reference.kind==="prompt_component":item.reference.kind!=="prompt_component");
     for(const [order,item]of selected.entries())await client.query("INSERT INTO new_design.context_manifest_entries(id,manifest_id,slot_id,source_type,stable_object_id,exact_version_id,source_space_id,content_hash,inclusion_reason,priority,token_estimate,transform_status,sort_order,source_revision,content_role,layer_label) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'作者明确选定的精确版本，不提升指令信任',0,$9,'full',$10,$11,$12,$13)",[randomUUID(),id,slotId,item.reference.kind,item.reference.cardId,item.reference.versionId,item.spaceId,item.hash,Math.ceil(JSON.stringify(item.reference).length/4),order,item.revision,item.reference.role==="formal"?"required":"reference",key==="author_additions"?"普通组件补充":"明确参考资料"]);
   }
   return id;
@@ -85,7 +86,7 @@ export async function saveDebugPreview(bundle:DebugPreviewBundle,input:DebugPrev
     const exact=await loadCompositionRecipeVersion(input.recipeId,input.recipeVersionId,{client});
     // Mutable catalogue labels/revisions are not authority; exact immutable version settings and contents are.
     const frozenRecipe=({id,versionId,version,taskType,components,variables,context:scope,name,description}:DebugPreviewBundle["recipe"])=>({id,versionId,version,taskType,components,variables,context:scope,name,description});
-    if(stableHash(frozenRecipe(exact.recipe))!==stableHash(frozenRecipe(bundle.recipe))||stableHash(exact.components)!==stableHash(bundle.components)||stableHash(exact.sources)!==stableHash(bundle.sources))throw new NewDesignError("预览使用的组合或精确资料与已保存版本不一致，请重新读取组合。",409);
+    if(stableHash(frozenRecipe(exact.recipe))!==stableHash(frozenRecipe(bundle.recipe))||stableHash(exact.components)!==stableHash(bundle.components)||stableHash(exact.sources)!==stableHash(bundle.sources)||stableHash(exact.knowledgeSources??[])!==stableHash(bundle.knowledgeSources??[]))throw new NewDesignError("预览使用的组合或精确资料与已保存版本不一致，请重新读取组合。",409);
     const book=assertFound((await client.query("SELECT * FROM new_design.books WHERE id=$1 AND status='active'",[bundle.recipe.context.bookId])).rows[0],"请选择现有书籍后生成预览。");
     const taskContractVersionId=await freezeTaskContract(client,bundle);
     let route:DebugFrozenPlan["route"]=null,snapshotId:string|null=null,recovery:AiRuntimeRecovery|null=null;

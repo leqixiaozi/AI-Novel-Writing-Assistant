@@ -361,12 +361,12 @@ export interface RelationTypeSummary {
   updatedAt: string;
 }
 
-export interface FormLocalFieldDefinition {
-  key: string;
-  name: string;
-  type: FieldType;
-  required: boolean;
-}
+/** Historical slots may contain only the four core attributes. New strict writes
+ * validate full FieldDefinition; optional extensions preserve their actual contract
+ * without pretending that old incomplete fields have already become formal specs. */
+export interface FormLocalFieldDefinition extends
+  Pick<FieldDefinition, "key" | "name" | "type" | "required">,
+  Partial<Omit<FieldDefinition, "key" | "name" | "type" | "required">> {}
 
 export interface CardGroupFormSlot {
   key: string;
@@ -861,7 +861,7 @@ export interface ChapterTextAnchor {id:string;bookId:string;chapterDocumentId:st
 export interface ChapterDocumentSummary {id:string;bookId:string;chapterCardId:string;logicalOrder:number;title:string;status:"active"|"archived";adoptedVersionId:string|null;revision:number;createdAt:string;updatedAt:string;}
 export interface ChapterDocumentDetail extends ChapterDocumentSummary {versions:ChapterBodyVersion[];adoptions:ChapterBodyAdoption[];anchors:ChapterTextAnchor[];}
 export type ChapterWritingRequestStatus="preparing"|"queued"|"running"|"succeeded"|"failed"|"cancelled"|"unavailable"|"stale";
-export interface ChapterWritingRequest {id:string;bookId:string;chapterDocumentId:string;operationKind:Exclude<ChapterWritingOperation,"manual_draft"|"copy">;planningObjectId:string;planningVersionId:string;planningContentHash:string;contextManifestId:string;taskContractVersionId:string;promptRecipeVersionId:string;modelRouteSnapshotId:string;inputBodyVersionId:string|null;inputBodyHash:string|null;selectionStart:number|null;selectionEnd:number|null;instruction:string;expectedDocumentRevision:number;aiTaskId:string|null;resultBodyVersionId:string|null;status:ChapterWritingRequestStatus;errorSummary:string;createdBy:string;createdAt:string;updatedAt:string;}
+export interface ChapterWritingRequest {id:string;bookId:string;chapterDocumentId:string;operationKind:Exclude<ChapterWritingOperation,"manual_draft"|"copy">;planningObjectId:string;planningVersionId:string;planningContentHash:string;contextManifestId:string;taskContractVersionId:string;promptRecipeVersionId:string;modelRouteSnapshotId:string;inputBodyVersionId:string|null;inputBodyHash:string|null;selectionStart:number|null;selectionEnd:number|null;instruction:string;expectedDocumentRevision:number;aiTaskId:string|null;resultBodyVersionId:string|null;status:ChapterWritingRequestStatus;errorSummary:string;createdBy:string;createdAt:string;updatedAt:string;idempotencyKey?:string;modelResultSaved?:boolean;ledgerPending?:boolean;leaseExpired?:boolean;controlled?:boolean;unclaimed?:boolean;}
 export interface ChapterAdoptionPreparation {id:string;bookId:string;chapterDocumentId:string;bodyVersionId:string;expectedDocumentRevision:number;planningObjectId:string;planningVersionId:string;planningContentHash:string;contextManifestId:string|null;dependencySnapshot:Record<string,unknown>;dependencyHash:string;status:"prepared"|"consumed"|"stale"|"cancelled";idempotencyKey:string;createdBy:string;createdAt:string;}
 export interface ChapterWritingChapter {chapterCardId:string;planningObjectId:string;volumePlanningObjectId:string|null;volumeTitle:string;title:string;logicalOrder:number;hasAdoptedPlan:boolean;planningVersionId:string|null;planningVersionNumber:number|null;documentId:string|null;documentRevision:number|null;candidateCount:number;adoptedBodyVersionId:string|null;settlementSessionId:string|null;settlementBodyVersionId:string|null;pendingRequestCount:number;openIssueCount:number;state:"needs_plan"|"ready"|"writing"|"review"|"adopted"|"settlement_pending"|"stable"|"settlement_failed"|"impact_review_required"|"revision_running"|"revision_partial_failure"|"downstream_review";updatedAt:string;}
 export interface ChapterWritingCapability {configured:boolean;taskKey:string|null;taskContractVersionId:string|null;message:string;}
@@ -971,7 +971,7 @@ export interface PromptRecipeVersion {id:string;recipeId:string;version:number;b
 export interface PromptRecipe {id:string;recipeKey:string;name:string;description:string;status:"active"|"archived";currentVersionId:string;publishedVersionId:string|null;revision:number;currentVersion:PromptRecipeVersion;publishedVersion:PromptRecipeVersion|null;versions:PromptRecipeVersion[];createdAt:string;updatedAt:string;}
 export interface TaskContractVersion {id:string;contractId:string;version:number;baseVersionId:string|null;source:"manual"|"ai"|"import"|"system";status:ContractVersionStatus;taskGroup:string;inputSchema:Record<string,unknown>;inputSchemaVersion:string;outputSchema:Record<string,unknown>;outputSchemaVersion:string;contextPolicyVersion:string;promptRecipeVersionId:string;requiredCapabilities:string[];budgetPolicy:Record<string,unknown>;timeoutMs:number;retryPolicy:Record<string,unknown>;confirmationPolicy:"none"|"before_execute"|"before_adopt"|"always";contentHash:string;createdBy:string;createdAt:string;}
 export interface TaskContract {id:string;taskKey:string;name:string;description:string;status:"active"|"archived";currentVersionId:string;publishedVersionId:string|null;revision:number;currentVersion:TaskContractVersion;publishedVersion:TaskContractVersion|null;versions:TaskContractVersion[];createdAt:string;updatedAt:string;}
-export type ContextSourceType="card_version"|"card_relation"|"body_version"|"text_anchor"|"planning_version"|"canonical_fact"|"knowledge_state_change"|"state_change"|"story_time"|"story_event_relation"|"research_document_version"|"research_version"|"research_pack_version"|"prompt_component"|"retrieval_chunk";
+export type ContextSourceType="card_version"|"card_relation"|"body_version"|"text_anchor"|"planning_version"|"canonical_fact"|"knowledge_state_change"|"state_change"|"story_time"|"story_event_relation"|"research_document_version"|"research_version"|"research_pack_version"|"prompt_component"|"retrieval_chunk"|"asset_version";
 export type ContextScopeKind="system"|"public"|"task_group"|"task_node"|"book"|"volume"|"chapter"|"scene"|"one_time";
 export type ContextInheritanceMode="inherit"|"override"|"exclude";
 export type ContextActivationField="task_key"|"task_group"|"content_type"|"tag"|"material_status"|"canonical_status"|"volume"|"chapter"|"scene"|"story_range"|"relation_exists"|"association_exists"|"source_type"|"stale"|"manual_switch";
@@ -1002,7 +1002,7 @@ export interface ModelCredentialRef {id:string;credentialKey:string;provider:str
 export interface ResolvedModelRoute {provider:string;model:string;parameters:Record<string,unknown>;requiredCapabilities:string[];hasCredential:boolean;budgetPolicy:Record<string,unknown>;timeoutMs:number;retryPolicy:Record<string,unknown>;fallbacks:ModelRouteFallback[];sourceLayers:Array<{scope:ModelRouteScope;configId:string;versionId:string}>;policyVersion:string;}
 export interface ModelRouteSnapshot extends ResolvedModelRoute {id:string;bookId:string;taskContractVersionId:string;nodeKey:string|null;snapshotHash:string;createdAt:string;}
 export interface AiRunPromptSection {id:string;slotKey:string;sectionKind:"instruction"|"formal_data"|"reference"|"output_contract";label:string;sourceRefs:Array<Record<string,unknown>>;tokenEstimate:number;sortOrder:number;contentHash:string;}
-export interface AiRunPreview {id:string;spaceId:string;bookId:string;taskKey:string;taskGroup:string;taskNodeKey:string;sourceRoute:string;sourceKind:string;sourceId:string|null;taskContractVersionId:string;promptRecipeVersionId:string;contextPreviewId:string;contextManifestId:string;modelRouteSnapshotId:string;inputSnapshot:Record<string,unknown>;inputHash:string;safeCheckpoint:Record<string,unknown>;budgetSnapshot:Record<string,unknown>;promptPlan:Record<string,unknown>;routePlan:Record<string,unknown>;blockers:string[];previewHash:string;status:"ready"|"blocked"|"stale"|"submitted";revision:number;sections:AiRunPromptSection[];aiTaskId:string|null;createdBy:string;createdAt:string;updatedAt:string;}
+export interface AiRunPreview {id:string;spaceId:string;bookId:string;taskKey:string;taskGroup:string;taskNodeKey:string;sourceRoute:string;sourceKind:string;sourceId:string|null;taskContractVersionId:string;promptRecipeVersionId:string;contextPreviewId:string;contextManifestId:string;modelRouteSnapshotId:string;inputSnapshot:Record<string,unknown>;/** Read-only schema from this exact frozen contract version; absent means execution is blocked. */inputSchema?:Record<string,unknown>;inputHash:string;safeCheckpoint:Record<string,unknown>;budgetSnapshot:Record<string,unknown>;promptPlan:Record<string,unknown>;routePlan:Record<string,unknown>;blockers:string[];previewHash:string;status:"ready"|"blocked"|"stale"|"submitted";revision:number;sections:AiRunPromptSection[];aiTaskId:string|null;createdBy:string;createdAt:string;updatedAt:string;}
 export interface AiRunStableReadContract {bookId:string;connectedEntryPoints:Array<{key:string;label:string;sourceRoute:string}>;unconnectedEntryPoints:Array<{key:string;label:string;reason:string}>;recentRuns:AiRunPreview[];generatedAt:string;}
 
 export type AiTaskStatus="queued"|"running"|"waiting_approval"|"retry_scheduled"|"paused"|"succeeded"|"failed"|"cancelled";
@@ -1018,7 +1018,7 @@ export interface AiTaskSummary {id:string;spaceId:string;bookId:string|null;task
 export interface AiTaskDetail extends AiTaskSummary {steps:AiTaskStep[];events:AiTaskStateEvent[];approvals:AiApprovalRequest[];usage:AiAttemptUsage[];}
 export interface AiAttemptLease {task:AiTaskSummary;step:AiTaskStep;attempt:AiTaskAttempt;leaseToken:string;}
 export interface AiTaskPage {items:AiTaskSummary[];nextCursor:string|null;}
-export interface AiUsageSummary {taskCount:number;attemptCount:number;inputTokens:number|null;outputTokens:number|null;cachedInputTokens:number|null;durationMs:number|null;estimatedCost:number|null;currency:string|null;fallbackCount:number;unknownUsageCount:number;}
+export interface AiUsageSummary {taskCount:number;attemptCount:number;totalAttemptCount:number;unrecordedAttemptCount:number;unknownCostAttemptCount:number;inputTokens:number|null;outputTokens:number|null;cachedInputTokens:number|null;durationMs:number|null;estimatedCost:number|null;currency:string|null;fallbackCount:number;unknownUsageCount:number;}
 
 export type QualityIssueStatus="open"|"acknowledged"|"deferred"|"dismissed"|"fix_proposed"|"fixed"|"verified"|"stale"|"superseded";
 export type QualitySeverity="info"|"low"|"medium"|"high"|"critical";
@@ -1122,6 +1122,7 @@ export interface BookCreationSession {
   initialCards: InitialCardDraft[];
   reviewCards: BookCreationReviewCard[];
   reviewTypes: BookCreationReviewType[];
+  formalReview?: import("./bookCreationProduction").BookCreationFormalReview | null;
   lastFailedStage: string | null;
   errorMessage: string | null;
   bookId: string | null;
@@ -1221,7 +1222,7 @@ export interface GraphProjectionHealth {availability:GraphProjectionAvailability
 
 export type EmbeddingSourceKind="card_version"|"chapter_body_version"|"canonical_fact"|"knowledge_state_change"|"state_change"|"story_event_timing"|"story_event_relation"|"planning_version"|"research_document_version"|"research_record_version"|"research_reference_pack_version"|"prompt_component"|"ai_task_attempt"|"quality_issue_evidence"|"asset_parsed_text";
 export type EmbeddingDistanceMetric="cosine"|"l2"|"inner_product";
-export interface EmbeddingProfileVersion {id:string;profileId:string;version:number;providerKey:string;modelKey:string;dimensions:number;distanceMetric:EmbeddingDistanceMetric;normalize:boolean;chunkerKey:string;chunkerVersion:string;maxChunkChars:number;overlapChars:number;allowedSourceKinds:EmbeddingSourceKind[];contentHash:string;createdBy:string;createdAt:string;}
+export interface EmbeddingProfileVersion {id:string;profileId:string;version:number;providerKey:string;modelKey:string;dimensions:number;connectionVersionId?:string|null;distanceMetric:EmbeddingDistanceMetric;normalize:boolean;chunkerKey:string;chunkerVersion:string;maxChunkChars:number;overlapChars:number;allowedSourceKinds:EmbeddingSourceKind[];contentHash:string;createdBy:string;createdAt:string;}
 export interface EmbeddingProfile {id:string;profileKey:string;name:string;purpose:"semantic_retrieval"|"similarity"|"clustering";status:"active"|"archived";currentVersionId:string|null;revision:number;currentVersion:EmbeddingProfileVersion|null;createdBy:string;createdAt:string;updatedAt:string;}
 export interface EmbeddingSourceSnapshot {id:string;spaceId:string;bookId:string;profileVersionId:string;dependencySourceResourceId:string;sourceKind:EmbeddingSourceKind;sourceStableId:string;sourceVersionId:string;sourceRevision:number;sourceHash:string;title:string;contentText:string;chunkRecipeHash:string;status:"current"|"stale"|"archived";createdBy:string;createdAt:string;staleAt:string|null;}
 export interface EmbeddingChunk {id:string;bookId:string;sourceSnapshotId:string;profileVersionId:string;ordinal:number;anchorKind:"whole"|"character_range"|"json_pointer"|"text_anchor"|"section";anchor:Record<string,unknown>;chunkText:string;tokenEstimate:number;contentHash:string;chunkerVersion:string;status:"current"|"stale"|"archived";createdAt:string;staleAt:string|null;}

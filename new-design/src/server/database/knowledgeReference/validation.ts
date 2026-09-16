@@ -1,0 +1,11 @@
+import {z} from "zod";
+import {KNOWLEDGE_MAX_BYTES} from "../../../common/knowledgeReference";
+const key=z.string().trim().min(8).max(160),uuid=z.string().uuid();
+export const knowledgeUploadSchema=z.object({requestKey:key,filename:z.string().trim().min(1).max(200).refine(v=>!/[\\/\x00-\x1f]/.test(v)&&/\.(txt|md|markdown)$/i.test(v),"请选择不含路径的文本或 Markdown 文件。"),title:z.string().trim().min(1).max(200),contentBase64:z.string().max(Math.ceil(KNOWLEDGE_MAX_BYTES/3)*4).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,"文件编码无效。")}).strict();
+export const knowledgeWriteSchema=z.object({requestKey:key,expectedRevision:z.number().int().positive()}).strict();
+export const knowledgeBindSchema=knowledgeWriteSchema.extend({owner:z.object({kind:z.enum(["book","card_version","chapter_body_version","ai_task_attempt"]),stableId:uuid,versionId:uuid,label:z.string().trim().max(200)}).strict()}).strict();
+export const knowledgeArchiveSchema=knowledgeWriteSchema.extend({previewHash:z.string().regex(/^[a-f0-9]{64}$/),reason:z.string().trim().min(1).max(2000)}).strict();
+export const knowledgeSearchSchema=z.object({q:z.string().trim().min(1).max(200)}).strict();
+export const knowledgeKeySchema=key;
+export const knowledgeContentSchema=z.object({offset:z.coerce.number().int().min(0).max(KNOWLEDGE_MAX_BYTES).default(0),limit:z.coerce.number().int().min(1).max(100000).default(100000),parsedVersionId:uuid.optional()}).strict();
+export const knowledgeReferenceSchema=z.object({requestKey:key,baseManifestId:uuid,slotKey:z.string().regex(/^[a-z][a-z0-9_.-]{1,99}$/),sources:z.array(z.object({assetId:uuid,sourceVersionId:uuid,parsedVersionId:uuid,checksum:z.string().regex(/^[a-f0-9]{64}$/)}).strict()).min(1).max(20)}).strict();

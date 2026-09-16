@@ -1,0 +1,19 @@
+.nd-knowledge-page { display:grid; gap:1.25rem; }
+.nd-knowledge-page h2,.nd-knowledge-page h3 { font-size:1rem; font-weight:500; margin:.5rem 0; }
+.nd-knowledge-page p { overflow-wrap:anywhere; }
+.nd-knowledge-page .nd-control { display:grid; gap:.4rem; margin:.6rem 0; }
+.nd-knowledge-page input,.nd-knowledge-page select,.nd-knowledge-page textarea { width:100%; min-height:44px; font-size:16px; }
+.nd-knowledge-page button,.nd-knowledge-page .nd-button { min-height:44px; cursor:pointer; }
+.nd-knowledge-page button:disabled { cursor:not-allowed; opacity:.6; }
+.nd-knowledge-page :focus-visible { outline:2px solid var(--nd-accent); outline-offset:2px; }
+.nd-knowledge-upload,.nd-knowledge-recovery { padding:1rem; background:var(--nd-soft); border-radius:var(--radius); }
+.nd-knowledge-recovery { border-left:3px solid var(--nd-accent); }
+.nd-knowledge-workspace { display:grid; gap:1.25rem; }
+.nd-knowledge-workspace aside { display:grid; align-content:start; max-height:32rem; overflow:auto; }
+.nd-knowledge-workspace aside button,.nd-knowledge-search-result { text-align:left; padding:.75rem; border:0; border-bottom:1px solid var(--nd-line); background:transparent; }
+.nd-knowledge-workspace aside button span,.nd-knowledge-workspace aside button small,.nd-knowledge-search-result span { display:block; overflow-wrap:anywhere; }
+.nd-knowledge-workspace aside button small { color:var(--nd-muted); }
+.nd-knowledge-workspace aside button.is-selected { background:var(--nd-soft); box-shadow:inset 3px 0 var(--nd-accent); }
+.nd-knowledge-workspace pre { white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; max-height:35rem; overflow:auto; background:var(--nd-soft); padding:1rem; }
+@media (min-width:850px) { .nd-knowledge-workspace { grid-template-columns:minmax(13rem,1fr) minmax(0,3fr); } .nd-knowledge-upload { display:grid; grid-template-columns:1fr 1fr; gap:.6rem 1rem; } .nd-knowledge-upload h2,.nd-knowledge-upload p { grid-column:1/-1; } }
+@media (prefers-reduced-motion:reduce) { .nd-knowledge-page * { animation:none!important; transition:none!important; } }

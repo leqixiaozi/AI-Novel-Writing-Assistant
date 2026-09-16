@@ -7,6 +7,7 @@ import { validateBookTypeEvolution, validateCardValues, validateFieldValue, vali
 import { getNewDesignPool } from "./runtime";
 import { snapshotDictionaryTreeValues, validateDictionaryTreeBindings, validateDictionaryTreeValues } from "./treeResources";
 import { verifyFormAiSave, recordFormAiSave, saveFormDraftTags, type FormAiSaveExtras } from "./formAssist";
+import {claimAuthorMaterialWrite,persistAuthorMaterialReceipt,rethrowAuthorMaterialWrite,prepareAuthorMaterialConnection,type AuthorWriteExtras,type AuthorSavedCard} from "./authorMaterials/ledger";
 
 export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -266,14 +267,15 @@ export async function getCard(id: string): Promise<CardSummary> {
   return assertFound(await findCard(await getNewDesignPool(), id), "资料不存在。");
 }
 
-export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras): Promise<CardSummary> {
-  const pool = await getNewDesignPool();
-  const typeVersion = await findCurrentTypeFields(pool, input.cardTypeId);
-  const validated = validateCardValues(typeVersion.fields, input.values);
-  if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
-  const client = await pool.connect();
+export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras): Promise<AuthorSavedCard> {
+  const {client}=await prepareAuthorMaterialConnection(input.authorWrite);
+  let commitStarted=false;
   try {
     await client.query("BEGIN");
+    if(input.authorWrite){const prior=await claimAuthorMaterialWrite(client,input.authorWrite,null,input.spaceId);if(prior){commitStarted=true;await client.query("COMMIT");return {...prior.card,authorReceipt:prior};}}
+    const typeVersion = await findCurrentTypeFields(client, input.cardTypeId);
+    const validated = validateCardValues(typeVersion.fields, input.values);
+    if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
     const cardId = randomUUID();
     const versionId = randomUUID();
     const spaceId = input.spaceId ?? DEFAULT_SPACE_ID;
@@ -307,9 +309,13 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     await client.query("UPDATE new_design.cards SET current_version_id = $2 WHERE id = $1", [cardId, versionId]);
     await recordFormAiSave(client,cardId,versionId,validated.values,aiSources);
     if(input.tagIds!==undefined)await saveFormDraftTags(client,cardId,versionId,spaceId,input.cardTypeId,input.tagIds);
+    const saved=assertFound(await findCard(client,cardId),"资料保存回执未准备完成。");
+    const authorReceipt=input.authorWrite?await persistAuthorMaterialReceipt(client,input.authorWrite,versionId,saved,input):undefined;
+    commitStarted=true;
     await client.query("COMMIT");
-    return assertFound(await findCard(pool, cardId), "卡片创建后读取失败。");
+    return authorReceipt?{...saved,authorReceipt}:saved;
   } catch (error) {
+    if(input.authorWrite)return await rethrowAuthorMaterialWrite(client,error,commitStarted);
     await client.query("ROLLBACK");
     throw error;
   } finally {
@@ -319,12 +325,13 @@ export async function createCard(input: { cardTypeId: string; title: string; val
 
 async function updateCardSnapshot(
   id: string,
-  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras,
-): Promise<CardSummary> {
-  const pool = await getNewDesignPool();
-  const client = await pool.connect();
+  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras,
+): Promise<AuthorSavedCard> {
+  const {client}=await prepareAuthorMaterialConnection(input.authorWrite);
+  let commitStarted=false;
   try {
     await client.query("BEGIN");
+    if(input.authorWrite){const prior=await claimAuthorMaterialWrite(client,input.authorWrite,id);if(prior){commitStarted=true;await client.query("COMMIT");return {...prior.card,authorReceipt:prior};}}
     const existing = assertFound(await findCard(client, id, true), "资料不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此卡片已在其他页面更新，请刷新后再保存。", 409);
     const typeVersion = await findCurrentTypeFields(client, existing.cardTypeId);
@@ -370,9 +377,13 @@ async function updateCardSnapshot(
     `, [id, title, JSON.stringify(validated.values), nextStatus, nextRevision, typeVersion.id, versionId]);
     await recordFormAiSave(client,id,versionId,{...validated.values,...incomingLocalValues},aiSources);
     if(input.tagIds!==undefined)await saveFormDraftTags(client,id,versionId,String(cardContext.space_id),existing.cardTypeId,input.tagIds);
+    const saved=assertFound(await findCard(client,id),"资料保存回执未准备完成。");
+    const authorReceipt=input.authorWrite?await persistAuthorMaterialReceipt(client,input.authorWrite,versionId,saved,{...input,localValues:incomingLocalValues}):undefined;
+    commitStarted=true;
     await client.query("COMMIT");
-    return assertFound(await findCard(pool, id), "卡片保存后读取失败。");
+    return authorReceipt?{...saved,authorReceipt}:saved;
   } catch (error) {
+    if(input.authorWrite)return await rethrowAuthorMaterialWrite(client,error,commitStarted);
     await client.query("ROLLBACK");
     throw error;
   } finally {
@@ -380,7 +391,7 @@ async function updateCardSnapshot(
   }
 }
 
-export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras): Promise<CardSummary> {
+export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras): Promise<AuthorSavedCard> {
   return updateCardSnapshot(id, { ...input, source: "edit" });
 }
 

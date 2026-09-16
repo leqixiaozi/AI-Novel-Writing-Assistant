@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROMPT_TASK_TYPES = ["directions", "initial_content", "form_assist", "market_analysis", "book_analysis", "planning_candidate", "chapter_settlement"] as const;
+export const PROMPT_TASK_TYPES = ["directions", "initial_content", "form_assist", "market_analysis", "book_analysis", "planning_candidate", "chapter_settlement", "chapter_generation"] as const;
 export type PromptTaskType = (typeof PROMPT_TASK_TYPES)[number];
 export type PromptContextPolicy = "explicit_task_snapshot_only";
 

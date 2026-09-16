@@ -1,7 +1,7 @@
 import type {CompositionCatalog,CompositionRecipe,CompositionSettings,SaveCompositionInput} from "../../common/promptComposition";
 import type {TreeSelectorNode} from "../tree";
 export type RecipeDraft=CompositionSettings&{name:string;description:string};
-export function copyDraft(recipe:RecipeDraft):RecipeDraft{return {name:recipe.name,description:recipe.description,taskType:recipe.taskType,components:recipe.components.map(item=>({...item})),variables:recipe.variables.map(item=>({...item,options:[...item.options]})),context:{bookId:recipe.context.bookId,sources:recipe.context.sources.map(item=>({...item}))}};}
+export function copyDraft(recipe:RecipeDraft):RecipeDraft{return {name:recipe.name,description:recipe.description,taskType:recipe.taskType,components:recipe.components.map(item=>({...item})),variables:recipe.variables.map(item=>({...item,options:[...item.options]})),context:{bookId:recipe.context.bookId,sources:recipe.context.sources.map(item=>({...item})),...(recipe.context.knowledgeSources?{knowledgeSources:recipe.context.knowledgeSources.map(item=>({...item}))}:{})}};}
 export function emptyRecipe():RecipeDraft{return{name:"",description:"",taskType:"form_assist",components:[],variables:[],context:{bookId:null,sources:[]}};}
 export function sameComposition(a:RecipeDraft,b:RecipeDraft):boolean{return JSON.stringify(copyDraft(a))===JSON.stringify(copyDraft(b));}
 export function matchingSavedRecipes(catalog:CompositionCatalog,input:SaveCompositionInput):CompositionRecipe[]{return catalog.recipes.filter(recipe=>(input.id?recipe.id===input.id:true)&&sameComposition(recipe,input));}

@@ -1,9 +1,12 @@
 import type {ChapterSettlementEditingWorkspace} from "../../../common/chapterSettlementEditing";
+import {useEffect,useRef,useState} from "react";
 import type {ChapterSettlementItem} from "../../../common/contracts";
 import {categoryLabels,riskLabels} from "./editing";
 const decisionLabels={pending:"待确认",confirm:"纳入本章结果",reject:"不纳入",defer:"稍后处理"} as const;
 export default function ItemReview({items,workspace,disabled,onEdit,onDecide}:{items:ChapterSettlementItem[];workspace:ChapterSettlementEditingWorkspace|null;disabled:boolean;onEdit:(item:ChapterSettlementItem)=>void;onDecide:(item:ChapterSettlementItem,decision:"confirm"|"reject"|"defer")=>void}){
-  return <div className="nd-settlement-item-list">{items.length?items.map(item=>{const spec=workspace?.itemSpecifications.find(candidate=>candidate.itemId===item.id);return <article data-risk={item.riskLevel} data-settlement-item={item.id} key={item.id}>
+  const listRef=useRef<HTMLDivElement|null>(null),[sourceNotice,setSourceNotice]=useState("");
+  useEffect(()=>{if(!workspace)return;const values=new URLSearchParams(location.search).getAll("subject");if(!values.length)return;if(values.length!==1||!workspace.catalog.subjects.some(subject=>subject.id===values[0])){setSourceNotice("来源对象不属于此章节正式目录；清单保留，请在本章重新选择。");return;}const matching=items.filter(item=>item.subjectId===values[0]);setSourceNotice(matching.length?`已定位 ${matching[0].subjectLabel} 的 ${matching.length} 项真实确认记录；没有自动修改决策。`:"已定位来源对象，本章尚无其确认记录；请明确补充真实正文变化。");const article=matching[0]?listRef.current?.querySelector<HTMLElement>(`[data-settlement-item="${CSS.escape(matching[0].id)}"]`):null;article?.scrollIntoView({block:"nearest"});},[workspace?.session.id,items,workspace?.catalog]);
+  return <div className="nd-settlement-item-list" ref={listRef}>{sourceNotice&&<p role="status">{sourceNotice}</p>}{items.length?items.map(item=>{const spec=workspace?.itemSpecifications.find(candidate=>candidate.itemId===item.id);return <article data-risk={item.riskLevel} data-settlement-item={item.id} key={item.id}>
     <header><div><span>{categoryLabels[item.category]}</span><strong>{item.title}</strong><small>{item.subjectLabel} · {spec?.fieldLabel??"历史记录字段"}</small></div><div><span>{riskLabels[item.riskLevel]}</span><span>{decisionLabels[item.decision]}</span></div></header>
     <dl><div><dt>变化前</dt><dd>{spec?.beforeDisplay??"历史值待核对"}</dd></div><div><dt>变化后</dt><dd>{spec?.afterDisplay??"历史值待核对"}</dd></div></dl>{spec?.unavailableReason&&<p>{spec.unavailableReason}</p>}
     <details><summary>查看正文证据与来源</summary><blockquote>{item.evidence.excerpt}</blockquote><small>第 {item.evidence.startOffset+1}–{item.evidence.endOffset} 字 · {item.sourceKind==="ai"?"AI 提案":"人工补充"}</small></details>

@@ -21,17 +21,32 @@ import { ChapterWritingPage } from "./chapterWriting";
 import CompletionExportPage from "./completionExport/CompletionExportPage";
 import OperationsMaintenancePage from "./operations/OperationsMaintenancePage";
 import ModelSettingsPage from "./modelSettings";
+import KnowledgeReferencePage from "./knowledgeReference";
+import {AuthorTaskCenterPage} from "./authorTasks";
+import {newDesignApi} from "./api";
+import ProfessionalResourcesPage from "./professionalResources";
+import {BookCompositionPage} from "./bookComposition";
+import ProductionDirectorPage from "./productionDirector";
+import WorldCharacterMaintenancePage from "./worldCharacterMaintenance";
+import VisualAssetsPage from "./visualAssets";
+import type {VisualAssetsApi} from "../common/visualAssets";
 import "./new-design.css";
 import type { BookViewKey } from "../common/contracts";
 
 interface NewDesignPageProps { pathname?:string; }
+const visualApi:VisualAssetsApi={workspace:newDesignApi.getVisualWorkspace,upload:newDesignApi.uploadVisualAsset,command:newDesignApi.executeVisualCommand,preview:newDesignApi.previewVisualChange,receipt:newDesignApi.getVisualReceipt,previewByKey:newDesignApi.getVisualPreviewByKey,imageUrl:newDesignApi.visualImageUrl};
 
 export default function NewDesignPage({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
+  if(path==="/new-design/knowledge")return <KnowledgeReferencePage/>;
+  if(path==="/new-design/operations/records")return <AuthorTaskCenterPage api={newDesignApi}/>;
+  const knowledgeMatch=path.match(/^\/new-design\/books\/([^/]+)\/knowledge$/);
+  if(knowledgeMatch)return <KnowledgeReferencePage bookId={decodeURIComponent(knowledgeMatch[1])}/>;
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
+  if(path==="/new-design/resources/professional")return <ProfessionalResourcesPage api={{catalog:newDesignApi.getProfessionalCatalog,command:newDesignApi.executeProfessionalCommand,receipt:newDesignApi.getProfessionalReceipt}} trialApi={{catalog:newDesignApi.getCompositionCatalog,preview:newDesignApi.createCompositionPreview,previewByKey:newDesignApi.getCompositionPreviewByRequest,readPreview:newDesignApi.getCompositionPreview,run:newDesignApi.runCompositionPreview,result:newDesignApi.getCompositionResult}}/>;
   if(path==="/new-design/resources/dictionaries")return <ResourceTreesPage initialMode="dictionary"/>;
   if(path==="/new-design/resources/tags")return <ResourceTreesPage initialMode="tag"/>;
   if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
@@ -42,6 +57,14 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;
   if(path==="/new-design/research/reference-packs")return <ReferencePacksPage/>;
   const overviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/overview$/);
+  const compositionMatch=path.match(/^\/new-design\/books\/([^/]+)\/composition$/);
+  if(compositionMatch)return <BookCompositionPage bookId={decodeURIComponent(compositionMatch[1])}/>;
+  const directorMatch=path.match(/^\/new-design\/books\/([^/]+)\/director$/);
+  if(directorMatch)return <ProductionDirectorPage key={directorMatch[1]} bookId={decodeURIComponent(directorMatch[1])}/>;
+  const visualMatch=path.match(/^\/new-design\/books\/([^/]+)\/visual-assets$/);
+  if(visualMatch)return <VisualAssetsPage bookId={decodeURIComponent(visualMatch[1])} api={visualApi}/>;
+  const professionalMatch=path.match(/^\/new-design\/books\/([^/]+)\/(world|characters)$/);
+  if(professionalMatch)return <WorldCharacterMaintenancePage bookId={decodeURIComponent(professionalMatch[1])} mode={professionalMatch[2]==="world"?"world":"character"}/>;
   if(overviewMatch)return <BookOverviewPage bookId={decodeURIComponent(overviewMatch[1])}/>;
   const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
   if(planningMatch)return <PlanningCenterPage bookId={decodeURIComponent(planningMatch[1])}/>;

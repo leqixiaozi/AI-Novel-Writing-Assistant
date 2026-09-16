@@ -1,0 +1,23 @@
+import {useEffect,useRef,useState} from "react";
+import type {TemplateGroupSummary,TemplateSyncPreview} from "../../common/contracts";
+import {runInputRecord} from "../../common/contextRunInput";
+import {sameRunReceiptValue} from "../../common/contextRunReceipt";
+import {newDesignApi} from "../api";
+import {isDraft} from "./useRecovery";
+
+interface OriginalSync{format:1;template:TemplateGroupSummary;sync:TemplateSyncPreview;}
+function valid(value:unknown):value is OriginalSync{return runInputRecord(value)&&value.format===1&&isDraft(value.template,'template')&&'draftConfig' in value.template&&runInputRecord(value.sync)&&typeof value.sync.id==='string'&&typeof value.sync.bookId==='string'&&typeof value.sync.fromTemplateVersionId==='string'&&typeof value.sync.toTemplateVersionId==='string'&&Array.isArray(value.sync.additions)&&value.sync.additions.every(item=>runInputRecord(item)&&typeof item.typeKey==='string'&&Array.isArray(item.fields))&&Array.isArray(value.sync.conflicts)&&value.sync.conflicts.every(item=>runInputRecord(item)&&typeof item.typeKey==='string'&&typeof item.fieldKey==='string'&&typeof item.reason==='string')&&['previewed','applied','dismissed'].includes(String(value.sync.status));}
+export function useTemplateSyncRecovery(onRestore:(template:TemplateGroupSummary,sync:TemplateSyncPreview)=>void){
+  const [pending,setPending]=useState<OriginalSync|null>(null),[blocked,setBlocked]=useState(false),[working,setWorking]=useState(false),[message,setMessage]=useState('');
+  const original=useRef<OriginalSync|null>(null),busy=useRef(false),storageBlocked=useRef(false),callback=useRef(onRestore);callback.current=onRestore;
+  const storage='nd-template-sync-pending';
+  useEffect(()=>{try{const raw=sessionStorage.getItem(storage);if(!raw)return;const value:unknown=JSON.parse(raw);if(!valid(value))throw new Error('原模板升级凭证无法核对；保留本机内容，请打开运行维护，不执行新的应用。');original.current=value;setPending(value);callback.current(value.template,value.sync);setMessage('原模板升级结果待核对；已恢复原模板和升级预览，不重新应用。');}catch(error){storageBlocked.current=true;setBlocked(true);setMessage(error instanceof Error?error.message:'原升级凭证读取失败，请打开运行维护。');}},[]);
+  function clear():boolean{try{sessionStorage.removeItem(storage);}catch{storageBlocked.current=true;setBlocked(true);setMessage('原升级结果已确认，但本机凭证清理失败；结果保留，请恢复本机存储后刷新核对。');return false;}original.current=null;setPending(null);return true;}
+  function matches(saved:TemplateSyncPreview,previous:TemplateSyncPreview){return saved.id===previous.id&&saved.bookId===previous.bookId&&saved.fromTemplateVersionId===previous.fromTemplateVersionId&&saved.toTemplateVersionId===previous.toTemplateVersionId&&sameRunReceiptValue(saved.additions,previous.additions)&&sameRunReceiptValue(saved.conflicts,previous.conflicts)&&sameRunReceiptValue(saved.treeAdditions??null,previous.treeAdditions??null);}
+  async function apply(template:TemplateGroupSummary,sync:TemplateSyncPreview){if(original.current||busy.current||storageBlocked.current||!sync.id)return;const frozen:OriginalSync={format:1,template:structuredClone(template),sync:structuredClone(sync)};
+    try{sessionStorage.setItem(storage,JSON.stringify(frozen));original.current=frozen;setPending(frozen);}catch{storageBlocked.current=true;setBlocked(true);setMessage('发送前未能保留原升级凭证；未应用升级，请恢复本机存储后刷新。');return;}
+    busy.current=true;setWorking(true);try{const saved=await newDesignApi.applyBookSync(sync.id);if(!matches(saved,sync)||saved.status!=='applied')throw new Error('返回结果未确认原升级已应用，保留原预览核对。');callback.current(template,saved);if(clear())setMessage('原升级应用结果已确认；书内已有字段和内容未被覆盖。');}catch(error){setMessage(`核对应用模板升级结果：${error instanceof Error?error.message:'服务响应中断'}。原升级凭证保留，请核对原升级结果，不重新应用。`);}finally{busy.current=false;setWorking(false);}
+  }
+  async function verify(){const frozen=original.current;if(!frozen?.sync.id||busy.current)return;busy.current=true;setWorking(true);try{const saved=await newDesignApi.getBookTemplateSync(frozen.sync.id);if(!saved){setMessage('原升级预览暂未查到；空查询不证明没有应用，原凭证保留，请继续只读核对或打开运行维护。');return;}if(!matches(saved,frozen.sync))throw new Error('原升级来源范围不一致，禁止替换本书预览。');if(saved.status==='previewed'){setMessage('原升级仍显示待应用；该状态不能证明请求已终止，原凭证保留，不重新应用。请继续只读核对或打开运行维护。');return;}callback.current(frozen.template,saved);if(clear())setMessage(saved.status==='applied'?'原升级已应用，没有再次执行。':'原升级已明确终止，未重新执行；可核对目录后准备新预览。');}catch(error){setMessage(`核对原升级结果：${error instanceof Error?error.message:'读取失败'}。原稿与凭证保留。`);}finally{busy.current=false;setWorking(false);}}
+  return{locked:!!pending||blocked||working,isLocked:()=>!!original.current||busy.current||storageBlocked.current,working,pending,message,apply,verify};
+}

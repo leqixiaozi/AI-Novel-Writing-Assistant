@@ -1,0 +1,13 @@
+import type {BookCreationReviewCard,BookCreationSession,PlanningLevel,PlanningReferenceRole,ForeshadowPlanAction} from "../../../common/contracts";
+import type {BookCreationFormalReview,BookCreationProductionCatalog,ProductionPlanningDraft,ProductionRelationDraft} from "../../../common/bookCreationProduction";
+export interface CreationReviewDraft {sessionId:string;revision:number;bookName:string;description:string;cards:BookCreationReviewCard[];formal:BookCreationFormalReview;}
+export const levelLabels:Record<PlanningLevel,string>={story:"故事总纲",volume:"卷规划",chapter:"章节规划",scene:"场景规划"};
+export const roleLabels:Record<PlanningReferenceRole,string>={viewpoint:"叙事视角人物",location:"发生地点",participant:"参与人物",event:"事件安排",foreshadow:"伏笔安排",item:"涉及道具",organization:"涉及势力"};
+export const actionLabels:Record<ForeshadowPlanAction,string>={plant:"埋设",reinforce:"推进",recover:"回收",misdirect:"误导",reveal:"揭示"};
+export function reviewDraft(session:BookCreationSession,catalog?:BookCreationProductionCatalog):CreationReviewDraft {return structuredClone({sessionId:session.id,revision:session.revision,bookName:session.bookName,description:session.description,cards:session.reviewCards,formal:session.formalReview??{revision:0,templateVersionId:session.templateVersionId,reviewCardsHash:catalog?.reviewCardsHash??"",relations:[],plans:[]}});}
+export function emptyPlan(level:PlanningLevel):ProductionPlanningDraft {return {id:crypto.randomUUID(),parentDraftId:null,reviewCardId:null,level,title:"",sortOrder:0,content:{goal:"",storyTime:"",mustHappen:[],mustPreserve:[],forbiddenBoundaries:[],expectedChanges:[],characterArc:"",notes:""},executionMode:"manual",references:[],decision:"pending"};}
+export function emptyRelation():ProductionRelationDraft {return {id:crypto.randomUUID(),relationTypeSourceId:"",sourceReviewCardId:"",targetReviewCardId:"",properties:{},decision:"pending"};}
+export const lines=(value:string)=>value.split(/\r?\n/).map(item=>item.trim()).filter(Boolean);
+export function sameReviewDraft(a:CreationReviewDraft,b:CreationReviewDraft):boolean {return JSON.stringify({...a,revision:0,formal:{...a.formal,revision:0}})===JSON.stringify({...b,revision:0,formal:{...b.formal,revision:0}});}
+export function referenceTypeKeys(role:PlanningReferenceRole):string[]{return {viewpoint:["character"],participant:["character"],location:["location"],event:["event"],foreshadow:["foreshadow"],item:["prop"],organization:["organization"]}[role];}
+export function creationIssueField(key:string):string {const last=key.split(".").filter(part=>!/^\d+$/.test(part)).at(-1)??"";return last==="$title"?"title":last;}
