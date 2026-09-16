@@ -196,4 +196,6 @@ export const migrations: Migration[] = [
     id: "048_unified_book_creation_review",
     fileName: "048_unified_book_creation_review.sql",
   },
+  { id: "049_business_form_ai_drafts", fileName: "049_business_form_ai_drafts.sql" },
+  { id: "050_scoped_database_function_paths", fileName: "050_scoped_database_function_paths.sql" },
 ];

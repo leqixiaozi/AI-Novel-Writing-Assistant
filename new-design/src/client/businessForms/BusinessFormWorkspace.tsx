@@ -73,6 +73,8 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const [title, setTitle] = useState("");
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [localValues,setLocalValues]=useState<Record<string,unknown>>({});
+  const [aiDraftDecisionIds,setAiDraftDecisionIds]=useState<string[]>([]);
+  const [draftTagIds,setDraftTagIds]=useState<string[]|undefined>(undefined);
   const [scopedFields,setScopedFields]=useState<ScopedFieldBundle>({definitions:[],values:{}});
   const [addingInformation,setAddingInformation]=useState(false);
   const [editingField,setEditingField]=useState<ScopedFieldDefinition|null>(null);
@@ -97,6 +99,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   const copy = SCOPE_COPY[scope];
 
   useEffect(()=>setLiveCardTypes(cardTypes),[cardTypes]);
+  useEffect(()=>{setAiDraftDecisionIds([]);setDraftTagIds(creating?[]:undefined);},[book.id,selectedType?.id,editing?.id]);
 
   const loadWorkspace = async () => {
     const [nextWorkspace, nextForms] = await Promise.all([
@@ -152,12 +155,14 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
   }, [cards, creating, editing, resolution]);
 
   const selectType = (typeId: string) => {
+    setAiDraftDecisionIds([]);setDraftTagIds(undefined);
     setSelectedTypeId(typeId);
     setEditing(null);
     setCreating(false);
   };
 
   const selectCard = (card: CardSummary) => {
+    setAiDraftDecisionIds([]);setDraftTagIds(undefined);
     setEditing(card);
     setCreating(false);
     setTitle(card.title);
@@ -171,6 +176,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
 
   const beginCreate = () => {
     if (!resolution) return;
+    setAiDraftDecisionIds([]);setDraftTagIds([]);
     setEditing(null);
     setCreating(true);
     setTitle("");
@@ -194,10 +200,11 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
         ? forms.find((form) => form.id === resolution.formId)?.currentVersionId ?? null
         : null;
       const saved = editing
-        ? await newDesignApi.updateCard({ ...editing, title, values, localValues, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source })
-        : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values, spaceId: book.spaceId, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source });
+        ? await newDesignApi.updateCard({ ...editing, title, values, localValues, aiDraftDecisionIds,tagIds:draftTagIds,formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source })
+        : await newDesignApi.createCard({ cardTypeId: selectedType.id, title, values, aiDraftDecisionIds,tagIds:draftTagIds,spaceId: book.spaceId, formVersionId:resolvedFormVersionId, formResolutionKind:resolution.source });
       await loadWorkspace();
       setEditing(saved);
+      setAiDraftDecisionIds([]);
       setCreating(false);
       setTitle(saved.title);
       setValues(saved.values);
@@ -306,8 +313,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope }: Props)
             <input value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
             {issues.title && <em>{issues.title}</em>}
           </label>
-          <DynamicForm fields={combinedFields} values={{...values,...localValues}} issues={issues} scopeLabelByKey={scopeLabelByKey} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
-          {editing&&selectedType&&<CardTagFields scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing.id}/>}
+          <DynamicForm fields={combinedFields} values={{...values,...localValues}} disabled={busy} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
+          {selectedType&&<CardTagFields key={editing?.id??"new"} scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing?.id??""} selectedTagIds={draftTagIds} onDraftChange={setDraftTagIds} onInitialTags={ids=>setDraftTagIds(current=>current??ids)} disabled={busy}/>}
+          {aiDraftDecisionIds.length>0&&<details><summary>已采用的 AI 草稿来源</summary><p className="nd-help-text">保存会再次检查生成来源。若选项或关联资料变化，可复核当前表单后，以人工确认内容保存；表单不会被清空。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>{setAiDraftDecisionIds([]);setNotice("当前表单保留，将以人工确认内容保存。AI 采用审计仍保留在历史记录中。");}}>我已复核，按人工内容保存</button></details>}
 
           <details className="nd-field-source-list"><summary>查看信息来源与适用范围</summary><div>{scopedFields.definitions.filter((item)=>item.status==="active").map((item)=><article key={item.id}><span><strong>{item.currentVersion.field.name}</strong><small>{scopeLabelByKey[item.fieldKey]} · {item.scope==="book_type"?"本书所有同类资料":item.scope==="card"?"当前资料":"当前关联"} · {fieldSourceDetail(item)}</small></span><span className="nd-field-source-actions"><button className="nd-text-button" type="button" onClick={()=>void openFieldHistory(item)}>查看版本</button>{item.origin==="local_supplement"&&<button className="nd-text-button" type="button" onClick={()=>setEditingField(item)}>修改</button>}{item.origin!=="core"&&!(item.origin==="template"&&item.currentVersion.field.required)&&<button className="nd-text-button" type="button" disabled={busy} onClick={()=>void archiveField(item)}>隐藏</button>}</span></article>)}</div></details>
 

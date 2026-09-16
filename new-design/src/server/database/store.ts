@@ -5,6 +5,7 @@ import { NewDesignError, assertFound } from "../domain/errors";
 import { validateBookTypeEvolution, validateCardValues, validateFieldValue, validatePublishedEvolution } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 import { snapshotDictionaryTreeValues, validateDictionaryTreeBindings, validateDictionaryTreeValues } from "./treeResources";
+import { verifyFormAiSave, recordFormAiSave, saveFormDraftTags, type FormAiSaveExtras } from "./formAssist";
 
 export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -264,7 +265,7 @@ export async function getCard(id: string): Promise<CardSummary> {
   return assertFound(await findCard(await getNewDesignPool(), id), "资料不存在。");
 }
 
-export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
+export async function createCard(input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const typeVersion = await findCurrentTypeFields(pool, input.cardTypeId);
   const validated = validateCardValues(typeVersion.fields, input.values);
@@ -292,6 +293,7 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     });
     const treeIssues=await validateDictionaryTreeValues(client,typeVersion.fields,validated.values);
     if(Object.keys(treeIssues).length)throw new NewDesignError("请选择允许范围内的字典项目。",422,treeIssues);
+    const aiSources=await verifyFormAiSave(client,{...input,cardId,spaceId,revision:null,typeVersionId:typeVersion.id,formVersionId:input.formVersionId??null,values:validated.values});
     await client.query(`
       INSERT INTO new_design.cards (id, space_id, card_type_id, title, status, revision, type_version_id, values)
       VALUES ($1, $2, $3, $4, 'active', 1, $5, $6::jsonb)
@@ -302,6 +304,8 @@ export async function createCard(input: { cardTypeId: string; title: string; val
     `, [versionId, cardId, typeVersion.id, input.title, JSON.stringify(validated.values), input.formVersionId??null, input.formResolutionKind??"legacy"]);
     await snapshotDictionaryTreeValues(client,typeVersion.fields,validated.values,versionId);
     await client.query("UPDATE new_design.cards SET current_version_id = $2 WHERE id = $1", [cardId, versionId]);
+    await recordFormAiSave(client,cardId,versionId,validated.values,aiSources);
+    if(input.tagIds!==undefined)await saveFormDraftTags(client,cardId,versionId,spaceId,input.cardTypeId,input.tagIds);
     await client.query("COMMIT");
     return assertFound(await findCard(pool, cardId), "卡片创建后读取失败。");
   } catch (error) {
@@ -314,7 +318,7 @@ export async function createCard(input: { cardTypeId: string; title: string; val
 
 async function updateCardSnapshot(
   id: string,
-  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind },
+  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras,
 ): Promise<CardSummary> {
   const pool = await getNewDesignPool();
   const client = await pool.connect();
@@ -347,6 +351,7 @@ async function updateCardSnapshot(
     for(const key of Object.keys(incomingLocalValues))if(!localByKey.has(key))localIssues[key]=`补充信息“${key}”不属于当前资料。`;
     for(const [key,row] of localByKey){const message=validateFieldValue(row.field_schema as FieldDefinition,incomingLocalValues[key]);if(message)localIssues[key]=message;}
     if(Object.keys(localIssues).length>0)throw new NewDesignError("请修正当前资料的补充信息后再保存。",422,localIssues);
+    const aiSources=await verifyFormAiSave(client,{...input,cardId:id,spaceId:String(cardContext.space_id),cardTypeId:existing.cardTypeId,typeVersionId:typeVersion.id,formVersionId,values:{...validated.values,...incomingLocalValues}});
     const nextRevision = existing.revision + 1;
     const nextStatus = input.source === "archive" ? "archived" : input.source === "restore" ? "active" : existing.status;
     const versionId = randomUUID();
@@ -362,6 +367,8 @@ async function updateCardSnapshot(
           current_version_id = $7, updated_at = now(), archived_at = CASE WHEN $4 = 'archived' THEN now() ELSE NULL END
       WHERE id = $1
     `, [id, title, JSON.stringify(validated.values), nextStatus, nextRevision, typeVersion.id, versionId]);
+    await recordFormAiSave(client,id,versionId,{...validated.values,...incomingLocalValues},aiSources);
+    if(input.tagIds!==undefined)await saveFormDraftTags(client,id,versionId,String(cardContext.space_id),existing.cardTypeId,input.tagIds);
     await client.query("COMMIT");
     return assertFound(await findCard(pool, id), "卡片保存后读取失败。");
   } catch (error) {
@@ -372,7 +379,7 @@ async function updateCardSnapshot(
   }
 }
 
-export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }): Promise<CardSummary> {
+export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras): Promise<CardSummary> {
   return updateCardSnapshot(id, { ...input, source: "edit" });
 }
 

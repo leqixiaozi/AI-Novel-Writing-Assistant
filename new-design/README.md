@@ -4,9 +4,14 @@
 
 ### 2026-09-16
 
+- 资料表单与多维编辑器提供 AI 填空、补充、检查、方案比较、按要求调整和分类推荐；勾选建议填入草稿，检查后随资料一起保存。
+- 开书与资料保存使用明确的数据库函数地址，避免开发连接环境差异导致保存失败。
+
 - 字典与标签的项目直接展开在左侧目录树中，支持收起、搜索和上下移；右侧集中编辑当前项目，减少横向占用。
 
 界面规则及验证记录见 [统一树资源](docs/unified-tree-resources.md) 与 [静态审查](docs/unified-tree-resources-static-review.md)。
+
+AI 工作方式见 [通用表单 AI 辅助](docs/business-form-ai-assist.md)、[运行证据](docs/business-form-ai-assist-review.md)；剩余范围见 [P1／P2 执行队列](docs/p1-p2-execution-queue.md)。
 
 `new-design/` 是小说系统新增能力的独立演进边界，通过旧产品外壳挂载“新设计”入口，同时保持旧小说页面和 SQLite 业务不变。
 

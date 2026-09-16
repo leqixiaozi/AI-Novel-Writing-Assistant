@@ -173,13 +173,13 @@ test("story relations separate temporal and causal semantics",()=>{
 
 test("planning objects enforce the story-volume-chapter-scene ownership shape",()=>{
   const content={goal:"完成当前层计划"};
-  assert.equal(planningObjectInputSchema.safeParse({level:"story",title:"总计划",sortOrder:0,content,source:"manual"}).success,true);
+  assert.equal(planningObjectInputSchema.safeParse({level:"story",title:"总计划",sortOrder:0,content,source:"manual",idempotencyKey:"unit-story-create"}).success,true);
   assert.equal(planningObjectInputSchema.safeParse({level:"story",parentObjectId:"10000000-0000-4000-8000-000000000001",title:"错误总计划",sortOrder:0,content,source:"manual"}).success,false);
   assert.equal(planningObjectInputSchema.safeParse({level:"chapter",title:"缺少归属",sortOrder:0,content,source:"ai"}).success,false);
 });
 
 test("body-origin planning revisions require an exact adopted body version reference",()=>{
-  const base={content:{goal:"依据正文修正规划"},source:"body_revision",expectedRevision:1};
+  const base={content:{goal:"依据正文修正规划"},source:"body_revision",expectedRevision:1,idempotencyKey:"unit-body-plan-revision"};
   assert.equal(planningVersionInputSchema.safeParse(base).success,false);
   assert.equal(planningVersionInputSchema.safeParse({...base,sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,true);
   assert.equal(planningVersionInputSchema.safeParse({...base,source:"manual",sourceBodyVersionId:"10000000-0000-4000-8000-000000000001"}).success,false);

@@ -1,3 +1,4 @@
+import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import type {
   ApiEnvelope,
   AiAssistBatch,
@@ -313,14 +314,20 @@ export const newDesignApi = {
     body: JSON.stringify({ revision }),
   }),
   listCardTypeVersions: (id: string) => request<CardTypeVersion[]>(`/card-types/${id}/versions`),
+  getCardType:(id:string)=>request<CardTypeSummary>(`/card-types/${id}`),
   listCards: (cardTypeId: string, archived: boolean, spaceId?: string) => request<CardSummary[]>(`/cards?cardTypeId=${encodeURIComponent(cardTypeId)}&archived=${archived}${spaceId ? `&spaceId=${encodeURIComponent(spaceId)}` : ""}`),
   getCard: (id: string) => request<CardSummary>(`/cards/${id}`),
-  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }) => request<CardSummary>("/cards", {
+  createCard: (input: { cardTypeId: string; title: string; values: Record<string, unknown>; spaceId?: string; formVersionId?:string|null; formResolutionKind?:FormResolutionKind;aiDraftDecisionIds?:string[];tagIds?:string[] }) => request<CardSummary>("/cards", {
     method: "POST", body: JSON.stringify(input),
   }),
-  updateCard: (input: CardSummary & {localValues?:Record<string,unknown>;formVersionId?:string|null;formResolutionKind?:FormResolutionKind}) => request<CardSummary>(`/cards/${input.id}`, {
-    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, localValues:input.localValues, revision: input.revision, formVersionId:input.formVersionId, formResolutionKind:input.formResolutionKind }),
+  updateCard: (input: CardSummary & {localValues?:Record<string,unknown>;formVersionId?:string|null;formResolutionKind?:FormResolutionKind;aiDraftDecisionIds?:string[];tagIds?:string[]}) => request<CardSummary>(`/cards/${input.id}`, {
+    method: "PATCH", body: JSON.stringify({ title: input.title, values: input.values, localValues:input.localValues, revision: input.revision, formVersionId:input.formVersionId, formResolutionKind:input.formResolutionKind,aiDraftDecisionIds:input.aiDraftDecisionIds,tagIds:input.tagIds }),
   }),
+  generateBusinessFormAi:(input:FormAssistRequest)=>request<FormAssistRun>(`/books/${input.target.bookId}/form-ai`,{method:"POST",body:JSON.stringify(input)}),
+  getBusinessFormAi:(bookId:string,id:string)=>request<FormAssistRun>(`/books/${bookId}/form-ai/${id}`),
+  adoptBusinessFormAi:(bookId:string,id:string,input:{candidateId:string;fieldKeys:string[];treeKeys:string[];values:Record<string,unknown>;tagIds:string[];idempotencyKey:string})=>request<FormAssistAdoption>(`/books/${bookId}/form-ai/${id}/adopt`,{method:"POST",body:JSON.stringify(input)}),
+  discardBusinessFormAi:(bookId:string,id:string,idempotencyKey:string)=>request<FormAssistRun>(`/books/${bookId}/form-ai/${id}/discard`,{method:"POST",body:JSON.stringify({idempotencyKey})}),
+  confirmFormAiNode:(bookId:string,id:string,input:{suggestionId:string;name:string;idempotencyKey:string})=>request<{nodeId:string;requiresBinding:boolean;message:string}>(`/books/${bookId}/form-ai/${id}/new-node`,{method:"POST",body:JSON.stringify(input)}),
   archiveCard: (id: string, revision: number) => request<CardSummary>(`/cards/${id}/archive`, {
     method: "POST", body: JSON.stringify({ revision }),
   }),

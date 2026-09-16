@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import type { DictionarySummary, FieldDefinition } from "../common/contracts";
 import { newDesignApi } from "./api";
 import { TreeSelector } from "./tree";
+import { FormAiPanel, type FormAiContext } from "./businessForms/aiAssist";
 
 interface DynamicFormProps {
   fields: FieldDefinition[];
@@ -11,6 +12,7 @@ interface DynamicFormProps {
   preview?: boolean;
   scopeLabelByKey?: Record<string, string>;
   onChange?: (values: Record<string, unknown>) => void;
+  aiContext?:FormAiContext;
 }
 
 function valueOrDefault(field: FieldDefinition, values: Record<string, unknown>): unknown {
@@ -41,7 +43,7 @@ function DictionaryTreeField({field,value,disabled,onChange}:{field:FieldDefinit
   return <>{dictionary?<TreeSelector label={field.name} nodes={dictionary.items.map(item=>({id:item.id,parentId:item.parentId,name:item.label,description:item.description,status:item.status,path:item.path.map(part=>part.label)}))} rule={source.rule} selectedIds={selectedIds} disabled={disabled} onChange={ids=>onChange(field.type==="select"?ids[0]??null:ids)} onCreateChild={source.rule.allowInlineCreate&&dictionary.scope==="book"?parentId=>setCreatingParent(parentId):undefined}/>:<p className="nd-help-text">正在读取字典树…</p>}{creatingParent!==undefined&&<div className="nd-tree-inline-editor"><label className="nd-control"><span>中文名称</span><input autoFocus value={newName} onChange={event=>setNewName(event.target.value)}/></label><label className="nd-control"><span>解释</span><input value={newDescription} onChange={event=>setNewDescription(event.target.value)}/></label><div className="nd-row-actions"><button className="nd-button nd-button-secondary" type="button" onClick={()=>setCreatingParent(undefined)}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={!newName.trim()} onClick={()=>void saveChild()}>新增并选中</button></div></div>}{error&&<em role="alert">{error}</em>}</>;
 }
 
-export default function DynamicForm({ fields, values, issues = {}, disabled, preview, scopeLabelByKey = {}, onChange }: DynamicFormProps) {
+export default function DynamicForm({ fields, values, issues = {}, disabled, preview, scopeLabelByKey = {}, onChange, aiContext }: DynamicFormProps) {
   const formId = useId().replace(/:/g, "");
   const patch = (field: FieldDefinition, value: unknown) => onChange?.({ ...values, [field.key]: value });
   const groups = new Map<string, FieldDefinition[]>();
@@ -55,6 +57,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
 
   return (
     <div className="nd-dynamic-form">
+      {aiContext&&!preview&&<FormAiPanel context={aiContext} fields={fields} values={values} disabled={disabled}/>}
       {[...groups.entries()].map(([group, groupFields]) => (
         <fieldset key={group} className="nd-form-group">
           <legend>{group}</legend>

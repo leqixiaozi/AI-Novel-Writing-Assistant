@@ -132,6 +132,8 @@ export const cardTypeCategoryInputSchema = z.object({
 });
 
 export const createCardSchema = z.object({
+  aiDraftDecisionIds: z.array(z.string().uuid()).max(100).optional(),
+  tagIds: z.array(z.string().uuid()).max(200).optional(),
   spaceId: z.string().uuid().optional(),
   cardTypeId: z.string().uuid("元卡片类型无效。"),
   title: z.string().trim().min(1, "卡片标题不能为空。").max(160),
@@ -141,6 +143,8 @@ export const createCardSchema = z.object({
 });
 
 export const updateCardSchema = z.object({
+  aiDraftDecisionIds: z.array(z.string().uuid()).max(100).optional(),
+  tagIds: z.array(z.string().uuid()).max(200).optional(),
   title: z.string().trim().min(1, "卡片标题不能为空。").max(160),
   values: z.record(z.string(), z.unknown()).default({}),
   revision: z.number().int().positive(),

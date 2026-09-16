@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
+import { businessFormAiRouter } from "./formAssist";
 import {
   archiveCard,
   createCard,
@@ -365,6 +366,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
+  router.use(businessFormAiRouter(dependencies.ai));
 
   router.get("/health", asyncRoute(async (_req, res) => {
     success(res, await getDatabaseRuntimeStatus());
