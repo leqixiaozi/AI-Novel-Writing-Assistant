@@ -48,6 +48,7 @@ import { NewDesignError } from "../domain/errors";
 import { listCardTypeCategories, saveCardTypeCategory } from "../database/categoryStore";
 import { installStrategyResource, listStrategyResources } from "../database/resourceStore";
 import { getBookViewWorkspace, saveBookViewConfig } from "../database/bookViewStore";
+import { getBookMultiviewWorkspace } from "../database/multiview";
 import { addAssociationLocalField, addExistingAssociation, createAndAddAssociation, getAssociationWorkspace, listAssociationHistory, refreshAssociationSource, removeAssociation, reorderAssociations, saveAssociationLocalValues, searchAssociationCandidates } from "../database/associations";
 import { archiveMaterialGroup, bulkChangeGroupMemberships, bulkChangeTagMemberships, confirmCardArchive, copySmartMaterialView, createMaterialGroup, createMaterialTag, createSmartMaterialView, getMaterialManagementWorkspace, previewCardArchive, queryMaterials, restoreArchivedCard, reviseMaterialGroup, reviseMaterialTag, reviseSmartMaterialView } from "../database/materialManagement";
 import { addContextBindingVersion, adoptContextBindingVersion, archiveContextBinding, createContextAssemblyPreview, createContextBinding, finalizeContextManifest, getContextAssemblyPreview, getContextBinding, getContextImpacts, getFinalizedContextManifest, listContextAssemblyPreviews, listContextBindings, listContextSnapshots, listContextSnapshotSources, resolveContextBindings } from "../database/contextManagement";
@@ -456,6 +457,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/books", asyncRoute(async (req, res) => success(res, await createBook(body(bookInputSchema, req)), 201)));
   router.get("/books/:id", asyncRoute(async (req, res) => success(res, await getBook(String(req.params.id)))));
   router.get("/books/:id/view-workspace", asyncRoute(async (req,res)=>success(res,await getBookViewWorkspace(String(req.params.id)))));
+  router.get("/books/:id/multiview-workspace", asyncRoute(async (req,res)=>success(res,await getBookMultiviewWorkspace(String(req.params.id)))));
   router.get("/material-management/workspace",asyncRoute(async(req,res)=>success(res,await getMaterialManagementWorkspace(materialScope(req)))));
   router.post("/material-management/query",asyncRoute(async(req,res)=>success(res,await queryMaterials(materialScope(req),body(materialQuerySchema,req)))));
   router.post("/material-management/tags",asyncRoute(async(req,res)=>success(res,await createMaterialTag(materialScope(req),body(materialTagCreateSchema,req)),201)));

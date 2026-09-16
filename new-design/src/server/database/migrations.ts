@@ -172,4 +172,8 @@ export const migrations: Migration[] = [
     id: "042_research_prompt_runtime_orchestration",
     fileName: "042_research_prompt_runtime_orchestration.sql",
   },
+  {
+    id: "043_multiview_quality_workspace",
+    fileName: "043_multiview_quality_workspace.sql",
+  },
 ];

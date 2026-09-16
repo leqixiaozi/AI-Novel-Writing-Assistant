@@ -12,7 +12,7 @@ import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
 import { saveLegacyStoryTimeFromView } from "./storyTimeline";
 
-const VIEW_KEYS: BookViewKey[] = ["chapters", "clues", "characters", "events", "world", "resources"];
+const VIEW_KEYS: BookViewKey[] = ["chapters", "characters", "relations", "events", "clues", "props", "states", "rules", "comparison", "quality", "world", "resources"];
 export type StoryTimeInput={cardId:string;startOrder:number|null;endOrder:number|null;startLabel:string;endLabel:string;uncertainty:string;revision?:number};
 export type NarrativePlacementInput={subjectCardId:string;chapterCardId:string;sceneCardId?:string|null;role:NarrativePlacement["role"];note:string;revision?:number};
 export type CharacterRelationInput={sourceCardId:string;targetCardId:string;sourceLabel:string;inverseLabel:string;note:string;revision?:number};

@@ -28,11 +28,7 @@ export const BOOK_TASK_NAV = [
   { key: "overview", label: "创作概览", path: "overview" },
   { key: "planning", label: "故事规划", path: "planning" },
   { key: "writing", label: "章节创作", path: "writing" },
-  { key: "characters", label: "人物", path: "views/characters" },
-  { key: "world", label: "世界设定", path: "views/world" },
-  { key: "events", label: "剧情与事件", path: "views/events" },
-  { key: "chapters", label: "章节", path: "views/chapters" },
-  { key: "clues", label: "线索与伏笔", path: "views/clues" },
+  { key: "views", label: "多维视图", path: "views/chapters" },
   { key: "materials", label: "本书资料", path: "cards" },
   { key: "settings", label: "本书设置", path: "fields" },
 ] as const;

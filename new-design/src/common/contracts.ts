@@ -452,7 +452,7 @@ export interface BookSummary {
   updatedAt: string;
 }
 
-export const BOOK_VIEW_KEYS = ["chapters", "clues", "characters", "events", "world", "resources"] as const;
+export const BOOK_VIEW_KEYS = ["chapters", "characters", "relations", "events", "clues", "props", "states", "rules", "comparison", "quality", "world", "resources"] as const;
 export type BookViewKey = (typeof BOOK_VIEW_KEYS)[number];
 
 export interface BookViewCard extends CardSummary {
@@ -521,6 +521,40 @@ export interface BookViewWorkspace {
   textAnchors: TextAnchor[];
   characterRelations: CharacterRelation[];
   viewConfigs: BookViewConfig[];
+}
+
+export interface BookInsightChapter {
+  chapterDocumentId:string;chapterCardId:string;title:string;logicalOrder:number;documentRevision:number;
+  adoptedBodyVersionId:string|null;adoptedBodyVersion:number|null;candidateCount:number;stableCheckpointId:string|null;
+  stableState:"stable"|"pending"|"stale";openIssueCount:number;pendingProposalCount:number;updatedAt:string;
+}
+export interface BookInsightFact {
+  id:string;subjectCardId:string;subjectTitle:string;subjectTypeKey:string;predicate:string;value:unknown;
+  status:"proposed"|"confirmed"|"rejected"|"superseded"|"stale";confidence:number|null;sourceMethod:string;updatedAt:string;
+}
+export interface BookInsightStateChange {
+  id:string;subjectKind:"card"|"relation";subjectId:string;subjectTitle:string;subjectTypeKey:string|null;
+  stateKey:string;beforeValue:unknown|null;afterValue:unknown;deltaValue:unknown|null;reason:string;
+  chapterDocumentId:string;chapterTitle:string;bodyVersionId:string;anchorId:string|null;anchorLabel:string;
+  effectiveStoryOrder:number|null;status:"active"|"reverted"|"invalidated";createdAt:string;
+}
+export interface BookInsightQualityItem {
+  issueId:string;reportId:string;chapterDocumentId:string|null;chapterTitle:string;bodyVersionId:string|null;
+  reportStale:boolean;reportStaleReason:string;categoryKey:string;qualityKind:"objective"|"subjective";
+  severity:QualitySeverity;confidence:number|null;title:string;description:string;suggestedAction:string;
+  status:QualityIssueStatus;isQualityDebt:boolean;revision:number;evidenceCount:number;fixCandidateCount:number;updatedAt:string;
+}
+export interface BookMultiviewStableReadContract {
+  bookId:string;unresolvedClues:Array<{cardId:string;title:string;plantChapterId:string|null;revealChapterId:string|null}>;
+  objectiveIssues:Array<{issueId:string;title:string;severity:QualitySeverity;chapterDocumentId:string|null}>;
+  pendingOrStaleChapters:Array<{chapterDocumentId:string;title:string;state:"pending"|"stale"}>;
+  unconfirmedFacts:Array<{factId:string;subjectTitle:string;predicate:string;status:string}>;
+  failedTasks:Array<{taskId:string;taskKey:string;sourceRoute:string;updatedAt:string}>;
+  stableExportRange:{throughChapterOrder:number;chapterDocumentId:string|null;checkpointId:string|null};generatedAt:string;
+}
+export interface BookMultiviewWorkspace {
+  bookId:string;chapters:BookInsightChapter[];facts:BookInsightFact[];stateChanges:BookInsightStateChange[];
+  qualityItems:BookInsightQualityItem[];stableRead:BookMultiviewStableReadContract;
 }
 
 export type MaterialFilterField = "content_type" | "tag" | "card_status" | "canonical_status" | "candidate_status" | "chapter" | "volume" | "story_time" | "relation_exists" | "association_exists" | "source" | "updated_at";
@@ -880,7 +914,7 @@ export interface AiAttemptLease {task:AiTaskSummary;step:AiTaskStep;attempt:AiTa
 export interface AiTaskPage {items:AiTaskSummary[];nextCursor:string|null;}
 export interface AiUsageSummary {taskCount:number;attemptCount:number;inputTokens:number|null;outputTokens:number|null;cachedInputTokens:number|null;durationMs:number|null;estimatedCost:number|null;currency:string|null;fallbackCount:number;unknownUsageCount:number;}
 
-export type QualityIssueStatus="open"|"acknowledged"|"dismissed"|"fix_proposed"|"fixed"|"verified"|"stale"|"superseded";
+export type QualityIssueStatus="open"|"acknowledged"|"deferred"|"dismissed"|"fix_proposed"|"fixed"|"verified"|"stale"|"superseded";
 export type QualitySeverity="info"|"low"|"medium"|"high"|"critical";
 export type QualityPolicyMode="completion_first"|"quality_first";
 export type QualityPolicyDecision="continue"|"record_quality_debt"|"pause_for_manual"|"replan_required"|"no_usable_body"|"runtime_safety_failure";

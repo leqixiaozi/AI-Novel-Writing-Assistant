@@ -2,7 +2,7 @@
 
 本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `014_market_radar.sql` 建立卡片、书籍、研究与市场基础，`015_research_reference_packs.sql` 锁定研究参考包和开书预填，`016_chapter_body_versions.sql` 建立章节正文不可变版本与精确锚点，`017_canonical_facts.sql` 建立统一事实、证据、冲突和修正链，`018_state_settlements.sql` 建立可配置状态能力、初始状态、章节结算、当前投影、里程碑和数值语义映射，`019_state_proposal_before_guard.sql` 为已运行 `018` 的开发数据补齐提案前值并发保护，`020_knowledge_states.sql` 建立人物／读者知情状态、可编辑 AI 提案版本及研究候选版本，`021_story_timeline.sql` 建立完整故事时间、跨章叙事出现、时序与因果关系正本，`022_planning_versions.sql` 建立故事／卷／章／场景规划版本与采用指针，`023_ai_execution_contracts.sql` 建立提示词配方、任务合同、上下文清单、五层模型路由与不可变快照，`024_ai_task_ledger.sql` 建立通用 AI 任务、步骤、尝试、恢复、审批和用量账本，`025_quality_audit_ledger.sql` 建立质量报告、问题证据、修复候选与复检账本，`026_dependency_invalidation_ledger.sql` 建立统一资源引用、依赖边、影响快照、失效传播与重算回执，`027_asset_version_ledger.sql` 建立附件内容寻址、资产版本、业务挂载和派生链，`028_age_graph_projection.sql` 建立 Apache AGE 关系查询投影、同步请求、可切换世代、来源映射与失败账本，`029_pgvector_semantic_retrieval.sql` 建立语义来源、分块、向量、索引世代与检索轨迹，`030_postgres_outbox_job_runtime.sql` 建立同库 Outbox、租约作业、尝试、回执、重放与暂停状态；运行时直接执行这些 SQL，不在代码中维护第二份副本。
 
-`031`—`042` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心、章节写作候选与采用准备、章节稳定结算、旧章选择性重算、研究采用和统一 AI 运行预览合同。运行时迁移范围以 `001_card_kernel.sql` 至 `042_research_prompt_runtime_orchestration.sql` 为准。
+`031`—`043` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料标签／分组／智能视图／安全归档、上下文绑定／装配快照、书籍概览与规划中心、章节写作候选与采用准备、章节稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览和多维查看偏好。运行时迁移范围以 `001_card_kernel.sql` 至 `043_multiview_quality_workspace.sql` 为准。
 
 ## 跨机器同步原则
 
@@ -243,7 +243,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 `quality_issues` 保存稳定问题身份和当前状态，`quality_issue_versions` 追加标题、说明、可扩展 `category_key`、严重度、可空置信度、检测来源、影响范围、建议动作，以及彼此独立的目标值、实测值、量表版本和解释。类别不是固定四选一，后续可增加更细的连续性、信息密度、叙述距离或题材专属维度。`quality_issue_evidence` 可精确引用正文锚点、事实、状态变化、故事时间、事件关系、规划版本或规则；没有这些正本证据时必须写成 `observation` 并标记未验证，不能自动成为正典事实、严重阻断或全局停止依据。
 
-问题状态使用 `open / acknowledged / dismissed / fix_proposed / fixed / verified / stale / superseded`。版本、证据和 `quality_issue_events` 全部只追加；人工接受、驳回、确认或废弃都保存操作者与理由。`quality_fix_candidates` 在 AI 补丁生成成功后自动以 `proposed` 保存不可变初版，作者采用前可以继续新增修订版本并依靠 revision 阻止并发覆盖。候选只引用被审计正文和选区，不写正文；接受后仍须由 016 的章节正文版本采用事务产生新正文，`quality_fix_adoptions` 只登记那条正式采用回执。
+问题状态使用 `open / acknowledged / deferred / dismissed / fix_proposed / fixed / verified / stale / superseded`。其中 `deferred` 单独表达“暂后处理”，不会与已确认或忽略混在一起。版本、证据和 `quality_issue_events` 全部只追加；人工接受、延期、驳回、确认或废弃都保存操作者与理由。`quality_fix_candidates` 在 AI 补丁生成成功后自动以 `proposed` 保存不可变初版，作者采用前可以继续新增修订版本并依靠 revision 阻止并发覆盖。候选只引用被审计正文和选区，不写正文；接受后仍须由 016 的章节正文版本采用事务产生新正文，`quality_fix_adoptions` 只登记那条正式采用回执。
 
 `quality_rechecks` 把原问题、可选修复候选、原报告、复检报告和修复后的确切正文版本串成一条链。只有复检报告仍有效、绑定当前采用正文且结论明确支持时，问题才能进入 `verified`；仍存在或无法判断时只追加复检结论。章节正文切版、规划采用其他版本或事实失效会通过触发器把依赖旧版本的报告、问题和复检标为 `stale`，不会删除或重写旧结论。
 
@@ -696,6 +696,14 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🏠 **白话比喻**：研究采用像把公共剪报放进某本书的选稿篮，统一运行预览像 AI 开工前的签字工单。选稿篮可以编辑，工单一旦签字就不能涂改。对应到数据库：采用条目属于书籍，运行预览属于一次执行，两者都不会改写共享来源。
 
 > 🧠 **速记方法**：**研究先选稿，运行先验单；入书要采用，排队要冻结。** 详细合同见 [research-prompt-runtime-orchestration.md](./research-prompt-runtime-orchestration.md)。
+
+### 043 多维视图与质量闭环
+
+`043_multiview_quality_workspace.sql` 扩展 `book_view_configs` 与 `smart_views.base_view_key` 的视图键，为人物关系、道具流转、状态变化、世界规则、整章对照和质量检查补默认查看偏好，并为质量问题增加独立 `deferred` 暂后处理状态。既有书由迁移补齐，新开书由模板安装器按键合并旧模板配置与全量默认配置。它不新增业务正本表；章节、关系、时间、事实、状态和质量结果继续分别以 016—026、040—042 的正式账本为准。
+
+> 🏠 **白话比喻**：043 像给同一份档案增加几种目录标签，不会复印出另一套档案。对应到数据库：保存的是怎么查看，不是查看到的业务内容。
+
+> 🧠 **速记方法**：**偏好可存，事实不抄；视图可换，正本不变。** 详细合同见 [multiview-quality-workspace.md](./multiview-quality-workspace.md)。
 
 > 🏠 **白话比喻**：规则像选菜标准，manifest 像这次真正装进餐盘的逐项小票。对应到数据库：规则可以续版，预览可以因来源变化失效，正式快照只保存确切版本、原因、哈希和数量且永不改写。
 

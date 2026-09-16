@@ -76,7 +76,9 @@
     "app/migrations/038_book_overview_planning_center.sql",
     "app/migrations/039_chapter_writing_workspace.sql",
     "app/migrations/040_chapter_adoption_settlement.sql",
-    "app/migrations/041_chapter_revision_recompute.sql"
+    "app/migrations/041_chapter_revision_recompute.sql",
+    "app/migrations/042_research_prompt_runtime_orchestration.sql",
+    "app/migrations/043_multiview_quality_workspace.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -91,7 +93,7 @@
   ],
   "migrationRange": {
     "first": "001_card_kernel.sql",
-    "last": "041_chapter_revision_recompute.sql",
-    "count": 41
+    "last": "043_multiview_quality_workspace.sql",
+    "count": 43
   }
 }

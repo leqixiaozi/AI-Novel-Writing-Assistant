@@ -55,7 +55,7 @@ export async function getBookOverview(bookId:string):Promise<BookOverview>{
       max(session.updated_at) updated_at FROM new_design.chapter_adoption_sessions session LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.session_id=session.id WHERE session.book_id=$1`,[bookId]),
     pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.canonical_facts WHERE book_id=$1 AND status='proposed'",[bookId]),
     pool.query(`SELECT count(*) count,max(item.updated_at) updated_at FROM new_design.chapter_settlement_items item JOIN new_design.chapter_adoption_sessions session ON session.id=item.session_id WHERE session.book_id=$1 AND item.decision IN ('pending','defer')`,[bookId]),
-    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.quality_issues WHERE book_id=$1 AND current_status IN ('open','acknowledged','fix_proposed')",[bookId]),
+    pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.quality_issues WHERE book_id=$1 AND current_status IN ('open','acknowledged','deferred','fix_proposed')",[bookId]),
     pool.query("SELECT count(*) count,max(updated_at) updated_at FROM new_design.dependency_resource_states WHERE book_id=$1 AND state IN ('stale','invalid','needs_review','recompute_pending','recomputing')",[bookId]),
     pool.query("SELECT id,task_key,status,source_route,updated_at FROM new_design.ai_tasks WHERE book_id=$1 ORDER BY updated_at DESC,id DESC LIMIT 5",[bookId]),
     pool.query(`SELECT total.adopted_count,preview.status preview_status,preview.created_at preview_at

@@ -1,6 +1,6 @@
-import type { BookViewKey, CardGroupFormSummary, CardGroupFormVersion, CardSummary, CardTypeSummary, FieldDefinition } from "../../common/contracts";
+import type { CardGroupFormSummary, CardGroupFormVersion, CardSummary, CardTypeSummary, FieldDefinition } from "../../common/contracts";
 
-export type BusinessFormScope = "overview" | "all" | BookViewKey;
+export type BusinessFormScope = "overview" | "all" | "characters" | "world" | "events" | "chapters" | "clues" | "resources";
 
 const SCOPE_TYPE_KEYS: Record<BusinessFormScope, string[]> = {
   overview: ["project_rule", "story_idea", "theme", "genre_strategy", "progression_mode", "writing_config", "quality_rule"],

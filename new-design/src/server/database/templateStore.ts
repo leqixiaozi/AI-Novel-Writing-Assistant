@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import type { BookSummary, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, ResearchPrefillCard, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
+import type { BookSummary, BookViewKey, CardGroupFormDefinition, FieldDefinition, InitialCardDraft, ResearchPrefillCard, TemplateGroupSummary, TemplateGroupVersion, TemplateSyncPreview } from "../../common/contracts";
 import type { StrategyResourceDraft } from "./resourceStore";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
@@ -11,12 +11,18 @@ interface PayloadDictionary { sourceId:string;key:string;name:string;description
 interface PayloadRelation { sourceId:string;key:string;name:string;description:string;direction:"directed"|"undirected";sourceTypeKeys:string[];targetTypeKeys:string[];sourceMax:number|null;targetMax:number|null;propertiesSchema:unknown[]; }
 interface PayloadForm { sourceId:string;sourceVersionId:string;key:string;name:string;description:string;definition:CardGroupFormDefinition; }
 interface PayloadCard { sourceId:string;typeKey:string;title:string;values:Record<string,unknown>; }
-interface PayloadViewConfig { key:"chapters"|"clues"|"characters"|"events"|"world"|"resources";name:string;config:Record<string,unknown>; }
+interface PayloadViewConfig { key:BookViewKey;name:string;config:Record<string,unknown>; }
 const DEFAULT_VIEW_CONFIGS:PayloadViewConfig[]=[
   {key:"chapters",name:"章节",config:{groupBy:"chapter",sort:"chapter_order",display:"list",expanded:[]}},
-  {key:"clues",name:"线索／伏笔",config:{groupBy:"lifecycle",sort:"updated_desc",display:"list",expanded:[]}},
   {key:"characters",name:"角色",config:{groupBy:"story_role",sort:"title",display:"list",expanded:[]}},
+  {key:"relations",name:"关系",config:{groupBy:"relation_type",sort:"title",display:"list",expanded:[]}},
   {key:"events",name:"事件／时间",config:{groupBy:"story_time",sort:"start_order",display:"list",defaultRange:"all",expanded:[]}},
+  {key:"clues",name:"线索／伏笔",config:{groupBy:"lifecycle",sort:"updated_desc",display:"list",expanded:[]}},
+  {key:"props",name:"物品流转",config:{groupBy:"prop",sort:"story_order",display:"list",expanded:[]}},
+  {key:"states",name:"状态变化",config:{groupBy:"chapter",sort:"story_order",display:"list",expanded:[]}},
+  {key:"rules",name:"世界规则",config:{groupBy:"rule",sort:"title",display:"list",expanded:[]}},
+  {key:"comparison",name:"全文对照",config:{groupBy:"chapter",sort:"chapter_order",display:"list",expanded:[]}},
+  {key:"quality",name:"质量",config:{groupBy:"quality_kind",sort:"severity",display:"list",expanded:[]}},
   {key:"world",name:"世界",config:{groupBy:"card_type",sort:"title",display:"list",expanded:[]}},
   {key:"resources",name:"资源",config:{groupBy:"card_type",sort:"updated_desc",display:"list",expanded:[]}},
 ];
@@ -24,6 +30,7 @@ export interface TemplatePayload { cardTypes:PayloadType[];dictionaries:PayloadD
 
 function asDate(value:unknown):string{return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
 function mapTemplate(row:Record<string,unknown>):TemplateGroupSummary{return{id:String(row.id),key:String(row.template_key),name:String(row.name),description:String(row.description??""),status:row.status as TemplateGroupSummary["status"],revision:Number(row.revision),currentVersion:row.current_version==null?null:Number(row.current_version),currentVersionId:row.current_version_id?String(row.current_version_id):null,draftConfig:row.draft_config as Record<string,unknown>,createdAt:asDate(row.created_at),updatedAt:asDate(row.updated_at)};}
+function completeViewConfigs(viewConfigs:PayloadViewConfig[]|undefined):PayloadViewConfig[]{const configured=new Map((viewConfigs??[]).map((view)=>[view.key,view]));return DEFAULT_VIEW_CONFIGS.map((fallback)=>configured.get(fallback.key)??fallback);}
 
 export async function listTemplates():Promise<TemplateGroupSummary[]>{const result=await(await getNewDesignPool()).query(`SELECT template.*,version.version AS current_version FROM new_design.template_groups template LEFT JOIN new_design.template_group_versions version ON version.id=template.current_version_id WHERE template.status<>'archived' ORDER BY template.updated_at DESC`);return result.rows.map(mapTemplate);}
 export async function listTemplateVersions(templateId:string):Promise<TemplateGroupVersion[]>{const result=await(await getNewDesignPool()).query("SELECT * FROM new_design.template_group_versions WHERE template_id=$1 ORDER BY version DESC",[templateId]);return result.rows.map((row)=>({id:String(row.id),version:Number(row.version),payload:row.payload as Record<string,unknown>,createdAt:asDate(row.created_at)}));}
@@ -78,7 +85,7 @@ async function installPayload(
     for (const item of dictionary.items) await client.query(`INSERT INTO new_design.dictionary_items (id,dictionary_id,item_key,label,value,sort_order,status) VALUES ($1,$2,$3,$4,$5::jsonb,$6,'active')`, [randomUUID(), dictionaryId, item.key, item.label, JSON.stringify(item.value), item.sortOrder]);
   }
   for (const relation of payload.relationTypes) await client.query(`INSERT INTO new_design.relation_types (id,relation_key,name,description,direction,source_type_keys,target_type_keys,source_max,target_max,scope,owner_space_id,properties_schema,status,source_relation_type_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'book',$10,$11::jsonb,'published',$12)`, [randomUUID(), relation.key, relation.name, relation.description, relation.direction, relation.sourceTypeKeys, relation.targetTypeKeys, relation.sourceMax, relation.targetMax, spaceId, JSON.stringify(relation.propertiesSchema), relation.sourceId]);
-  for(const view of payload.viewConfigs??DEFAULT_VIEW_CONFIGS)await client.query("INSERT INTO new_design.book_view_configs(id,book_id,view_key,config) VALUES($1,$2,$3,$4::jsonb)",[randomUUID(),bookId,view.key,JSON.stringify(view.config)]);
+  for(const view of completeViewConfigs(payload.viewConfigs))await client.query("INSERT INTO new_design.book_view_configs(id,book_id,view_key,config) VALUES($1,$2,$3,$4::jsonb)",[randomUUID(),bookId,view.key,JSON.stringify(view.config)]);
   for (const form of payload.forms) {
     const formId = randomUUID();
     const versionId = randomUUID();
