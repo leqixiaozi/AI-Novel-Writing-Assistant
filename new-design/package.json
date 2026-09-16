@@ -39,7 +39,8 @@
     "runtime:assemble": "node scripts/assemble-runtime.cjs",
     "runtime:cli": "node dist/server/runtime/cli.js",
     "dev": "tsc -p tsconfig.server.json --watch",
-    "test": "pnpm run build:server && node --test tests/unit.test.cjs",
+    "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs",
+    "test:form-ai": "pnpm run build:server && node --test tests/form-ai.postgres.test.cjs tests/form-ai.live-model.test.cjs",
     "test:integration": "pnpm run build:server && node --test tests/postgres.integration.test.cjs"
   },
   "dependencies": {

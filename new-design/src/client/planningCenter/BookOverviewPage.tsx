@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import type { BookOverview, BookSummary } from "../../common/contracts";
+import type { BookOverview, BookSummary, TaskContract } from "../../common/contracts";
+import { runtimeLabel } from "../../common/presentation";
 import { newDesignApi } from "../api";
 import BookShell from "../BookShell";
 
 const metricValue=(value:number|null,unit:string)=>value===null?"暂无":`${value}${unit}`;
-const taskStatus:Record<string,string>={queued:"等待开始",running:"进行中",waiting_approval:"等待确认",retry_scheduled:"等待重试",paused:"已暂停",succeeded:"已完成",failed:"需要处理",cancelled:"已取消"};
 
 export default function BookOverviewPage({bookId}:{bookId:string}){
   const [book,setBook]=useState<BookSummary|null>(null),[overview,setOverview]=useState<BookOverview|null>(null),[message,setMessage]=useState("");
+  const [contracts,setContracts]=useState<TaskContract[]>([]);
+  useEffect(()=>{let active=true;void newDesignApi.listPublishedTaskContracts().then(items=>{if(active)setContracts(items);}).catch(()=>{});return()=>{active=false;};},[]);
   useEffect(()=>{void Promise.all([newDesignApi.getBook(bookId),newDesignApi.getBookOverview(bookId)]).then(([nextBook,nextOverview])=>{setBook(nextBook);setOverview(nextOverview);}).catch(error=>setMessage(error instanceof Error?error.message:"创作概览加载失败。"));},[bookId]);
   if(message)return <div className="nd-shell nd-fatal"><h1>无法打开创作概览</h1><p>{message}</p><a className="nd-button nd-button-primary" href="/new-design/books">返回我的书籍</a></div>;
   if(!book||!overview)return <div className="nd-shell nd-loading-screen"><div className="nd-loader"/><strong>正在整理本书进展</strong><span>从资料、规划、正文和运行记录中汇总。</span></div>;
@@ -28,7 +30,7 @@ export default function BookOverviewPage({bookId}:{bookId:string}){
 
       <aside className="nd-overview-side">
         <section aria-labelledby="context-title"><div className="nd-section-heading"><div><p className="nd-kicker">写作准备</p><h2 id="context-title">上下文可用性</h2></div><span className={`nd-status-label is-${overview.context.state}`}>{overview.context.state==="ready"?"可用":overview.context.state==="attention"?"需处理":"待接入"}</span></div><p>{overview.context.detail}</p><small>{overview.context.adoptedRuleCount} 条采用规则 · {overview.context.updatedAt?new Date(overview.context.updatedAt).toLocaleString():"暂无预览"}</small><a href={overview.context.sourceRoute}>查看上下文管理</a></section>
-        <section aria-labelledby="runs-title"><div className="nd-section-heading"><div><p className="nd-kicker">最近运行</p><h2 id="runs-title">任务与处理状态</h2></div></div>{overview.recentTasks.length?<div className="nd-recent-runs">{overview.recentTasks.map(task=><a href={task.sourceRoute} key={task.id}><div><strong>{task.taskKey}</strong><small>{new Date(task.updatedAt).toLocaleString()}</small></div><span className={`nd-status-label is-${task.status==="failed"?"attention":"ready"}`}>{taskStatus[task.status]??task.status}</span></a>)}</div>:<div className="nd-empty-state"><strong>暂无运行记录</strong><p>这里不会补造任务；发起真实创作任务后才会出现记录。</p></div>}</section>
+        <section aria-labelledby="runs-title"><div className="nd-section-heading"><div><p className="nd-kicker">最近运行</p><h2 id="runs-title">任务与处理状态</h2></div></div>{overview.recentTasks.length?<div className="nd-recent-runs">{overview.recentTasks.map(task=><a href={task.sourceRoute} key={task.id}><div><strong>{contracts.find(contract=>contract.taskKey===task.taskKey)?.name??"创作任务"}</strong><small>{new Date(task.updatedAt).toLocaleString()}</small></div><span className={`nd-status-label is-${task.status==="failed"?"attention":"ready"}`}>{runtimeLabel(task.status)}</span></a>)}</div>:<div className="nd-empty-state"><strong>暂无运行记录</strong><p>发起创作任务后，可以在这里查看状态并返回来源页面。</p></div>}</section>
       </aside>
     </div>
   </main></BookShell>;

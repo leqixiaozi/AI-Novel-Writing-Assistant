@@ -2,15 +2,10 @@ import { useEffect, useState } from "react";
 import type { BookResearchAdoptionBatch, BookResearchAdoptionItem, BookSummary, ResearchRecordSummary, ResearchReferencePack } from "../common/contracts";
 import { newDesignApi } from "./api";
 import ResearchShell from "./ResearchShell";
+import { AdoptionItemEditor } from "./researchAdoption";
 
 const typeLabels={market_scan:"榜单扫描",market_analysis:"市场拆解",book_analysis:"作品拆书",diagnosis:"稿件诊断"} as const;
 const uuid=()=>crypto.randomUUID();
-
-function AdoptionItemEditor({bookId,item,busy,onSave}:{bookId:string;item:BookResearchAdoptionItem;busy:boolean;onSave:(item:BookResearchAdoptionItem,input:{title:string;values:Record<string,unknown>;decision:BookResearchAdoptionItem["decision"]})=>Promise<void>}){
-  const [title,setTitle]=useState(item.title),[values,setValues]=useState(JSON.stringify(item.values,null,2)),[error,setError]=useState("");
-  const save=async(decision:BookResearchAdoptionItem["decision"])=>{try{setError("");await onSave(item,{title,values:JSON.parse(values) as Record<string,unknown>,decision});}catch(caught){setError(caught instanceof SyntaxError?"字段内容不是有效 JSON。":caught instanceof Error?caught.message:"保存失败。");}};
-  return <article className={`nd-research-adoption-item is-${item.decision}`}><div><label><span>资料名称</span><input value={title} onChange={event=>setTitle(event.target.value)} disabled={item.targetCardId!==null}/></label><label><span>内容规格</span><input value={item.targetTypeKey} readOnly/></label></div><label><span>表单字段</span><textarea rows={6} value={values} onChange={event=>setValues(event.target.value)} spellCheck={false} disabled={item.targetCardId!==null}/></label><footer><span>{item.targetCardId?"已写入本书正式资料":item.decision==="adopt"?"准备采用":item.decision==="reject"?"本批次忽略":"待选择"}</span>{!item.targetCardId&&<><button type="button" disabled={busy} onClick={()=>void save("reject")}>忽略</button><button className="nd-button-primary" type="button" disabled={busy||!bookId} onClick={()=>void save("adopt")}>选择并保存</button></>}</footer>{error&&<p className="nd-message is-error">{error}</p>}</article>;
-}
 
 export default function ReferencePacksPage(){
   const query=new URLSearchParams(window.location.search),requestedBookId=query.get("book")??"",requestedAdoptionId=query.get("adoption")??"";
@@ -18,7 +13,7 @@ export default function ReferencePacksPage(){
   const [books,setBooks]=useState<BookSummary[]>([]),[bookId,setBookId]=useState(""),[adoptions,setAdoptions]=useState<BookResearchAdoptionBatch[]>([]),[adoptionId,setAdoptionId]=useState("");
   const load=async()=>{const [nextRecords,nextPacks,nextBooks]=await Promise.all([newDesignApi.listResearchRecords(),newDesignApi.listReferencePacks(),newDesignApi.listBooks()]);setRecords(nextRecords.filter((item)=>["completed","partial"].includes(item.currentVersion.runStatus)));setPacks(nextPacks);setBooks(nextBooks);setBookId(current=>current||(nextBooks.some(item=>item.id===requestedBookId)?requestedBookId:nextBooks[0]?.id)||"");return nextPacks;};
   useEffect(()=>{void load().catch((error)=>setMessage(error instanceof Error?error.message:"研究参考包加载失败。"));},[]);
-  useEffect(()=>{if(!bookId){setAdoptions([]);return;}void newDesignApi.listBookResearchAdoptions(bookId).then(items=>{setAdoptions(items);setAdoptionId(current=>items.some(item=>item.id===current)?current:items.some(item=>item.id===requestedAdoptionId)?requestedAdoptionId:items[0]?.id||"");}).catch(error=>setMessage(error instanceof Error?error.message:"本书研究提案加载失败。"));},[bookId]);
+  useEffect(()=>{let active=true;setAdoptions([]);setAdoptionId("");if(bookId)void newDesignApi.listBookResearchAdoptions(bookId).then(items=>{if(!active)return;setAdoptions(items);setAdoptionId(items.some(item=>item.id===requestedAdoptionId)?requestedAdoptionId:items[0]?.id||"");}).catch(error=>{if(active)setMessage(error instanceof Error?error.message:"本书研究提案加载失败。");});return()=>{active=false;};},[bookId]);
   const edit=(pack:ResearchReferencePack|null)=>{setSelected(pack);setName(pack?.name??"");setDescription(pack?.description??"");setNote("");setSelectedVersions(pack?.versions[0]?.items.map((item)=>item.researchVersionId)??[]);setMessage("");};
   const toggle=(id:string)=>setSelectedVersions((current)=>current.includes(id)?current.filter((item)=>item!==id):[...current,id]);
   const publish=async()=>{setBusy(true);setMessage("");try{const pack=await newDesignApi.publishReferencePack({id:selected?.id,name,description,note,revision:selected?.revision,items:selectedVersions.map((researchVersionId)=>({researchVersionId,purpose:"book_creation",weight:1,note:""}))});const next=await load();edit(next.find((item)=>item.id===pack.id)??pack);setMessage(`“${pack.name}”v${pack.currentVersion} 已发布；旧版本保持不变。`);}catch(error){setMessage(error instanceof Error?error.message:"参考包发布失败。");}finally{setBusy(false);}};

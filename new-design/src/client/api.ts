@@ -1,4 +1,5 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
+import { publicServiceError } from "../common/presentation";
 import type {
   ApiEnvelope,
   AiAssistBatch,
@@ -277,10 +278,10 @@ export class ApiError extends Error {
 
 const PRIVATE_RUNTIME_MANIFEST_ERROR = "私有运行包 manifest 不存在或不是受控普通文件；禁止从系统 PostgreSQL 回退。";
 
-function publicApiErrorMessage(message: string): string {
+function publicApiErrorMessage(message: string, status: number): string {
   return message === PRIVATE_RUNTIME_MANIFEST_ERROR
     ? "数据服务暂未就绪，请到“运行维护”查看状态。"
-    : message;
+    : publicServiceError(message, status);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -291,7 +292,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const envelope = await response.json() as ApiEnvelope<T>;
   if (!response.ok || !envelope.success || envelope.data === undefined) {
     const technicalDetail = envelope.error ?? "请求失败，请稍后重试。";
-    throw new ApiError(publicApiErrorMessage(technicalDetail), envelope.issues, response.status, technicalDetail);
+    throw new ApiError(publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail);
   }
   return envelope.data;
 }

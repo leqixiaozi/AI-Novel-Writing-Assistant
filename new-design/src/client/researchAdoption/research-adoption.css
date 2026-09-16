@@ -1,0 +1,18 @@
+.nd-shell .nd-research-adoption-item { padding: 1rem; gap: .9rem; border: 0; border-radius: var(--radius); }
+.nd-shell .nd-research-adoption-item.is-adopt { background: color-mix(in srgb, var(--nd-success) 8%, var(--nd-soft)); }
+.nd-shell .nd-research-adoption-item > .nd-form-grid,
+.nd-shell .nd-research-adoption-item > .nd-dynamic-form { grid-template-columns: minmax(0, 1fr); gap: .9rem; }
+.nd-shell .nd-research-adoption-item label,
+.nd-shell .nd-research-adoption-item .nd-control,
+.nd-shell .nd-research-adoption-item textarea { font: inherit; }
+.nd-shell .nd-research-adoption-item input:not([type="checkbox"]),
+.nd-shell .nd-research-adoption-item select,
+.nd-shell .nd-research-adoption-item footer button { min-height: 44px; font-size: 1rem; }
+.nd-shell .nd-research-adoption-item .nd-option { display: flex; align-items: center; gap: .5rem; }
+.nd-shell .nd-research-adoption-item input[type="checkbox"] { width: 1rem; height: 1rem; padding: 0; }
+.nd-shell .nd-research-adoption-item footer { flex-wrap: wrap; gap: .5rem; }
+.nd-shell .nd-research-adoption-item footer span { font-size: .85rem; }
+.nd-shell .nd-research-adoption-item :is(input, textarea, select, button):focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 2px; }
+@media (min-width: 800px) {
+  .nd-shell .nd-research-adoption-item > .nd-form-grid { grid-template-columns: minmax(0, 1fr) minmax(12rem, .55fr); }
+}
