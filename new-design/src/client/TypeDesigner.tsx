@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CARD_TYPE_CAPABILITIES, type CardTypeCapability, type CardTypeCategory, type CardTypeSummary, type CardTypeTagBinding, type CardTypeVersion, type DictionarySummary, type FieldDefinition, type StandardFieldSemantic, type TagDimension, type TreeSelectionMode, type TreeSelectionRule } from "../common/contracts";
 import { ApiError, newDesignApi } from "./api";
 import DynamicForm from "./DynamicForm";
 import FieldBuilder from "./FieldBuilder";
+import "./typeEditing/recovery.css";
+import { publishTypeDraft, reconcileTypeWrite, sameTypeDraft, typeWriteFailure, type TypeWriteFailure, type TypeWriteStep } from "../common/typeEditing";
 
 interface TypeDesignerProps {
   selected: CardTypeSummary | null;
   onSaved: (cardType: CardTypeSummary) => void;
   spaceId?: string;
   categories?: CardTypeCategory[];
+  onBusy?: (busy: boolean) => void;
 }
 
 const SYSTEM_SPACE_ID = "00000000-0000-4000-8000-000000000001";
@@ -80,24 +83,50 @@ function TagBindingEditor({binding,dimension,busy,onChange,onSave}:{binding:Card
   </article>;
 }
 
-export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID, categories = [] }: TypeDesignerProps) {
+export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE_ID, categories = [], onBusy }: TypeDesignerProps) {
   const [draft, setDraft] = useState<CardTypeSummary>(() => selected ?? blankType(spaceId));
   const [versions, setVersions] = useState<CardTypeVersion[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [failure, setFailure] = useState<TypeWriteFailure | null>(null);
+  const [serverComparison, setServerComparison] = useState<CardTypeSummary | null>(null);
+  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
+  const [fieldIssues,setFieldIssues]=useState<string[]>([]);
+  const baseline = useRef(draft);
+  const selection = useRef<string | null | undefined>(null);
+  const pendingWrite = useRef<{step: TypeWriteStep; draft: CardTypeSummary} | null>(null);
+  useEffect(()=>{onBusy?.(busy||Boolean(failure?.needsReview));},[busy,failure?.needsReview,onBusy]);
   const [dictionaries,setDictionaries]=useState<DictionarySummary[]>([]),[semantics,setSemantics]=useState<StandardFieldSemantic[]>([]),[dimensions,setDimensions]=useState<TagDimension[]>([]),[tagBindings,setTagBindings]=useState<CardTypeTagBinding[]>([]),[dimensionId,setDimensionId]=useState("");
 
   useEffect(() => {
+    if (selection.current === selected?.id && selected?.id) return;
+    selection.current = selected?.id;
     setDraft(selected ?? blankType(spaceId));
+    baseline.current = selected ?? blankType(spaceId);
     setMessage(null);
+    setFailure(null);
+    setFieldIssues([]);
+    setServerComparison(null);
+    pendingWrite.current = null;
     if (!selected?.id) {
       setVersions([]);
+      setReadErrors(current=>{const next={...current};delete next.versions;delete next.tags;return next;});
       return;
     }
-    void newDesignApi.listCardTypeVersions(selected.id).then(setVersions).catch(() => setVersions([]));
-  }, [selected, spaceId]);
-  useEffect(()=>{void Promise.all([newDesignApi.listDictionaries(spaceId===SYSTEM_SPACE_ID?undefined:spaceId),newDesignApi.listStandardFieldSemantics(),newDesignApi.listTagDimensions(spaceId)]).then(([nextDictionaries,nextSemantics,nextDimensions])=>{setDictionaries(nextDictionaries);setSemantics(nextSemantics);setDimensions(nextDimensions);setDimensionId(current=>current||nextDimensions[0]?.id||"");}).catch(()=>undefined);},[spaceId]);
-  useEffect(()=>{if(!selected?.id){setTagBindings([]);return;}void newDesignApi.listCardTypeTagBindings(selected.id).then(setTagBindings).catch(()=>setTagBindings([]));},[selected?.id]);
+    setVersions([]);
+    setReadErrors(current=>({...current,versions:"正在读取已发布字段，读取完成后可编辑规格。"}));
+    let active = true;
+    void newDesignApi.listCardTypeVersions(selected.id).then(items => {if(active){setVersions(items);setReadErrors(current => {const next={...current};delete next.versions;return next;});}}).catch(() => {if(active)setReadErrors(current => ({...current,versions:"读取已发布字段失败。字段编辑暂不可用，请点击“重试读取规格”。"}));});
+    return () => {active = false;};
+  }, [selected?.id, spaceId]);
+  const readResources=async()=>{try{const [nextDictionaries,nextSemantics,nextDimensions]=await Promise.all([newDesignApi.listDictionaries(spaceId===SYSTEM_SPACE_ID?undefined:spaceId),newDesignApi.listStandardFieldSemantics(),newDesignApi.listTagDimensions(spaceId)]);setDictionaries(nextDictionaries);setSemantics(nextSemantics);setDimensions(nextDimensions);setDimensionId(current=>current||nextDimensions[0]?.id||"");setReadErrors(current=>{const next={...current};delete next.resources;return next;});}catch{setReadErrors(current=>({...current,resources:"读取字典、字段模板或标签维度失败。请点击“重试读取规格”，已填写内容不会改变。"}));}};
+  useEffect(()=>{void readResources();},[spaceId]);
+  useEffect(()=>{let active=true;if(!selected?.id){setTagBindings([]);return;}setTagBindings([]);void newDesignApi.listCardTypeTagBindings(selected.id).then(items=>{if(active)setTagBindings(items);}).catch(()=>{if(active)setReadErrors(current=>({...current,tags:"读取标签绑定失败。请点击“重试读取规格”。"}));});return()=>{active=false;};},[selected?.id]);
+  const retryReads=async()=>{setBusy(true);try{await readResources();if(draft.id){const [nextVersions,nextBindings]=await Promise.all([newDesignApi.listCardTypeVersions(draft.id),newDesignApi.listCardTypeTagBindings(draft.id)]);setVersions(nextVersions);setTagBindings(nextBindings);setReadErrors(current=>{const next={...current};delete next.versions;delete next.tags;return next;});}}catch{setReadErrors(current=>({...current,versions:"读取规格失败。请检查“运行维护”，服务恢复后点击“重试读取规格”。"}));}finally{setBusy(false);}};
+  const confirmed=(saved:CardTypeSummary)=>{selection.current=saved.id;baseline.current=saved;setDraft(saved);onSaved(saved);};
+  const reportWriteFailure=(error:unknown,step:TypeWriteStep)=>{setFailure(typeWriteFailure(step,error instanceof ApiError?error.status:undefined));setServerComparison(null);setFieldIssues(error instanceof ApiError&&error.status<500?[...new Set(Object.values(error.issues))]:[]);setMessage({tone:"error",text:error instanceof ApiError?error.message:"未收到有效的服务器回执。"});};
+  const checkResult=async()=>{const pending=pendingWrite.current;if(!pending)return;setBusy(true);try{const latest=pending.draft.id?await newDesignApi.getCardType(pending.draft.id):(await newDesignApi.listCardTypes(spaceId)).find(item=>item.key===pending.draft.key);if(!latest){if(pending.step==="save"&&!pending.draft.id){setFailure(null);pendingWrite.current=null;setMessage({tone:"success",text:"服务器未找到该类型。编辑内容仍保留，可点击“保存草稿”重新提交。"});}return;}setServerComparison(latest);if(sameTypeDraft(latest,pending.draft)&&pending.step==="save"){selection.current=latest.id;baseline.current=latest;setDraft(current=>reconcileTypeWrite(current,pending.draft,latest));onSaved(latest);setFailure(null);pendingWrite.current=null;setMessage({tone:"success",text:"已核对：服务器草稿与提交内容一致，无需重复保存。"});}else{setMessage({tone:"error",text:pending.step==="publish"?`服务器显示${latest.currentVersion?`已发布 v${latest.currentVersion}`:"尚无已发布版本"}。请核对保存内容和版本，不能仅凭网络错误判断是否发布成功。`:"请对比服务器内容与当前编辑，再选择如何继续保存。"});}}catch{setMessage({tone:"error",text:"核对服务器结果失败。编辑内容仍保留；请检查“运行维护”，恢复后再次核对。"});}finally{setBusy(false);}};
+  const acceptRevision=()=>{if(!serverComparison)return;setDraft(current=>({...current,id:serverComparison.id,revision:serverComparison.revision,currentVersion:serverComparison.currentVersion,currentVersionId:serverComparison.currentVersionId,status:serverComparison.status}));baseline.current=serverComparison;selection.current=serverComparison.id;onSaved(serverComparison);setFailure(null);pendingWrite.current=null;setServerComparison(null);setMessage({tone:"success",text:"当前编辑仍保留。请检查差异；保存草稿将替换服务器草稿，已发布版本不会改变。"});};
 
   const publishedKeys = useMemo(() => new Set((versions[0]?.fields ?? []).map((field) => field.key)), [versions]);
   const toggleCapability = (capability: CardTypeCapability) => {
@@ -109,35 +138,30 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
   const save = async () => {
     setBusy(true);
     setMessage(null);
+    setFailure(null);
+    pendingWrite.current={step:"save",draft};
     try {
       const saved = draft.id ? await newDesignApi.updateCardType(draft) : await newDesignApi.createCardType(draft);
-      setDraft(saved);
-      onSaved(saved);
+      confirmed(saved);
+      pendingWrite.current=null;
       setMessage({ tone: "success", text: "草稿已保存。" });
     } catch (error) {
-      const text = error instanceof ApiError ? error.message : "草稿保存失败。";
-      setMessage({ tone: "error", text });
+      reportWriteFailure(error,"save");
     } finally {
       setBusy(false);
     }
   };
   const publish = async () => {
-    if (!draft.id) {
-      setMessage({ tone: "error", text: "请先保存草稿，再发布版本。" });
-      return;
-    }
     setBusy(true);
     setMessage(null);
+    setFailure(null);
     try {
-      const published = await newDesignApi.publishCardType(draft.id, draft.revision);
-      const nextVersions = await newDesignApi.listCardTypeVersions(draft.id);
-      setDraft(published);
-      setVersions(nextVersions);
-      onSaved(published);
+      const published = await publishTypeDraft({draft,needsSave:!sameTypeDraft(draft,baseline.current),save:current=>current.id?newDesignApi.updateCardType(current):newDesignApi.createCardType(current),publish:newDesignApi.publishCardType,confirmed:saved=>confirmed(saved),attempting:(step,current)=>{pendingWrite.current={step,draft:current};}});
+      pendingWrite.current=null;
       setMessage({ tone: "success", text: `版本 v${published.currentVersion} 已发布，可以创建资料。` });
+      try{setVersions(await newDesignApi.listCardTypeVersions(published.id));}catch{setReadErrors(current=>({...current,versions:`版本 v${published.currentVersion} 已发布，但读取版本列表失败。请点击“重试读取规格”，不要再次发布。`}));}
     } catch (error) {
-      const text = error instanceof ApiError ? error.message : "发布失败。";
-      setMessage({ tone: "error", text });
+      reportWriteFailure(error,pendingWrite.current?.step??"publish");
     } finally {
       setBusy(false);
     }
@@ -148,6 +172,8 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
   return (
     <div className="nd-designer-grid">
       <div className="nd-editor-column">
+        {Object.keys(readErrors).length>0&&<section className="nd-type-recovery" role="alert"><h2>部分规格未读取完成</h2>{Object.values(readErrors).map(text=><p key={text}>{text}</p>)}<div className="nd-action-row"><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void retryReads()}>重试读取规格</button><a className="nd-button nd-button-secondary" href="/new-design/structure/maintenance" target="_blank" rel="noreferrer">打开运行维护</a></div></section>}
+        <fieldset className="nd-type-editor-fields" disabled={busy}>
         <section className="nd-section nd-type-overview">
           <div className="nd-section-heading">
             <div>
@@ -194,7 +220,7 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           </div>
         </section>
 
-        <FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} dictionaries={dictionaries} semantics={semantics} onChange={(draftFields) => setDraft({ ...draft, draftFields })} />
+        <fieldset className="nd-type-editor-fields" disabled={Boolean(readErrors.versions||readErrors.resources)}><FieldBuilder fields={draft.draftFields} publishedKeys={publishedKeys} allowPublishedPresentationEdits={draft.spaceId !== SYSTEM_SPACE_ID} dictionaries={dictionaries} semantics={semantics} onChange={(draftFields) => setDraft({ ...draft, draftFields })} /></fieldset>
 
         <section className="nd-section nd-tag-binding-section">
           <div className="nd-section-heading">
@@ -203,15 +229,16 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
           </div>
           {!draft.id?<div className="nd-empty nd-empty-compact">先保存内容类型，再绑定标签维度。</div>:tagBindings.length?<div className="nd-tag-binding-list">{tagBindings.map((binding,index)=><TagBindingEditor key={binding.id} binding={binding} dimension={dimensions.find(item=>item.id===binding.dimensionId)??null} busy={busy} onChange={next=>setTagBindings(items=>items.map((item,i)=>i===index?next:item))} onSave={()=>void saveTagBinding(binding)}/>)}</div>:<div className="nd-empty nd-empty-compact">还没有绑定标签维度。</div>}
         </section>
-
+        </fieldset>
+        {failure&&<section className="nd-type-recovery" role="alert"><h2>{draft.name||"未命名类型"} · {failure.title}</h2><p>{failure.guidance}</p>{fieldIssues.length>0&&<ul>{fieldIssues.map(issue=><li key={issue}>{issue}</li>)}</ul>}<div className="nd-action-row">{(failure.needsReview)&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void checkResult()}>核对服务器结果</button>}<a className="nd-button nd-button-secondary" href="/new-design/structure/maintenance" target="_blank" rel="noreferrer">打开运行维护</a></div>{serverComparison&&<div><h3>服务器保存内容</h3><p>名称：{serverComparison.name}；说明：{serverComparison.description||"未填写"}；发布版本：{serverComparison.currentVersion?`v${serverComparison.currentVersion}`:"未发布"}</p><p>字段：{serverComparison.draftFields.map(field=>field.name).join("、")||"未填写"}</p><details><summary>查看服务器字段表单</summary><DynamicForm fields={serverComparison.draftFields} values={{}} preview/></details><p>继续保存会以当前页面的编辑替换服务器草稿；请先检查差异。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={acceptRevision}>保留我的编辑，按核对后的修订继续</button></div>}</section>}
         <footer className="nd-sticky-actions">
           <div>
             {message && <p className={`nd-message is-${message.tone}`}>{message.text}</p>}
             {!message && <p className="nd-save-hint">先保存草稿；确认字段后再发布为不可变版本。</p>}
           </div>
           <div className="nd-action-row">
-            <button className="nd-button nd-button-secondary" type="button" disabled={busy || !draft.name.trim()} onClick={save}>{busy ? "处理中…" : "保存草稿"}</button>
-            <button className="nd-button nd-button-primary" type="button" disabled={busy || !draft.id || draft.draftFields.length === 0} onClick={publish}>发布新版本</button>
+            <button className="nd-button nd-button-secondary" type="button" disabled={busy || !draft.name.trim() || Boolean(failure?.needsReview) || Boolean(readErrors.versions)} onClick={save}>{busy ? "处理中…" : "保存草稿"}</button>
+            <button className="nd-button nd-button-primary" type="button" disabled={busy || !draft.name.trim() || draft.draftFields.length === 0 || Boolean(failure?.needsReview) || Boolean(readErrors.versions)} onClick={publish}>发布新版本</button>
           </div>
         </footer>
       </div>

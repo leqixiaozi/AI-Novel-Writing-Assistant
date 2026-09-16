@@ -1,0 +1,7 @@
+.nd-type-editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1rem; }
+.nd-type-recovery { background: var(--nd-soft); border-left: 3px solid var(--nd-error); padding: 1rem; }
+.nd-type-recovery h2, .nd-type-recovery h3 { font-size: 1rem; margin: 0 0 .5rem; }
+.nd-type-recovery p { line-height: 1.6; overflow-wrap: anywhere; }
+.nd-type-recovery .nd-action-row { flex-wrap: wrap; }
+.nd-type-recovery button, .nd-type-recovery a { min-height: 44px; }
+.nd-type-editor-fields:disabled { opacity: .75; }
