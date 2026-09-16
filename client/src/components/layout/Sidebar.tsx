@@ -109,6 +109,7 @@ const newDesignAdvancedItems: NavItem[] = NEW_DESIGN_ADVANCED_NAV.map((item) => 
     forms: SquarePen,
     templates: LayoutDashboard,
     context: Braces,
+    maintenance: Settings2,
   }[item.key],
 }));
 
