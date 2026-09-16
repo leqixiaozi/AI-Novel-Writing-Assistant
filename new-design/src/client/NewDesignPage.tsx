@@ -6,6 +6,7 @@ import DictionaryRelationsPage from "./DictionaryRelationsPage";
 import FormDesignerPage from "./FormDesignerPage";
 import NewDesignLanding from "./NewDesignLanding";
 import PromptComponentsPage from "./PromptComponentsPage";
+import PromptCompositionPage from "./promptComposition";
 import ResourceCenterPage from "./ResourceCenterPage";
 import ResourceTreesPage from "./ResourceTreesPage";
 import ResearchRecordsPage from "./ResearchRecordsPage";
@@ -35,6 +36,7 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/resources/tags")return <ResourceTreesPage initialMode="tag"/>;
   if(path==="/new-design/resources/strategies")return <StrategyResourcesPage/>;
   if((path==="/new-design/resources/ai/prompt-components"||path==="/new-design/resources/prompts"))return <PromptComponentsPage/>;
+  if(path==="/new-design/resources/ai/prompt-composition")return <PromptCompositionPage/>;
   if(path==="/new-design/research"||path==="/new-design/research/records")return <ResearchRecordsPage/>;
   if(path==="/new-design/research/market-radar")return <MarketRadarPage/>;
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;

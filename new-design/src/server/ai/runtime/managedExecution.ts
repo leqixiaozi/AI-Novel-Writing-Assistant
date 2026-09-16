@@ -14,7 +14,7 @@ export interface ExecutionDependencies {
   snapshotWriter?:(task:ModelTaskKey,route:ManagedTaskRoute)=>Promise<ManagedModelSnapshot>;
   credentialResolver?:(id:string,provider:string)=>Promise<string|null>;
 }
-interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;}
+interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;requestSent:boolean;}
 
 export async function configurationForConnection(connection:ManagedModelConnection,policy=DEFAULT_MODEL_POLICY,dependencies:ExecutionDependencies={},allowEmptyModel=false):Promise<ModelConfiguration> {
   if(!connection||typeof connection.endpoint!=="string"||typeof connection.model!=="string"||!["ollama","openai-compatible"].includes(connection.provider)||!(connection.credentialId===null||typeof connection.credentialId==="string"))throw new AiExecutionError("检查模型连接设置","请选择服务类型并填写地址；指定创作模型后才能生成。",422);
@@ -60,32 +60,38 @@ export async function executeManagedPrompt<T>(taskType:ModelTaskKey,prompt:Prepa
   validateExecutionPolicy(route);
   let snapshot:ManagedModelSnapshot|null=null;
   if(!fixtureConfig){try{snapshot=await(dependencies.snapshotWriter??captureManagedModelSnapshot)(taskType,route);}catch{const failure=new AiExecutionError("记录模型配置快照","本次模型配置快照未能保存，模型请求尚未发送。请检查运行维护，恢复后从来源页重新发起任务。");failure.recovery.sourceRoute="/new-design/structure/maintenance";failure.recovery.actionLabel="打开运行维护";failure.recovery.savedResult="已有资料和人工内容保留；本次尚未发送模型请求，没有已确认的生成结果。";throw failure;}}
-  let remaining=route.policy.maxTotalTokens,retries=0,fallbackCount=0,knownUsage=0,unknownUsage=false;
+  let remaining=route.policy.maxTotalTokens,retries=0,fallbackCount=0,knownUsage=0,unknownUsage=false,knownInput=0,knownOutput=0,breakdownUnknown=false;
   const traces:AttemptTrace[]=[],connections=[route.primary,...route.fallbacks];
   let current=0;
   const attemptedFallbacks=new Set<number>();
+  const failureSnapshot=(failure:AiExecutionError)=>{const lastSent=[...traces].reverse().find(trace=>trace.requestSent);failure.executionSnapshot={provider:lastSent?.provider??"not_invoked",model:lastSent?.model??"not_invoked",routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,maxTotalTokens:route.policy.maxTotalTokens,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",knownTokens:knownUsage,inputTokens:!lastSent||breakdownUnknown?null:knownInput,outputTokens:!lastSent||breakdownUnknown?null:knownOutput,usageReported:Boolean(lastSent)&&!unknownUsage,usageStatus:!lastSent?"not_invoked":unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true};return failure;};
   for(;;){
     const connection=connections[current];
-    const reservation=reserveAttemptBudget(prompt,remaining,route.policy.maxOutputTokens);
+    let reservation:ReturnType<typeof reserveAttemptBudget>;
+    try{reservation=reserveAttemptBudget(prompt,remaining,route.policy.maxOutputTokens);}catch(error){throw failureSnapshot(error as AiExecutionError);}
     // A lost response still consumes the reservation: retries never silently get a fresh full budget.
     remaining-=reservation.reservedTokens;
     const started=Date.now();
+    let attemptUsage:number|null=null;
+    let requestSent=false;
     try {
       const configured=fixtureConfig??await configurationForConnection(connection,route.policy,dependencies);
+      requestSent=true;
       const result=await invokeStructuredModel({...configured,maxTokens:reservation.maxOutputTokens},prompt,dependencies.fetcher);
+      if(result.usageReported){knownUsage+=result.usedTokens;attemptUsage=result.usedTokens;}else unknownUsage=true;
+      if(result.inputTokens!==null&&result.outputTokens!==null){knownInput+=result.inputTokens;knownOutput+=result.outputTokens;}else breakdownUnknown=true;
       let output:T;
       try{output=prompt.parseOutput(result.value) as T;}catch{throw new AiExecutionError("核对创作结果","模型生成结果不符合此任务的表单规格。本次回复未采用，请在来源页调整输入或检查模型设置，不会因内容校验失败自动换模型。");}
-      if(result.usageReported)knownUsage+=result.usedTokens;else unknownUsage=true;
-      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"succeeded",category:null,reservedTokens:reservation.reservedTokens,usedTokens:result.usageReported?result.usedTokens:null,durationMs:Date.now()-started});
-      return {output,usedTokens:knownUsage,modelSnapshot:{provider:connection.provider,model:connection.model,routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,timeoutMs:route.policy.timeoutMs,maxTokens:reservation.maxOutputTokens,maxTotalTokens:route.policy.maxTotalTokens,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",budgetExceeded:knownUsage>route.policy.maxTotalTokens,usageReported:!unknownUsage,usageStatus:unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true,fixture:Boolean(fixtureConfig)}};
+      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"succeeded",category:null,reservedTokens:reservation.reservedTokens,usedTokens:result.usageReported?result.usedTokens:null,durationMs:Date.now()-started,requestSent});
+      return {output,usedTokens:knownUsage,modelSnapshot:{provider:connection.provider,model:connection.model,routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,timeoutMs:route.policy.timeoutMs,maxTokens:reservation.maxOutputTokens,maxTotalTokens:route.policy.maxTotalTokens,knownTokens:knownUsage,inputTokens:breakdownUnknown?null:knownInput,outputTokens:breakdownUnknown?null:knownOutput,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",budgetExceeded:knownUsage>route.policy.maxTotalTokens,usageReported:!unknownUsage,usageStatus:unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true,fixture:Boolean(fixtureConfig)}};
     }catch(error){
       const failure=error instanceof AiExecutionError?error:new AiExecutionError("生成创作候选","模型执行未完成确认，请检查模型设置后回来源页核对结果。");
-      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"failed",category:failure.category,reservedTokens:reservation.reservedTokens,usedTokens:null,durationMs:Date.now()-started});
-      unknownUsage=true;
-      if(!failure.category)throw failure;
+      traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"failed",category:failure.category,reservedTokens:reservation.reservedTokens,usedTokens:attemptUsage,durationMs:Date.now()-started,requestSent});
+      if(requestSent&&attemptUsage===null){unknownUsage=true;breakdownUnknown=true;}
+      if(!failure.category)throw failureSnapshot(failure);
       if(RETRYABLE.has(failure.category)&&retries<route.policy.maxRetries){retries++;await new Promise(resolve=>setTimeout(resolve,route.policy.retryDelayMs));continue;}
       const next=route.fallbacks.findIndex((fallback,index)=>!attemptedFallbacks.has(index+1)&&fallback.failureCategories.includes(failure.category!));
-      if(next<0)throw failure;
+      if(next<0)throw failureSnapshot(failure);
       current=next+1;attemptedFallbacks.add(current);fallbackCount++;
     }
   }

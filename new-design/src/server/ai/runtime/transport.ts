@@ -26,7 +26,7 @@ export async function probeModelConnection(config:ModelConfiguration,fetcher:typ
   return {available:true,modelFound,models};
 }
 
-export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch):Promise<{value:unknown;usedTokens:number;usageReported:boolean}> {
+export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null}> {
   const maxTokens=Math.min(config.maxTokens,prompt.maxTokens);
   const payload=config.provider==="ollama"?{model:config.model,messages:prompt.messages,stream:false,format:prompt.outputSchema,options:{temperature:prompt.temperature,num_predict:maxTokens}}:{model:config.model,messages:prompt.messages,stream:false,temperature:prompt.temperature,max_tokens:maxTokens,response_format:{type:"json_schema",json_schema:{name:prompt.taskType,strict:false,schema:prompt.outputSchema}}};
   const data=await receive(config,destination(config,config.provider==="ollama"?"/api/chat":"/chat/completions"),{method:"POST",body:JSON.stringify(payload)},"生成创作候选",fetcher);
@@ -39,5 +39,7 @@ export async function invokeStructuredModel(config:ModelConfiguration,prompt:Pre
   const ollamaUsage=typeof data.prompt_eval_count==="number"&&typeof data.eval_count==="number"?data.prompt_eval_count+data.eval_count:undefined;
   const tokens=config.provider==="ollama"?ollamaUsage:usage;
   const usageReported=typeof tokens==="number"&&Number.isInteger(tokens)&&tokens>=0;
-  return {value,usedTokens:usageReported?tokens as number:0,usageReported};
+  const rawUsage=data.usage&&typeof data.usage==="object"?data.usage as Record<string,unknown>:{};
+  const measured=(value:unknown)=>typeof value==="number"&&Number.isSafeInteger(value)&&value>=0?value:null;
+  return {value,usedTokens:usageReported?tokens as number:0,usageReported,inputTokens:measured(config.provider==="ollama"?data.prompt_eval_count:rawUsage.prompt_tokens),outputTokens:measured(config.provider==="ollama"?data.eval_count:rawUsage.completion_tokens)};
 }

@@ -3,6 +3,7 @@ import type {PromptCatalog,PromptClassificationInput,PromptSaveInput,PromptReord
 import { publicServiceError } from "../common/presentation";
 import type {AiRuntimeRecovery,IndependentModelStatus} from "../common/aiRuntime";
 import type {ModelRouteCenterCatalog,SaveManagedModelRouteInput,SaveManagedModelRouteResult,ManagedModelConnection,ManagedTaskRoute,ModelTaskKey,ManagedCredentialChoice} from "../common/modelRouting";
+import {COMPOSITION_ROUTE,type CompositionCatalog,type CompositionSources,type SaveCompositionInput,type SaveCompositionResult,type DebugPreviewInput,type CompositionDebugPreview,type CompositionDebugResult} from "../common/promptComposition";
 import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl} from "../common/creationDirector";
 import type {
@@ -284,6 +285,20 @@ export class ApiError extends Error {
 
 const PRIVATE_RUNTIME_MANIFEST_ERROR = "私有运行包 manifest 不存在或不是受控普通文件；禁止从系统 PostgreSQL 回退。";
 
+export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const value = candidate as Record<string, unknown>;
+  if (typeof value.failedStep !== "string" || typeof value.summary !== "string" || typeof value.savedResult !== "string" || typeof value.sourceRoute !== "string" || typeof value.actionLabel !== "string") return null;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const composition = value.sourceRoute === COMPOSITION_ROUTE || (value.sourceRoute.startsWith(`${COMPOSITION_ROUTE}?previewId=`) && uuid.test(value.sourceRoute.slice(`${COMPOSITION_ROUTE}?previewId=`.length)));
+  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合");
+  return allowed ? value as unknown as AiRuntimeRecovery : null;
+}
+
+export function isGlobalModelRecovery(recovery: AiRuntimeRecovery): boolean {
+  return recovery.sourceRoute === "/new-design/structure/models" || recovery.sourceRoute === "/new-design/structure/maintenance";
+}
+
 function publicApiErrorMessage(message: string, status: number): string {
   return message === PRIVATE_RUNTIME_MANIFEST_ERROR
     ? "数据服务暂未就绪，请到“运行维护”查看状态。"
@@ -312,15 +327,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok || !envelope.success || envelope.data === undefined) {
     const technicalDetail = envelope.error ?? "请求失败，请稍后重试。";
     const candidate=envelope.recovery;
-    const safeRecoveryTarget=candidate&&((candidate.sourceRoute==="/new-design/structure/models"&&candidate.actionLabel==="打开模型设置")||(candidate.sourceRoute==="/new-design/structure/maintenance"&&candidate.actionLabel==="打开运行维护"));
-    const recovery=candidate&&typeof candidate.failedStep==="string"&&typeof candidate.summary==="string"&&typeof candidate.savedResult==="string"&&safeRecoveryTarget?candidate:null;
-    if(recovery&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
+    const recovery=safeRecoveryTarget(candidate);
+    if(recovery&&isGlobalModelRecovery(recovery)&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
     throw new ApiError(recovery?`${recovery.failedStep}失败：${recovery.summary}`:publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail,recovery);
   }
   return envelope.data;
 }
 
 export const newDesignApi = {
+  getCompositionCatalog:()=>request<CompositionCatalog>("/prompt-composition/catalog"),
+  getCompositionSources:(bookId:string)=>request<CompositionSources>(`/prompt-composition/sources/${encodeURIComponent(bookId)}`),
+  saveCompositionRecipe:(input:SaveCompositionInput)=>request<SaveCompositionResult>("/prompt-composition/recipes",{method:"POST",body:JSON.stringify(input)}),
+  getCompositionRecipeByRequest:(key:string)=>request<SaveCompositionResult|null>(`/prompt-composition/recipes/by-request/${encodeURIComponent(key)}`),
+  createCompositionPreview:(input:DebugPreviewInput)=>request<CompositionDebugPreview>("/prompt-composition/previews",{method:"POST",body:JSON.stringify(input)}),
+  getCompositionPreview:(id:string)=>request<CompositionDebugPreview>(`/prompt-composition/previews/${encodeURIComponent(id)}`),
+  getCompositionPreviewByRequest:(key:string)=>request<CompositionDebugPreview|null>(`/prompt-composition/previews/by-request/${encodeURIComponent(key)}`),
+  runCompositionPreview:(id:string,input:{expectedRevision:number;idempotencyKey:string})=>request<CompositionDebugResult>(`/prompt-composition/previews/${encodeURIComponent(id)}/run`,{method:"POST",body:JSON.stringify(input)}),
+  getCompositionResult:(id:string)=>request<CompositionDebugResult|null>(`/prompt-composition/previews/${encodeURIComponent(id)}/result`),
   getManagedModelCatalog:()=>request<ModelRouteCenterCatalog>("/models/catalog"),
   saveManagedModelRoute:(input:SaveManagedModelRouteInput)=>request<SaveManagedModelRouteResult>("/models/routes",{method:"POST",body:JSON.stringify(input)}),
   inheritManagedModelRoute:(id:string,expectedRevision:number)=>request<unknown>(`/models/routes/${encodeURIComponent(id)}/inherit`,{method:"POST",body:JSON.stringify({expectedRevision})}),

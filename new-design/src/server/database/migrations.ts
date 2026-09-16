@@ -200,4 +200,5 @@ export const migrations: Migration[] = [
   { id: "050_scoped_database_function_paths", fileName: "050_scoped_database_function_paths.sql" },
   { id: "051_prompt_component_classification", fileName: "051_prompt_component_classification.sql" },
   { id: "052_managed_model_route_runtime", fileName: "052_managed_model_route_runtime.sql" },
+  { id: "053_prompt_composition_debug", fileName: "053_prompt_composition_debug.sql" },
 ];

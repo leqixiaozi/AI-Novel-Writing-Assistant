@@ -9,6 +9,7 @@ export { getIndependentModelStatus } from "./runtime/managedStatus";
 export { probeManagedModelConnection } from "./runtime/managedExecution";
 export { probeModelConnection } from "./runtime/transport";
 export { AiExecutionError } from "./runtime/errors";
+export {executeManagedPrompt} from "./runtime/managedExecution";
 
 export function createIndependentAiGateway(options:ExecutionDependencies={}):NewDesignAiGateway {
   async function execute<T>(taskType:PromptTaskType,input:unknown):Promise<AiResearchRunResult<T>> {

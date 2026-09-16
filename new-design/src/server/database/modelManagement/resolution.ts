@@ -32,11 +32,16 @@ export async function resolveManagedTaskRoute(taskType: ModelTaskKey, context?: 
   });
 }
 
-export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route: ManagedTaskRoute, context?: ManagedDatabaseContext): Promise<ManagedModelSnapshot> {
+export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route: ManagedTaskRoute, context?: ManagedDatabaseContext, scope?: {bookId:string;taskContractVersionId:string}): Promise<ManagedModelSnapshot> {
   taskSchema.parse(taskType);
   const settings = settingsSchema.parse({ primary: route.primary, policy: route.policy, fallbacks: route.fallbacks });
   if (!route.sourceLayers.length || route.sourceLayers[0].scope !== "system_default" || route.sourceLayers.length > 2 || route.sourceLayers.some((layer, index) => index > 0 && layer.scope !== "task")) throw new NewDesignError("模型快照缺少真实默认版本或任务版本来源。", 422);
   return withClient(context, async client => {
+    if(scope){
+      const book=(await client.query("SELECT id FROM new_design.books WHERE id=$1 AND status='active'",[scope.bookId])).rows[0];
+      const contract=(await client.query("SELECT version.id,config.task_key,recipe.recipe_id FROM new_design.task_contract_versions version JOIN new_design.task_contracts config ON config.id=version.contract_id JOIN new_design.prompt_recipe_versions recipe ON recipe.id=version.prompt_recipe_version_id WHERE version.id=$1 AND version.status IN ('published','superseded')",[scope.taskContractVersionId])).rows[0];
+      if(!book||!contract||contract.task_key!==`prompt_composition_${contract.recipe_id}_${taskType}`)throw new NewDesignError("组合调试模型快照必须引用真实书籍与本任务精确合同版本。",422);
+    }
     const layers: DbRow[] = [];
     for (const layer of route.sourceLayers) {
       const row = (await client.query("SELECT version.*,config.scope,config.task_key FROM new_design.model_route_versions version JOIN new_design.model_route_configs config ON config.id=version.config_id WHERE version.id=$1 AND config.id=$2 AND (version.status IN ('published','superseded') OR EXISTS(SELECT 1 FROM new_design.ai_contract_publications receipt WHERE receipt.entity_kind='model_route' AND receipt.entity_id=config.id AND receipt.to_version_id=version.id))", [layer.versionId, layer.configId])).rows[0];
@@ -59,8 +64,8 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
       fallbacks = layer.fallback_mode === "replace" ? next : [...fallbacks, ...next];
     }
     if (stableHash({ primary, policy, fallbacks }) !== stableHash(settings)) throw new NewDesignError("模型快照内容与来源版本不一致，请重新准备本次任务。", 422);
-    const id = randomUUID(), snapshotHash = stableHash({ taskType, ...settings, sourceLayers: route.sourceLayers });
-    await client.query("INSERT INTO new_design.model_route_snapshots(id,book_id,task_contract_version_id,managed_task_key,node_key,provider,model,parameters,required_capabilities,credential_ref_id,budget_policy,timeout_ms,retry_policy,source_layers,policy_version,snapshot_hash) VALUES($1,NULL,NULL,$2,NULL,$3,$4,$5::jsonb,'{}',$6,$7::jsonb,$8,$9::jsonb,$10::jsonb,'managed-model-v1',$11)", [id, taskType, primary.provider, primary.model, JSON.stringify({ baseUrl: primary.endpoint }), primary.credentialId, JSON.stringify({ maxTokens: policy.maxTotalTokens, maxOutputTokens: policy.maxOutputTokens }), policy.timeoutMs, JSON.stringify({ maxRetries: policy.maxRetries, retryDelayMs: policy.retryDelayMs }), JSON.stringify(route.sourceLayers), snapshotHash]);
+    const id = randomUUID(), snapshotHash = stableHash({ taskType, ...settings, sourceLayers: route.sourceLayers,...(scope?{scope}:{}) });
+    await client.query("INSERT INTO new_design.model_route_snapshots(id,book_id,task_contract_version_id,managed_task_key,node_key,provider,model,parameters,required_capabilities,credential_ref_id,budget_policy,timeout_ms,retry_policy,source_layers,policy_version,snapshot_hash) VALUES($1,$12,$13,$2,NULL,$3,$4,$5::jsonb,'{}',$6,$7::jsonb,$8,$9::jsonb,$10::jsonb,'managed-model-v1',$11)", [id, scope?null:taskType, primary.provider, primary.model, JSON.stringify({ baseUrl: primary.endpoint }), primary.credentialId, JSON.stringify({ maxTokens: policy.maxTotalTokens, maxOutputTokens: policy.maxOutputTokens }), policy.timeoutMs, JSON.stringify({ maxRetries: policy.maxRetries, retryDelayMs: policy.retryDelayMs }), JSON.stringify(route.sourceLayers), snapshotHash,scope?.bookId??null,scope?.taskContractVersionId??null]);
     for (const [index, fallback] of fallbacks.entries()) await client.query("INSERT INTO new_design.model_route_snapshot_fallbacks(id,snapshot_id,sort_order,provider,model,parameters,credential_ref_id,technical_failure_categories) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8)", [randomUUID(), id, index, fallback.provider, fallback.model, JSON.stringify({ baseUrl: fallback.endpoint }), fallback.credentialId, fallback.failureCategories]);
     return { id, snapshotHash, taskType, route: { ...settings, sourceLayers: route.sourceLayers.map(layer => ({ ...layer })) } };
   }, true);

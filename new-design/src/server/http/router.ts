@@ -6,6 +6,7 @@ import { businessFormAiRouter } from "./formAssist";
 import { mountCreationDirector } from "./creationDirector";
 import {promptManagementRouter} from "./promptManagement";
 import {modelSettingsRouter} from "./modelSettings";
+import {promptCompositionRouter} from "./promptComposition";
 import { AiExecutionError } from "../ai";
 import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
@@ -371,6 +372,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
   router.use("/models",modelSettingsRouter());
+  router.use("/prompt-composition",promptCompositionRouter());
   router.use(promptManagementRouter());
   mountCreationDirector(router,dependencies.ai);
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
