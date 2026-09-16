@@ -1,5 +1,5 @@
 import type {DebugParameters} from "../../../common/promptComposition";
-import type {ModelTaskKey} from "../../../common/modelRouting";
+import type {CompositionTaskKey as ModelTaskKey} from "../../../common/promptComposition";
 import type {DebugPreviewBundle,LoadedCompositionRecipe} from "../../database/promptComposition";
 import {NewDesignError} from "../../domain/errors";
 import {preparePrompt,type PreparedPrompt} from "../prompts";

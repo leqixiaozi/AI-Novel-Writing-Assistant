@@ -1,6 +1,6 @@
 import {useEffect,useState} from "react";
 import {COMPOSITION_ROUTE,DEFAULT_DEBUG_PARAMETERS,type CompositionCatalog,type CompositionDebugPreview,type CompositionDebugResult,type CompositionRecipe,type CompositionSources,type DebugParameters,type DebugPreviewInput,type SaveCompositionInput,type SaveCompositionResult} from "../../common/promptComposition";
-import {MODEL_TASKS} from "../../common/modelRouting";
+import {COMPOSITION_TASKS as MODEL_TASKS} from "../../common/promptComposition";
 import type {AiRuntimeRecovery} from "../../common/aiRuntime";
 import {ApiError,newDesignApi as api} from "../api";
 import ResourceShell from "../ResourceShell";

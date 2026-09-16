@@ -10,7 +10,7 @@
 
 ## 资产与调用入口
 
-`preparePrompt(taskType, input)` 返回资产标识、版本、中文名称、上下文策略、生成参数、标准 JSON Schema、system/user 消息和 `parseOutput`。`listPromptAssets()` 仅提供注册元数据，不返回实际任务输入或正文。六个受控任务为：
+`preparePrompt(taskType, input)` 返回资产标识、版本、中文名称、上下文策略、生成参数、标准 JSON Schema、system/user 消息和 `parseOutput`。`listPromptAssets()` 仅提供注册元数据，不返回实际任务输入或正文。受控任务为：
 
 | 任务 | 结果包裹 | 输出边界 |
 | --- | --- | --- |
@@ -20,6 +20,7 @@
 | market_analysis | MarketAnalysisResult | 不引用未采集平台，不编造市场统计 |
 | book_analysis | BookAnalysisResult | 分析维度完整，候选类型/字段/证据受计划约束 |
 | planning_candidate | PlanningCandidateOutput | 层级来自既有 story/volume/chapter/scene 合同，资料引用只来自输入 |
+| chapter_settlement | `{items:[],notes:[]}` | 真实本章正文、正式字段、已知前值及字典范围；仅提案，不直接确认或结算 |
 
 本模块不执行 HTTP 模型请求、不读数据库、不读凭据、不写候选、不采用资料或规划。模型适配层消费编译结果并将输出交给 `parseOutput`；应用层继续使用唯一资料、关系、规划、正文正本及原有事务。
 
@@ -35,7 +36,7 @@
 
 规格缺失先在来源表单维护内容类型或字典，再刷新本次建议；输出违规标记生成失败，由来源页面保留人工草稿并明确重试入口。不得按关键词猜测意图、不得硬编码伪造结果、不得把资料描述当正式关系或把卷章资料卡当正式规划。
 
-该六任务合同只覆盖已有资料生成与单项规划候选。导演批量关系/正式规划提案需要后续扩展新设计资产和事务采用合同，不能以这六项资产已经存在宣称该缺口完成。
+资料生成与单项规划候选六任务继续用于组合调试；章节变化提取有独立冻结输入与恢复合同，见 [章节提取来源](chapter-settlement-ai-provenance.md)。导演批量关系／正式规划提案仍需要独立的新设计资产和事务采用合同，不能以这些资产存在宣称该缺口完成。
 
 ## 验证边界
 

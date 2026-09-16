@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import type { ChapterSettlement, CurrentStateProjection, EntityInitialState, EntityInitialStateVersion, SettlementPolicy, StateChange, StateChangeProposal, StateMilestoneSnapshot, StateRelationCapability, StateSubjectKind, StateTypeCapability, StateValueMapping } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
+export { snapshot as createStateMilestoneInTransaction, rebuildProjectionKey as rebuildStateProjectionInTransaction };
 
 const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 

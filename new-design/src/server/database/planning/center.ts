@@ -2,6 +2,22 @@ import type { AdoptedChapterPlanContract, BookMaterialReadiness, BookOverview, B
 import { NewDesignError, assertFound } from "../../domain/errors";
 import { getNewDesignPool } from "../runtime";
 import { getPlanningObject } from "./store";
+import type {PoolClient} from "pg";
+
+/** Exact adopted-plan reader for an owning chapter transaction. No second pool. */
+export async function getAdoptedChapterPlanContractInTransaction(client:Pick<PoolClient,"query">,bookId:string,chapterCardId:string):Promise<AdoptedChapterPlanContract>{
+  const row=assertFound((await client.query(`SELECT object.id,object.revision,object.updated_at,card.current_version_id chapter_card_version_id,version.id version_id,version.version,version.content_hash,version.execution_mode,version.content,version.based_on_parent_version_id
+    FROM new_design.planning_objects object JOIN new_design.books book ON book.id=object.book_id
+    JOIN new_design.cards card ON card.id=object.card_id AND card.space_id=book.space_id
+    JOIN new_design.planning_versions version ON version.id=object.adopted_version_id AND version.object_id=object.id AND version.book_id=book.id
+    WHERE object.book_id=$1 AND object.card_id=$2 AND object.level='chapter' AND object.status='active' AND version.status='adopted' AND version.stale_at IS NULL`,[bookId,chapterCardId])).rows[0],"目标章节没有可用的采用计划版本。");
+  if(!row.based_on_parent_version_id)throw new NewDesignError("章节采用计划缺少卷计划版本依据。",409);
+  const references=(await client.query(`SELECT reference.*,version.title,type.type_key,type.name type_name FROM new_design.planning_version_references reference
+    JOIN new_design.card_versions version ON version.id=reference.card_version_id AND version.card_id=reference.card_id
+    JOIN new_design.cards card ON card.id=reference.card_id JOIN new_design.card_types type ON type.id=card.card_type_id
+    WHERE reference.planning_version_id=$1 AND reference.book_id=$2 ORDER BY reference.reference_role,reference.sort_order,reference.id`,[row.version_id,bookId])).rows;
+  return{bookId,planningObjectId:String(row.id),planningObjectRevision:Number(row.revision),chapterCardId,chapterCardVersionId:String(row.chapter_card_version_id),planningVersionId:String(row.version_id),planningVersionNumber:Number(row.version),planningContentHash:String(row.content_hash),executionMode:row.execution_mode,content:row.content,basedOnVolumePlanVersionId:String(row.based_on_parent_version_id),updatedAt:asDate(row.updated_at)!,references:references.map(reference=>({id:String(reference.id),planningVersionId:String(reference.planning_version_id),role:reference.reference_role,cardId:String(reference.card_id),cardVersionId:String(reference.card_version_id),cardTypeKey:String(reference.type_key),cardTypeName:String(reference.type_name),title:String(reference.title),action:reference.action_key??null,note:String(reference.note),sortOrder:Number(reference.sort_order)}))};
+}
 
 const asDate=(value:unknown)=>value===null||value===undefined?null:value instanceof Date?value.toISOString():new Date(String(value)).toISOString();
 const isFilled=(value:unknown)=>value!==null&&value!==undefined&&value!==""&&(!Array.isArray(value)||value.length>0);

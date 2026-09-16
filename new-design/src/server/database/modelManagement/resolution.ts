@@ -39,8 +39,13 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
   return withClient(context, async client => {
     if(scope){
       const book=(await client.query("SELECT id FROM new_design.books WHERE id=$1 AND status='active'",[scope.bookId])).rows[0];
-      const contract=(await client.query("SELECT version.id,config.task_key,recipe.recipe_id FROM new_design.task_contract_versions version JOIN new_design.task_contracts config ON config.id=version.contract_id JOIN new_design.prompt_recipe_versions recipe ON recipe.id=version.prompt_recipe_version_id WHERE version.id=$1 AND version.status IN ('published','superseded')",[scope.taskContractVersionId])).rows[0];
-      if(!book||!contract||contract.task_key!==`prompt_composition_${contract.recipe_id}_${taskType}`)throw new NewDesignError("组合调试模型快照必须引用真实书籍与本任务精确合同版本。",422);
+      const contract=(await client.query("SELECT version.id,config.task_key,recipe.recipe_id,version.task_group,version.budget_policy,version.input_schema,recipe.variables_schema FROM new_design.task_contract_versions version JOIN new_design.task_contracts config ON config.id=version.contract_id JOIN new_design.prompt_recipe_versions recipe ON recipe.id=version.prompt_recipe_version_id WHERE version.id=$1 AND version.status IN ('published','superseded')",[scope.taskContractVersionId])).rows[0];
+      const settlement=taskType==="chapter_settlement"&&contract?.task_group==="chapter_settlement"&&contract.budget_policy?.assetId==="new_design.chapter.settlement_candidates"&&contract.budget_policy?.assetVersion==="v1"&&contract.variables_schema?.["x-chapter-settlement"]?.sessionId&&contract.task_key===`chapter_settlement_${contract.variables_schema["x-chapter-settlement"].sessionId}`;
+      if(!book||!contract||!(settlement||taskType!=="chapter_settlement"&&contract.task_key===`prompt_composition_${contract.recipe_id}_${taskType}`))throw new NewDesignError("模型快照必须引用真实书籍与本任务精确受控合同版本。",422);
+      if(settlement){
+        const session=(await client.query("SELECT id,body_version_id FROM new_design.chapter_adoption_sessions WHERE id=$1 AND book_id=$2",[contract.variables_schema["x-chapter-settlement"].sessionId,scope.bookId])).rows[0];
+        if(!session||contract.input_schema?.const?.sessionId!==session.id||contract.input_schema?.const?.bodyVersionId!==session.body_version_id||stableHash(contract.input_schema.const)!==stableHash(contract.variables_schema.const))throw new NewDesignError("章节提取模型快照缺少本书真实会话、正文与精确输入合同。",422);
+      }
     }
     const layers: DbRow[] = [];
     for (const layer of route.sourceLayers) {

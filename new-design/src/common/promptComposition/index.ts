@@ -1,12 +1,18 @@
 import type {BookCreationMethod,PlanningLevel,CardTypeSummary,FieldDefinition,CardSummary,BookSummary} from "../contracts";
-import type {ModelTaskKey,ManagedTaskRoute} from "../modelRouting";
+import {MODEL_TASKS,type ManagedTaskRoute} from "../modelRouting";
 import type {PromptCatalog} from "../promptManagement";
 import type {AiRuntimeRecovery as Recovery} from "../aiRuntime";
+
+// A new production task does not automatically acquire a supported debug input contract.
+export const COMPOSITION_TASK_KEYS=["directions","initial_content","form_assist","market_analysis","book_analysis","planning_candidate"] as const;
+export type CompositionTaskKey=(typeof COMPOSITION_TASK_KEYS)[number];
+export const COMPOSITION_TASKS=MODEL_TASKS.filter((task):task is Extract<(typeof MODEL_TASKS)[number],{key:CompositionTaskKey}>=>
+  (COMPOSITION_TASK_KEYS as readonly string[]).includes(task.key));
 
 export interface CompositionVariable {key:string;label:string;type:"text"|"number"|"boolean"|"select";options:string[];defaultValue:string|number|boolean;}
 export interface CompositionBinding {cardId:string;versionId:string;enabled:boolean;}
 export interface CompositionContext {bookId:string|null;sources:Array<{cardId:string;versionId:string;role:"formal"|"reference"}>;}
-export interface CompositionSettings {taskType:ModelTaskKey;components:CompositionBinding[];variables:CompositionVariable[];context:CompositionContext;}
+export interface CompositionSettings {taskType:CompositionTaskKey;components:CompositionBinding[];variables:CompositionVariable[];context:CompositionContext;}
 export interface CompositionRecipe extends CompositionSettings {id:string;name:string;description:string;revision:number;versionId:string;version:number;publishedVersionId:string|null;editable:boolean;configurationIssue:string|null;}
 export interface SaveCompositionInput extends CompositionSettings {id:string|null;expectedRevision:number|null;name:string;description:string;idempotencyKey:string;}
 export interface SaveCompositionResult {recipe:CompositionRecipe;savedVersionId:string;savedVersion:number;active:boolean;repeated:boolean;}
@@ -22,7 +28,7 @@ export interface DebugParameters {
 }
 export interface DebugPreviewInput {recipeId:string;recipeVersionId:string;parameters:DebugParameters;variableValues:Record<string,string|number|boolean>;idempotencyKey:string;}
 export interface CompositionDebugPreview {
-  id:string;recipeId:string;recipeVersionId:string;recipeVersion:number;taskType:ModelTaskKey;bookId:string;revision:number;
+  id:string;recipeId:string;recipeVersionId:string;recipeVersion:number;taskType:CompositionTaskKey;bookId:string;revision:number;
   status:"ready"|"blocked"|"stale"|"submitted";messages:Array<{role:"system"|"user";content:string}>;
   outputSchema:Record<string,unknown>;assetId:string;assetVersion:string;previewHash:string;
   components:Array<{cardId:string;versionId:string;title:string;enabled:boolean}>;

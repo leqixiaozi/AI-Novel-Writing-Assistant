@@ -4,6 +4,7 @@ export const MODEL_TASKS=[
   {key:"directions",label:"推荐开书方向"},{key:"initial_content",label:"准备开书资料"},
   {key:"form_assist",label:"资料表单建议"},{key:"market_analysis",label:"题材趋势分析"},
   {key:"book_analysis",label:"拆书与稿件诊断"},{key:"planning_candidate",label:"故事规划建议"},
+  {key:"chapter_settlement",label:"整理章节变化"},
 ] as const;
 export type ModelTaskKey=(typeof MODEL_TASKS)[number]["key"];
 export type ManagedProvider="ollama"|"openai-compatible";

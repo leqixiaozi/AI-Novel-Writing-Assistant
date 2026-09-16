@@ -1,5 +1,5 @@
 import type {CompositionCatalog,DebugParameters} from "../../common/promptComposition";
-import type {ModelTaskKey} from "../../common/modelRouting";
+import type {CompositionTaskKey as ModelTaskKey} from "../../common/promptComposition";
 import {bookTypes} from "./editing";
 export const ANALYSIS_DIMENSIONS=[{key:"story_structure",label:"故事结构"},{key:"characters",label:"人物塑造"},{key:"world",label:"世界设定"},{key:"conflict",label:"冲突"},{key:"pacing",label:"节奏"},{key:"hooks_payoffs",label:"悬念与回收"},{key:"writing_technique",label:"写作技巧"},{key:"quality_risks",label:"质量风险"}];
 export function Parameters({value,onChange,task,catalog,bookId,disabled}:{value:DebugParameters;onChange(next:DebugParameters):void;task:ModelTaskKey;catalog:CompositionCatalog;bookId:string|null;disabled:boolean}){

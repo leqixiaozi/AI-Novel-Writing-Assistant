@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { MODEL_TASKS, type ModelTaskKey } from "../../../common/modelRouting";
+import { COMPOSITION_TASK_KEYS, type CompositionTaskKey as ModelTaskKey } from "../../../common/promptComposition";
 import type { CompositionSettings } from "../../../common/promptComposition";
-export const taskSchema=z.enum(MODEL_TASKS.map(item=>item.key) as [ModelTaskKey,...ModelTaskKey[]]);
+export const taskSchema=z.enum(COMPOSITION_TASK_KEYS);
 const variable=z.object({key:z.string().regex(/^[a-z][a-z0-9_]{0,79}$/).refine(key=>!["__proto__","constructor","prototype"].includes(key),"变量稳定键不能使用系统保留名称。"),label:z.string().trim().min(1).max(160),type:z.enum(["text","number","boolean","select"]),options:z.array(z.string().min(1).max(160)).max(100),defaultValue:z.union([z.string().max(10000),z.number().finite(),z.boolean()])}).strict().superRefine((item,ctx)=>{
   const valid=item.type==="number"?typeof item.defaultValue==="number":item.type==="boolean"?typeof item.defaultValue==="boolean":typeof item.defaultValue==="string";
   if(!valid||item.type==="select"&&(!item.options.length||!item.options.includes(String(item.defaultValue))))ctx.addIssue({code:"custom",path:["defaultValue"],message:"变量默认值必须符合类型，选项变量需选择有效选项。"});

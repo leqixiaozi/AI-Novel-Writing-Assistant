@@ -7,6 +7,8 @@ import { mountCreationDirector } from "./creationDirector";
 import {promptManagementRouter} from "./promptManagement";
 import {modelSettingsRouter} from "./modelSettings";
 import {promptCompositionRouter} from "./promptComposition";
+import {chapterSettlementEditingRouter} from "./chapterSettlementEditing";
+import {settlementRelationConfigurationRouter} from "./settlementRelationConfiguration";
 import { AiExecutionError } from "../ai";
 import { getContextAuthorCatalog } from "../database/contextManagement";
 import {
@@ -373,6 +375,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   const router = Router();
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
+  router.use(chapterSettlementEditingRouter());
+  router.use(settlementRelationConfigurationRouter());
   router.use(promptManagementRouter());
   mountCreationDirector(router,dependencies.ai);
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});

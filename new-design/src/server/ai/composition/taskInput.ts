@@ -2,7 +2,7 @@ import {z} from "zod";
 import type {FieldDefinition,MarketRankingItem} from "../../../common/contracts";
 import {BOOK_CREATION_METHODS} from "../../../common/contracts";
 import type {DebugParameters} from "../../../common/promptComposition";
-import type {ModelTaskKey} from "../../../common/modelRouting";
+import type {CompositionTaskKey as ModelTaskKey} from "../../../common/promptComposition";
 import type {ExactCompositionSource} from "../../database/promptComposition";
 import {NewDesignError} from "../../domain/errors";
 

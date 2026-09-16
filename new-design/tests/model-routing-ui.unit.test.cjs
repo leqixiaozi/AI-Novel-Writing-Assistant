@@ -13,8 +13,9 @@ const settings = {primary:{provider:"ollama",endpoint:"http://127.0.0.1:11434",m
 function route(scope="system_default", taskType=null, current=settings) {return {id:scope,scope,taskType,name:"模型设置",revision:4,current:{...current,id:"current",version:4},published:{...current,id:"published",version:3},editable:true,configurationIssue:null};}
 function catalog(routes=[route()]) {return {routes,credentials:[],tasks:routing.MODEL_TASKS,environmentReferences:[]};}
 
-test("six Chinese tasks and absent task settings inherit defaults without copying persisted facts", () => {
-  assert.equal(routing.MODEL_TASKS.length,6);
+test("Chinese tasks include chapter changes and inherit defaults without copying persisted facts", () => {
+  assert.equal(routing.MODEL_TASKS.length,7);
+  assert.ok(routing.MODEL_TASKS.some(task=>task.key==='chapter_settlement'));
   const value=catalog();
   assert.equal(editing.selectedRoute(value,"form_assist"),null);
   const draft=editing.initialSettings(value,"form_assist");

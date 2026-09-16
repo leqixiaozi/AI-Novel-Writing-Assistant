@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DictionarySummary, RelationTypeSummary } from "../common/contracts";
+import type { DictionarySummary } from "../common/contracts";
 import { newDesignApi } from "./api";
 import StructureShell from "./StructureShell";
+import RelationConfigurationPage from "./relationConfiguration";
 
 type CatalogView = "dictionaries" | "relations";
 
@@ -10,26 +11,17 @@ function blankDictionary(): DictionarySummary {
   return { id:"",key:"",name:"",description:"",scope:"system",ownerSpaceId:null,sourceDictionaryId:null,readOnly:false,status:"draft",revision:1,items:[],createdAt:now,updatedAt:now };
 }
 
-function blankRelation(): RelationTypeSummary {
-  const now = new Date().toISOString();
-  return { id:"",key:"",name:"",description:"",direction:"directed",sourceTypeKeys:["event"],targetTypeKeys:["character"],sourceMax:null,targetMax:null,
-    scope:"system",ownerSpaceId:null,propertiesSchema:[],status:"draft",revision:1,createdAt:now,updatedAt:now };
-}
-
 export default function DictionaryRelationsPage() {
-  const [view,setView] = useState<CatalogView>("dictionaries");
+  const [view,setView] = useState<CatalogView>(new URLSearchParams(location.search).get("view")==="relations"?"relations":"dictionaries");
   const [dictionaries,setDictionaries] = useState<DictionarySummary[]>([]);
-  const [relations,setRelations] = useState<RelationTypeSummary[]>([]);
   const [dictionary,setDictionary] = useState<DictionarySummary | null>(null);
-  const [relation,setRelation] = useState<RelationTypeSummary | null>(null);
   const [message,setMessage] = useState("");
   const [busy,setBusy] = useState(false);
 
   const load = async () => {
-    const [nextDictionaries,nextRelations] = await Promise.all([newDesignApi.listDictionaries(),newDesignApi.listRelationTypes()]);
-    setDictionaries(nextDictionaries); setRelations(nextRelations);
+    const nextDictionaries = await newDesignApi.listDictionaries();
+    setDictionaries(nextDictionaries);
     setDictionary((current) => current ? nextDictionaries.find((item) => item.id === current.id) ?? current : nextDictionaries[0] ?? null);
-    setRelation((current) => current ? nextRelations.find((item) => item.id === current.id) ?? current : nextRelations[0] ?? null);
   };
   useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : "结构目录加载失败。")); }, []);
 
@@ -40,15 +32,6 @@ export default function DictionaryRelationsPage() {
       const saved = dictionary.id ? await newDesignApi.updateDictionary(dictionary) : await newDesignApi.createDictionary(dictionary);
       await load(); setDictionary(saved); setMessage("字典和稳定字典项已保存。");
     } catch (error) { setMessage(error instanceof Error ? error.message : "字典保存失败。"); }
-    finally { setBusy(false); }
-  };
-  const saveRelation = async () => {
-    if (!relation) return;
-    setBusy(true); setMessage("");
-    try {
-      const saved = relation.id ? await newDesignApi.updateRelationType(relation) : await newDesignApi.createRelationType(relation);
-      await load(); setRelation(saved); setMessage("关系方向、类型边界和数量规则已保存。");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "关系类型保存失败。"); }
     finally { setBusy(false); }
   };
 
@@ -77,17 +60,7 @@ export default function DictionaryRelationsPage() {
           </section>
         </div>
       ) : (
-        <div className="nd-structure-workspace">
-          <aside className="nd-catalog-list"><div className="nd-list-heading"><div><p className="nd-kicker">关系</p><strong>{relations.length} 类</strong></div><button type="button" onClick={() => setRelation(blankRelation())}>＋</button></div>{relations.map((item) => <button key={item.id} className={relation?.id===item.id?"is-selected":""} type="button" onClick={() => setRelation(structuredClone(item))}><strong>{item.name}</strong><small>{item.sourceTypeKeys.join("、")} → {item.targetTypeKeys.join("、")}</small></button>)}</aside>
-          <section className="nd-structure-editor">{relation ? <>
-            <div className="nd-form-grid"><label className="nd-control"><span>关系名称</span><input value={relation.name} onChange={(event)=>setRelation({...relation,name:event.target.value})}/></label><label className="nd-control"><span>稳定键</span><input disabled={Boolean(relation.id)} value={relation.key} onChange={(event)=>setRelation({...relation,key:event.target.value})}/></label></div>
-            <label className="nd-control"><span>用途说明</span><textarea value={relation.description} onChange={(event)=>setRelation({...relation,description:event.target.value})}/></label>
-            <div className="nd-form-grid"><label className="nd-control"><span>方向</span><select value={relation.direction} onChange={(event)=>setRelation({...relation,direction:event.target.value as RelationTypeSummary["direction"]})}><option value="directed">有方向</option><option value="undirected">无方向</option></select></label><label className="nd-control"><span>来源类型键</span><input value={relation.sourceTypeKeys.join(", ")} onChange={(event)=>setRelation({...relation,sourceTypeKeys:event.target.value.split(",").map((value)=>value.trim()).filter(Boolean)})}/></label><label className="nd-control"><span>目标类型键</span><input value={relation.targetTypeKeys.join(", ")} onChange={(event)=>setRelation({...relation,targetTypeKeys:event.target.value.split(",").map((value)=>value.trim()).filter(Boolean)})}/></label></div>
-            <div className="nd-form-grid"><label className="nd-control"><span>每个来源最多关系数</span><input type="number" min="1" placeholder="不限" value={relation.sourceMax ?? ""} onChange={(event)=>setRelation({...relation,sourceMax:event.target.value?Number(event.target.value):null})}/></label><label className="nd-control"><span>每个目标最多关系数</span><input type="number" min="1" placeholder="不限" value={relation.targetMax ?? ""} onChange={(event)=>setRelation({...relation,targetMax:event.target.value?Number(event.target.value):null})}/></label></div>
-            <div className="nd-definition-summary"><strong>关系属性</strong>{relation.propertiesSchema.length ? relation.propertiesSchema.map((field)=><span key={field.key}>{field.name} · {field.type}{field.required?" · 必填":""}</span>) : <span>无局部属性</span>}</div>
-            {message && <p className="nd-message">{message}</p>}<div className="nd-editor-actions"><button className="nd-button nd-button-primary" disabled={busy || !relation.name || !relation.key || !relation.sourceTypeKeys.length || !relation.targetTypeKeys.length} type="button" onClick={() => void saveRelation()}>{busy?"保存中…":"保存关系类型"}</button></div>
-          </> : <div className="nd-empty nd-empty-page">选择一个关系类型。</div>}</section>
-        </div>
+        <RelationConfigurationPage/>
       )}
     </StructureShell>
   );

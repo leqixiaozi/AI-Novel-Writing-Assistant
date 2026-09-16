@@ -1,0 +1,17 @@
+.nd-relation-configuration {display:grid;gap:20px;min-width:0;}
+.nd-relation-configuration .nd-relation-workspace {display:grid;grid-template-columns:minmax(0,1fr);gap:24px;}
+.nd-relation-configuration .nd-relation-editor {min-width:0;display:grid;gap:24px;}
+.nd-relation-configuration fieldset {border:0;padding:0;margin:0;min-width:0;}
+.nd-relation-configuration .nd-relation-form {display:grid;grid-template-columns:minmax(0,1fr);gap:16px;}
+.nd-relation-configuration label {display:grid;gap:8px;min-width:0;}
+.nd-relation-configuration input:not([type=checkbox]):not([type=radio]),.nd-relation-configuration select,.nd-relation-configuration textarea {font-size:16px;min-height:44px;max-width:100%;padding:10px 12px;color:var(--nd-ink);background:var(--nd-canvas);border:1px solid hsl(var(--input));border-radius:8px;color-scheme:light dark;}
+.nd-relation-configuration button {min-height:44px;padding:8px 12px;color:var(--nd-ink);background:var(--nd-canvas);border:1px solid hsl(var(--border));border-radius:8px;cursor:pointer;}
+.nd-relation-configuration button:disabled {opacity:.55;cursor:default;}
+.nd-relation-configuration label:has(>input[type=checkbox]) {display:flex;align-items:center;gap:8px;min-height:44px;}
+.nd-relation-configuration input[type=checkbox] {min-height:0;width:18px;height:18px;accent-color:hsl(var(--primary));}
+.nd-relation-configuration :is(input,select,textarea,button):focus-visible {outline:2px solid hsl(var(--ring));outline-offset:3px;}
+.nd-relation-configuration .nd-relation-dimension {display:grid;gap:16px;padding:16px 0;border-bottom:1px solid hsl(var(--border));}
+.nd-relation-configuration .nd-relation-scope,.nd-relation-configuration .nd-relation-notice {background:hsl(var(--muted));padding:16px;white-space:pre-wrap;line-height:1.6;}
+.nd-relation-configuration .nd-relation-error {padding:16px;border-left:3px solid hsl(var(--destructive));background:hsl(var(--muted));}
+.nd-relation-configuration a {text-decoration:underline;}
+@media(min-width:800px){.nd-relation-configuration .nd-relation-workspace{grid-template-columns:240px minmax(0,1fr);}.nd-relation-configuration .nd-relation-form,.nd-relation-configuration .nd-relation-dimension{grid-template-columns:repeat(2,minmax(0,1fr));}}

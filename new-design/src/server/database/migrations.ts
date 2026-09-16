@@ -201,4 +201,8 @@ export const migrations: Migration[] = [
   { id: "051_prompt_component_classification", fileName: "051_prompt_component_classification.sql" },
   { id: "052_managed_model_route_runtime", fileName: "052_managed_model_route_runtime.sql" },
   { id: "053_prompt_composition_debug", fileName: "053_prompt_composition_debug.sql" },
+  { id: "054_chapter_settlement_editing", fileName: "054_chapter_settlement_editing.sql" },
+  { id: "055_chapter_settlement_ai", fileName: "055_chapter_settlement_ai.sql" },
+  { id: "056_settlement_relation_configuration", fileName: "056_settlement_relation_configuration.sql" },
+  { id: "057_dependency_bridge_record_guards", fileName: "057_dependency_bridge_record_guards.sql" },
 ];

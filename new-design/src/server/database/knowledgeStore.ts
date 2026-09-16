@@ -13,6 +13,7 @@ import type {
   KnowledgeStateReviewAction,
 } from "../../common/contracts";
 import { NewDesignError, assertFound } from "../domain/errors";
+export { findOrCreateClaim as findOrCreateKnowledgeClaimInTransaction, rebuildKnowledgeProjection as rebuildKnowledgeProjectionInTransaction };
 import { getNewDesignPool } from "./runtime";
 
 type ProposalVersionInput = {
@@ -46,9 +47,11 @@ function stable(value: unknown): string {
   return encoded;
 }
 
-function valueHash(value: unknown, objectCardId?: string | null): string {
+export function knowledgeClaimValueHash(value: unknown, objectCardId?: string | null): string {
   return createHash("sha256").update(stable({ value, objectCardId: objectCardId ?? null }), "utf8").digest("hex");
 }
+
+const valueHash=knowledgeClaimValueHash;
 
 function mapClaim(row: Record<string, unknown>): EpistemicClaim {
   return {

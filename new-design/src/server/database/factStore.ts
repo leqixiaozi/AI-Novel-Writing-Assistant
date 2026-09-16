@@ -4,6 +4,9 @@ import type { CanonicalFact, CanonicalFactConflict, CanonicalFactEvidence, Canon
 import { NewDesignError, assertFound } from "../domain/errors";
 import { getNewDesignPool } from "./runtime";
 
+/** Owning workflow transactions share the canonical value and conflict rules. */
+export { validateValue as validateCanonicalFactValueInTransaction, detectConflicts as detectCanonicalFactConflictsInTransaction };
+
 function asDate(value:unknown):string{return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
 function stable(value:unknown):string{if(Array.isArray(value))return`[${value.map(stable).join(",")}]`;if(value&&typeof value==="object")return`{${Object.entries(value as Record<string,unknown>).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>`${JSON.stringify(key)}:${stable(item)}`).join(",")}}`;const encoded=JSON.stringify(value);if(encoded===undefined)throw new NewDesignError("事实值必须可以保存为 JSON。",422);return encoded;}
 function valueHash(value:unknown):string{return createHash("sha256").update(stable(value),"utf8").digest("hex");}

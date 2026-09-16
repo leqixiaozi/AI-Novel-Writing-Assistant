@@ -4,6 +4,8 @@ export interface AiRuntimeRecovery {
   savedResult:string;
   actionLabel:string;
   sourceRoute:string;
+  /** Only an acknowledged transaction outcome may unlock a new write after a conflict. */
+  mutationOutcome?:"not_written"|"unknown"|"committed";
 }
 export interface IndependentModelStatus {
   configured:boolean;

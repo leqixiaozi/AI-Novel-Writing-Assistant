@@ -1,4 +1,7 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
+import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
+import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
+import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
 import type {PromptCatalog,PromptClassificationInput,PromptSaveInput,PromptReorderInput,PromptCategoryCreateInput,PromptCategoryRevisionInput,PromptCategoryArchiveInput} from "../common/promptManagement";
 import { publicServiceError } from "../common/presentation";
 import type {AiRuntimeRecovery,IndependentModelStatus} from "../common/aiRuntime";
@@ -291,7 +294,11 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   if (typeof value.failedStep !== "string" || typeof value.summary !== "string" || typeof value.savedResult !== "string" || typeof value.sourceRoute !== "string" || typeof value.actionLabel !== "string") return null;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const composition = value.sourceRoute === COMPOSITION_ROUTE || (value.sourceRoute.startsWith(`${COMPOSITION_ROUTE}?previewId=`) && uuid.test(value.sourceRoute.slice(`${COMPOSITION_ROUTE}?previewId=`.length)));
-  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合");
+  const writingParts=/^\/new-design\/books\/([^/?#]+)\/writing\?chapterDocument=([^&#]+)&session=([^&#]+)$/.exec(value.sourceRoute);
+  const writing=writingParts&&writingParts.slice(1).every(part=>uuid.test(part))&&value.actionLabel==="返回章节结算";
+  const relationParts=/^\/new-design\/structure\/dictionaries-relations\?view=relations(?:&book=([^&#]+)(?:&chapterDocument=([^&#]+)&session=([^&#]+))?)?$/.exec(value.sourceRoute);
+  const relation=relationParts&&relationParts.slice(1).filter(part=>part!==undefined).every(part=>uuid.test(part))&&value.actionLabel==="打开关系配置";
+  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || relation;
   return allowed ? value as unknown as AiRuntimeRecovery : null;
 }
 
@@ -550,6 +557,25 @@ export const newDesignApi = {
   getChapterAdoptionPreparation:(id:string)=>request<ChapterAdoptionPreparation>(`/chapter-adoption-preparations/${id}`),
   startChapterAdoptionSession:(preparationId:string,input:{expectedRevision:number;idempotencyKey:string;actor?:string})=>request<ChapterSettlementWorkspace>(`/chapter-adoption-preparations/${preparationId}/sessions`,{method:"POST",body:JSON.stringify(input)}),
   getChapterSettlementWorkspace:(sessionId:string)=>request<ChapterSettlementWorkspace>(`/chapter-adoption-sessions/${sessionId}`),
+  getChapterSettlementEditingWorkspace:(sessionId:string)=>request<ChapterSettlementEditingWorkspace>(`/chapter-adoption-sessions/${sessionId}/editing-workspace`),
+  getChapterSettlementEditingByPreparation:(preparationId:string)=>request<ChapterSettlementEditingWorkspace|null>(`/chapter-adoption-preparations/${preparationId}/editing-session`),
+  getChapterSettlementEditingReceipt:(sessionId:string,requestKey:string)=>request<SettlementEditingReceipt|null>(`/chapter-adoption-sessions/${sessionId}/editing-receipts?requestKey=${encodeURIComponent(requestKey)}`),
+  createChapterSettlementEditingItem:(sessionId:string,input:SettlementEditingCreateInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-items`,{method:"POST",body:JSON.stringify(input)}),
+  updateChapterSettlementEditingItem:(itemId:string,input:SettlementEditingUpdateInput)=>request<SettlementEditingReceipt>(`/chapter-settlement-items/${itemId}/editing`,{method:"PUT",body:JSON.stringify(input)}),
+  decideChapterSettlementEditingItems:(sessionId:string,input:SettlementEditingDecisionsInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-decisions`,{method:"POST",body:JSON.stringify(input)}),
+  commitChapterSettlementEditing:(sessionId:string,input:SettlementEditingCommitInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-settle`,{method:"POST",body:JSON.stringify(input)}),
+  establishChapterSettlementEditingInitial:(sessionId:string,input:SettlementEditingInitialInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-initial-state`,{method:"POST",body:JSON.stringify(input)}),
+  getChapterSettlementAiStatus:(sessionId:string)=>request<ChapterSettlementAiStatus>(`/chapter-adoption-sessions/${sessionId}/editing/ai-status`),
+  createChapterSettlementAiExtraction:(sessionId:string,input:ChapterSettlementAiInput)=>request<ChapterSettlementAiReceipt>(`/chapter-adoption-sessions/${sessionId}/editing/ai-extractions`,{method:"POST",body:JSON.stringify(input)}),
+  getChapterSettlementAiByKey:(sessionId:string,key:string)=>request<ChapterSettlementAiReceipt|null>(`/chapter-adoption-sessions/${sessionId}/editing/ai-extractions/by-key/${encodeURIComponent(key)}`),
+  getChapterSettlementAiResult:(id:string)=>request<ChapterSettlementAiReceipt|null>(`/chapter-proposal-extraction-requests/${id}/editing-result`),
+  importChapterSettlementAiSavedResult:(id:string)=>request<ChapterSettlementAiReceipt>(`/chapter-proposal-extraction-requests/${id}/import-saved-result`,{method:"POST",body:"{}"}),
+  releaseChapterSettlementAiSavedResult:(id:string)=>request<ChapterSettlementAiReceipt>(`/chapter-proposal-extraction-requests/${id}/release-saved-result`,{method:"POST",body:"{}"}),
+  endExpiredChapterSettlementAiRun:(id:string)=>request<ChapterSettlementAiReceipt>(`/chapter-proposal-extraction-requests/${id}/end-expired-unknown-run`,{method:"POST",body:"{}"}),
+  getSettlementRelationConfiguration:(bookId:string)=>request<SettlementRelationConfigurationWorkspace>(`/books/${bookId}/settlement-relation-configuration`),
+  saveSettlementRelationDraft:(bookId:string,input:SettlementRelationDraftInput)=>request<SettlementRelationConfigurationReceipt>(`/books/${bookId}/settlement-relation-configuration/drafts`,{method:"POST",body:JSON.stringify(input)}),
+  publishSettlementRelationDraft:(bookId:string,input:SettlementRelationPublishInput)=>request<SettlementRelationConfigurationReceipt>(`/books/${bookId}/settlement-relation-configuration/publish`,{method:"POST",body:JSON.stringify(input)}),
+  getSettlementRelationReceipt:(bookId:string,key:string)=>request<SettlementRelationConfigurationReceipt|null>(`/books/${bookId}/settlement-relation-configuration/receipts?requestKey=${encodeURIComponent(key)}`),
   getChapterBodySwitchImpactContract:(sessionId:string)=>request<ChapterBodySwitchImpactContract>(`/chapter-adoption-sessions/${sessionId}/impact-contract`),
   addChapterSettlementItem:(sessionId:string,input:ChapterSettlementDraft&{actor?:string})=>request<ChapterSettlementWorkspace>(`/chapter-adoption-sessions/${sessionId}/items`,{method:"POST",body:JSON.stringify(input)}),
   updateChapterSettlementItem:(itemId:string,input:{expectedRevision:number;draft:ChapterSettlementDraft;actor?:string;note?:string})=>request<ChapterSettlementWorkspace>(`/chapter-settlement-items/${itemId}`,{method:"PUT",body:JSON.stringify(input)}),

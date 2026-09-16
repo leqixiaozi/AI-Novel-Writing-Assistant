@@ -160,6 +160,13 @@ export default function FieldBuilder({ fields, publishedKeys, allowPublishedPres
                       </label>}
                     </div>
                   )}
+                  <label className="nd-control">
+                    <span>章节结算</span>
+                    <select disabled={locked} value={field.stateSettlement??"none"} onChange={event=>{const stateSettlement=event.target.value as NonNullable<FieldDefinition["stateSettlement"]>;patch(index,{stateSettlement,...(dictionarySource?{optionSource:{...dictionarySource,settleOnChapter:stateSettlement!=="none"}}:{})});}}>
+                      <option value="none">不跟踪章节变化</option><option value="tracked">跟踪状态变化</option><option value="lifecycle">记录生命周期进度</option>
+                    </select>
+                    <small>{locked?"正式字段规格保持不变；需要新增状态时，添加非必填字段并保存草稿、发布新版本。":"保存草稿并发布后，正式资料才可在章节结算中选择此字段；不会直接修改既有状态。"}</small>
+                  </label>
                   {locked && <p className="nd-lock-note">{allowPublishedPresentationEdits ? "稳定标识与数据类型保持不变；本书可以独立调整名称、说明、分组和选项显示。" : "已发布字段保持稳定；如需扩展，请添加新的非必填字段。"}</p>}
                 </div>
                 <div className="nd-field-actions">

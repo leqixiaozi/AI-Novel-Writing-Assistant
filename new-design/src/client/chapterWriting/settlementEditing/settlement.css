@@ -1,0 +1,20 @@
+.nd-settlement-panel .nd-settlement-form input,.nd-settlement-panel .nd-settlement-form textarea,.nd-settlement-panel .nd-settlement-form select {font-size:16px;min-height:44px;max-width:100%;}
+.nd-settlement-panel .nd-settlement-form input:not([type=checkbox]):not([type=radio]),.nd-settlement-panel .nd-settlement-form textarea,.nd-settlement-panel .nd-settlement-form select {padding:10px 12px;color:var(--nd-ink);background:var(--nd-canvas);border:1px solid hsl(var(--input));border-radius:8px;color-scheme:light dark;}
+.nd-settlement-panel button,.nd-settlement-panel > header > button {min-height:44px;}
+.nd-settlement-panel button {padding:8px 12px;color:var(--nd-ink);background:var(--nd-canvas);border:1px solid hsl(var(--border));border-radius:8px;cursor:pointer;}
+.nd-settlement-panel button:disabled {opacity:.55;cursor:default;}
+.nd-settlement-panel .nd-settlement-form label:has(>input[type=checkbox]),.nd-settlement-panel .nd-settlement-form label:has(>input[type=radio]) {display:flex;align-items:center;min-height:44px;}
+.nd-settlement-panel .nd-settlement-form input[type=checkbox],.nd-settlement-panel .nd-settlement-form input[type=radio] {min-height:0;width:18px;height:18px;accent-color:hsl(var(--primary));}
+.nd-settlement-panel .nd-settlement-value p,.nd-settlement-panel .nd-settlement-source p,.nd-settlement-panel .nd-settlement-error p {font-size:16px;line-height:1.6;}
+.nd-settlement-panel input:focus-visible,.nd-settlement-panel textarea:focus-visible,.nd-settlement-panel select:focus-visible,.nd-settlement-panel button:focus-visible {outline:2px solid hsl(var(--ring));outline-offset:3px;}
+.nd-settlement-panel .nd-settlement-form {display:grid;grid-template-columns:minmax(0,1fr);gap:16px;}
+.nd-settlement-value {min-width:0;display:grid;gap:8px;}
+.nd-settlement-value p {margin:0;background:hsl(var(--muted));padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.nd-settlement-error {padding:16px;border-left:3px solid hsl(var(--destructive));background:hsl(var(--muted));display:grid;gap:8px;}
+.nd-settlement-error p {margin:0;}
+.nd-settlement-error a {text-decoration:underline;}
+.nd-settlement-form label {display:grid;gap:8px;min-width:0;}
+.nd-settlement-form fieldset {border:0;margin:0;padding:0;}
+.nd-settlement-form fieldset label {display:flex;align-items:center;gap:8px;}
+.nd-settlement-proof,.nd-settlement-draft-notice {padding:12px 16px;background:hsl(var(--muted));white-space:pre-wrap;}
+@media(min-width:760px){.nd-settlement-panel .nd-settlement-form{grid-template-columns:repeat(2,minmax(0,1fr));}.nd-settlement-form .is-wide{grid-column:1/-1;}}
