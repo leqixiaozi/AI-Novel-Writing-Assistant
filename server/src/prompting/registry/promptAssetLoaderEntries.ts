@@ -34,6 +34,10 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignFormAssistPrompt as UnknownPromptAsset,
   },
   {
+    key: "new_design.planning.candidate@v1",
+    load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignPlanningCandidatePrompt as UnknownPromptAsset,
+  },
+  {
     key: "new_design.research.market_analysis@v1",
     load: () => require("../prompts/newDesign/newDesignBookCreation.prompts").newDesignMarketAnalysisPrompt as UnknownPromptAsset,
   },
