@@ -2,7 +2,7 @@ import type {PoolClient} from "pg";
 import {z} from "zod";
 import type {AuthorMaterialWriteInput,AuthorMaterialWriteReceipt} from "../../../common/authorMaterials";
 import {getNewDesignPool} from "../runtime";
-import {createCard,updateCard,updateCardInTransaction} from "../store";
+import {createCard,createCardInTransaction,updateCard,updateCardInTransaction} from "../store";
 import {formHash} from "../formAssist";
 import {assertFound,NewDesignError} from "../../domain/errors";
 import {AuthorMaterialWriteError} from "./ledger";
@@ -23,4 +23,11 @@ export async function updateAuthorMaterialInTransaction(client:PoolClient,bookId
  const parsed=authorMaterialWriteSchema.parse(input);if(!parsed.revision)throw new NewDesignError("资料修订未读取。",422);
  const authorWrite={bookId,requestKey:parsed.requestKey,inputHash:formHash({bookId,cardId,operation:"update",input:parsed}),operation:"update" as const,cardTypeId:parsed.cardTypeId};
  const saved=await updateCardInTransaction(client,cardId,{...parsed,revision:parsed.revision,authorWrite});return assertFound(saved.authorReceipt,"原保存回执未准备完成。");
+}
+
+/** Creates a new independent card through the same normal author writer. */
+export async function createAuthorMaterialInTransaction(client:PoolClient,bookId:string,input:AuthorMaterialWriteInput):Promise<AuthorMaterialWriteReceipt>{
+ const parsed=authorMaterialWriteSchema.parse(input);if(parsed.localValues&&Object.keys(parsed.localValues).length)throw new NewDesignError("新建资料不能携带原资料的独立补充信息。",422);
+ const book=assertFound((await client.query("SELECT space_id FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],"本书不存在或已归档。"),authorWrite={bookId,requestKey:parsed.requestKey,inputHash:formHash({bookId,cardId:null,operation:"create",input:parsed}),operation:"create" as const,cardTypeId:parsed.cardTypeId};
+ const saved=await createCardInTransaction(client,{...parsed,spaceId:String(book.space_id),authorWrite});return assertFound(saved.authorReceipt,"原新建资料回执未准备完成。");
 }

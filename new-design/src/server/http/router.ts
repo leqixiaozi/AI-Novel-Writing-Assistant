@@ -1,4 +1,5 @@
 import {characterExperiencesRouter} from './characterExperiences';
+import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {characterResourcesRouter} from "./characterResources";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import {referenceParityRouter} from "./referenceParity";
@@ -399,6 +400,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
+  router.use(characterImportReadRouter());
   router.use(bookshelfMutationFence());
   router.use(bookshelfWritableGuard());
   // Visiting a source or home page must never resume research work.
@@ -422,6 +424,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(createWorldCharacterMaintenanceRouter());
   router.use(characterResourcesRouter());
   router.use(characterExperiencesRouter(dependencies.ai));
+  router.use(characterImportWriteRouter());
   router.use(visualAssetsRouter());
   router.use(worldConsistencyRouter());
   router.use(characterDialogueRouter());

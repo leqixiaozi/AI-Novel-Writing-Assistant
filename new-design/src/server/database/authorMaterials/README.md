@@ -13,3 +13,6 @@
 ## 调用者持有的原子事务
 
 `updateAuthorMaterialInTransaction(client,bookId,cardId,input)` 供明确批量作者命令使用，不自行 BEGIN／COMMIT／释放连接。它复用 store.updateCardInTransaction 的同一校验、当前规格／实际活跃表单判断、card_versions、补充值、字典快照、标签、AI 来源和作者回执；不是第二份保存实现。store 的单项公开保存仍自行管理原事务及提交失败分类。批量调用者必须在所有项目成功和整批原回执完成后一次提交，任何项失败回滚全批；未知提交只读原请求，不自动重放。
+
+
+`createAuthorMaterialInTransaction(client,bookId,input)` 同样供独立公共来源导入使用，复用 store.createCardInTransaction 的唯一新建实现；没有另写卡片／版本／字典／标签／AI来源／作者回执。原 createCard 仅包裹同一写入函数并管理物理提交，单项合同不变。调用者须自己完成全部来源审计再提交，失败回滚新人物与审计全体。
