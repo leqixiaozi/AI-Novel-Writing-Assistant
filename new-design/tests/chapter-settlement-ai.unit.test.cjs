@@ -1,10 +1,11 @@
+const {compiled}=require('./support/isolatedDatabase.cjs');
 const test=require("node:test");
 const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const path=require("node:path");
-const {preparePrompt,listPromptAssets}=require("../dist/server/ai/prompts");
-const {executeManagedPrompt}=require("../dist/server/ai/runtime/managedExecution");
-const {DEFAULT_MODEL_POLICY}=require("../dist/common/modelRouting");
+const {preparePrompt,listPromptAssets}=compiled("server/ai/prompts");
+const {executeManagedPrompt}=compiled("server/ai/runtime/managedExecution");
+const {DEFAULT_MODEL_POLICY}=compiled("common/modelRouting");
 const hash="a".repeat(64),id="73300000-0000-4000-8000-000000000001",bodyId="73300000-0000-4000-8000-000000000002",subjectId="73300000-0000-4000-8000-000000000003";
 const field={key:"health",name:"体力",description:"人物体力",type:"number",required:true,options:[],defaultValue:null,group:"状态",order:0};
 function input(){return{sessionId:id,bodyVersionId:bodyId,bodyContentHash:hash,bodyContent:"沈青受伤，体力从十降到八。",expectedChanges:[],catalog:{sessionId:id,bodyVersionId:bodyId,bodyContentHash:hash,sessionRevision:1,specificationHash:hash,subjects:[{id:subjectId,subjectKind:"card",label:"沈青",typeKey:"character",currentVersionId:bodyId,categories:["character_state","fact","knowledge"],unavailableReason:null,fields:[{key:field.key,label:field.name,field,mode:"delta",specificationHash:hash,typeVersionId:bodyId,relationTypeId:null,relationTypeRevision:null,capabilityRevision:1,dimensionRevision:null,dictionaryNodes:[],baseline:{known:true,value:10,display:"10",revision:1,sourceKind:"initial_state",sourceId:bodyId,hash,stale:false}}]}],objectChoices:[],holderChoices:[{id:subjectId,label:"沈青"}]}};}
@@ -12,7 +13,7 @@ function output(){return{items:[{category:"character_state",title:"沈青受伤�
 const prompt=()=>preparePrompt("chapter_settlement",input());
 test("dedicated extraction asset is registered without silently expanding composition tasks",()=>{
   assert.equal(listPromptAssets().find(p=>p.taskType==="chapter_settlement").assetId,"new_design.chapter.settlement_candidates");
-  const {COMPOSITION_TASK_KEYS}=require("../dist/common/promptComposition");
+  const {COMPOSITION_TASK_KEYS}=compiled("common/promptComposition");
   assert.equal(COMPOSITION_TASK_KEYS.length,6);assert.ok(!COMPOSITION_TASK_KEYS.includes("chapter_settlement"));
 });
 test("governed extraction returns the same typed draft objects, with exact formal identities and original evidence",()=>{
@@ -66,7 +67,7 @@ test("expired unknown extraction has an explicit deadline-guarded source action 
   assert.match(source,/'unknown','unknown',NULL,NULL/);assert.match(source,/status='discarded'/);assert.doesNotMatch(source,/executeManagedPrompt|fetch\(/);
 });
 test("pure database claim preparation uses acknowledged rollback, not SQL text, to unlock known non-writes",async()=>{
-  const {preparationDatabase,withChapterSettlementAiDatabasePool}=require("../dist/server/ai/chapterSettlement/database");
+  const {preparationDatabase,withChapterSettlementAiDatabasePool}=compiled("server/ai/chapterSettlement/database");
   const queries=[],client={query:async sql=>{queries.push(sql);return{rows:[]};},release(){}};
   await withChapterSettlementAiDatabasePool({connect:async()=>client},async()=>{
     await assert.rejects(()=>preparationDatabase(async()=>{throw new Error("private SQL error detail");}),error=>{assert.equal(error.status,503);assert.equal(error.recovery.mutationOutcome,"not_written");assert.equal(error.modelRequestState,"not_sent");assert.match(error.message,/事务已回滚/);assert.doesNotMatch(error.message,/private|SQL/);return true;});
@@ -74,7 +75,7 @@ test("pure database claim preparation uses acknowledged rollback, not SQL text, 
   assert.deepEqual(queries,["BEGIN","ROLLBACK"]);
 });
 test("claim commit started or rollback unacknowledged preserves unknown receipt without changing external-result transactions",async()=>{
-  const {preparationDatabase,database,withChapterSettlementAiDatabasePool}=require("../dist/server/ai/chapterSettlement/database");
+  const {preparationDatabase,database,withChapterSettlementAiDatabasePool}=compiled("server/ai/chapterSettlement/database");
   for(const failed of ["COMMIT","ROLLBACK"]){
     const client={query:async sql=>{if(sql===failed)throw new Error("private socket loss");return{rows:[]};},release(){}};
     await withChapterSettlementAiDatabasePool({connect:async()=>client},async()=>{

@@ -37,3 +37,6 @@
 @media(max-width:700px){.nd-visible-candidates .nd-story-batch-item{grid-template-columns:1fr}}
 
 .nd-story-setting [data-character-section=visible] .nd-form-group[data-layout=long]{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:700px){.nd-story-setting [data-character-section=visible] .nd-form-group[data-layout=long]{grid-template-columns:1fr}}
+
+.nd-character-resources{display:grid;gap:.75rem}.nd-resource-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.nd-resource-grid article,.nd-resource-backfill{padding:.75rem;background:var(--nd-soft,#f5f6f8)}.nd-resource-grid h4{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.nd-resource-grid dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem}.nd-resource-backfill{display:grid;gap:.5rem}
+@media(max-width:800px){.nd-resource-grid{grid-template-columns:minmax(0,1fr)}}

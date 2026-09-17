@@ -1,3 +1,4 @@
+import {verifyFrozenResourceBackfillScope} from '../characterResources';
 import { randomUUID } from "node:crypto";
 import type { ManagedModelSnapshot, ManagedTaskRoute, ModelTaskKey } from "../../../common/modelRouting";
 import { NewDesignError } from "../../domain/errors";
@@ -40,7 +41,7 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
     if(scope){
       const book=(await client.query("SELECT id FROM new_design.books WHERE id=$1 AND status='active'",[scope.bookId])).rows[0];
       const contract=(await client.query("SELECT version.id,config.task_key,recipe.recipe_id,version.task_group,version.budget_policy,version.input_schema,recipe.variables_schema FROM new_design.task_contract_versions version JOIN new_design.task_contracts config ON config.id=version.contract_id JOIN new_design.prompt_recipe_versions recipe ON recipe.id=version.prompt_recipe_version_id WHERE version.id=$1 AND version.status IN ('published','superseded')",[scope.taskContractVersionId])).rows[0];
-      const settlement=taskType==="chapter_settlement"&&contract?.task_group==="chapter_settlement"&&contract.budget_policy?.assetId==="new_design.chapter.settlement_candidates"&&contract.budget_policy?.assetVersion==="v1"&&contract.variables_schema?.["x-chapter-settlement"]?.sessionId&&contract.task_key===`chapter_settlement_${contract.variables_schema["x-chapter-settlement"].sessionId}`;
+      const settlement=taskType==="chapter_settlement"&&contract?.task_group==="chapter_settlement"&&["new_design.chapter.settlement_candidates","new_design.character.resource_backfill"].includes(contract.budget_policy?.assetId)&&contract.budget_policy?.assetVersion==="v1"&&contract.variables_schema?.["x-chapter-settlement"]?.sessionId&&contract.task_key===`chapter_settlement_${contract.variables_schema["x-chapter-settlement"].sessionId}`;
       const chapter=taskType==="chapter_generation"&&contract?.task_group==="controlled_chapter_generation"&&contract.budget_policy?.assetId==="new_design.chapter.generate_candidate"&&contract.budget_policy?.assetVersion==="v1"&&contract.variables_schema?.["x-controlled-chapter"]?.requestId&&contract.task_key===`controlled_chapter_${contract.variables_schema["x-controlled-chapter"].requestId}`;
       const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
       const worldMarker=contract?.variables_schema?.["x-world-consistency"],creativeMarker=contract?.variables_schema?.["x-creative-extraction"],input=contract?.input_schema?.const;
@@ -67,6 +68,9 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
       }
       if(chapter){const input=contract.input_schema?.const;if(input?.bookId!==scope.bookId||stableHash(input)!==stableHash(contract.variables_schema.const)||!(await client.query("SELECT id FROM new_design.planning_objects WHERE book_id=$1 AND card_id=$2 AND level='chapter' AND status='active' AND adopted_version_id=ANY($3::uuid[])",[scope.bookId,input.chapterCardId,input.plans.filter((plan:Record<string,unknown>)=>plan.level==="chapter").map((plan:Record<string,unknown>)=>plan.versionId)])).rowCount)throw new NewDesignError("正文生成快照缺少本书已采用章计划与精确输入合同。",422);}
       if(settlement){
+        const resource=contract.budget_policy.assetId==="new_design.character.resource_backfill";
+        if(resource!==Boolean(input?.resourceScope)||contract.variables_schema["x-chapter-settlement"].assetId!==contract.budget_policy.assetId||contract.variables_schema["x-chapter-settlement"].assetVersion!=="v1")throw new NewDesignError("资源回填必须引用自身受控合同和冻结资源范围。",422);
+        if(resource)await verifyFrozenResourceBackfillScope(client,scope.bookId,input.bodyVersionId,input.bodyContent,input.resourceScope);
         const session=(await client.query("SELECT id,body_version_id FROM new_design.chapter_adoption_sessions WHERE id=$1 AND book_id=$2",[contract.variables_schema["x-chapter-settlement"].sessionId,scope.bookId])).rows[0];
         if(!session||contract.input_schema?.const?.sessionId!==session.id||contract.input_schema?.const?.bodyVersionId!==session.body_version_id||stableHash(contract.input_schema.const)!==stableHash(contract.variables_schema.const))throw new NewDesignError("章节提取模型快照缺少本书真实会话、正文与精确输入合同。",422);
       }

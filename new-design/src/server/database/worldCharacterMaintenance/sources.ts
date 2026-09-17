@@ -7,7 +7,7 @@ type Row=Record<string,any>;
 const bool=(value:unknown)=>value===true;
 const nullable=(value:unknown)=>value===null||value===undefined?null:String(value);
 
-export async function readProfessionalState(client:PoolClient,bookId:string,objects:ProfessionalObject[],relations:Row[],objectLabels:Map<string,string>,dictionaryLabels:Map<string,string>):Promise<{items:ProfessionalState[];truncated:boolean}>{
+export async function readProfessionalState(client:PoolClient,bookId:string,objects:ProfessionalObject[],relations:Row[],objectLabels:Map<string,string>,dictionaryLabels:Map<string,string>,subjectIds?:string[]):Promise<{items:ProfessionalState[];truncated:boolean}>{
  const rows=(await client.query(`SELECT projection.*,initial.id initial_id,initial.current_version_id initial_current,initial_version.value_json initial_value,
  change.id change_id,change.status change_status,change.after_json change_value,change.chapter_document_id,change.body_version_id,
  settlement.status settlement_status,document.adopted_version_id,document.status document_status,body.archived_at,
@@ -22,7 +22,7 @@ export async function readProfessionalState(client:PoolClient,bookId:string,obje
  LEFT JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id
  LEFT JOIN new_design.chapter_body_versions body ON body.id=change.body_version_id AND body.chapter_document_id=document.id
  LEFT JOIN new_design.chapter_adoption_sessions session ON session.settlement_id=settlement.id AND session.book_id=projection.book_id AND session.chapter_document_id=document.id AND session.body_version_id=body.id
- WHERE projection.book_id=$1 ORDER BY projection.subject_kind,projection.subject_id,projection.state_key LIMIT 201`,[bookId])).rows as Row[];
+ WHERE projection.book_id=$1 AND ($2::uuid[] IS NULL OR projection.subject_id=ANY($2)) ORDER BY projection.subject_kind,projection.subject_id,projection.state_key LIMIT 201`,[bookId,subjectIds??null])).rows as Row[];
  const items:ProfessionalState[]=[];for(const row of rows.slice(0,200)){
   const object=objects.find(object=>object.id===row.subject_id),relation=relations.find(relation=>relation.id===row.subject_id);
   const field=row.subject_kind==="card"?object?.fields.find(item=>item.field.key===row.state_key)?.field:professionalFields(relation?.properties_schema).find(field=>field.key===row.state_key);

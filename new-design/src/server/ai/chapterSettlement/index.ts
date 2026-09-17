@@ -14,7 +14,7 @@ import { finishSettlementAiLedger } from "./ledger";
 import type { SettlementAiClaim,SettlementAiOutput,SettlementFrozenPlan } from "./contracts";
 import { ChapterSettlementAiError } from "./errors";
 
-export const chapterSettlementAiInputSchema=z.object({expectedSessionRevision:z.number().int().positive(),requestKey:z.string().trim().min(8).max(120),catalogHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+export const chapterSettlementAiInputSchema=z.object({expectedSessionRevision:z.number().int().positive(),requestKey:z.string().trim().min(8).max(120),catalogHash:z.string().regex(/^[a-f0-9]{64}$/),resourceScope:z.object({relationTypeId:z.string().uuid(),holdingDimensionKey:z.string().min(1).max(100),specificationHash:z.string().regex(/^[a-f0-9]{64}$/),characterId:z.string().uuid(),characterVersionId:z.string().uuid(),characterRevision:z.number().int().positive(),resourceIds:z.array(z.string().uuid()).min(1).max(200).refine(ids=>new Set(ids).size===ids.length),relationIds:z.array(z.string().uuid()).min(1).max(200).refine(ids=>new Set(ids).size===ids.length)}).strict().optional()}).strict();
 export const getChapterSettlementAiReceipt=getSettlementAiReceipt;
 export {withChapterSettlementAiDatabasePool} from "./database";
 export async function getChapterSettlementAiStatus():Promise<ChapterSettlementAiStatus>{
@@ -39,7 +39,7 @@ async function importSaved(claim:SettlementAiClaim):Promise<ChapterSettlementAiR
   }
   if(saved.status!=="running"||saved.attempt_status!=="running")throw new NewDesignError("本次提取已结束，原模型结果只供核对，不能再次导入。",409);
   if(!saved.generated_output)throw new NewDesignError("本次没有已确认保存的模型结果，请先只读核对原提取回执；不能重新导入或重复调用模型。",409);
-  const prompt=preparePrompt("chapter_settlement",claim.plan.input);
+  const prompt=preparePrompt(claim.plan.input.resourceScope?"character_resource_backfill":"chapter_settlement",claim.plan.input);
   if(prompt.assetId!==claim.plan.assetId||prompt.version!==claim.plan.assetVersion||stableHash(prompt.messages)!==stableHash(claim.plan.messages)||stableHash(prompt.outputSchema)!==stableHash(claim.plan.outputSchema))throw new NewDesignError("已保存结果的受控提示词规格不一致，不能导入；原模型结果保留。",409);
   const output=prompt.parseOutput(saved.generated_output) as SettlementAiOutput;
   try{
@@ -73,7 +73,7 @@ export async function runChapterSettlementAiExtraction(sessionId:string,value:Ch
     throw failure;
   }
   if(!("requestId"in claimed))return claimed;
-  const claim=claimed,prompt=preparePrompt("chapter_settlement",claim.plan.input),started=Date.now();
+  const claim=claimed,prompt=preparePrompt(claim.plan.input.resourceScope?"character_resource_backfill":"chapter_settlement",claim.plan.input),started=Date.now();
   let result:Awaited<ReturnType<typeof executeManagedPrompt<SettlementAiOutput>>>;
   try{result=await executeManagedPrompt<SettlementAiOutput>("chapter_settlement",prompt,{...dependencies,routeResolver:async()=>claim.plan.route,snapshotWriter:async()=>({id:claim.modelRouteSnapshotId,snapshotHash:claim.plan.snapshotHash,taskType:"chapter_settlement",route:claim.plan.route})});}
   catch(error){
@@ -87,3 +87,5 @@ export async function runChapterSettlementAiExtraction(sessionId:string,value:Ch
   return importSaved(claim);
 }
 function failureSnapshotSent(error:unknown):boolean {const traces=error instanceof AiExecutionError?error.executionSnapshot?.attempts:null;return Array.isArray(traces)&&traces.some(trace=>trace&&typeof trace==="object"&&(trace as Record<string,unknown>).requestSent===true);}
+
+export {readSettlementAiOriginalReceipt} from "./requests";

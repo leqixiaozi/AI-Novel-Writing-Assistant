@@ -1,3 +1,4 @@
+import {characterResourcesRouter} from "./characterResources";
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import {referenceParityRouter} from "./referenceParity";
 import { homeRouter } from "./home";
@@ -418,6 +419,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(productionDirectorRouter());
   router.use(chapterProductionRouter());
   router.use(createWorldCharacterMaintenanceRouter());
+  router.use(characterResourcesRouter());
   router.use(visualAssetsRouter());
   router.use(worldConsistencyRouter());
   router.use(characterDialogueRouter());

@@ -13,14 +13,14 @@ export const worldCharacterQuerySchema=z.object({mode:z.enum(["world","character
 type Row=Record<string,any>;
 export {professionalFields,professionalDisplay} from "./presentation";
 
-export async function readProfessionalObjectsInTransaction(client:PoolClient,spaceId:string,focusCardId?:string):Promise<{objects:ProfessionalObject[];truncated:boolean}>{
+export async function readProfessionalObjectsInTransaction(client:PoolClient,spaceId:string,focusCardId?:string,cardIds?:string[]):Promise<{objects:ProfessionalObject[];truncated:boolean}>{
  const rows=(await client.query(`SELECT card.id,card.card_type_id,card.current_version_id,card.type_version_id,card.revision,
  type.type_key,type.name type_label,type.status type_status,type.semantic_capabilities,
  version.title,version.values,installed.fields,installed.id installed_id
  FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id
  LEFT JOIN new_design.card_versions version ON version.id=card.current_version_id AND version.card_id=card.id
  LEFT JOIN new_design.card_type_versions installed ON installed.id=card.type_version_id AND installed.card_type_id=type.id
- WHERE card.space_id=$1 AND card.status='active' ORDER BY CASE WHEN card.id=$2::uuid THEN 0 ELSE 1 END,type.sort_order,card.title,card.id LIMIT 301`,[spaceId,focusCardId??null])).rows as Row[];
+ WHERE card.space_id=$1 AND card.status='active' AND ($3::uuid[] IS NULL OR card.id=ANY($3)) ORDER BY CASE WHEN card.id=$2::uuid THEN 0 ELSE 1 END,type.sort_order,card.title,card.id LIMIT 301`,[spaceId,focusCardId??null,cardIds??null])).rows as Row[];
  const scoped=(await client.query(`SELECT definition.card_type_id,definition.card_id,definition.scope,definition.field_key,version.id version_id,version.field_schema
  FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id AND version.field_definition_id=definition.id
  WHERE definition.space_id=$1 AND definition.status='active' AND definition.scope IN ('book_type','card') ORDER BY CASE WHEN definition.scope='card' THEN 1 ELSE 0 END,definition.created_at,definition.id`,[spaceId])).rows as Row[];
@@ -68,3 +68,5 @@ export async function getWorldCharacterMaintenanceWorkspace(bookId:string,input:
   await client.query("COMMIT");return result;
  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
+
+export {readProfessionalState} from "./sources";

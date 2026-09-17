@@ -2,7 +2,7 @@ import {Router,type NextFunction,type Response} from "express";
 import {z} from "zod";
 import {AiExecutionError} from "../../ai";
 import {NewDesignError} from "../../domain/errors";
-import {chapterSettlementAiInputSchema,getChapterSettlementAiStatus,runChapterSettlementAiExtraction,getChapterSettlementAiReceipt,getChapterSettlementAiResult,importSavedChapterSettlementAiResult,releaseSavedChapterSettlementAiResult,endExpiredUnknownChapterSettlementAiExtraction} from "../../ai/chapterSettlement";
+import {chapterSettlementAiInputSchema,readSettlementAiOriginalReceipt,getChapterSettlementAiStatus,runChapterSettlementAiExtraction,getChapterSettlementAiReceipt,getChapterSettlementAiResult,importSavedChapterSettlementAiResult,releaseSavedChapterSettlementAiResult,endExpiredUnknownChapterSettlementAiExtraction} from "../../ai/chapterSettlement";
 import {
   startChapterAdoptionSession,getChapterSettlementEditingWorkspace,getChapterSettlementEditingByPreparation,createChapterSettlementEditingItem,updateChapterSettlementEditingItem,
   decideChapterSettlementEditingItems,commitChapterSettlementEditing,readChapterSettlementEditingReceipt,establishChapterSettlementEditingInitialState,
@@ -39,6 +39,7 @@ function recoveryFailure(step:string,error:unknown,retained:string):AiExecutionE
 /** Source-workbench mutations and read-only receipts; no task-record action surface. */
 export function chapterSettlementEditingRouter(dependencies:Partial<typeof defaults>={}):Router {
   const store={...defaults,...dependencies},router=Router();
+  router.post("/chapter-adoption-sessions/:sessionId/editing/ai-extraction-receipt",(request,response,next)=>{void Promise.resolve().then(()=>readSettlementAiOriginalReceipt(settlementSessionId.parse(request.params.sessionId),chapterSettlementAiInputSchema.parse(request.body))).then(data=>response.json({success:true,data})).catch(next);});
   const respond=(response:Response,next:NextFunction,step:string,retained:string,run:()=>Promise<unknown>,status=200)=>{
     void Promise.resolve().then(run).then(data=>response.status(status).json({success:true,data})).catch(error=>next(recoveryFailure(step,error,retained)));
   };
