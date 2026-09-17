@@ -396,6 +396,8 @@ export interface CardGroupFormGroup {
 export interface CardGroupFormDefinition {
   primaryTypeKey: string;
   groups: CardGroupFormGroup[];
+  fieldExtensions?: Array<{fieldKey:string;group:string;order:number}>;
+  archivedFieldKeys?:string[];
 }
 
 export interface CardGroupFormVersion {

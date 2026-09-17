@@ -282,6 +282,8 @@ const formSlotSchema = z.object({
 });
 
 export const cardGroupFormDefinitionSchema = z.object({
+  fieldExtensions:z.array(z.object({fieldKey:z.string().min(1),group:z.string(),order:z.number().int()})).optional(),
+  archivedFieldKeys:z.array(z.string().min(1)).optional(),
   primaryTypeKey: z.string().trim().min(1),
   groups: z.array(z.object({
     key: z.string().trim().regex(/^[a-z][a-z0-9_]{0,62}$/),

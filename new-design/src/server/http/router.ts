@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import {referenceParityRouter} from "./referenceParity";
 import { homeRouter } from "./home";
 import {bookshelfRouter,bookshelfMutationFence,bookshelfWritableGuard} from './bookshelf';
 import { z, ZodError, type ZodType } from "zod";
@@ -51,7 +52,7 @@ import {
   updateCardType,
 } from "../database/store";
 import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics, getPrivateRuntimeStatus } from "../database/runtime";
-import { archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
+import { FieldWriteError, readFieldWriteReceipt, archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
 import { scrub } from "../runtime/command";
 import {
   applyBookSync,
@@ -490,6 +491,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   }));
   router.get("/cards/:id/versions", asyncRoute(async (req, res) => success(res, await listCardVersions(String(req.params.id)))));
 
+  router.use(referenceParityRouter());
+  router.get("/books/:bookId/field-extensions/receipts/:key",asyncRoute(async(req,res)=>success(res,await readFieldWriteReceipt(String(req.params.bookId),z.string().uuid().parse(req.params.key)))));
   router.get("/books/:bookId/field-definitions", asyncRoute(async(req,res)=>{
     const cardTypeId=typeof req.query.cardTypeId==="string"?req.query.cardTypeId:"";
     if(!cardTypeId)throw new NewDesignError("缺少内容类型。",422);
@@ -984,7 +987,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

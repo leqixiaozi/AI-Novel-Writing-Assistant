@@ -1,3 +1,4 @@
+import type {FieldWriteReceipt,ReferenceSpecificationPreview,ReferenceSpecificationPublishInput} from "../common/referenceParity";
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
@@ -347,9 +348,11 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const professionalMaintenance=maintenanceParts&&uuid.test(maintenanceParts[1])&&value.actionLabel==="返回专业维护";
   const contextRunParts=/^\/new-design\/structure\/context\?bookId=([^&#]+)&tab=run$/.exec(value.sourceRoute);
   const contextRun=contextRunParts&&uuid.test(contextRunParts[1])&&value.actionLabel==="返回运行输入";
+  const fieldRoute=/^\/new-design\/books\/([0-9a-f-]+)\/story-setting$/.exec(String(value.sourceRoute));
+  const fieldRecovery=fieldRoute&&uuid.test(fieldRoute[1])&&value.actionLabel==="返回资料填写";
   const structure=(value.sourceRoute==="/new-design/structure/forms"&&value.actionLabel==="返回创作表单")||(value.sourceRoute==="/new-design/structure/templates"&&value.actionLabel==="返回开书模板");
   const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
-  return allowed||professionalGraph||dialogue ? value as unknown as AiRuntimeRecovery : null;
+  return allowed||professionalGraph||dialogue||fieldRecovery ? value as unknown as AiRuntimeRecovery : null;
 }
 
 export function isGlobalModelRecovery(recovery: AiRuntimeRecovery): boolean {
@@ -392,6 +395,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  verifyFieldWriteReceipt:(bookId:string,command:unknown)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipt`,{method:'POST',body:JSON.stringify(command)}),
+  readFieldWriteReceipt:(bookId:string,key:string)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipts/${encodeURIComponent(key)}`),
+  previewReferenceSpecification:(versionId:string)=>request<ReferenceSpecificationPreview>(`/reference-specifications/${versionId}`),
+  publishReferenceSpecification:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary>(`/reference-specifications/publish`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceSpecificationReceipt:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary|null>(`/reference-specifications/receipt`,{method:'POST',body:JSON.stringify(input)}),
   endUnknownStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/end-unknown`,{method:"POST",body:JSON.stringify({confirm:true})}),
   readInitialStateWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").InitialStateWriteReceipt|null>(`/books/${bookId}/initial-state-write-receipts/${encodeURIComponent(key)}`),
   readPlanningWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").PlanningWriteReceipt|null>(`/books/${bookId}/planning-write-receipts/${encodeURIComponent(key)}`),

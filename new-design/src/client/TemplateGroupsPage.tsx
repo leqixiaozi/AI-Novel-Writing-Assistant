@@ -1,3 +1,4 @@
+import ReferenceSpecification from "./referenceParity/Specification";
 import {useEffect,useRef,useState} from "react";
 import type {BookSummary,TemplateGroupSummary,TemplateGroupVersion,TemplateSyncPreview} from "../common/contracts";
 import {newDesignApi} from "./api";
@@ -7,6 +8,7 @@ import {useStructureWriteRecovery,useTemplateSyncRecovery} from "./structureWrit
 
 function blankTemplate():TemplateGroupSummary {const now=new Date().toISOString();return{id:"",key:newStructureKey("template"),name:"",description:"",status:"draft",revision:1,currentVersion:null,currentVersionId:null,draftConfig:{},createdAt:now,updatedAt:now};}
 export default function TemplateGroupsPage(){
+  const [referenceLocked,setReferenceLocked]=useState(false);
   const [templates,setTemplates]=useState<TemplateGroupSummary[]>([]),[books,setBooks]=useState<BookSummary[]>([]);
   const [draft,setDraft]=useState<TemplateGroupSummary|null>(null),[versions,setVersions]=useState<TemplateGroupVersion[]>([]);
   const [previews,setPreviews]=useState<Record<string,TemplateSyncPreview>>({}),[message,setMessage]=useState("");
@@ -24,7 +26,7 @@ export default function TemplateGroupsPage(){
     setDraft(draftRef.current);setVersions([]);setPreviews({});void readVersions(value.id,selected);
   });
   const syncRecovery=useTemplateSyncRecovery((template,sync)=>{const selected=++selection.current;draftRef.current=structuredClone(template);baseline.current=structureDraftHash(template);setDraft(draftRef.current);setVersions([]);setPreviews({[sync.bookId]:sync});void readVersions(template.id,selected);});
-  const locked=recovery.locked||syncRecovery.locked,dirty=!!draft&&structureDraftHash(draft)!==baseline.current;
+  const locked=referenceLocked||recovery.locked||syncRecovery.locked,dirty=!!draft&&structureDraftHash(draft)!==baseline.current;
   function choose(next:TemplateGroupSummary){
     if(locked||recovery.isLocked()||syncRecovery.isLocked())return;
     const current=draftRef.current;
@@ -60,6 +62,7 @@ export default function TemplateGroupsPage(){
         <div className="nd-template-summary">{[["cardTypes","内容类型"],["dictionaries","选项字典"],["relationTypes","资料关联"],["forms","创作表单"]].map(([key,label])=><div key={key}><strong>{count(key)}</strong><span>{label}</span></div>)}</div>
         <p className="nd-help-text">发布会读取高级设置中当前已发布的内容，生成不可变快照。以后模板升级只向书内追加新的非必填稳定字段。修改模板后请先保存草稿，再发布。</p>
         <div className="nd-editor-actions"><button className="nd-button nd-button-secondary" disabled={locked||!draft.id||dirty} type="button" onClick={()=>void publish()}>发布新版本</button><button className="nd-button nd-button-primary" disabled={locked||!draft.name.trim()} type="button" onClick={()=>void save()}>{recovery.working?"核对中…":"保存草稿"}</button></div>
+        {draft.id&&<ReferenceSpecification template={draft} disabled={recovery.locked||syncRecovery.locked||dirty} onLock={setReferenceLocked} onPublished={value=>{const selected=++selection.current;draftRef.current=structuredClone(value);baseline.current=structureDraftHash(value);setDraft(draftRef.current);setPreviews({});void readVersions(value.id,selected);void load().catch(()=>setMessage("目录读取失败，原发布结果保留。"));}}/>}
         {draft.id&&<section className="nd-template-installs"><div className="nd-section-heading"><div><p className="nd-kicker">安装与升级</p><h2>使用此模板的书籍</h2></div><span>{versions.length} 个不可变版本</span></div>{selectedBooks.length?selectedBooks.map(book=>{const sync=previews[book.id],upToDate=!latest||book.templateVersionId===latest.id;return <article key={book.id}><div><strong>{book.name}</strong><small>已安装 v{book.templateVersion}{latest?' · 最新 v'+latest.version:""}</small></div>{upToDate?<span className="nd-status nd-status-published">{latest?"已是最新":"版本尚未读取"}</span>:<button disabled={locked||dirty} className="nd-button nd-button-secondary" type="button" onClick={()=>void preview(book,latest.id)}>预览升级</button>}{sync&&<div className="nd-sync-preview"><p>可安全新增 {sync.additions.reduce((sum,item)=>sum+item.fields.length,0)} 个字段；冲突 {sync.conflicts.length} 项。</p>{sync.conflicts.map(item=><small key={item.typeKey+'-'+item.fieldKey}>{templateConflictLabel(latest,item.typeKey,item.fieldKey)}：{item.reason}</small>)}{sync.status==="previewed"&&<button className="nd-button nd-button-primary" disabled={locked||dirty} type="button" onClick={()=>void apply(book.id)}>应用安全新增</button>}{sync.status==="applied"&&<span>已应用</span>}</div>}</article>}):<div className="nd-empty nd-empty-compact">还没有书籍安装此模板。</div>}</section>}
         {message&&<p className="nd-message" role="status">{message}</p>}{recovery.message&&<p className="nd-message" role="status">{recovery.message}</p>}{syncRecovery.message&&<p className="nd-message" role="status">{syncRecovery.message}</p>}{recovery.issues.length>0&&<ul role="alert">{recovery.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul>}
         <div className="nd-editor-actions"><button type="button" className="nd-button nd-button-secondary" disabled={recovery.working} onClick={()=>void load().catch(()=>setMessage("重新读取模板目录失败；当前草稿保留。"))}>重新读取目录</button>{draft.id&&<button type="button" className="nd-button nd-button-secondary" disabled={recovery.working} onClick={()=>void readVersions(draft.id,selection.current)}>重新读取版本</button>}{recovery.pending&&<button type="button" className="nd-button nd-button-secondary" disabled={recovery.working} onClick={()=>void recovery.verify()}>核对原请求结果</button>}{syncRecovery.pending&&<button type="button" className="nd-button nd-button-secondary" disabled={recovery.working||syncRecovery.working} onClick={()=>void syncRecovery.verify()}>核对原升级结果</button>}{locked&&<a href="/new-design/structure/maintenance">打开运行维护</a>}</div>

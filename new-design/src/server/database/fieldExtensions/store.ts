@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import {installNonSettlementFields} from "../referenceParity";
+import {structureWriteHash} from "../structureWrites";
+import {FieldWriteSession} from "./receipts";
 import type { PoolClient } from "pg";
 import type { AddInformationFieldInput, FieldDefinition, FieldExtensionPreview, ScopedFieldBundle, ScopedFieldDefinition, ScopedFieldVersion } from "../../../common/contracts";
 import { NewDesignError, assertFound } from "../../domain/errors";
@@ -23,7 +26,7 @@ function mapDefinition(row:Record<string,unknown>):ScopedFieldDefinition{return{
 };}
 
 async function getBookScope(client:PoolClient,bookId:string,cardTypeId:string,lock=false){
-  const result=await client.query(`SELECT book.id book_id,book.space_id,type.id card_type_id,type.type_key,type.revision,type.current_version_id,version.version,version.fields
+  const result=await client.query(`SELECT book.id book_id,book.space_id,type.id card_type_id,type.type_key,type.revision,type.current_version_id,type.draft_fields,version.version,version.fields
     FROM new_design.books book JOIN new_design.card_types type ON type.space_id=book.space_id JOIN new_design.card_type_versions version ON version.id=type.current_version_id
     WHERE book.id=$1 AND type.id=$2 AND type.status='published' ${lock?"FOR UPDATE OF book,type":""}`,[bookId,cardTypeId]);
   return assertFound(result.rows[0],"当前书籍没有这个内容类型。");
@@ -77,26 +80,22 @@ async function findDefinition(client:PoolClient,id:string){
   return row?mapDefinition(row):null;
 }
 
-async function existingReceipt(client:PoolClient,bookId:string,key:string){
-  const row=(await client.query(`SELECT adoption.field_definition_id,book.id book_id FROM new_design.field_scope_adoptions adoption JOIN new_design.field_definitions definition ON definition.id=adoption.field_definition_id JOIN new_design.books book ON book.space_id=definition.space_id WHERE adoption.idempotency_key=$1`,[key])).rows[0];
-  if(row&&String(row.book_id)!==bookId)throw new NewDesignError("请求标识已被其他书籍使用，请重新提交。",409);
-  return row?findDefinition(client,String(row.field_definition_id)):null;
-}
-
 export async function createBookFieldExtension(bookId:string,input:BookExtensionInput):Promise<ScopedFieldDefinition>{
-  const pool=await getNewDesignPool();const client=await pool.connect();
+  const pool=await getNewDesignPool();const client=await pool.connect();const write=new FieldWriteSession(client,bookId,"book_field_create",input.idempotencyKey,input);
   try{
-    await client.query("BEGIN");
-    const repeated=await existingReceipt(client,bookId,input.idempotencyKey);if(repeated){await client.query("COMMIT");return repeated;}
+
+    const repeated=await write.begin();if(repeated)return await write.commit(repeated);
     const scope=await getBookScope(client,bookId,input.cardTypeId,true);
     if(String(scope.space_id)===CORE_SPACE_ID)throw new NewDesignError("公共内容规格不能从书内表单改动。",422);
     if(Number(scope.revision)!==input.expectedTypeRevision)throw new NewDesignError("内容规格已更新，请刷新影响范围后重试。",409);
+    if(structureWriteHash(scope.draft_fields)!==structureWriteHash(scope.fields))throw new NewDesignError("填写规格有未发布草稿，请先处理草稿后补充信息。",409);
     const affected=Number((await client.query("SELECT count(*) value FROM new_design.cards WHERE space_id=$1 AND card_type_id=$2 AND status='active'",[scope.space_id,input.cardTypeId])).rows[0]?.value??0);
     if(input.field.required&&affected>0&&(input.backfillStrategy!=="default"||isBlank(input.field.defaultValue)))throw new NewDesignError("已有同类资料时，必填字段必须提供安全默认值。",422,{defaultValue:"请提供安全默认值；逐条补齐将在后续开放。"});
     const key=slug("ext");const field=buildField({...input.field,options:input.field.options.map((option)=>({label:option.label}))},key);const defaultIssue=validateFieldValue(field,field.defaultValue);if(defaultIssue&&(!isBlank(field.defaultValue)||field.required))throw new NewDesignError("安全默认值与信息规格不兼容。",422,{defaultValue:defaultIssue});const nextFields=[...(scope.fields as FieldDefinition[]),field];
     const typeVersionId=randomUUID();const nextVersion=Number(scope.version)+1;
     await client.query("INSERT INTO new_design.card_type_versions(id,card_type_id,version,fields) VALUES($1,$2,$3,$4::jsonb)",[typeVersionId,input.cardTypeId,nextVersion,JSON.stringify(nextFields)]);
     await client.query("UPDATE new_design.card_types SET current_version_id=$2,draft_fields=$3::jsonb,revision=revision+1,updated_at=now() WHERE id=$1",[input.cardTypeId,typeVersionId,JSON.stringify(nextFields)]);
+    await installNonSettlementFields(client,String(scope.space_id),String(scope.type_key),[field]);
     const forms=await client.query(`SELECT form.*,version.definition,version.version form_version FROM new_design.card_group_forms form JOIN new_design.card_group_form_versions version ON version.id=form.current_version_id WHERE form.space_id=$1 AND form.status='published' AND version.definition->>'primaryTypeKey'=$2 FOR UPDATE OF form`,[scope.space_id,scope.type_key]);
     let sourceFormVersionId:string|null=null;
     for(const form of forms.rows){
@@ -107,9 +106,10 @@ export async function createBookFieldExtension(bookId:string,input:BookExtension
     }
     const definitionRow=assertFound((await client.query("SELECT id,current_version_id FROM new_design.field_definitions WHERE card_type_id=$1 AND field_key=$2",[input.cardTypeId,key])).rows[0],"新字段版本登记失败。");
     await client.query("UPDATE new_design.field_definitions SET source_form_version_id=COALESCE($2,source_form_version_id) WHERE id=$1",[definitionRow.id,sourceFormVersionId]);
-    await client.query(`INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,to_version_id,expected_type_revision,impact,created_by) VALUES($1,$2,'create',$3,$4,$5,$6::jsonb,$7)`,[randomUUID(),definitionRow.id,input.idempotencyKey,definitionRow.current_version_id,input.expectedTypeRevision,JSON.stringify({affectedCardCount:affected,backfillStrategy:input.backfillStrategy}),input.createdBy]);
-    await client.query("COMMIT");return assertFound(await findDefinition(client,String(definitionRow.id)),"新字段读取失败。");
-  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+    const result=assertFound(await findDefinition(client,String(definitionRow.id)),"新字段读取失败。");
+    await write.record(result,{action:"create",expectedTypeRevision:input.expectedTypeRevision,createdBy:input.createdBy,impact:{affectedCardCount:affected,backfillStrategy:input.backfillStrategy}});
+    return await write.commit(result);
+  }catch(error){return await write.fail(error);}finally{client.release();}
 }
 
 async function insertOptions(client:PoolClient,definitionId:string,version:number,field:FieldDefinition,createdBy:string){
@@ -144,9 +144,9 @@ async function copyCardVersion(client:PoolClient,card:Record<string,unknown>,cre
 }
 
 export async function createCardLocalField(bookId:string,cardId:string,input:LocalInput):Promise<ScopedFieldDefinition>{
-  const pool=await getNewDesignPool();const client=await pool.connect();
+  const pool=await getNewDesignPool();const client=await pool.connect();const write=new FieldWriteSession(client,bookId,"card_field_create",input.idempotencyKey,{cardId,...input});
   try{
-    await client.query("BEGIN");const repeated=await existingReceipt(client,bookId,input.idempotencyKey);if(repeated){await client.query("COMMIT");return repeated;}
+    const repeated=await write.begin();if(repeated)return await write.commit(repeated);
     const card=assertFound((await client.query(`SELECT card.* FROM new_design.cards card JOIN new_design.books book ON book.space_id=card.space_id WHERE card.id=$1 AND book.id=$2 FOR UPDATE OF card`,[cardId,bookId])).rows[0],"当前资料不属于这本书。");
     if(Number(card.revision)!==input.expectedCardRevision)throw new NewDesignError("当前资料已更新，请刷新后再添加。",409);
     const key=slug("local");const field=buildField({...input.field,defaultValue:undefined,options:input.field.options.map((option)=>({label:option.label}))},key);const value=normalizeOptionValue(field,input.initialValue);
@@ -156,9 +156,10 @@ export async function createCardLocalField(bookId:string,cardId:string,input:Loc
     await client.query("INSERT INTO new_design.field_definition_versions(id,field_definition_id,version,field_schema,created_by) VALUES($1,$2,1,$3::jsonb,$4)",[versionId,definitionId,JSON.stringify(field),input.createdBy]);
     await client.query("UPDATE new_design.field_definitions SET current_version_id=$2 WHERE id=$1",[definitionId,versionId]);await insertOptions(client,definitionId,1,field,input.createdBy);
     await copyCardVersion(client,card,input.createdBy,{id:definitionId,versionId,value});
-    await client.query(`INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,to_version_id,expected_subject_revision,impact,created_by) VALUES($1,$2,'create',$3,$4,$5,'{"affectedCardCount":1}'::jsonb,$6)`,[randomUUID(),definitionId,input.idempotencyKey,versionId,input.expectedCardRevision,input.createdBy]);
-    await client.query("COMMIT");return assertFound(await findDefinition(client,definitionId),"补充信息读取失败。");
-  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+    const result=assertFound(await findDefinition(client,definitionId),"补充信息读取失败。");
+    await write.record(result,{action:"create",expectedSubjectRevision:input.expectedCardRevision,createdBy:input.createdBy,impact:{affectedCardCount:1}});
+    return await write.commit(result);
+  }catch(error){return await write.fail(error);}finally{client.release();}
 }
 
 export async function listScopedFields(bookId:string,cardTypeId:string,cardId?:string):Promise<ScopedFieldBundle>{
@@ -179,8 +180,8 @@ export async function listScopedFieldHistory(bookId:string,fieldId:string):Promi
 }
 
 export async function reviseCardLocalField(bookId:string,fieldId:string,input:{expectedRevision:number;field:AddInformationFieldInput;idempotencyKey:string;createdBy:string}):Promise<ScopedFieldDefinition>{
-  const pool=await getNewDesignPool();const client=await pool.connect();
-  try{await client.query("BEGIN");const repeated=await existingReceipt(client,bookId,input.idempotencyKey);if(repeated){await client.query("COMMIT");return repeated;}
+  const pool=await getNewDesignPool();const client=await pool.connect();const write=new FieldWriteSession(client,bookId,"card_field_revise",input.idempotencyKey,{fieldId,...input});
+  try{const repeated=await write.begin();if(repeated)return await write.commit(repeated);
     const existing=assertFound((await client.query(`SELECT definition.*,version.field_schema FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id JOIN new_design.books book ON book.space_id=definition.space_id WHERE definition.id=$1 AND book.id=$2 FOR UPDATE OF definition`,[fieldId,bookId])).rows[0],"补充信息不存在。");
     if(existing.scope!=="card"||existing.origin!=="local_supplement")throw new NewDesignError("这里只能修改当前资料的补充信息。",422);if(Number(existing.revision)!==input.expectedRevision)throw new NewDesignError("补充信息已更新，请刷新后重试。",409);
     const previousField=existing.field_schema as FieldDefinition;if(previousField.type!==input.field.type)throw new NewDesignError("已保存的补充信息不能改变内容形式，请另建一项信息。",422,{type:"内容形式已固定。"});
@@ -193,14 +194,15 @@ export async function reviseCardLocalField(bookId:string,fieldId:string,input:{e
     await client.query("INSERT INTO new_design.field_definition_versions(id,field_definition_id,version,field_schema,created_by) VALUES($1,$2,$3,$4::jsonb,$5)",[versionId,fieldId,nextVersion,JSON.stringify(field),input.createdBy]);
     await client.query("UPDATE new_design.field_definitions SET current_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1",[fieldId,versionId]);
     await reviseOptions(client,fieldId,nextVersion,field,input.createdBy);
-    await client.query(`INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,from_version_id,to_version_id,expected_subject_revision,created_by) VALUES($1,$2,'revise',$3,$4,$5,$6,$7)`,[randomUUID(),fieldId,input.idempotencyKey,existing.current_version_id,versionId,input.expectedRevision,input.createdBy]);
-    await client.query("COMMIT");return assertFound(await findDefinition(client,fieldId),"补充信息读取失败。");
-  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+    const result=assertFound(await findDefinition(client,fieldId),"补充信息读取失败。");
+    await write.record(result,{action:"revise",fromVersionId:String(existing.current_version_id),expectedSubjectRevision:input.expectedRevision,createdBy:input.createdBy});
+    return await write.commit(result);
+  }catch(error){return await write.fail(error);}finally{client.release();}
 }
 
 export async function archiveScopedField(bookId:string,fieldId:string,input:{expectedRevision:number;expectedTypeRevision?:number;idempotencyKey:string;createdBy:string}):Promise<ScopedFieldDefinition>{
-  const pool=await getNewDesignPool();const client=await pool.connect();
-  try{await client.query("BEGIN");const repeated=await existingReceipt(client,bookId,input.idempotencyKey);if(repeated){await client.query("COMMIT");return repeated;}
+  const pool=await getNewDesignPool();const client=await pool.connect();const write=new FieldWriteSession(client,bookId,"field_archive",input.idempotencyKey,{fieldId,...input});
+  try{const repeated=await write.begin();if(repeated)return await write.commit(repeated);
     const existing=assertFound((await client.query(`SELECT definition.*,version.field_schema FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id JOIN new_design.books book ON book.space_id=definition.space_id WHERE definition.id=$1 AND book.id=$2 FOR UPDATE OF definition`,[fieldId,bookId])).rows[0],"字段不存在。");
     if(Number(existing.revision)!==input.expectedRevision)throw new NewDesignError("字段已更新，请刷新后重试。",409);if(existing.origin==="core")throw new NewDesignError("核心信息不能隐藏或归档。",422);if(existing.origin==="template"&&(existing.field_schema as FieldDefinition).required)throw new NewDesignError("必填的模板信息不能隐藏。",422);
     let toVersionId=String(existing.current_version_id);
@@ -218,7 +220,8 @@ export async function archiveScopedField(bookId:string,fieldId:string,input:{exp
       await client.query("INSERT INTO new_design.field_definition_versions(id,field_definition_id,version,field_schema,created_by) VALUES($1,$2,$3,$4::jsonb,$5)",[toVersionId,fieldId,nextVersion,JSON.stringify(field),input.createdBy]);
       await client.query("UPDATE new_design.field_definitions SET status='archived',current_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1",[fieldId,toVersionId]);
     }
-    await client.query(`INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,from_version_id,to_version_id,expected_type_revision,expected_subject_revision,created_by) VALUES($1,$2,'archive',$3,$4,$5,$6,$7,$8)`,[randomUUID(),fieldId,input.idempotencyKey,existing.current_version_id,toVersionId,input.expectedTypeRevision??null,input.expectedRevision,input.createdBy]);
-    await client.query("COMMIT");return assertFound(await findDefinition(client,fieldId),"字段读取失败。");
-  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+    const result=assertFound(await findDefinition(client,fieldId),"补充信息读取失败。");
+    await write.record(result,{action:"archive",fromVersionId:String(existing.current_version_id),expectedSubjectRevision:input.expectedRevision,expectedTypeRevision:input.expectedTypeRevision,createdBy:input.createdBy});
+    return await write.commit(result);
+  }catch(error){return await write.fail(error);}finally{client.release();}
 }
