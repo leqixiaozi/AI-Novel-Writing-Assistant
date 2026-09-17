@@ -9,3 +9,7 @@
 失败像刷卡时收银机断线：没有小票不能断定没扣款。对应技术上，只有 COMMIT 尚未开始且 ROLLBACK 真实成功才标记 not_written；COMMIT/ROLLBACK 不明均 unknown。只读原请求查询也持有同键锁；null 不能证明未执行。前端持久原键与草稿，unknown 只读核对；有明确 not_written 且已读核对后，作者确认差异再用新键重新准备。
 
 062 增量仅编写，由根迁移注册；本阶段不应用。测试用例只编写，所有剩余编码完成后一次集中验证。
+
+## 调用者持有的原子事务
+
+`updateAuthorMaterialInTransaction(client,bookId,cardId,input)` 供明确批量作者命令使用，不自行 BEGIN／COMMIT／释放连接。它复用 store.updateCardInTransaction 的同一校验、当前规格／实际活跃表单判断、card_versions、补充值、字典快照、标签、AI 来源和作者回执；不是第二份保存实现。store 的单项公开保存仍自行管理原事务及提交失败分类。批量调用者必须在所有项目成功和整批原回执完成后一次提交，任何项失败回滚全批；未知提交只读原请求，不自动重放。

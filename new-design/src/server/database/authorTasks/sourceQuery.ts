@@ -2,8 +2,8 @@
 export const AUTHOR_TASK_SOURCE_QUERY=`
 SELECT 'story_batch'::text kind,b.id,CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN 'planning' ELSE 'execution' END::text domain,b.book_id,
  CASE WHEN b.stage='ended_unknown' THEN 'ended_unknown' WHEN b.status='running' AND (b.stage IN ('result_unknown','result_pending') OR b.created_at<now()-interval '15 minutes') THEN 'unknown' ELSE b.status END status,
- CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN '范围规划 AI 候选' ELSE '整组设定 AI 候选' END title,b.updated_at,
- '/new-design/books/'||b.book_id::text||CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN '/planning' ELSE '/story-setting' END||'?batch='||b.id::text route,b.progress,
+ CASE b.input_payload->'request'->>'mode' WHEN 'planning' THEN '范围规划 AI 候选' WHEN 'visible_prepare' THEN '人物外显 AI 补全' WHEN 'visible_adjust' THEN '人物外显 AI 调整' ELSE '整组设定 AI 候选' END title,b.updated_at,
+ '/new-design/books/'||b.book_id::text||CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN '/planning' ELSE '/story-setting' END||'?batch='||b.id::text||CASE WHEN b.input_payload->'request'->>'mode' IN ('visible_prepare','visible_adjust') THEN '&batchMode='||(b.input_payload->'request'->>'mode')||'&tab=characters&detail=visible&selected='||(b.input_payload->'snapshot'->'slots'->0->'target'->>'cardId')||'&type='||(b.input_payload->'snapshot'->'slots'->0->'target'->>'cardTypeId') ELSE '' END route,b.progress,
  jsonb_build_object('requestKey',b.id,'stage',b.stage,'saved',b.output_payload->'result' IS NOT NULL,'exact',true) meta
  FROM new_design.ai_generation_batches b WHERE b.input_payload->>'contract'='story_workspace_ai_v1'
  UNION ALL

@@ -21,5 +21,5 @@ export function cardsForDimension(cards:BookViewCard[], tab:PlanningTab):BookVie
 }
 export function settingHref(bookId:string,card:Pick<BookViewCard,'id'|'typeKey'>,returnTo?:string):string {const query=new URLSearchParams({tab:settingTabForType(card.typeKey),selected:card.id});if(returnTo)query.set('returnTo',returnTo);return `/new-design/books/${bookId}/story-setting?${query}`;}
 export function safePlanningReturn(bookId:string,raw:string|null):string|null {if(!raw)return null;try{const url=new URL(raw,'http://workspace.local');return url.origin==='http://workspace.local'&&url.pathname===`/new-design/books/${bookId}/planning`?url.pathname+url.search+url.hash:null;}catch{return null;}}
-export function hasAmbiguousNavigation(query:URLSearchParams):boolean {return ['tab','scope','selected','plan','type','new','detail','relation','returnTo'].some(key=>query.getAll(key).length>1);}
+export function hasAmbiguousNavigation(query:URLSearchParams):boolean {return ['tab','scope','selected','plan','type','new','detail','relation','returnTo','batch','batchMode'].some(key=>query.getAll(key).length>1);}
 export function writingHref(bookId:string,chapterCardId?:string|null):string {return chapterCardId?`/new-design/books/${bookId}/chapters/${encodeURIComponent(chapterCardId)}/write`:`/new-design/books/${bookId}/writing`;}

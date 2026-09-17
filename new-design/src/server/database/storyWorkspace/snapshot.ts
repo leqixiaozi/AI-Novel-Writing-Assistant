@@ -1,3 +1,5 @@
+import {fieldInCharacterSection} from "../../../common/formPresentation";
+import {resolveBookFormVersion} from "../referenceParity";
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import type {StoryBatchPromptInput,StoryBatchRequest,StoryBatchSlot} from '../../../common/storyWorkspace';
@@ -31,6 +33,19 @@ export async function freezeStoryBatch(db:PoolClient,bookId:string,request:Story
    const fields=aiFormFields(snapshot,'prepare_all',[]);
    if(!fields.length)continue;
    slots.push({id:card?.id??randomUUID(),title:target.title||'新增设定',values,fields,target,planningId:null,revision:target.cardRevision,baseVersionId:null,parentVersionId:null,level:null,sourceHash:snapshot.sourceHash});
+  }
+ }else if(request.mode==='visible_prepare'||request.mode==='visible_adjust'){
+  const cards=materials.filter(card=>request.cardIds.includes(card.id)&&card.type_key==='character');
+  if(cards.length!==request.cardIds.length)throw new NewDesignError('指定人物不属于本书已发布人物资料，未扩大或替换范围。',422);
+  for(const card of cards){
+   const type=assertFound((await db.query("SELECT current_version_id FROM new_design.card_types WHERE id=$1 AND space_id=$2 AND status='published'",[card.card_type_id,book.space_id])).rows[0],'人物填写规格未发布。');
+   const selected=await resolveBookFormVersion(db,String(book.space_id),'character');
+   const target:FormAssistTarget={bookId,cardTypeId:card.card_type_id,cardId:card.id,typeVersionId:type.current_version_id,cardRevision:Number(card.revision),formVersionId:selected?String(selected.id):null,title:card.title};
+   const locals=(await db.query("SELECT definition.field_key,local.value FROM new_design.cards card JOIN new_design.card_version_local_values local ON local.card_version_id=card.current_version_id JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE card.id=$1 AND definition.scope='card' AND definition.status='active'",[card.id])).rows;
+   const values={...card.values,...Object.fromEntries(locals.map(local=>[local.field_key,local.value]))},snapshot=await freezeFormContext(db,target,values,[]),keys=snapshot.fields.filter(field=>fieldInCharacterSection(field,'visible')).map(field=>field.key);
+   const fields=keys.length?aiFormFields(snapshot,'adjust',keys):[];
+   if(!fields.length)throw new NewDesignError(`“${card.title}”没有实际已发布且允许 AI 建议的外显字段，请先完善本书规格。`,422);
+   slots.push({id:card.id,title:card.title,values,fields,target,planningId:null,revision:target.cardRevision,baseVersionId:card.current_version_id,parentVersionId:null,level:null,sourceHash:snapshot.sourceHash});
   }
  }else{
   let selected=plans;

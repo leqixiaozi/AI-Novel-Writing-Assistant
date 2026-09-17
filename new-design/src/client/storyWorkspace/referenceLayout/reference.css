@@ -32,3 +32,8 @@
 .nd-story-setting .nd-business-form-editor{border:0;box-shadow:none}
 @media(max-width:1100px){.nd-story-setting .nd-story-setting-layout.is-character{grid-template-columns:220px minmax(0,1fr)}.nd-story-setting .nd-form-group[data-layout=long]{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.nd-story-setting .nd-story-setting-layout.is-character,.nd-story-setting .nd-story-setting-layout.is-world{grid-template-columns:1fr}.nd-story-setting .nd-story-index{max-height:240px}.nd-story-setting .nd-form-group,.nd-story-setting .nd-form-group[data-layout=long],.nd-selected-summary dl,.nd-reference-fields{grid-template-columns:1fr}.nd-world-handbook-tabs{display:flex;flex-wrap:wrap}}
+
+.nd-visible-generation{display:grid;gap:.75rem;padding:1rem;background:var(--nd-soft);border-radius:8px}.nd-visible-generation h3{margin:0;font-size:.9rem}.nd-visible-generation textarea{min-height:72px;width:100%;font-size:.875rem}.nd-visible-candidates .nd-story-batch-item{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.nd-visible-candidates .nd-story-batch-item>h4,.nd-visible-candidates .nd-story-batch-item>button{grid-column:1/-1}.nd-visible-candidates .nd-story-batch-field{margin:0;padding:.6rem;background:var(--nd-soft);border-radius:6px}
+@media(max-width:700px){.nd-visible-candidates .nd-story-batch-item{grid-template-columns:1fr}}
+
+.nd-story-setting [data-character-section=visible] .nd-form-group[data-layout=long]{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:700px){.nd-story-setting [data-character-section=visible] .nd-form-group[data-layout=long]{grid-template-columns:1fr}}

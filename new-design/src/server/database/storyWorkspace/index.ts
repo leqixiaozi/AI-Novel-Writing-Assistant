@@ -1,8 +1,9 @@
 import {z} from 'zod';
+import type {PoolClient} from 'pg';
 import type {StoryBatchRecord,StoryBatchRequest,StoryBatchOutput,StoryBatchDraft} from '../../../common/storyWorkspace';
 import type {NewDesignAiGateway} from '../../ai/gateway';
 import {AiExecutionError} from '../../ai/runtime/errors';
-import {preparePrompt} from '../../ai/prompts';
+import {preparePrompt,storyBatchTask} from '../../ai/prompts';
 import {NewDesignError} from '../../domain/errors';
 import {getNewDesignPool} from '../runtime';
 import {formHash,freezeFormContext} from '../formAssist';
@@ -12,6 +13,7 @@ import {freezeStoryBatch} from './snapshot';
 const base={requestKey:z.string().uuid(),instruction:z.string().trim().max(2000)};
 export const storyBatchRequestSchema=z.discriminatedUnion('mode',[
  z.object({...base,mode:z.literal('setting'),typeIds:z.array(z.string().uuid()).min(1).max(20),newTypeId:z.string().uuid(),newCount:z.number().int().min(0).max(10)}).strict().refine(input=>new Set(input.typeIds).size===input.typeIds.length,'内容类型不能重复。'),
+ ...(['visible_prepare','visible_adjust'] as const).map(mode=>z.object({...base,mode:z.literal(mode),cardIds:z.array(z.string().uuid()).min(1).max(20)}).strict().refine(input=>new Set(input.cardIds).size===input.cardIds.length,'人物不能重复。')),
  z.object({...base,mode:z.literal('planning'),scopeId:z.union([z.literal('book'),z.string().uuid()])}).strict(),
 ]);
 const contract='story_workspace_ai_v1';
@@ -21,17 +23,14 @@ export async function readStoryBatch(bookId:string,key:string):Promise<StoryBatc
  const db=await (await getNewDesignPool()).connect();
  try{await db.query('BEGIN');await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`story-batch:${bookId}:${key}`]);const row=(await db.query("SELECT * FROM new_design.ai_generation_batches WHERE id=$1 AND book_id=$2 AND input_payload->>'contract'=$3",[key,bookId,contract])).rows[0];await db.query('COMMIT');return row?mapRecord(row):null;}catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
 }
-export async function checkStoryBatchSlot(bookId:string,key:string,slotId:string):Promise<StoryBatchDraft>{
- const record=await readStoryBatch(bookId,key),slot=record?.snapshot.slots.find(item=>item.id===slotId);
- if(!record||record.status!=='review'||!slot||!record.output?.candidates[slotId])throw new NewDesignError('此原候选尚未准备完成或不属于本书。',409);
- const db=await (await getNewDesignPool()).connect();
- try{
-  await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+export async function validateStoryBatchSlot(db:PoolClient,record:StoryBatchRecord,slotId:string):Promise<StoryBatchDraft>{
+ const bookId=record.bookId,key=record.requestKey,slot=record.snapshot.slots.find(item=>item.id===slotId);
+ if(!['review','applied'].includes(record.status)||!slot||!record.output?.candidates[slotId])throw new NewDesignError('此原候选尚未准备完成或不属于本书。',409);
   const values=record.output.candidates[slotId];
   if(slot.target){
    const fresh=await freezeFormContext(db,slot.target,slot.values,[]);
    if(fresh.sourceHash!==slot.sourceHash)throw new NewDesignError('资料、字段或关联来源已更新，请保留旧候选并另行准备；未覆盖填写。',409);
-   const issues=validateFormCandidate(fresh,{id:slotId,name:'整组候选',values,tags:{}},'prepare_all');
+   const issues=validateFormCandidate(fresh,{id:slotId,name:'整组候选',values,tags:{}},record.snapshot.mode==='visible_prepare'||record.snapshot.mode==='visible_adjust'?'adjust':'prepare_all');
    if(Object.keys(issues).length)throw new NewDesignError('候选字段不符合本书表单，请重新准备。',422,issues);
   }else if(slot.planningId){
    const plan=(await db.query(`SELECT object.revision,object.current_version_id,parent.adopted_version_id parent_version_id FROM new_design.planning_objects object LEFT JOIN new_design.planning_objects parent ON parent.id=object.parent_object_id WHERE object.id=$1 AND object.book_id=$2 AND object.status='active'`,[slot.planningId,bookId])).rows[0];
@@ -44,9 +43,13 @@ export async function checkStoryBatchSlot(bookId:string,key:string,slotId:string
   const adopted=record.snapshot.adoptedPlans;
   const plans=(await db.query("SELECT id,adopted_version_id FROM new_design.planning_objects WHERE book_id=$1 AND id=ANY($2::uuid[]) AND status='active'",[bookId,adopted.map(item=>item.id)])).rows;
   if(plans.length!==adopted.length||adopted.some(item=>!plans.some(plan=>plan.id===item.id&&plan.adopted_version_id===item.versionId)))throw new NewDesignError('本次采用规划已更新，请保留旧候选并另行准备。',409);
-  await db.query('COMMIT');return {key:`${key}:${slotId}`,bookId,slot,values};
- }catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
+ return {key:`${key}:${slotId}`,bookId,slot,values};
 }
+export async function checkStoryBatchSlot(bookId:string,key:string,slotId:string):Promise<StoryBatchDraft>{
+ const record=await readStoryBatch(bookId,key);if(!record)throw new NewDesignError('此原候选不属于本书。',409);const db=await(await getNewDesignPool()).connect();
+ try{await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const result=await validateStoryBatchSlot(db,record,slotId);await db.query('COMMIT');return result;}catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
+}
+
 export async function endUnknownStoryBatch(bookId:string,key:string):Promise<StoryBatchRecord>{
  const db=await (await getNewDesignPool()).connect();
  try{
@@ -67,14 +70,14 @@ export async function generateStoryBatch(bookId:string,request:StoryBatchRequest
  try{
   await db.query('BEGIN');await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`story-batch:${bookId}:${request.requestKey}`]);
   const prior=(await db.query("SELECT * FROM new_design.ai_generation_batches WHERE id=$1 AND book_id=$2 AND input_payload->>'contract'=$3",[request.requestKey,bookId,contract])).rows[0];
-  if(prior){if(prior.input_payload.requestHash!==requestHash)throw new NewDesignError('原请求内容不匹配，请核对保留的请求。',409);await db.query('ROLLBACK');return mapRecord(prior);}
+  if(prior){if(prior.input_payload.requestHash!==requestHash)throw new StoryBatchError('原请求内容不匹配，请核对保留的请求。',409,'unknown');await db.query('ROLLBACK');return mapRecord(prior);}
   if(!ai?.generateStoryWorkspaceBatch)throw new NewDesignError('请先在模型设置中连接创作模型。',503);
   snapshot=await freezeStoryBatch(db,bookId,request);
   // Validate the managed prompt before claiming the request or invoking a model.
-  preparePrompt('story_workspace_batch',snapshot);
-  await db.query(`INSERT INTO new_design.ai_generation_batches(id,book_id,operation,status,stage,instruction,input_payload,prompt_id,prompt_version) VALUES($1,$2,'form_assist','running','generating',$3,$4::jsonb,'new_design.story_workspace.batch','v1')`,[request.requestKey,bookId,request.instruction,JSON.stringify({contract,requestHash,request,snapshot})]);
+  const prompt=preparePrompt(storyBatchTask(snapshot.mode),snapshot);
+  await db.query(`INSERT INTO new_design.ai_generation_batches(id,book_id,operation,status,stage,instruction,input_payload,prompt_id,prompt_version) VALUES($1,$2,'form_assist','running','generating',$3,$4::jsonb,$5,$6)`,[request.requestKey,bookId,request.instruction,JSON.stringify({contract,requestHash,request,snapshot}),prompt.assetId,prompt.version]);
   committing=true;await db.query('COMMIT');committed=true;
- }catch(error){let rolledBack=false;try{await db.query('ROLLBACK');rolledBack=true;}catch{}throw new StoryBatchError(error instanceof NewDesignError?error.message:'准备请求未完成，请核对原请求。',error instanceof NewDesignError?error.status:503,!committing&&rolledBack?'not_written':'unknown');}finally{db.release();}
+ }catch(error){let rolledBack=false;try{await db.query('ROLLBACK');rolledBack=true;}catch{}if(error instanceof StoryBatchError)throw error;throw new StoryBatchError(error instanceof NewDesignError?error.message:'准备请求未完成，请核对原请求。',error instanceof NewDesignError?error.status:503,!committing&&rolledBack?'not_written':'unknown');}finally{db.release();}
  if(!committed)throw new StoryBatchError('原请求结果待核对。',503,'unknown');
  let modelCompleted=false;
  const executionDb=await pool.connect();
@@ -84,7 +87,7 @@ export async function generateStoryBatch(bookId:string,request:StoryBatchRequest
   if(!current)throw new Error('原请求记录未读取。');
   if(current.status!=='running')return mapRecord(current);
   const generated=await ai!.generateStoryWorkspaceBatch!(snapshot!);modelCompleted=true;
-  const result=preparePrompt('story_workspace_batch',snapshot!).parseOutput(generated.output) as StoryBatchOutput;
+  const result=preparePrompt(storyBatchTask(snapshot!.mode),snapshot!).parseOutput(generated.output) as StoryBatchOutput;
   const row=(await executionDb.query(`UPDATE new_design.ai_generation_batches SET status='review',stage='review',progress=100,output_payload=$2::jsonb,updated_at=now(),completed_at=now() WHERE id=$1 AND book_id=$3 AND input_payload->>'contract'=$4 AND status='running' RETURNING *`,[request.requestKey,JSON.stringify({result,promptSnapshot:generated.promptSnapshot,modelSnapshot:generated.modelSnapshot,usedTokens:generated.usedTokens}),bookId,contract])).rows[0];
   if(!row)throw new Error('候选保存回执待核对。');
   return mapRecord(row);
@@ -101,3 +104,7 @@ export async function generateStoryBatch(bookId:string,request:StoryBatchRequest
   throw new StoryBatchError('候选生成或保存结果待核对，请读取原请求结果；不会自动再次调用模型。',503,'unknown');
  }finally{await executionDb.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[`story-execution:${request.requestKey}`]).catch(()=>undefined);executionDb.release(true);}
 }
+
+export {adoptVisibleFields,readVisibleAdoption,visibleAdoptionSchema} from "./adoptions";
+
+export {writeVisibleBatch,readVisibleBatchWrite,visibleBatchWriteSchema} from "./visibleBatchWrites";

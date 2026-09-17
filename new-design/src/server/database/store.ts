@@ -326,15 +326,11 @@ export async function createCard(input: { cardTypeId: string; title: string; val
   }
 }
 
-async function updateCardSnapshot(
-  id: string,
-  input: { title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras,
-): Promise<AuthorSavedCard> {
-  const {client}=await prepareAuthorMaterialConnection(input.authorWrite);
-  let commitStarted=false;
-  try {
-    await client.query("BEGIN");
-    if(input.authorWrite){const prior=await claimAuthorMaterialWrite(client,input.authorWrite,id);if(prior){commitStarted=true;await client.query("COMMIT");return {...prior.card,authorReceipt:prior};}}
+type CardSnapshotUpdateInput={ title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras;
+
+/** Reuses the standard version, validation and AI-origin writer in a caller-owned transaction. */
+async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotUpdateInput):Promise<AuthorSavedCard>{
+  if(input.authorWrite){const prior=await claimAuthorMaterialWrite(client,input.authorWrite,id);if(prior)return {...prior.card,authorReceipt:prior};}
     const existing = assertFound(await findCard(client, id, true), "资料不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此卡片已在其他页面更新，请刷新后再保存。", 409);
     const typeVersion = await findCurrentTypeFields(client, existing.cardTypeId);
@@ -382,16 +378,15 @@ async function updateCardSnapshot(
     if(input.tagIds!==undefined)await saveFormDraftTags(client,id,versionId,String(cardContext.space_id),existing.cardTypeId,input.tagIds);
     const saved=assertFound(await findCard(client,id),"资料保存回执未准备完成。");
     const authorReceipt=input.authorWrite?await persistAuthorMaterialReceipt(client,input.authorWrite,versionId,saved,{...input,localValues:incomingLocalValues}):undefined;
-    commitStarted=true;
-    await client.query("COMMIT");
     return authorReceipt?{...saved,authorReceipt}:saved;
-  } catch (error) {
-    if(input.authorWrite)return await rethrowAuthorMaterialWrite(client,error,commitStarted);
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+}
+export const updateCardInTransaction=(client:PoolClient,id:string,input:Omit<CardSnapshotUpdateInput,"source">)=>writeCardSnapshot(client,id,{...input,source:"edit"});
+
+async function updateCardSnapshot(id:string,input:CardSnapshotUpdateInput):Promise<AuthorSavedCard>{
+ const {client}=await prepareAuthorMaterialConnection(input.authorWrite);let commitStarted=false;
+ try{await client.query("BEGIN");const saved=await writeCardSnapshot(client,id,input);commitStarted=true;await client.query("COMMIT");return saved;}
+ catch(error){if(input.authorWrite)return await rethrowAuthorMaterialWrite(client,error,commitStarted);await client.query("ROLLBACK");throw error;}
+ finally{client.release();}
 }
 
 export async function updateCard(id: string, input: { title: string; values: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras): Promise<AuthorSavedCard> {

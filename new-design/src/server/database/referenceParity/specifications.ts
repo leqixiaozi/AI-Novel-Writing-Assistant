@@ -2,13 +2,13 @@ import {installNonSettlementFields} from "./fieldPolicies";
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
 import type {CardGroupFormDefinition,FieldDefinition,TemplateGroupSummary} from "../../../common/contracts";
-import {characterFieldAdditions,type ReferenceSpecificationPreview,type ReferenceSpecificationPublishInput} from "../../../common/referenceParity";
+import {characterVisibleAdditions,characterFieldAdditions,type ReferenceSpecificationPreview,type ReferenceSpecificationPublishInput} from "../../../common/referenceParity";
 import {NewDesignError,assertFound} from "../../domain/errors";
 import {getNewDesignPool} from "../runtime";
 import {executeStructureWrite,readStructureWriteReceipt,structureWriteHash} from "../structureWrites";
 import type {TemplatePayload} from "../templateStore";
 
-async function inspect(client:PoolClient,sourceTemplateVersionId:string,lock=false){
+async function inspect(client:PoolClient,sourceTemplateVersionId:string,lock=false,kind:"profile"|"visible"="profile"){
   const template=assertFound((await client.query(`SELECT template.*,version.payload FROM new_design.template_group_versions version JOIN new_design.template_groups template ON template.id=version.template_id WHERE version.id=$1 ${lock?"FOR UPDATE OF template":""}`,[sourceTemplateVersionId])).rows[0],"请选择实际已发布的模板版本。");
   if(template.current_version_id!==sourceTemplateVersionId)throw new NewDesignError("模板已有新版本，请重新预览当前发布版本。",409);
   const payload=structuredClone(template.payload as TemplatePayload),type=assertFound(payload.cardTypes.find(item=>item.key==="character"),"这个模板没有人物规格。");
@@ -16,14 +16,14 @@ async function inspect(client:PoolClient,sourceTemplateVersionId:string,lock=fal
   const conflicts:string[]=[];
   if(source.current_version_id!==type.sourceVersionId||structureWriteHash(source.fields)!==structureWriteHash(type.fields))conflicts.push("模板快照与当前人物来源版本不同，请先明确选择对应的来源版本。");
   if(structureWriteHash(source.draft_fields)!==structureWriteHash(source.fields))conflicts.push("人物来源有未发布草稿，请先处理草稿后准备发布。");
-  const diff=characterFieldAdditions(type.fields);conflicts.push(...diff.conflicts);
-  const preview:ReferenceSpecificationPreview={sourceTemplateVersionId,templateId:String(template.id),templateRevision:Number(template.revision),inputHash:structureWriteHash({sourceTemplateVersionId,templateRevision:template.revision,payload,sourceRevision:source.revision,additions:diff.additions}),additions:diff.additions,conflicts,canPublish:!conflicts.length&&diff.additions.length>0};
+  const diff=kind==="visible"?characterVisibleAdditions(type.fields):characterFieldAdditions(type.fields);conflicts.push(...diff.conflicts);
+  const preview:ReferenceSpecificationPreview={...(kind==="visible"?{kind}:{}),sourceTemplateVersionId,templateId:String(template.id),templateRevision:Number(template.revision),inputHash:structureWriteHash({...(kind==="visible"?{kind}:{}),sourceTemplateVersionId,templateRevision:template.revision,payload,sourceRevision:source.revision,additions:diff.additions}),additions:diff.additions,conflicts,canPublish:!conflicts.length&&diff.additions.length>0};
   return{template,payload,type,source,preview};
 }
-export async function previewReferenceSpecification(sourceTemplateVersionId:string){const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const {preview}=await inspect(client,sourceTemplateVersionId);await client.query("COMMIT");return preview;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+export async function previewReferenceSpecification(sourceTemplateVersionId:string,kind:"profile"|"visible"="profile"){const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const {preview}=await inspect(client,sourceTemplateVersionId,false,kind);await client.query("COMMIT");return preview;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
 export async function publishReferenceSpecification(input:ReferenceSpecificationPublishInput):Promise<TemplateGroupSummary>{
   return executeStructureWrite("template","publish",input.requestKey,{command:"character_reference_specification",...input},async client=>{
-    const {template,payload,type,source,preview}=await inspect(client,input.sourceTemplateVersionId,true);
+    const {template,payload,type,source,preview}=await inspect(client,input.sourceTemplateVersionId,true,input.kind);
     if(preview.templateRevision!==input.templateRevision||preview.inputHash!==input.previewHash)throw new NewDesignError("来源规格或模板已改变，请重新预览。",409);
     if(!preview.canPublish)throw new NewDesignError(preview.conflicts.join(" ")||"人物字段已齐全，无需重复发布。",422);
     const fields=[...(source.fields as FieldDefinition[]),...preview.additions],typeVersionId=randomUUID();

@@ -255,7 +255,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
   const adoptBatchDraft=()=>{
     const draft=batchDraft,target=draft?.slot.target;
     if(!draft||!target||draft.bookId!==book.id||busy||aiLocked||unknownWrite||requestKey||!sourcesReady||!resolution){setError("候选来源尚未匹配，填写保留。");return;}
-    if(target.cardTypeId!==selectedType?.id||target.typeVersionId!==currentTypeVersion?.id||target.cardId!==(editing?.id??null)||target.cardRevision!==(editing?.revision??null) ){setError("此候选的资料或内容规格已更新，请另行准备。");return;}
+    if(target.cardTypeId!==selectedType?.id||target.typeVersionId!==currentTypeVersion?.id||target.formVersionId!==resolution.formVersionId||target.cardId!==(editing?.id??null)||target.cardRevision!==(editing?.revision??null) ){setError("此候选的资料或内容规格已更新，请另行准备。");return;}
     const nextValues={...values},nextLocal={...localValues};
     let nextTitle=title;
     for(const [key,value] of Object.entries(draft.values)){
@@ -267,7 +267,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
       if(!(blank(actual)&&blank(original))&&JSON.stringify(actual)!==JSON.stringify(original)&&!(creating&&JSON.stringify(actual)===JSON.stringify(field.defaultValue))){setError("此字段已有新的填写，候选未覆盖。请回候选列表取消勾选此字段。");return;}
       if(localFieldKeys.has(key))nextLocal[key]=value;else nextValues[key]=value;
     }
-    if(!target.cardId)setCreating(true);setTitle(nextTitle);setValues(nextValues);setLocalValues(nextLocal);setBatchApplied(draft.key);setError("");setNotice("已选候选载入填写。请检查后保存，其他字段保留。");
+    if(!target.cardId)setCreating(true);setTitle(nextTitle);setValues(nextValues);setLocalValues(nextLocal);setBatchApplied(draft.key);if(draft.decisionId)setAiDraftDecisionIds(ids=>ids.includes(draft.decisionId!)?ids:[...ids,draft.decisionId!]);setError("");setNotice("已选候选载入填写。请检查后保存，其他字段保留。");
   };
 
   const adoptRepairDraft=async()=>{
@@ -390,7 +390,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
         </div>
       </aside>
 
-      <section className="nd-business-form-editor" aria-label={`${selectedType?.name ?? "资料"}填写表单`}>
+      <section className="nd-business-form-editor" data-character-section={fieldSection} aria-label={`${selectedType?.name ?? "资料"}填写表单`}>
         {resolution?.needsSelection&&<p role="alert">本书有多份同类表单，请在关联资源或世界使用范围中明确选择表单版本。当前填写保留。</p>}
         {!resolution ? <div className="nd-empty nd-empty-page"><strong>没有可用的已发布填写规格</strong><span>发布内容规格后即可在这里填写，不会生成另一份配置。</span></div> : !creating && !editing ? <div className="nd-empty nd-empty-page"><strong>选择一条资料，或新建内容</strong><span>空白填写、模板生成和 AI 提案进入本书后，都使用同一套编辑页面。</span></div> : <>
           <div className="nd-business-editor-heading">

@@ -7,7 +7,7 @@ import {Router} from 'express';
 import {z} from 'zod';
 import type {NewDesignAiGateway} from '../../ai/gateway';
 import {AiExecutionError} from '../../ai';
-import {generateStoryBatch,readStoryBatch,checkStoryBatchSlot,endUnknownStoryBatch,storyBatchRequestSchema,StoryBatchError} from '../../database/storyWorkspace';
+import {generateStoryBatch,readStoryBatch,checkStoryBatchSlot,endUnknownStoryBatch,storyBatchRequestSchema,StoryBatchError,adoptVisibleFields,readVisibleAdoption,visibleAdoptionSchema,writeVisibleBatch,readVisibleBatchWrite,visibleBatchWriteSchema} from '../../database/storyWorkspace';
 export function storyWorkspaceRouter(ai?:NewDesignAiGateway):Router{
  const router=Router();
  router.get('/books/:bookId/initial-state-write-receipts/:key',(req,res,next)=>{void Promise.resolve().then(()=>readInitialStateWriteReceipt(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key))).then(data=>res.json({success:true,data})).catch(next);});
@@ -20,5 +20,9 @@ export function storyWorkspaceRouter(ai?:NewDesignAiGateway):Router{
  router.post('/books/:bookId/story-ai-batches/by-request/:key/end-unknown',(req,res,next)=>{void Promise.resolve().then(()=>{z.object({confirm:z.literal(true)}).strict().parse(req.body);return endUnknownStoryBatch(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key));}).then(data=>res.json({success:true,data})).catch(next);});
  router.get('/books/:bookId/story-ai-batches/by-request/:key',(req,res,next)=>{void Promise.resolve().then(()=>readStoryBatch(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key))).then(data=>res.json({success:true,data})).catch(next);});
  router.get('/books/:bookId/story-ai-batches/by-request/:key/slots/:slotId',(req,res,next)=>{void Promise.resolve().then(()=>checkStoryBatchSlot(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),z.string().uuid().parse(req.params.slotId))).then(data=>res.json({success:true,data})).catch(next);});
+ router.post('/books/:bookId/story-ai-batches/by-request/:key/visible-adoptions',(req,res,next)=>{void Promise.resolve().then(()=>adoptVisibleFields(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),visibleAdoptionSchema.parse(req.body))).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/story-ai-batches/by-request/:key/visible-adoption-receipt',(req,res,next)=>{void Promise.resolve().then(()=>readVisibleAdoption(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),visibleAdoptionSchema.parse(req.body))).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/story-ai-batches/by-request/:key/visible-batch-writes',(req,res,next)=>{void Promise.resolve().then(()=>writeVisibleBatch(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),visibleBatchWriteSchema.parse(req.body))).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/story-ai-batches/by-request/:key/visible-batch-write-receipt',(req,res,next)=>{void Promise.resolve().then(()=>readVisibleBatchWrite(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),visibleBatchWriteSchema.parse(req.body))).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
  return router;
 }

@@ -14,10 +14,12 @@ export const CHARACTER_REFERENCE_FIELDS:FieldDefinition[]=[
   text("initial_situation_draft","起始处境草稿","故事开始时的处境设想；正式状态从初始状态确认或已采用正文结算。","起始设定",23),
 ];
 export interface ReferenceSpecificationPreview {
+  kind?:"profile"|"visible";
   sourceTemplateVersionId:string;templateId:string;templateRevision:number;inputHash:string;
   additions:FieldDefinition[];conflicts:string[];canPublish:boolean;
 }
 export interface ReferenceSpecificationPublishInput {
+  kind?:"profile"|"visible";
   sourceTemplateVersionId:string;templateRevision:number;previewHash:string;requestKey:string;
 }
 export function characterFieldAdditions(fields:FieldDefinition[]):{additions:FieldDefinition[];conflicts:string[]}{
@@ -25,3 +27,5 @@ export function characterFieldAdditions(fields:FieldDefinition[]):{additions:Fie
   for(const field of CHARACTER_REFERENCE_FIELDS){const prior=fields.find(item=>item.key===field.key);if(!prior)additions.push(structuredClone(field));else if(prior.type!==field.type||prior.required||prior.stateSettlement&&prior.stateSettlement!=="none"||field.key==="gender"&&(prior.optionSource?.kind==="dictionary_tree"||field.options.some(option=>!prior.options.some(item=>item.value===option.value))))conflicts.push(`“${field.name}”的稳定键已有不同规格，需明确映射。`);}
   return{additions,conflicts};
 }
+
+export * from "./visibleFields";

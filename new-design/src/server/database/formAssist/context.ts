@@ -24,7 +24,7 @@ export async function freezeFormContext(db:Queryable,target:FormAssistTarget,val
   let card:Record<string,unknown>|null=null;
   if(target.cardId){const found=assertFound((await db.query("SELECT revision,type_version_id,current_version_id FROM new_design.cards WHERE id=$1 AND space_id=$2 AND card_type_id=$3 AND status='active'",[target.cardId,book.space_id,target.cardTypeId])).rows[0],"资料不属于本书可编辑范围。");card=found;if(Number(found.revision)!==target.cardRevision)throw new NewDesignError("资料已在其他页面保存，请先复核；本地草稿会保留。",409);}
   let form:Record<string,unknown>|null=null;
-  if(target.formVersionId){form=assertFound((await db.query(`SELECT version.definition,form.revision FROM new_design.card_group_forms form JOIN new_design.card_group_form_versions version ON version.id=form.current_version_id
+  if(target.formVersionId){form=assertFound((await db.query(`SELECT version.definition,form.revision FROM new_design.card_group_forms form JOIN new_design.card_group_form_versions version ON version.form_id=form.id
     WHERE version.id=$1 AND form.space_id=$2 AND form.status='published' AND version.definition->>'primaryTypeKey'=$3`,[target.formVersionId,book.space_id,type.type_key])).rows[0],"填写表单已更新或不属于本书，请复核后重试。");}
   const locals=target.cardId?(await db.query(`SELECT definition.id,definition.field_key,definition.current_version_id,version.field_schema
     FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id
