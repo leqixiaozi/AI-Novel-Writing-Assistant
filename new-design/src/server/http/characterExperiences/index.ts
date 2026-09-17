@@ -1,4 +1,5 @@
 import {Router} from 'express';
+import {recentBodyExperiencesRouter} from './recentBodies';
 import {z} from 'zod';
 import type {NewDesignAiGateway} from '../../ai/gateway';
 import {AiExecutionError} from '../../ai';
@@ -12,4 +13,4 @@ export function characterExperiencesRouter(ai?:NewDesignAiGateway){const router=
  router.get('/books/:bookId/character-experiences/by-id/:batchId',(req,res,next)=>{void Promise.resolve().then(()=>getExperienceRecord(uuid.parse(req.params.bookId),uuid.parse(req.params.batchId))).then(data=>res.json({success:true,data})).catch(next);});
  router.post('/books/:bookId/character-experiences/end-unknown',(req,res,next)=>{void Promise.resolve().then(()=>{const value=z.object({confirm:z.literal(true),input:experienceRequestSchema}).strict().parse(req.body);return endUnknownExperiences(uuid.parse(req.params.bookId),value.input);}).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
  router.post('/books/:bookId/character-experiences/:batchId/candidates/:candidateId/draft',(req,res,next)=>{void Promise.resolve().then(()=>{const input=z.object({eventId:uuid}).strict().parse(req.body);return getExperienceDraft(uuid.parse(req.params.bookId),uuid.parse(req.params.batchId),uuid.parse(req.params.candidateId),input.eventId);}).then(data=>res.json({success:true,data})).catch(next);});
- return router;}
+ router.use(recentBodyExperiencesRouter(ai));return router;}

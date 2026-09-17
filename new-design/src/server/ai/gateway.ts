@@ -36,6 +36,7 @@ export interface PlanningCandidateInput {bookName:string;bookDescription:string;
 export interface PlanningCandidateOutput {title:string;goal:string;storyTime:string;mustHappen:string[];mustPreserve:string[];forbiddenBoundaries:string[];expectedChanges:string[];characterArc:string;notes:string;sourceCardIds:string[];}
 
 export interface NewDesignAiGateway {
+  generateCharacterRecentBodyExperiences?(input:{snapshot:import('../../common/characterExperiences/recentBodies').RecentBodyExperienceSnapshot;instruction:string}):Promise<AiResearchRunResult<import('../../common/characterExperiences/recentBodies').RecentBodyExperienceOutput>>;
   generateCharacterResourceFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
   generateCharacterResourceHistoryFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
   generateCharacterExperiences?(input:import("../../common/characterExperiences").ExperienceSnapshot):Promise<AiResearchRunResult<import("../../common/characterExperiences").ExperienceOutput>>;

@@ -6,6 +6,7 @@ import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
 import {createResourceSupplementApi} from './resourceSupplements/api';
 import {createResourceFocusApi} from './characterResources/focus/api';
+import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -399,6 +400,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+ recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
  getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),
  getCharacterImportWorkspace:(bookId:string,resourceId:string,resourceVersionId:string)=>request<import('../common/characterImport').CharacterImportWorkspace>(`/books/${bookId}/character-import/workspace?resourceId=${encodeURIComponent(resourceId)}&resourceVersionId=${encodeURIComponent(resourceVersionId)}`),

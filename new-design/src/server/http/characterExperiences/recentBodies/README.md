@@ -1,0 +1,5 @@
+# 最近正文同步HTTP
+
+本子路由只映射所属存储模块公开入口。workspace、preview、original-receipt、by-id和候选draft均只读，不恢复执行或调用模型；生成与明确结束未知占用均要求完整原输入。参数和请求严格校验，未知结果保留原凭证，不把缺失原回执解释为可重发。
+
+正常时间编辑、保存、完整原请求恢复和独立审核仍归 bookComposition／storyTimeline 路由；不另设直接采用时间或写正文的快捷路径。

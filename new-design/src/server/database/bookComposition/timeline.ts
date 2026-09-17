@@ -1,4 +1,6 @@
 import {experienceCandidateSourceSchema} from '../../../common/characterExperiences/schema';
+import {recentBodyExperienceCandidateSourceSchema} from '../../../common/characterExperiences/recentBodies';
+import {validateRecentBodyExperienceCommandInTransaction,saveRecentBodyExperienceTimeInTransaction,recordRecentBodyExperienceAdoptionInTransaction} from '../characterExperiences/recentBodies';
 import {validateExperienceCommandInTransaction,recordExperienceAdoptionInTransaction} from '../characterExperiences';
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
@@ -22,7 +24,7 @@ const command=z.discriminatedUnion("operation",[
  z.object({operation:z.literal("relation_create"),value:relation}).strict(),z.object({operation:z.literal("relation_edit"),proposalId:id,expectedRevision:z.number().int().positive(),value:relation}).strict(),z.object({operation:z.literal("relation_review"),...review}).strict(),
  z.object({operation:z.literal("occurrence_create"),value:occurrence}).strict(),z.object({operation:z.literal("occurrence_edit"),occurrenceId:id,expectedRevision:z.number().int().positive(),value:occurrence}).strict()
 ]);
-export const authorTimelinePreviewSchema=z.object({requestKey:id,expectedSourceHash:z.string().regex(/^[a-f0-9]{64}$/),command,candidateSource:experienceCandidateSourceSchema.optional()}).strict();
+export const authorTimelinePreviewSchema=z.object({requestKey:id,expectedSourceHash:z.string().regex(/^[a-f0-9]{64}$/),command,candidateSource:experienceCandidateSourceSchema.optional(),recentCandidateSource:recentBodyExperienceCandidateSourceSchema.optional()}).strict();
 export const authorTimelineSaveSchema=authorTimelinePreviewSchema.extend({previewHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 export class BookCompositionTimelineWriteError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:"not_written"|"unknown",issues?:Record<string,string>){super(message,status,issues);}}
 
@@ -49,18 +51,22 @@ function describe(source:AuthorTimelineWorkspace,value:unknown):string{if(!value
  return `${title(item.eventCardId)} → ${title(item.chapterCardId)}${item.sceneCardId?` / ${title(item.sceneCardId)}`:""}；${label(item.role)}；章内顺序 ${item.narrativeOrder??"未指定"}；${item.note??""}`;
 }
 async function preview(client:PoolClient,bookId:string,input:AuthorTimelinePreviewInput,source:AuthorTimelineWorkspace):Promise<AuthorTimelinePreview>{
+ if(input.candidateSource&&input.recentCandidateSource)throw new NewDesignError('小传和采用正文候选须分别核对，不能混用原来源。',422);
  if(input.expectedSourceHash!==source.sourceHash)throw new NewDesignError("事件、目录或正文来源已变化；草稿保留，先只读核对再明确重新准备。",409,{expectedSourceHash:"请核对并采用最新来源。"});
  if(input.candidateSource)await validateExperienceCommandInTransaction(client,bookId,input.candidateSource,input.command);
+ const recentProof=input.recentCandidateSource?await validateRecentBodyExperienceCommandInTransaction(client,bookId,input.recentCandidateSource,input.command):null;
  const current=await validateAuthorTimelineCommandInTransaction(client,bookId,input.command),review="action" in input.command;
  const changes=[{label:review?"提案审核决定":input.command.operation.startsWith("time_")?"事件故事时间":input.command.operation.startsWith("relation_")?"事件因果或时间关系":"跨章叙述位置",before:describe(source,current),after:"action" in input.command?(input.command.action==="confirm"?"明确确认为正式安排":"不采用，历史保留"):describe(source,"value" in input.command?input.command.value:null)}];
  if(input.command.operation==="time_review"&&input.command.action==="confirm"&&current&&"eventCardId" in current){changes.push({label:"正式故事时间",before:describe(source,source.timings.find(item=>item.eventCardId===current.eventCardId)),after:describe(source,current)});}
  const events=input.command.operation.startsWith("time_")?current&&"eventCardId" in current?[current.eventCardId]:input.command.operation==="time_create"?[input.command.eventCardId]:[]:"value" in input.command?"sourceEventCardId" in input.command.value?[input.command.value.sourceEventCardId,input.command.value.targetEventCardId]:"eventCardId" in input.command.value?[input.command.value.eventCardId]:[]:current&&"currentVersion" in current&&"sourceEventCardId" in current.currentVersion?[current.currentVersion.sourceEventCardId,current.currentVersion.targetEventCardId]:[];
  if(events.length){const affected=(await client.query("SELECT DISTINCT object.title FROM new_design.planning_objects object JOIN new_design.planning_version_references reference ON reference.planning_object_id=object.id AND reference.planning_version_id IN (object.current_version_id,object.adopted_version_id) WHERE object.book_id=$1 AND object.status='active' AND reference.reference_role='event' AND reference.card_id=ANY($2::uuid[]) ORDER BY object.title",[bookId,events])).rows;changes.push({label:"当前引用该事件的规划范围",before:affected.map(row=>String(row.title)).join("、")||"暂无已保存的规划引用",after:review?"正式安排改变后请在这些原规划中逐项复核，不自动改计划或正文。":"保存此提案或位置不自动改动上述原规划。"});}
- const warnings=["不修改章节正文，不自动采用正文，也不结算对象或关系状态。",review?"确认会改变正式故事时间或事件关系；依赖该安排的后续计划需要作者复核。":"时间与关系先保存提案，必须再明确审核后才生效；叙述位置保存为原事件的新引用。",...(input.command.operation==="occurrence_create"?["这是新叙述位置，已有章节中的第一次出现保持不变。"]:[])];
+ if(recentProof)changes.push({label:'原采用正文依据',before:'待核对的正文经历候选',after:`${recentProof.actor.title}；第${recentProof.body.logicalOrder}章 ${recentProof.body.title}；${recentProof.candidate.evidenceLabel}`});
+ const warnings=["不修改章节正文，不自动采用正文，也不结算对象或关系状态。",review?"确认会改变正式故事时间或事件关系；依赖该安排的后续计划需要作者复核。":"时间与关系先保存提案，必须再明确审核后才生效；叙述位置保存为原事件的新引用。",...(input.recentCandidateSource?['保存此时间提案时绑定原采用正文的精确原文依据；故事时间仍须单独明确审核。']:[]),...(input.command.operation==="occurrence_create"?["这是新叙述位置，已有章节中的第一次出现保持不变。"]:[])];
  return {bookId,input,previewHash:formHash({bookId,input,sourceHash:source.sourceHash,changes,warnings}),changes,warnings};
 }
 export function previewBookCompositionTimeline(bookId:string,raw:AuthorTimelinePreviewInput):Promise<AuthorTimelinePreview>{const input=authorTimelinePreviewSchema.parse(raw) as AuthorTimelinePreviewInput;return read(bookId,async client=>preview(client,bookId,input,await readSource(client,bookId)));}
 async function execute(client:PoolClient,bookId:string,input:AuthorTimelineSaveInput):Promise<AuthorTimelineReceipt["result"]>{const c=input.command;
+ if(input.recentCandidateSource)return saveRecentBodyExperienceTimeInTransaction(client,bookId,input.recentCandidateSource,c);
  switch(c.operation){
  case "time_create":return proposeStoryTime({...c.value,evidenceKind:"manual",bookId,eventCardId:c.eventCardId,proposalSource:"manual",editor:input.candidateSource?`user:experience:${input.candidateSource.batchId}:${input.candidateSource.candidateId}`:"user"},client);
  case "time_edit":return editStoryTimeProposal(c.proposalId,{...c.value,evidenceKind:"manual",expectedRevision:c.expectedRevision,actor:"user"},client);
@@ -82,10 +88,11 @@ export async function saveBookCompositionTimeline(bookId:string,raw:AuthorTimeli
   await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
   const existing=(await client.query('SELECT input_hash,receipt FROM new_design.book_composition_timeline_commands WHERE book_id=$1 AND request_key=$2',[bookId,input.requestKey])).rows[0];
   if(existing){if(existing.input_hash!==inputHash)throw new BookCompositionTimelineWriteError('原请求标识已用于不同事件修改，请保留原凭证核对。',409,'unknown');commitStarted=true;await client.query('COMMIT');return{...existing.receipt,repeated:true};}
-  const source=await readSource(client,bookId,true),checked=await preview(client,bookId,{requestKey:input.requestKey,expectedSourceHash:input.expectedSourceHash,command:input.command,...(input.candidateSource?{candidateSource:input.candidateSource}:{})},source);
+  const source=await readSource(client,bookId,true),checked=await preview(client,bookId,{requestKey:input.requestKey,expectedSourceHash:input.expectedSourceHash,command:input.command,...(input.candidateSource?{candidateSource:input.candidateSource}:{}),...(input.recentCandidateSource?{recentCandidateSource:input.recentCandidateSource}:{})},source);
   if(checked.previewHash!==input.previewHash)throw new NewDesignError('影响预览已变化，请重新预览后明确确认。',409,{previewHash:'重新预览此修改。'});
-  const result=await execute(client,bookId,input),receipt:AuthorTimelineReceipt={bookId,requestKey:input.requestKey,inputHash,operation:input.command.operation,result,repeated:false,...(input.candidateSource?{candidateSource:input.candidateSource}:{})};
+  const result=await execute(client,bookId,input),receipt:AuthorTimelineReceipt={bookId,requestKey:input.requestKey,inputHash,operation:input.command.operation,result,repeated:false,...(input.candidateSource?{candidateSource:input.candidateSource}:{}),...(input.recentCandidateSource?{recentCandidateSource:input.recentCandidateSource}:{})};
   if(input.candidateSource)await recordExperienceAdoptionInTransaction(client,bookId,input.candidateSource,receipt,inputHash);
+  if(input.recentCandidateSource)await recordRecentBodyExperienceAdoptionInTransaction(client,bookId,input.recentCandidateSource,receipt,inputHash);
   await client.query('INSERT INTO new_design.book_composition_timeline_commands(id,book_id,request_key,input_hash,receipt) VALUES($1,$2,$3,$4,$5::jsonb)',[randomUUID(),bookId,input.requestKey,inputHash,JSON.stringify(receipt)]);
   commitStarted=true;await client.query('COMMIT');return receipt;
  }catch(error){let rolledBack=false;try{await client.query('ROLLBACK');rolledBack=true;}catch{discardConnection=true;}if(error instanceof BookCompositionTimelineWriteError)throw error;
