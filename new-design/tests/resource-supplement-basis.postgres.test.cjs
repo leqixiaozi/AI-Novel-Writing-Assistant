@@ -35,6 +35,13 @@ test('stable supplement sources retain original confirmations and use chapter-en
   await assert.rejects(read(client=>supplements.readResourceSupplementHistoricalStateInTransaction(client,{...stateInput,subjectId:key()})),error=>error.status===422);
   await assert.rejects(read(client=>supplements.readResourceSupplementHistoricalStateInTransaction(client,{...stateInput,chapterOrder:500})),error=>error.status===422);
  });
+ await t.test('uninstalled manual storage is rejected without creating any table or application row',async()=>{
+  const current=(await pool.query('SELECT current_version_id,revision FROM new_design.cards WHERE id=$1',[actor.id])).rows[0];
+  const command={checkpointId:first.checkpoint.id,requestKey:key(),expectedSourceHash:'0'.repeat(64),resourceScope:{relationTypeId:key(),holdingDimensionKey:'holding',specificationHash:'0'.repeat(64),characterId:actor.id,characterVersionId:current.current_version_id,characterRevision:current.revision,resourceIds:[key()],relationIds:[key()]}};
+  await assert.rejects(supplements.startResourceSupplement(book.id,command),error=>error.status===503&&error.mutationOutcome==='unknown');
+  assert.equal((await pool.query("SELECT to_regclass('new_design.chapter_resource_supplements') table_name")).rows[0].table_name,null);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_adoption_sessions')).rows[0].n,2);
+ });
  async function corruption(sql,values){const client=await pool.connect();try{await client.query('BEGIN');await client.query(sql,values);await assert.rejects(supplements.readStableResourceSupplementBasisInTransaction(client,book.id,first.checkpoint.id),error=>error.status===409);}finally{await client.query('ROLLBACK');client.release();}}
  await t.test('missing confirmation ledger or stale evidence refuses supplementation and retains history',async()=>{
   await corruption("UPDATE new_design.chapter_stable_checkpoints SET summary='{}'::jsonb WHERE id=$1",[first.checkpoint.id]);

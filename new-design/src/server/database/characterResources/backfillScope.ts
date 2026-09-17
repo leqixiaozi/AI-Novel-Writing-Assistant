@@ -4,7 +4,8 @@ import type {ResourceBackfillScope,ResourceBackfillFrozenScope} from '../../../c
 import {NewDesignError} from '../../domain/errors';
 import {stableHash} from '../aiContracts';
 import {readCharacterResourcesInTransaction} from './index';
-export async function freezeResourceBackfillScope(db:PoolClient,workspace:ChapterSettlementEditingWorkspace,scope:ResourceBackfillScope):Promise<{catalog:ChapterSettlementEditingWorkspace['catalog'];resourceScope:ResourceBackfillFrozenScope}>{
+interface ResourceBackfillSourceView {session:Pick<ChapterSettlementEditingWorkspace['session'],'bookId'|'bodyVersionId'>;candidate:Pick<ChapterSettlementEditingWorkspace['candidate'],'content'>;catalog:ChapterSettlementEditingWorkspace['catalog'];}
+export async function freezeResourceBackfillScope(db:PoolClient,workspace:ResourceBackfillSourceView,scope:ResourceBackfillScope):Promise<{catalog:ChapterSettlementEditingWorkspace['catalog'];resourceScope:ResourceBackfillFrozenScope}>{
  const resourceScope=await freezeResourceBackfillSources(db,workspace.session.bookId,workspace.session.bodyVersionId,workspace.candidate.content,scope);
  const subjectIds=new Set([...scope.resourceIds,...scope.relationIds]),subjects=workspace.catalog.subjects.filter(subject=>subjectIds.has(subject.id)).map(subject=>({...subject,categories:subject.categories.filter(category=>subject.subjectKind==='relation'?category==='relationship':category==='prop')}));
  if(subjects.length!==subjectIds.size||!subjects.some(subject=>!subject.unavailableReason&&subject.categories.length&&subject.fields.some(field=>field.baseline.known&&!field.baseline.stale)))throw new NewDesignError('所选资源没有可用的正式字段或已确认前值，请在原章节核对规格并明确建立初始状态后再准备。',409);

@@ -19,5 +19,5 @@ export {
   createChapterSettlementEditingAiItems,
 } from "./editingCommands";
 export {withSettlementDatabasePool} from "./transaction";
-export {SettlementEditingError} from "./editingPolicy";
+export {SettlementEditingError,displaySettlementValue} from "./editingPolicy";
 export * from "./relationConfiguration";

@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { z } from "zod";
-import type { ResourceSupplementStateInput, ResourceSupplementHistoricalState } from "../../../common/resourceSupplements";
+import type { ResourceSupplementStateInput, ResourceSupplementHistoricalState, StableResourceSupplementBasis } from "../../../common/resourceSupplements";
 import { NewDesignError } from "../../domain/errors";
 import { stableHash } from "../aiContracts/integrity";
 import { readStableResourceSupplementBasisInTransaction } from "./basis";
@@ -17,6 +17,15 @@ export async function readResourceSupplementHistoricalStateInTransaction(
   if (!parsed.success) throw new NewDesignError("请选择本书的明确资源状态和稳定章节。", 422);
   const input = parsed.data;
   const basis = await readStableResourceSupplementBasisInTransaction(client, input.bookId, input.checkpointId);
+  return readHistoricalStateForValidatedBasis(client, basis, input);
+}
+
+/** Owned preflight reuses its already-validated basis in the same transaction. */
+export async function readHistoricalStateForValidatedBasis(client: PoolClient, basis: StableResourceSupplementBasis,
+  raw: ResourceSupplementStateInput): Promise<ResourceSupplementHistoricalState> {
+  const input = inputSchema.parse(raw);
+  if (basis.bookId !== input.bookId || basis.checkpointId !== input.checkpointId)
+    throw new NewDesignError("历史状态与所选稳定章节不一致。", 422);
   const table = input.subjectKind === "card" ? "cards" : "card_relations";
   if (!(await client.query(`SELECT subject.id FROM new_design.${table} subject
     JOIN new_design.books book ON book.space_id=subject.space_id AND book.id=$1

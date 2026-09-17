@@ -24,7 +24,7 @@ test('manual stable supplement storage preserves terminal history and refuses in
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'adopted_pending_proposals',$13,$14)`,[sessionId,book.id,basis.chapterDocumentId,bodyId,preparationId,basis.adoptionId,basis.policyVersionId,basis.planningObjectId,basis.planningVersionId,basis.contextManifestId,dependencyHash,kind,key(),baseId]);
   const input={requestKey,checkpointId:baseId,expectedSourceHash:basis.sourceHash},inputHash=hash({bookId:book.id,input}),original={sessionId,bookId:book.id,baseCheckpointId:baseId,bodyVersionId:bodyId,preparationId,requestKey,input,inputHash};
   if(receipt)await client.query(`INSERT INTO new_design.chapter_resource_supplements(session_id,book_id,base_checkpoint_id,request_key,full_input,input_hash,source_snapshot,source_hash,original_receipt)
-   VALUES($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8,$9::jsonb)`,[sessionId,book.id,baseId,requestKey,JSON.stringify(input),inputHash,JSON.stringify({basis}),basis.sourceHash,JSON.stringify(original)]);
+   VALUES($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8,$9::jsonb)`,[sessionId,book.id,baseId,requestKey,JSON.stringify(input),inputHash,JSON.stringify({basis,sourceHash:basis.sourceHash}),basis.sourceHash,JSON.stringify(original)]);
   return{sessionId,preparationId,requestKey,input,inputHash,original};
  }
  await t.test('ordinary primary pipeline remains unchanged and retains all confirmed sources',async()=>{
@@ -94,11 +94,18 @@ test('manual stable supplement storage preserves terminal history and refuses in
   }
  });
  await t.test('unfinished storage child cannot call ordinary AI, commit or establish retrospective initial state',async()=>{
-  const {settlement,actor,late}=fixture,workspace=await settlement.getChapterSettlementEditingWorkspace(child.sessionId),field=workspace.catalog.subjects.find(item=>item.id===actor.id).fields.find(item=>item.key===late);
+  const {settlement,actor,late}=fixture;
+  // The storage-law fixture intentionally has no full resource preview. It must
+  // remain unreadable rather than acquire a catalog from the latest state.
+  await assert.rejects(settlement.getChapterSettlementEditingWorkspace(child.sessionId),error=>error.status===409);
+  const base=await settlement.getChapterSettlementEditingWorkspace(basis.sessionId),workspace={...base,session:{...base.session,id:child.sessionId,revision:1,adoptionKind:'resource_supplement'}};
   await assert.rejects(settlement.commitChapterSettlementEditing(child.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key()}),error=>error.status===503&&error.recovery?.mutationOutcome==='not_written');
-  await assert.rejects(settlement.establishChapterSettlementEditingInitialState(child.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),subjectKind:'card',subjectId:actor.id,stateKey:late,specificationHash:field.specificationHash,value:0}),error=>error.status===503&&error.recovery?.mutationOutcome==='not_written');
-  assert.ok(workspace.blockedReason);const requests=compiled('server/ai/chapterSettlement/requests');
+  await assert.rejects(settlement.establishChapterSettlementEditingInitialState(child.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),subjectKind:'card',subjectId:actor.id,stateKey:late,specificationHash:'0'.repeat(64),value:0}),error=>error.status===503&&error.recovery?.mutationOutcome==='not_written');
+  const requests=compiled('server/ai/chapterSettlement/requests');
   for(const candidate of [workspace,{...workspace,session:{...workspace.session,adoptionKind:'first_adoption'}}])await assert.rejects(requests.claimSettlementAi(candidate,{requestKey:key(),expectedSessionRevision:workspace.session.revision,catalogHash:workspace.catalog.specificationHash}),error=>error.status===503);
+  await assert.rejects(transaction(client=>client.query(`INSERT INTO new_design.chapter_proposal_extraction_requests(id,session_id,book_id,body_version_id,
+   task_contract_version_id,prompt_recipe_version_id,context_manifest_id,model_route_snapshot_id,request_hash,idempotency_key)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[key(),child.sessionId,book.id,basis.bodyVersionId,key(),key(),key(),key(),'0'.repeat(64),key()])),error=>error.code==='23514'&&/extraction is not operational/.test(error.message));
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_proposal_extraction_requests')).rows[0].n,0);
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.entity_initial_states WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,actor.id,late])).rows[0].n,0);
  });

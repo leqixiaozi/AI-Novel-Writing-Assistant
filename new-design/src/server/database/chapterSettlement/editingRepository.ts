@@ -5,6 +5,7 @@ import type { ChapterSettlementEditingWorkspace, SettlementEditingDraft, Settlem
 import { stableHash } from "../aiContracts/integrity";
 import { getChapterSettlementWorkspace } from "./store";
 import { readEditingCatalog } from "./editingCatalog";
+import { readFrozenSupplementCatalog } from "./supplementRead";
 import { displaySettlementValue, fail, type EditingRow } from "./editingPolicy";
 import { NewDesignError } from "../../domain/errors";
 
@@ -91,7 +92,7 @@ async function itemMetadata(client:PoolClient,session:EditingRow,item:ChapterSet
 }
 export async function readEditingWorkspace(client:PoolClient,sessionId:string):Promise<ChapterSettlementEditingWorkspace>{
   const base=await getChapterSettlementWorkspace(sessionId),session=(await client.query("SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1",[sessionId])).rows[0];
-  const catalog=await readEditingCatalog(client,session);
+  const catalog=session.adoption_kind==="resource_supplement"?await readFrozenSupplementCatalog(client,session,base.candidate.contentHash):await readEditingCatalog(client,session);
   const itemSpecifications:SettlementItemEditingMetadata[]=[];
   for(const item of base.items)itemSpecifications.push(await itemMetadata(client,session,item,catalog));
   if(!base.candidate.isAdopted)for(const metadata of itemSpecifications){metadata.editable=false;metadata.unavailableReason="本章采用正文已切换，旧清单仅供核对；请重新进入当前正文的结果确认。";}

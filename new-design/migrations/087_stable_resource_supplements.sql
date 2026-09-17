@@ -122,7 +122,7 @@ BEGIN
   IF child.adoption_kind IS DISTINCT FROM 'resource_supplement' OR child.supplement_base_checkpoint_id IS DISTINCT FROM base.id
     OR child.book_id IS DISTINCT FROM NEW.book_id OR base.book_id IS DISTINCT FROM NEW.book_id OR base.status IS DISTINCT FROM 'stable'
     OR NEW.source_snapshot->'basis'->'original'->'checkpoint' IS DISTINCT FROM to_jsonb(base)
-    OR NEW.source_snapshot->'basis'->>'sourceHash' IS DISTINCT FROM NEW.source_hash::text
+    OR NEW.source_snapshot->>'sourceHash' IS DISTINCT FROM NEW.source_hash::text
     OR NEW.full_input->>'requestKey' IS DISTINCT FROM NEW.request_key
     OR NEW.full_input->>'checkpointId' IS DISTINCT FROM base.id::text
     OR NEW.full_input->>'expectedSourceHash' IS DISTINCT FROM NEW.source_hash::text
@@ -160,6 +160,19 @@ BEGIN
 END $$;
 CREATE TRIGGER chapter_resource_supplement_item_scope_guard BEFORE INSERT OR UPDATE ON chapter_settlement_items
   FOR EACH ROW EXECUTE FUNCTION guard_resource_supplement_item_scope();
+
+-- Also protects callers running older cached application code: a governed claim
+-- cannot commit its request, and the physical claim transaction rolls back before
+-- the model gateway is allowed to execute.
+CREATE FUNCTION block_unavailable_resource_supplement_extraction() RETURNS trigger LANGUAGE plpgsql SET search_path TO new_design,public AS $$
+BEGIN
+  IF EXISTS(SELECT 1 FROM chapter_adoption_sessions WHERE id=NEW.session_id AND adoption_kind='resource_supplement') THEN
+    RAISE EXCEPTION 'resource supplement extraction is not operational' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER chapter_resource_supplement_extraction_guard BEFORE INSERT ON chapter_proposal_extraction_requests
+  FOR EACH ROW EXECUTE FUNCTION block_unavailable_resource_supplement_extraction();
 
 CREATE FUNCTION require_resource_supplement_receipt() RETURNS trigger LANGUAGE plpgsql SET search_path TO new_design,public AS $$
 BEGIN

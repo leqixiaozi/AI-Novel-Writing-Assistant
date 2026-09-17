@@ -1,3 +1,7 @@
+import { z } from "zod";
+import type { ResourceBackfillScope, ResourceBackfillFrozenScope } from "../characterResources";
+import type { SettlementEditingCatalog } from "../chapterSettlementEditing";
+
 /** Stable-chapter supplementation retains the original confirmed sources. */
 export interface StableResourceSupplementBasis {
   contract: "stable_resource_supplement_basis_v1";
@@ -49,3 +53,47 @@ export interface ResourceSupplementHistoricalState {
   source: Record<string, unknown> | null;
   hash: string;
 }
+
+const ids = z.array(z.string().uuid()).min(1).max(200).refine(values => new Set(values).size === values.length);
+const hash = z.string().regex(/^[a-f0-9]{64}$/);
+const scope = z.object({ relationTypeId: z.string().uuid(), holdingDimensionKey: z.string().min(1).max(100),
+  specificationHash: hash, characterId: z.string().uuid(), characterVersionId: z.string().uuid(),
+  characterRevision: z.number().int().positive(), resourceIds: ids, relationIds: ids }).strict();
+export const resourceSupplementPreviewInputSchema = z.object({ checkpointId: z.string().uuid(), resourceScope: scope }).strict();
+export const resourceSupplementStartInputSchema = resourceSupplementPreviewInputSchema.extend({
+  requestKey: z.string().uuid(), expectedSourceHash: hash,
+});
+export interface ResourceSupplementPreviewInput { checkpointId: string; resourceScope: ResourceBackfillScope; }
+export interface ResourceSupplementStartInput extends ResourceSupplementPreviewInput { requestKey: string; expectedSourceHash: string; }
+export interface ResourceSupplementPreview {
+  contract: "stable_resource_supplement_preview_v1";
+  bookId: string;
+  input: ResourceSupplementPreviewInput;
+  basis: StableResourceSupplementBasis;
+  resourceScope: ResourceBackfillFrozenScope;
+  catalog: SettlementEditingCatalog;
+  sourceHash: string;
+}
+export interface ResourceSupplementStartReceipt {
+  contract: "stable_resource_supplement_start_v1";
+  bookId: string;
+  chapterDocumentId: string;
+  sessionId: string;
+  preparationId: string;
+  baseCheckpointId: string;
+  bodyVersionId: string;
+  requestKey: string;
+  input: ResourceSupplementStartInput;
+  inputHash: string;
+  sourceHash: string;
+  sourceRoute: string;
+  repeated: boolean;
+}
+export const resourceSupplementStartReceiptSchema = z.object({
+  contract: z.literal("stable_resource_supplement_start_v1"), bookId: z.string().uuid(), chapterDocumentId: z.string().uuid(), sessionId: z.string().uuid(),
+  preparationId: z.string().uuid(), baseCheckpointId: z.string().uuid(), bodyVersionId: z.string().uuid(),
+  requestKey: z.string().uuid(), input: resourceSupplementStartInputSchema, inputHash: hash, sourceHash: hash,
+  sourceRoute: z.string(), repeated: z.boolean(),
+}).strict().refine(value => value.requestKey === value.input.requestKey
+  && value.baseCheckpointId === value.input.checkpointId && value.sourceHash === value.input.expectedSourceHash
+  && value.sourceRoute === `/new-design/books/${value.bookId}/writing?chapterDocument=${value.chapterDocumentId}&session=${value.sessionId}`);
