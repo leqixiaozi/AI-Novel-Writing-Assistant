@@ -2,7 +2,7 @@ import type {PoolClient} from "pg";
 import type {CompositionSettings} from "../../../common/promptComposition";
 import type {KnowledgeReferenceCandidate} from "../../../common/knowledgeReference";
 import {NewDesignError,assertFound} from "../../domain/errors";
-import {resolveReadyKnowledgeVersion} from "../knowledgeReference";
+import {resolveReadyKnowledgeVersion,resolveKnowledgeReferenceSegment} from "../knowledgeReference";
 import type {ExactCompositionKnowledgeSource,LoadedCompositionRecipe} from "./contracts";
 
 export async function loadCompositionKnowledge(client:PoolClient,settings:CompositionSettings):Promise<ExactCompositionKnowledgeSource[]>{
@@ -13,7 +13,9 @@ export async function loadCompositionKnowledge(client:PoolClient,settings:Compos
   const metadata=assertFound((await client.query("SELECT asset.id,asset.space_id,version.version FROM new_design.asset_versions version JOIN new_design.assets asset ON asset.id=version.asset_id WHERE version.id=$1 AND version.book_id=$2 AND asset.book_id=$2",[source.parsedVersionId,settings.context.bookId])).rows[0],"知识解析精确版本不属于本书。");
   const ready=assertFound(await resolveReadyKnowledgeVersion(client,settings.context.bookId!,String(metadata.id),source.parsedVersionId),"知识参考未解析、已经过期、缺少有效状态或已归档，请返回知识参考核对后明确重新选择。");
   if(ready.asset_id!==source.assetId||ready.source_version_id!==source.sourceVersionId||ready.checksum!==source.checksum)throw new NewDesignError("知识原件版本、解析版本或内容哈希已变化，原组合版本仍保留，请重新选择知识参考。",409,{"context.knowledgeSources":"知识参考精确来源已变化。"});
-  results.push({...source,parsedAssetId:String(metadata.id),spaceId:String(metadata.space_id),revision:Number(metadata.version),resourceId:String(ready.resource_id),title:String(ready.title),text:String(ready.text)});
+  let text=String(ready.text);
+  if(source.segment)text=await resolveKnowledgeReferenceSegment(client,settings.context.bookId!,String(metadata.id),source.parsedVersionId,source.checksum,text,source.segment);
+  results.push({...source,parsedAssetId:String(metadata.id),spaceId:String(metadata.space_id),revision:Number(metadata.version),resourceId:String(ready.resource_id),title:String(ready.title),text});
  }
  return results;
 }

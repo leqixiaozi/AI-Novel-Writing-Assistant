@@ -21,7 +21,7 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   if(view==="views")return <BookShell book={book} active="views"><BookViewsPage book={book} initialView={viewKey}/></BookShell>;
   if(view!=="fields") {
     const scope:BusinessFormScope=view==="forms"?"overview":"all";
-    const active=view==="forms"?"overview":"materials";
+    const active=view==="forms"?"direction":"materials";
     return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope}/></BookShell>;
   }
   const selected=types.find((type)=>type.id===selectedId)??null;

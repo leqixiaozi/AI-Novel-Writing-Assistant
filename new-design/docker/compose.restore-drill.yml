@@ -1,0 +1,20 @@
+# Explicit restore drill target only. Never mounts the real development volume.
+services:
+  postgres:
+    image: ai-novel/new-design-postgres-dev:pg17-age1.7-vector0.8.6
+    pull_policy: never
+    environment:
+      POSTGRES_USER: restore_drill
+      POSTGRES_DB: restore_drill
+      POSTGRES_PASSWORD: ${NEW_DESIGN_RESTORE_DRILL_PASSWORD:?Set a new local drill password; never commit it}
+    ports:
+      - "127.0.0.1:55584:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_preload_libraries=age"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restore_drill -d restore_drill"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"

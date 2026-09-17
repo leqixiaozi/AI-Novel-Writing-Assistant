@@ -8,7 +8,7 @@ import FormAiReferences from "./References";
 import type {KnowledgeSourceSelection} from "../../../common/knowledgeReference/selection";
 import {rememberFormAiRequest,readFormAiRequest,forgetFormAiRequest} from "./requestRecovery";
 
-export interface FormAiContext {target:FormAssistTarget;tagIds:string[];onAdopt:(result:FormAssistAdoption)=>void;}
+export interface FormAiContext {target:FormAssistTarget;tagIds:string[];onAdopt:(result:FormAssistAdoption)=>void;label?:string;onLockChange?:(locked:boolean)=>void;}
 const ACTIONS:Array<{key:FormAssistAction;name:string;instruction:string}>=[
   {key:"fill_required",name:"AI 填写必填项",instruction:"只准备空白的必填项目及资料名称，不要求作者先填写。根据一句想法或已有参考资料提出可用于创作的设定；没有方向时推荐一致的创作方向。保留已有人工内容，推测仅作为待采用设定。"},
   {key:"prepare_all",name:"AI 全部准备",instruction:"准备所有允许的空白项目及资料名称，不要求作者先填写。结合想法及参考资料提出完整一致的创作设定；没有方向时推荐方向。不得替换人工已有内容；不确定内容只作为待采用设定。"},
@@ -31,6 +31,7 @@ export default function FormAiPanel({context,fields,values,disabled}:{context:Fo
   const [run,setRun]=useState<FormAssistRun|null>(null),[candidateId,setCandidateId]=useState(""),[selected,setSelected]=useState<Set<string>>(()=>new Set()),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
   const [referenceCardIds,setReferenceCardIds]=useState<string[]>([]);
   const [referenceKnowledgeSources,setReferenceKnowledgeSources]=useState<KnowledgeSourceSelection[]>([]),[requestUnknown,setRequestUnknown]=useState(false);
+  useEffect(()=>{context.onLockChange?.(busy||requestUnknown);return()=>context.onLockChange?.(false);},[busy,requestUnknown,context.onLockChange]);
   const [newNames,setNewNames]=useState<Record<string,string>>({});
   const latest=useRef({values,tagIds:context.tagIds,target:context.target});latest.current={values,tagIds:context.tagIds,target:context.target};
   const generation=useRef(0),requestKey=useRef<{key:string;signature:string}|null>(null),adoptKey=useRef<{key:string;signature:string}|null>(null);
@@ -60,7 +61,7 @@ export default function FormAiPanel({context,fields,values,disabled}:{context:Fo
   const discard=async()=>{if(!run||requestUnknown)return;setBusy(true);try{await newDesignApi.discardBusinessFormAi(context.target.bookId,run.id,crypto.randomUUID());setRun(null);setMessage("建议已丢弃，表单内容保持不变。");}catch(error){setMessage(error instanceof Error?error.message:"丢弃失败。");}finally{setBusy(false);}};
   const resetRequest=()=>{if(requestUnknown)return;requestKey.current=null;adoptKey.current=null;};
   const checkOriginal=async()=>{const key=requestKey.current?.key,sequence=generation.current;if(!key)return;setBusy(true);try{const result=await newDesignApi.getBusinessFormAiByRequest(context.target.bookId,key);if(sequence!==generation.current)return;if(result){choose(result);if(result.status==="running")setMessage("已核对原请求仍在生成，请只读读取结果，不再次调用模型。");else{setRequestUnknown(false);requestKey.current=null;forgetFormAiRequest(context.target);setMessage("已读取原生成请求；候选尚未写入正式资料，请核对后勾选采用。");}}else setMessage("尚未查到原生成回执，提交状态仍未知；填写与原请求保留，不会再次调用模型，请继续只读核对。");}catch(reason){if(sequence===generation.current)setMessage(`核对原生成请求失败：${reason instanceof Error?reason.message:"服务暂不可用"}。已有填写与来源保留。`);}finally{if(sequence===generation.current)setBusy(false);}};
-  return <section className="nd-form-ai"><button className="nd-form-ai-toggle" type="button" aria-expanded={open} onClick={()=>setOpen(!open)}>AI 帮我完善 <span>{open?"收起":"展开"}</span></button>{open&&<div className="nd-form-ai-body">
+  return <section className="nd-form-ai"><button className="nd-form-ai-toggle" type="button" aria-expanded={open} onClick={()=>setOpen(!open)}>{context.label??'AI 帮我完善'} <span>{open?"收起":"展开"}</span></button>{open&&<div className="nd-form-ai-body">
     <p className="nd-help-text">AI 参考当前未保存内容与本书关联资料。建议需由你勾选采用，不会自动覆盖正式资料。</p>
     <div className="nd-form-ai-actions">{ACTIONS.map(item=><button className={`nd-button nd-button-secondary${action===item.key?" is-active":""}`} type="button" disabled={busy||disabled} aria-pressed={action===item.key} key={item.key} onClick={()=>{setAction(item.key);setFieldKeys([]);resetRequest();}}>{item.name}</button>)}</div>
     {action!=="check"&&action!=="recommend"&&<details><summary>指定要完善的项目（不选时参考全部允许项目）</summary><div className="nd-form-ai-fields">{available.map(field=><label key={field.key}><input type="checkbox" disabled={busy||disabled} checked={fieldKeys.includes(field.key)} onChange={event=>{setFieldKeys(keys=>event.target.checked?[...keys,field.key]:keys.filter(key=>key!==field.key));resetRequest();}}/>{field.name}</label>)}</div></details>}

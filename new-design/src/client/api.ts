@@ -1,4 +1,6 @@
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
+import type { HomeSnapshot, HomeModelStatus } from "../common/home";
+import {createFeatureApi} from "./featureApi";
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -330,14 +332,24 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const directorParts=/^\/new-design\/books\/([^/?#]+)\/director(?:\?run=([^&#]+))?$/.exec(value.sourceRoute);
   const director=directorParts&&directorParts.slice(1).filter(part=>part!==undefined).every(part=>uuid.test(part))&&value.actionLabel==="返回全书导演";
   const visualParts=/^\/new-design\/books\/([^/?#]+)\/visual-assets$/.exec(value.sourceRoute);
-  const visual=visualParts&&uuid.test(visualParts[1])&&value.actionLabel==="返回本书视觉资产";
+  const visual=visualParts&&uuid.test(visualParts[1])&&(value.actionLabel==="返回本书视觉资产"||value.actionLabel==="返回本书图片");
+  const worldParts=/^\/new-design\/books\/([^/?#]+)\/world(?:\?check=([^&#]+))?$/.exec(value.sourceRoute);
+  const world=worldParts&&worldParts.slice(1).filter(part=>part!==undefined).every(part=>uuid.test(part))&&value.actionLabel==="返回世界维护";
+  const extractionParts=/^\/new-design\/resources\/extraction\?bookId=([^&#]+)(?:&previewId=([^&#]+))?$/.exec(value.sourceRoute);
+  const extraction=extractionParts&&extractionParts.slice(1).filter(part=>part!==undefined).every(part=>uuid.test(part))&&value.actionLabel==="返回创作提炼";
+  const imageConfiguration=value.sourceRoute==="/new-design/structure/models"&&value.actionLabel==="打开新设计模型设置";
+  const directorControl=value.sourceRoute==="/new-design/operations/director"&&value.actionLabel==="返回导演总控台";
+  const professionalGraphParts=/^\/new-design\/books\/([^/?#]+)\/professional-views$/.exec(value.sourceRoute);
+  const professionalGraph=professionalGraphParts&&uuid.test(professionalGraphParts[1])&&value.actionLabel==="返回专业图形视图";
+  const dialogueParts=/^\/new-design\/books\/([^/?#]+)\/character-dialogue(?:\?session=([^&#]+)(?:&round=([^&#]+))?)?$/.exec(value.sourceRoute);
+  const dialogue=dialogueParts&&dialogueParts.slice(1).filter(part=>part!==undefined).every(part=>uuid.test(part))&&value.actionLabel==="返回人物对话模拟";
   const maintenanceParts=/^\/new-design\/books\/([^/?#]+)\/(world|characters)$/.exec(value.sourceRoute);
   const professionalMaintenance=maintenanceParts&&uuid.test(maintenanceParts[1])&&value.actionLabel==="返回专业维护";
   const contextRunParts=/^\/new-design\/structure\/context\?bookId=([^&#]+)&tab=run$/.exec(value.sourceRoute);
   const contextRun=contextRunParts&&uuid.test(contextRunParts[1])&&value.actionLabel==="返回运行输入";
   const structure=(value.sourceRoute==="/new-design/structure/forms"&&value.actionLabel==="返回创作表单")||(value.sourceRoute==="/new-design/structure/templates"&&value.actionLabel==="返回开书模板");
-  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || bookComposition || director || visual || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
-  return allowed ? value as unknown as AiRuntimeRecovery : null;
+  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
+  return allowed||professionalGraph||dialogue ? value as unknown as AiRuntimeRecovery : null;
 }
 
 export function isGlobalModelRecovery(recovery: AiRuntimeRecovery): boolean {
@@ -380,6 +392,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  ...createFeatureApi(request),
   getSavedChapterWritingReply:(id:string)=>request<SavedChapterWritingReply>(`/chapter-writing-requests/${encodeURIComponent(id)}/saved-reply`),
   completeSavedChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/complete-saved-result`,{method:'POST'}),
   endExpiredChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/end-expired`,{method:'POST'}),
@@ -594,6 +607,8 @@ export const newDesignApi = {
   endExpiredKnowledgeSemantic:(bookId:string,id:string)=>request<KnowledgeSemanticReceipt>(`/books/${encodeURIComponent(bookId)}/knowledge-index/semantic/${encodeURIComponent(id)}/end-expired`,{method:"POST",body:"{}"}),
   listTemplateVersions: (id: string) => request<TemplateGroupVersion[]>(`/templates/${id}/versions`),
   listBooks: () => request<BookSummary[]>("/books"),
+  getHomeSnapshot: () => request<HomeSnapshot>("/home/snapshot"),
+  getHomeModels: () => request<HomeModelStatus>("/home/models"),
   getBook: (id: string) => request<BookSummary>(`/books/${id}`),
   getBookViewWorkspace:(bookId:string)=>request<BookViewWorkspace>(`/books/${bookId}/view-workspace`),
   getBookMultiviewWorkspace:(bookId:string)=>request<BookMultiviewWorkspace>(`/books/${bookId}/multiview-workspace`),

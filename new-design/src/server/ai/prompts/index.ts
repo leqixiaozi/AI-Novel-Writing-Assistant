@@ -4,6 +4,9 @@ import { planningAsset } from "./planning";
 import { chapterSettlementAsset } from "./chapterSettlement";
 import {chapterGenerationAsset} from "./chapterGeneration";
 import { researchAssets } from "./research";
+import { worldConsistencyAsset } from "./worldConsistency";
+import { creativeExtractionAsset } from "./creativeExtraction";
+import { characterDialogueAsset } from "./characterDialogue";
 import { PROMPT_TASK_TYPES, type PreparedPrompt, type PromptAsset, type PromptAssetMetadata, type PromptTaskType } from "./contracts";
 import { AiExecutionError } from "../runtime/errors";
 
@@ -13,7 +16,7 @@ export type {CreationPreparationPromptInput} from "./creationPreparation";
 export {creationPreparationPromptInputSchema} from "./creationPreparation";
 export type {ChapterGenerationInput} from "./chapterGeneration";
 
-const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset];
+const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, worldConsistencyAsset, creativeExtractionAsset, characterDialogueAsset];
 const registry = new Map<PromptTaskType, PromptAsset>();
 const identity = new Set<string>();
 for (const asset of assets) {

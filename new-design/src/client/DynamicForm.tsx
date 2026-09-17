@@ -4,6 +4,7 @@ import { newDesignApi } from "./api";
 import { TreeSelector } from "./tree";
 import { FormAiPanel, type FormAiContext } from "./businessForms/aiAssist";
 import { selectableTreeNodeIds } from "../common/treePolicy";
+import Help from './storyWorkspace/Help';
 
 interface DynamicFormProps {
   fields: FieldDefinition[];
@@ -11,6 +12,7 @@ interface DynamicFormProps {
   issues?: Record<string, string>;
   disabled?: boolean;
   preview?: boolean;
+  compactHelp?:boolean;
   scopeLabelByKey?: Record<string, string>;
   onChange?: (values: Record<string, unknown>) => void;
   aiContext?:FormAiContext;
@@ -51,7 +53,7 @@ function DictionaryTreeField({field,value,disabled,onChange}:{field:FieldDefinit
   return <>{dictionary?<TreeSelector label={field.name} nodes={[...dictionary.items].sort((a,b)=>a.sortOrder-b.sortOrder).map(item=>({id:item.id,parentId:item.parentId,name:item.label,description:item.description,status:item.status,sortOrder:item.sortOrder,path:item.path.map(part=>part.label)}))} rule={source.rule} selectedIds={selectedIds} disabled={disabled||busy||pendingId!==null} onChange={ids=>{if(!disabledRef.current&&!inFlight.current&&!pendingId)onChange(field.type==="select"?ids[0]??null:ids);}} onCreateChild={source.rule.allowInlineCreate&&dictionary.scope==="book"&&!pendingId?parentId=>{if(!disabledRef.current&&!inFlight.current)setCreatingParent(parentId);}:undefined}/>:<p className="nd-help-text">正在读取字典树…</p>}{creatingParent!==undefined&&<div className="nd-tree-inline-editor"><label className="nd-control"><span>中文名称</span><input autoFocus disabled={disabled||busy||pendingId!==null} value={newName} onChange={event=>setNewName(event.target.value)}/></label><label className="nd-control"><span>解释</span><input disabled={disabled||busy||pendingId!==null} value={newDescription} onChange={event=>setNewDescription(event.target.value)}/></label><div className="nd-row-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy||pendingId!==null} onClick={()=>setCreatingParent(undefined)}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={disabled||busy||pendingId!==null||!newName.trim()} onClick={()=>void saveChild()}>{busy?"正在核对…":"新增并选中"}</button></div></div>}{pendingId&&<p role="status">原新增结果待核对；未找到原节点不证明未写入，不再次生成节点。<button type="button" disabled={busy||pendingId==="unreadable"} onClick={()=>void check()}>只读核对原字典项</button></p>}{notice&&<p role="status">{notice}</p>}{error&&<em role="alert">{error}</em>}</>;
 }
 
-export default function DynamicForm({ fields, values, issues = {}, disabled, preview, scopeLabelByKey = {}, onChange, aiContext }: DynamicFormProps) {
+export default function DynamicForm({ fields, values, issues = {}, disabled, preview, compactHelp=false, scopeLabelByKey = {}, onChange, aiContext }: DynamicFormProps) {
   const formId = useId().replace(/:/g, "");
   const patch = (field: FieldDefinition, value: unknown) => onChange?.({ ...values, [field.key]: value });
   const groups = new Map<string, FieldDefinition[]>();
@@ -79,7 +81,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
             return (
               <div className={`nd-control${issues[field.key] ? " has-error" : ""}`} key={field.key}>
                 <span id={labelId}>{field.name}{field.required && <b aria-label="必填"> *</b>}{scopeLabelByKey[field.key] && <i className="nd-field-capability is-scope">{scopeLabelByKey[field.key]}</i>}{field.aiSuggestible && <i className="nd-field-capability">可由 AI 建议</i>}{field.stateSettlement === "tracked" && <i className="nd-field-capability">跟踪变化</i>}{field.stateSettlement === "lifecycle" && <i className="nd-field-capability">生命周期</i>}</span>
-                {field.description && <small id={helpId}>{field.description}</small>}
+                {field.description && (compactHelp?<span id={helpId}><Help label={field.name}>{field.description}</Help></span>:<small id={helpId}>{field.description}</small>)}
                 {field.optionSource?.kind === "dictionary_tree" ? (
                   <DictionaryTreeField field={field} value={value} disabled={inputDisabled} onChange={next=>patch(field,next)} />
                 ) : field.type === "long_text" ? (

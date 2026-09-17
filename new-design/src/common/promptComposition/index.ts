@@ -3,6 +3,7 @@ import {MODEL_TASKS,type ManagedTaskRoute} from "../modelRouting";
 import type {PromptCatalog} from "../promptManagement";
 import type {AiRuntimeRecovery as Recovery} from "../aiRuntime";
 import type {KnowledgeReferenceCandidate} from "../knowledgeReference";
+import type {KnowledgeSegment} from "../knowledgeIndex/segments";
 
 // A new production task does not automatically acquire a supported debug input contract.
 export const COMPOSITION_TASK_KEYS=["directions","initial_content","form_assist","market_analysis","book_analysis","planning_candidate"] as const;
@@ -12,7 +13,7 @@ export const COMPOSITION_TASKS=MODEL_TASKS.filter((task):task is Extract<(typeof
 
 export interface CompositionVariable {key:string;label:string;type:"text"|"number"|"boolean"|"select";options:string[];defaultValue:string|number|boolean;}
 export interface CompositionBinding {cardId:string;versionId:string;enabled:boolean;}
-export interface CompositionKnowledgeSource {assetId:string;sourceVersionId:string;parsedVersionId:string;checksum:string;}
+export interface CompositionKnowledgeSource {assetId:string;sourceVersionId:string;parsedVersionId:string;checksum:string;segment?:KnowledgeSegment;}
 export interface CompositionContext {bookId:string|null;sources:Array<{cardId:string;versionId:string;role:"formal"|"reference"}>;knowledgeSources?:CompositionKnowledgeSource[];}
 export interface CompositionSettings {taskType:CompositionTaskKey;components:CompositionBinding[];variables:CompositionVariable[];context:CompositionContext;}
 export interface CompositionRecipe extends CompositionSettings {id:string;name:string;description:string;revision:number;versionId:string;version:number;publishedVersionId:string|null;editable:boolean;configurationIssue:string|null;}

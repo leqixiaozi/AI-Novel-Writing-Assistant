@@ -16,9 +16,10 @@ export default function BookOverviewPage({bookId}:{bookId:string}){
   return <BookShell book={book} active="overview"><main className="nd-overview-page">
     <section className="nd-overview-lead" aria-labelledby="book-direction-title">
       <div><p className="nd-kicker">故事方向</p><h2 id="book-direction-title">{overview.direction?.title??"等待确定故事方向"}</h2><p>{overview.direction?.summary??"先在故事规划中建立总计划并采用一个版本，后续卷章计划才有稳定依据。"}</p></div>
-      <div className="nd-overview-actions"><a className="nd-button nd-button-primary" href={`/new-design/books/${bookId}/planning`}>{overview.direction?"查看故事规划":"开始规划"}</a><a className="nd-button" href={`/new-design/books/${bookId}/planning?ai=1`}>AI 规划</a></div>
+      <div className="nd-overview-actions"><a className="nd-button nd-button-primary" href={`/new-design/books/${bookId}/planning`}>打开规划工作台</a></div>
     </section>
 
+    <section aria-label="本书创作专项"><h2>写法与标题</h2><div className="nd-row-actions"><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=writing_resource`}>提炼写法资源</a><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=style_cleaning`}>仿写与清洗正文</a><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=title_groups`}>生成与比较标题</a></div><p>参考、目标章节和人工填写分别确认；候选需明确保存或采用。</p></section>
     <section aria-labelledby="progress-title"><div className="nd-section-heading"><div><p className="nd-kicker">创作进展</p><h2 id="progress-title">下一步从缺口开始</h2></div><small>汇总时间 {new Date(overview.updatedAt).toLocaleString()}</small></div>
       <div className="nd-overview-metrics">{overview.metrics.map(item=><a className={`nd-overview-metric is-${item.state}`} href={item.sourceRoute} key={item.key}><span>{item.label}</span><strong>{metricValue(item.value,item.unit)}</strong><p>{item.detail}</p><small>{item.sourceLabel} · {item.updatedAt?new Date(item.updatedAt).toLocaleString():"暂无更新时间"}</small></a>)}</div>
     </section>

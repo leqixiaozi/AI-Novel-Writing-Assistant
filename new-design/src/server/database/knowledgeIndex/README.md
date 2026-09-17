@@ -13,4 +13,6 @@ Facade `index.ts` 导出规格命令、准备/执行/分代/检索、严格输�
 
 `embeddings` facade 增补客户端注入的只读/原构建 in-transaction helpers 和 pool infrastructure，避免真实 PG 隔离来源与执行落不同 schema，并将多分块读取限制为批量查询。
 
+语义命中携带原件版本、解析版本、全文校验及原分块精确字位／段落 SHA256。作者在原提示词组合中明确加入、保存并预览后，实际消息仅消费该片段；失效段落不得扩大为全文。SQL 081 只保存技术锚点，正文正本不复制。新增消费者仍待本批统一验证，见[消费者合同](../../../../docs/semantic-paragraph-consumer.md)。
+
 SQL 函数必须保存自身的受控 `search_path`，不能只依赖迁移连接的临时设置：新 Pool 连接默认 public，首次编译 `%ROWTYPE` 会找不到原表。072 对 070 四个原知识函数设置 `pg_catalog, new_design, public, pg_temp`；073 对原验证函数的 `profile_id` 参数使用函数名限定，避免与原表同名列歧义，保留全部冻结约束。不重写来源、规格或历史版本，也不在测试连接偷偷补路径。白话像工作人员的办事地址和具体经办人必须印在岗位说明上，不能只靠当天带路的人；速记为“连接临时路，函数固定路；同名参数说全名”。隔离 PG 基线见[统一验证](../../../../docs/current-batch-unified-validation.md)，后续解析／租约／回复／向量分代补验见[知识索引核验](../../../../docs/knowledge-index-pipeline-review.md)，用户开发库未因此自动应用迁移。

@@ -30,4 +30,6 @@ frontend-design 指导采用既有中文业务表单、`--nd-paper/ink/line/soft
 
 ## 验证状态
 
+新增世界一致性实际入口挂载于 world 视图，专属执行／原质量账本／修复草稿与正常保存凭证／明确复查由 `worldConsistency` 独立模块负责；本组合读取 façade 本身仍只读，不调用检查器。世界检查新增077及中央080由根注册，本 README 原“无新增迁移”只描述历史只读维护模块，不适用于新检查任务。详细范围见 [世界一致性边界](../worldConsistency/README.md)，新任务只编码和静态 review，未验收。
+
 本轮仅编码和静态 review；没有新增迁移，没有运行数据库 getter、HTTP、模型、测试、构建或类型检查。用例 `tests/world-character-maintenance.unit.test.cjs` 仅编写。真实 PostgreSQL 范围／列合同、切版后可用性、中文值、来源对象消费、草稿恢复、主题／窄屏与 AI 来源留到全部授权任务编码结束后统一验证，不能宣称通过。

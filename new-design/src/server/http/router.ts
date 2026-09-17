@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import { homeRouter } from "./home";
 import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
@@ -21,6 +22,13 @@ import {createWorldCharacterMaintenanceRouter} from "./worldCharacterMaintenance
 import {visualAssetsRouter} from "./visualAssets";
 import {VisualSourceError} from "../database/visualAssets";
 import {knowledgeIndexRouter} from "./knowledgeIndex";
+import {worldConsistencyRouter} from "./worldConsistency";
+import {characterDialogueRouter} from "./characterDialogue";
+import {creativeExtractionRouter} from "./creativeExtraction";
+import {imageGenerationRouter,ImageHttpError} from "./imageGeneration";
+import {ImageGenerationError} from "../database/imageGeneration";
+import {directorFollowupRouter} from "./directorFollowup";
+import {professionalViewsRouter,ProfessionalViewsReadError} from "./professionalViews";
 import {readStructureWriteReceipt,structureRequestKeySchema,StructureWriteError,strictFormInputSchema,parseStructureWriteInput} from "../database/structureWrites";
 import { AiExecutionError } from "../ai";
 import {chapterProductionRouter} from './chapterProduction';
@@ -385,6 +393,8 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
+  // Home reads precede research recovery and never resume work by visiting a page.
+  router.use("/home", homeRouter());
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
   router.use(chapterSettlementEditingRouter());
@@ -402,6 +412,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(chapterProductionRouter());
   router.use(createWorldCharacterMaintenanceRouter());
   router.use(visualAssetsRouter());
+  router.use(worldConsistencyRouter());
+  router.use(characterDialogueRouter());
+  router.use("/creative-extraction",creativeExtractionRouter());
+  router.use(imageGenerationRouter());
+  router.use("/director-followup",directorFollowupRouter());
+  router.use(professionalViewsRouter());
   router.get("/book-syncs/:id",asyncRoute(async(req,res)=>{
     success(res,await readBookTemplateSync(z.string().uuid().parse(req.params.id)));
   }));
@@ -962,7 +978,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

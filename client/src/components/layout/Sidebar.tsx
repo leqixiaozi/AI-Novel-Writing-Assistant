@@ -94,7 +94,16 @@ const navGroups: NavGroup[] = [
     items: NEW_DESIGN_PRIMARY_NAV.map((item) => ({
       to: item.href,
       label: item.label,
-      icon: { home: Layers3, books: BookOpenText, resources: Database, research: ScanSearch }[item.key],
+      icon: ({
+        home: Layers3,
+        books: BookOpenText,
+        resources: Database,
+        professional: WandSparkles,
+        research: ScanSearch,
+        knowledge: Database,
+        records: ListTodo,
+        "director-control": LayoutDashboard,
+      } satisfies Record<(typeof NEW_DESIGN_PRIMARY_NAV)[number]["key"], LucideIcon>)[item.key],
       end: "end" in item ? item.end : undefined,
     })),
   },
@@ -103,14 +112,15 @@ const navGroups: NavGroup[] = [
 const newDesignAdvancedItems: NavItem[] = NEW_DESIGN_ADVANCED_NAV.map((item) => ({
   to: item.href,
   label: item.label,
-  icon: {
+  icon: ({
     "content-types": SquareStack,
     "options-relations": Workflow,
     forms: SquarePen,
     templates: LayoutDashboard,
     context: Braces,
+    models: Settings2,
     maintenance: Settings2,
-  }[item.key],
+  } satisfies Record<(typeof NEW_DESIGN_ADVANCED_NAV)[number]["key"], LucideIcon>)[item.key],
 }));
 
 interface SidebarProps {

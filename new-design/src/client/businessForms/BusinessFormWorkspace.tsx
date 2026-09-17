@@ -29,9 +29,10 @@ import {
 } from "./model";
 import "./business-form.css";
 import type {AuthorMaterialWriteReceipt} from "../../common/authorMaterials";
+import {stableWorldConsistencyValue,type WorldConsistencyRepairDraft} from "../../common/worldConsistency";
 import {businessUuid,readBusinessDraft,retainBusinessDraft,clearBusinessDraft,type BusinessDraftRecovery} from "./draftRecovery";
 
-export interface BusinessEditorState {dirty:boolean;locked:boolean;preserveDraft:()=>boolean;}
+export interface BusinessEditorState {dirty:boolean;locked:boolean;preserveDraft:()=>boolean;save?:()=>Promise<boolean>;discard?:()=>boolean;}
 
 interface Props {
   book: BookSummary;
@@ -39,8 +40,13 @@ interface Props {
   scope: BusinessFormScope;
   initialCardId?:string;
   embedded?:boolean;
+  compact?:boolean;
+  initialTypeId?:string;
+  startCreating?:boolean;
   onEditorStateChange?:(state:BusinessEditorState)=>void;
   onSaved?:()=>Promise<void>;
+  repairDraft?:WorldConsistencyRepairDraft;
+  onSavedReceipt?:(receipt:AuthorMaterialWriteReceipt)=>void;
 }
 
 interface ConflictState {
@@ -67,11 +73,11 @@ function changedKeys(local: Record<string, unknown>, latest: Record<string, unkn
 const TYPE_LABELS:Record<string,string>={short_text:"短文本",long_text:"长文本",number:"数字",boolean:"是／否",select:"单选",multi_select:"多选",date:"日期"};
 function fieldSourceDetail(item:ScopedFieldDefinition){if(item.origin==="core")return "系统核心规格";if(item.origin==="template")return `随模板安装${item.sourceTemplateVersionId?` · 来源版本 ${item.sourceTemplateVersionId.slice(0,8)}`:""}`;if(item.origin==="book_extension")return `本书独立规格 · 字段版本 ${item.currentVersion.version}`;return `当前资料独立补充 · 字段版本 ${item.currentVersion.version}`;}
 
-export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCardId,embedded=false,onEditorStateChange,onSaved }: Props) {
+export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCardId,embedded=false,compact=false,initialTypeId,startCreating=false,onEditorStateChange,onSaved,repairDraft,onSavedReceipt }: Props) {
   const [browserMode,setBrowserMode]=useState<"types"|"tags"|"groups"|"views">("types");
   const [liveCardTypes,setLiveCardTypes]=useState(cardTypes);
   const availableTypes = useMemo(() => typesForScope(liveCardTypes, scope), [liveCardTypes, scope]);
-  const [selectedTypeId, setSelectedTypeId] = useState("");
+  const [selectedTypeId, setSelectedTypeId] = useState(initialTypeId??"");
   const [workspace, setWorkspace] = useState<BookViewWorkspace | null>(null);
   const [forms, setForms] = useState<CardGroupFormSummary[]>([]);
   const [formVersions, setFormVersions] = useState<Map<string, CardGroupFormVersion[]>>(new Map());
@@ -91,6 +97,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiLocked,setAiLocked]=useState(false);
   const [history, setHistory] = useState<CardVersion[] | null>(null);
   const [historyTitle, setHistoryTitle] = useState("");
   const [conflict, setConflict] = useState<ConflictState | null>(null);
@@ -103,9 +110,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
   const baselineTags=useRef<string[]>([]);
   const dirty=!!editing&&(title!==editing.title||JSON.stringify(values)!==JSON.stringify(editing.values)||JSON.stringify(localValues)!==JSON.stringify(scopedFields.values)||aiDraftDecisionIds.length>0||draftTagIds!==undefined&&JSON.stringify([...draftTagIds].sort())!==JSON.stringify([...baselineTags.current].sort()));
   const preserveDraft=()=>{if(!editing&&!creating)return true;if(editingScope.current!==book.id)return false;const cardId=editing?.id??selectedType?.id,cardTypeId=editing?.cardTypeId??selectedType?.id;if(!cardId||!cardTypeId)return false;return retainBusinessDraft({version:1,bookId:book.id,cardId,cardTypeId,revision:editing?.revision??1,title,values,localValues,tagIds:draftTagIds??null,aiDecisionIds:aiDraftDecisionIds,unknownWrite,requestKey,notWritten,creating});};
-  const canLeave=()=>{if(busy||unknownWrite||requestKey||saveInFlight.current){setError("原保存结果待核对；填写和请求记录保留，仅允许只读核对。");return false;}if((dirty||creating)&&!preserveDraft()){setError("未能保留编辑草稿，请先保存填写或检查网站存储权限，再切换资料。");return false;}return true;};
+  const canLeave=()=>{if(busy||aiLocked||unknownWrite||requestKey||saveInFlight.current){setError("原保存结果待核对；填写和请求记录保留，仅允许只读核对。");return false;}if((dirty||creating)&&!preserveDraft()){setError("未能保留编辑草稿，请先保存填写或检查网站存储权限，再切换资料。");return false;}return true;};
   const focusIssue=(path:string)=>{const key=path.split(".").filter(part=>!/^\d+$/.test(part)).at(-1)??"",label=key==="title"?editorRef.current?.querySelector('[data-business-title]'):editorRef.current?.querySelector(`[id$="-${CSS.escape(key)}-label"]`)?.closest(".nd-control");label?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();label?.scrollIntoView({block:"nearest"});};
-  const acceptWriteReceipt=(receipt:AuthorMaterialWriteReceipt)=>{if(receipt.bookId!==book.id||receipt.card.cardTypeId!==selectedType?.id||editing&&receipt.card.id!==editing.id)throw new Error("原资料保存回执范围不匹配，填写与凭证保留。");clearBusinessDraft(book.id,editing?.id??selectedType!.id);setEditing(receipt.card);setCreating(false);setTitle(receipt.card.title);setValues(receipt.card.values);setLocalValues(receipt.localValues);setScopedFields(bundle=>({...bundle,values:receipt.localValues}));if(receipt.tagIds){setDraftTagIds(receipt.tagIds);baselineTags.current=receipt.tagIds;}setAiDraftDecisionIds([]);setUnknownWrite(false);setRequestKey(null);setNotWritten(false);setConflict(null);setSavedProof(`原请求保存成功，资料修订 ${receipt.card.revision}；保存凭证和正式版本保留。`);};
+  const acceptWriteReceipt=(receipt:AuthorMaterialWriteReceipt)=>{if(receipt.bookId!==book.id||receipt.card.cardTypeId!==selectedType?.id||editing&&receipt.card.id!==editing.id)throw new Error("原资料保存回执范围不匹配，填写与凭证保留。");clearBusinessDraft(book.id,editing?.id??selectedType!.id);setEditing(receipt.card);setCreating(false);setTitle(receipt.card.title);setValues(receipt.card.values);setLocalValues(receipt.localValues);setScopedFields(bundle=>({...bundle,values:receipt.localValues}));if(receipt.tagIds){setDraftTagIds(receipt.tagIds);baselineTags.current=receipt.tagIds;}setAiDraftDecisionIds([]);setUnknownWrite(false);setRequestKey(null);setNotWritten(false);setConflict(null);setSavedProof(`原请求保存成功，资料修订 ${receipt.card.revision}；保存凭证和正式版本保留。`);onSavedReceipt?.(receipt);};
   const readSavedState=async()=>{if(busy)return;setBusy(true);let confirmed=false;try{if(requestKey){const receipt=await newDesignApi.getAuthorMaterialWriteReceipt(book.id,requestKey);if(receipt){if(receipt.requestKey!==requestKey)throw new Error("原请求凭证不匹配，当前填写保留。");acceptWriteReceipt(receipt);confirmed=true;}else setNotice("原请求回执未找到，不能断言未执行；保留原填写和请求凭证，不重复提交。");setReceiptChecked(true);}if(!confirmed&&editing){const latest=await newDesignApi.getCard(editing.id);if(latest.id!==editing.id||latest.cardTypeId!==editing.cardTypeId)throw new Error("资料来源范围不匹配，当前填写保留。");setConflict({localTitle:title,localValues:values,latest});}if(confirmed){await loadWorkspace();await onSaved?.();}}catch(caught){setFailureStep(confirmed?"读取已成功保存的资料来源":"只读核对资料保存结果");setError(caught instanceof Error?caught.message:"服务器内容未读取，已保存证据和填写保留。");}finally{setBusy(false);}};
 
   const selectedType = availableTypes.find((type) => type.id === selectedTypeId) ?? availableTypes[0] ?? null;
@@ -115,6 +122,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
     : null;
   const localFieldKeys=new Set(scopedFields.definitions.filter((item)=>item.scope==="card"&&item.status==="active").map((item)=>item.fieldKey));
   const combinedFields=resolution?[...resolution.fields,...scopedFields.definitions.filter((item)=>item.scope==="card"&&item.status==="active"&&!resolution.fields.some((field)=>field.key===item.fieldKey)).map((item)=>item.currentVersion.field)]:[];
+  const repairInFlight=useRef(false),repairScope=useRef("");repairScope.current=stableWorldConsistencyValue({bookId:book.id,cardId:editing?.id,revision:editing?.revision,title,values,localValues,fields:combinedFields,tagIds:draftTagIds,aiDraftDecisionIds,repairDraft});
   const scopeLabelByKey=Object.fromEntries(scopedFields.definitions.map((item)=>[item.fieldKey,item.origin==="core"?"核心信息":item.origin==="template"?"模板信息":item.origin==="book_extension"?"本书新增":"仅此处补充"]));
   const cards = selectedType && workspace ? cardsForType(workspace.cards, selectedType) : [];
   const copy = SCOPE_COPY[scope];
@@ -184,7 +192,9 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
   }, [cards, creating, editing, resolution]);
 
   useEffect(()=>{if(!workspace||!requestedCardId||requestedRef.current===requestedCardId||busy||unknownWrite)return;if(!businessUuid.test(requestedCardId)){setFailureStep("核对选中资料来源");setError("选中资料链接无效，请从本书资料列表重新选择。");return;}if(workspace.bookId!==book.id||workspace.spaceId!==book.spaceId)return;const card=workspace.cards.find(item=>item.id===requestedCardId&&item.status==="active"),type=availableTypes.find(item=>item.id===card?.cardTypeId);if(!card||!type){setFailureStep("核对选中资料来源");setError("这项资料不属于本书可编辑范围，保留原选中位置，不自动改选其他资料。");return;}if(editing&&editing.id!==card.id&&!canLeave())return;if(selectedType?.id!==type.id){setSelectedTypeId(type.id);return;}if(!resolution)return;requestedRef.current=requestedCardId;selectCard(card);},[workspace,requestedCardId,selectedType?.id,resolution,busy,unknownWrite]);
-  useEffect(()=>{onEditorStateChange?.({dirty:dirty||creating,locked:busy||unknownWrite||requestKey!==null||!sourcesReady,preserveDraft});},[dirty,creating,busy,unknownWrite,requestKey,sourcesReady,title,values,localValues,draftTagIds,aiDraftDecisionIds,editing?.id,onEditorStateChange]);
+  useEffect(()=>{onEditorStateChange?.({dirty:dirty||creating,locked:busy||aiLocked||unknownWrite||requestKey!==null||!sourcesReady,preserveDraft,save,discard:()=>{if(busy||aiLocked||unknownWrite||requestKey||saveInFlight.current)return false;clearBusinessDraft(book.id,editing?.id??selectedType?.id??'');setCreating(false);setTitle(editing?.title??'');setValues(editing?.values??{});setLocalValues(scopedFields.values);setAiDraftDecisionIds([]);setDraftTagIds([...baselineTags.current]);return true;}});},[dirty,creating,busy,aiLocked,unknownWrite,requestKey,sourcesReady,title,values,localValues,draftTagIds,aiDraftDecisionIds,editing?.id,onEditorStateChange]);
+  const createdFromEntry=useRef(false);
+  useEffect(()=>{if(startCreating&&!createdFromEntry.current&&resolution&&sourcesReady&&!busy&&!unknownWrite){createdFromEntry.current=true;beginCreate();}},[startCreating,resolution,sourcesReady,busy,unknownWrite]);
   useEffect(()=>{if(!restoringDraft.current&&(dirty||unknownWrite||creating))preserveDraft();},[title,values,localValues,draftTagIds,aiDraftDecisionIds,editing?.id,unknownWrite,requestKey,notWritten,creating]);
   useEffect(()=>{const leave=(event:BeforeUnloadEvent)=>{if(dirty||busy||unknownWrite||creating){preserveDraft();event.preventDefault();event.returnValue="";}};addEventListener("beforeunload",leave);return()=>removeEventListener("beforeunload",leave);},[dirty,busy,unknownWrite,creating,title,values,localValues,draftTagIds]);
 
@@ -230,11 +240,26 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
     setConflict(null);
   };
 
+  const adoptRepairDraft=async()=>{
+    const draft=repairDraft,card=editing,field=combinedFields.find(item=>item.key===draft?.fieldKey);if(!draft||!card||!field||busy||unknownWrite||requestKey||!sourcesReady||repairInFlight.current)return;
+    const capturedScope=repairScope.current;repairInFlight.current=true;setBusy(true);try{
+    const hash=async(value:unknown)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(stableWorldConsistencyValue(value)))),byte=>byte.toString(16).padStart(2,"0")).join("");
+    const scopedSource=scopedFields.definitions.find(item=>item.fieldKey===draft.fieldKey&&item.status==="active"&&item.scope==='card')??scopedFields.definitions.find(item=>item.fieldKey===draft.fieldKey&&item.status==='active'&&item.scope==='book_type'),sourceVersion=scopedSource?.currentVersion.id??card.typeVersionId;
+    // Display grouping/order are not a new formal specification.
+    const formalField=scopedSource?.currentVersion.field??typeVersions.find(version=>version.id===card.typeVersionId)?.fields.find(item=>item.key===draft.fieldKey);
+    if(!formalField||draft.bookId!==book.id||draft.cardId!==card.id||draft.revision!==card.revision||sourceVersion!==draft.specVersionId||await hash({...values,...localValues}[draft.fieldKey]??null)!==draft.beforeHash||await hash({...formalField,defaultValue:formalField.defaultValue??null})!==draft.specHash){setError("修复候选与同一资料的正式规格或当前填写前值不一致；人工草稿保留，不覆盖。请重新核对来源。");return;}
+    if(liveBook.current!==book.id||editingScope.current!==book.id||saveInFlight.current||repairScope.current!==capturedScope)return;
+    if(!window.confirm(`将“${draft.fieldLabel}”修复建议采用到当前草稿？尚未保存正式档案；其他填写保留。`))return;
+    const nextValues=localFieldKeys.has(draft.fieldKey)?values:{...values,[draft.fieldKey]:draft.after},nextLocal=localFieldKeys.has(draft.fieldKey)?{...localValues,[draft.fieldKey]:draft.after}:localValues;
+    if(!retainBusinessDraft({version:1,bookId:book.id,cardId:card.id,cardTypeId:card.cardTypeId,revision:card.revision,title,values:nextValues,localValues:nextLocal,tagIds:draftTagIds??null,aiDecisionIds:aiDraftDecisionIds,unknownWrite:false,requestKey:null,notWritten:false,creating:false})){setError("浏览器无法保留修复草稿；尚未采用、未发送保存，请检查网站存储。");return;}
+    setValues(nextValues);setLocalValues(nextLocal);setNotice("修复已进入同一资料草稿，其他人工填写保留；请明确点击“保存资料”，正式版本尚未改变。");
+    }catch{if(liveBook.current===book.id)setError("修复草稿前值核对失败；原填写保留，未保存资料，请重新核对正式来源。");}finally{repairInFlight.current=false;if(liveBook.current===book.id)setBusy(false);}
+  };
   const save = async () => {
-    if(!selectedType||!resolution||busy||unknownWrite||requestKey||!sourcesReady||saveInFlight.current)return;
+    if(!selectedType||!resolution||busy||aiLocked||unknownWrite||requestKey||!sourcesReady||saveInFlight.current)return false;
     const key=crypto.randomUUID(),scopeCardId=editing?.id??selectedType.id;
     const original:BusinessDraftRecovery={version:1,bookId:book.id,cardId:scopeCardId,cardTypeId:selectedType.id,revision:editing?.revision??1,title,values,localValues,tagIds:draftTagIds??null,aiDecisionIds:aiDraftDecisionIds,unknownWrite:true,requestKey:key,notWritten:false,creating};
-    if(!retainBusinessDraft(original)){setFailureStep("保留保存恢复凭证");setError("浏览器无法保留原填写，请检查网站存储权限；尚未提交保存。");return;}
+    if(!retainBusinessDraft(original)){setFailureStep("保留保存恢复凭证");setError("浏览器无法保留原填写，请检查网站存储权限；尚未提交保存。");return false;}
     saveInFlight.current=true;setRequestKey(key);setUnknownWrite(true);setNotWritten(false);setReceiptChecked(false);setBusy(true);setIssues({});setError("");setNotice("");let committed=false;
     try{
       const formVersionId=resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null;
@@ -243,11 +268,12 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
       if(receipt.requestKey!==key)throw new Error("保存回执未对应原请求，人工填写与凭证保留。");acceptWriteReceipt(receipt);committed=true;
       await loadWorkspace();await onSaved?.();
     }catch(caught){
-      if(committed){setFailureStep("读取已成功保存的资料来源");setError(caught instanceof Error?caught.message:"保存已成功；来源读取暂未确认，请只读刷新，不重新保存。");return;}
+      if(committed){setFailureStep("读取已成功保存的资料来源");setError(caught instanceof Error?caught.message:"保存已成功；来源读取暂未确认，请只读刷新，不重新保存。");return false;}
       const confirmedNotWritten=caught instanceof ApiError&&caught.recovery?.mutationOutcome==="not_written";setUnknownWrite(!confirmedNotWritten);setNotWritten(confirmedNotWritten);retainBusinessDraft({...original,unknownWrite:!confirmedNotWritten,notWritten:confirmedNotWritten});
       setFailureStep(caught instanceof ApiError?caught.recovery?.failedStep??"保存本书资料":"核对资料保存回执");setError(caught instanceof Error?caught.message:"保存回执未知；请保留原请求，只读核对，不重复提交。");
       if(caught instanceof ApiError){setIssues(caught.issues);if(caught.status===409&&editing)setConflict({localTitle:title,localValues:values,latest:null});}
     }finally{saveInFlight.current=false;setBusy(false);}
+    return committed;
   };
 
   const compareLatest = async () => {
@@ -314,7 +340,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
   if (!workspace) return <div className="nd-fatal"><h2>暂时无法打开填写页面</h2><p>{error}</p><button className="nd-button nd-button-primary" type="button" onClick={() => { setError(""); void loadWorkspace().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "本书资料暂时无法读取。")); }}>重新读取</button></div>;
   if (availableTypes.length === 0) return <div className="nd-empty nd-empty-page"><strong>这个栏目还没有可填写的内容</strong><span>本书需要先安装并发布对应的内容规格。</span></div>;
 
-  return <div className={`nd-business-form-workspace${embedded?" nd-business-form-embedded":""}`} ref={editorRef}>
+  return <div className={`nd-business-form-workspace${embedded?" nd-business-form-embedded":""}${compact?" nd-story-form":""}`} ref={editorRef}>
     <header className="nd-business-form-header">
       <div><p className="nd-kicker">{copy.eyebrow}</p><h2>{copy.title}</h2><p>{copy.description}</p></div>
       <button className="nd-button nd-button-primary" type="button" disabled={!resolution} onClick={beginCreate}>＋ 新建{selectedType?.name ?? "资料"}</button>
@@ -345,7 +371,8 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
             <input disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
             {issues.title && <em>{issues.title}</em>}
           </label>
-          <DynamicForm fields={combinedFields} values={{...values,...localValues}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{if(result.title!==undefined)setTitle(result.title);setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
+          {repairDraft&&<section className="nd-message"><p>世界修复建议：{repairDraft.fieldLabel}。只采用到同一资料草稿，正常保存后才能记录正式修复。</p><button className="nd-button" type="button" disabled={busy||unknownWrite||requestKey!==null||!sourcesReady||editing?.id!==repairDraft.cardId} onClick={()=>void adoptRepairDraft()}>明确采用修复到当前草稿</button></section>}
+          <DynamicForm compactHelp={compact} fields={combinedFields} values={{...values,...localValues}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{label:compact?'AI 辅助当前项':undefined,onLockChange:setAiLocked,target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{if(result.title!==undefined)setTitle(result.title);setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
           {selectedType&&<CardTagFields key={editing?.id??"new"} scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing?.id??""} selectedTagIds={draftTagIds} onDraftChange={setDraftTagIds} onInitialTags={ids=>{baselineTags.current=ids;setDraftTagIds(current=>current??ids);}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady}/>}
           {aiDraftDecisionIds.length>0&&<details><summary>已采用的 AI 草稿来源</summary><p className="nd-help-text">保存会再次检查生成来源。若选项或关联资料变化，可复核当前表单后，以人工确认内容保存；表单不会被清空。</p><button className="nd-button nd-button-secondary" type="button" disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} onClick={()=>{setAiDraftDecisionIds([]);setNotice("当前表单保留，将以人工确认内容保存。AI 采用审计仍保留在历史记录中。");}}>我已复核，按人工内容保存</button></details>}
 

@@ -42,6 +42,7 @@
     "dev": "tsx src/server/app/development.ts",
     "dev:server": "tsx watch src/server/app/main.ts",
     "dev:client": "vite",
+    "dev:compare": "node scripts/comparison/gateway.mjs",
     "start": "node dist/server/app/main.js",
     "check:boundary": "node --test tests/standalone-boundary.test.cjs",
     "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs",

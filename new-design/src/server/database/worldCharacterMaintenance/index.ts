@@ -13,7 +13,7 @@ export const worldCharacterQuerySchema=z.object({mode:z.enum(["world","character
 type Row=Record<string,any>;
 export {professionalFields,professionalDisplay} from "./presentation";
 
-async function readObjects(client:PoolClient,spaceId:string,focusCardId?:string):Promise<{objects:ProfessionalObject[];truncated:boolean}>{
+export async function readProfessionalObjectsInTransaction(client:PoolClient,spaceId:string,focusCardId?:string):Promise<{objects:ProfessionalObject[];truncated:boolean}>{
  const rows=(await client.query(`SELECT card.id,card.card_type_id,card.current_version_id,card.type_version_id,card.revision,
  type.type_key,type.name type_label,type.status type_status,type.semantic_capabilities,
  version.title,version.values,installed.fields,installed.id installed_id
@@ -41,7 +41,7 @@ export async function getWorldCharacterMaintenanceWorkspace(bookId:string,input:
  const id=z.string().uuid().parse(bookId),query=worldCharacterQuerySchema.parse(input),client=await(await getNewDesignPool()).connect();
  try{
   await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const book=await getBookInTransaction(client,id);if(book.status!=="active")throw new NewDesignError("本书已归档，专业维护不覆盖历史结果。",409);
-  const read=await readObjects(client,book.spaceId,query.focusCardId),objects=read.objects;if(query.focusCardId&&!professionalObjectsForMode(objects,query.mode).some(object=>object.id===query.focusCardId))throw new NewDesignError("所选资料不属于本书当前专业视图的有效档案，请重新选择中文资料；不会默默换成其他首项。",422,{focusCardId:"所选对象不属于本书当前专业视图有效范围。"});
+  const read=await readProfessionalObjectsInTransaction(client,book.spaceId,query.focusCardId),objects=read.objects;if(query.focusCardId&&!professionalObjectsForMode(objects,query.mode).some(object=>object.id===query.focusCardId))throw new NewDesignError("所选资料不属于本书当前专业视图的有效档案，请重新选择中文资料；不会默默换成其他首项。",422,{focusCardId:"所选对象不属于本书当前专业视图有效范围。"});
   const dictionaryRows=(await client.query(`SELECT item.dictionary_id,item.id,version.label FROM new_design.dictionary_items item JOIN new_design.dictionary_definitions definition ON definition.id=item.dictionary_id
    JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id AND version.item_id=item.id
    WHERE item.status='active' AND definition.status='published' AND version.status='active' AND (definition.owner_space_id IS NULL OR definition.owner_space_id=$1)`,[book.spaceId])).rows;

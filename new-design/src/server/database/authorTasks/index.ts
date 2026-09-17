@@ -20,8 +20,10 @@ function decodeCursor(raw:string){try{return cursorSchema.parse(JSON.parse(Buffe
 export async function listAuthorTasks(raw:AuthorTaskFilter={}):Promise<AuthorTaskPage>{
   const input=authorTaskFilterSchema.parse(raw),cursor=input.cursor?decodeCursor(input.cursor):null,pool=await getPool();
   // One statement, database-side filters and bounded page; no N+1 source GETs.
-  const result=await pool.query<{total:string;items:AuthorTaskRow[]}>(`WITH sources AS (${AUTHOR_TASK_SOURCE_QUERY}), scoped AS (
-    SELECT sources.*,book.name book_name,to_char(sources.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') cursor_at,${AUTHOR_TASK_STATUS_SQL} projected_status FROM sources LEFT JOIN new_design.books book ON book.id=sources.book_id
+  const result=await pool.query<{total:string;items:AuthorTaskRow[]}>(`WITH sources AS (${AUTHOR_TASK_SOURCE_QUERY}), projected AS (
+    SELECT sources.*,${AUTHOR_TASK_STATUS_SQL} projected_status FROM sources
+  ), scoped AS (
+    SELECT sources.*,book.name book_name,to_char(sources.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') cursor_at FROM projected sources LEFT JOIN new_design.books book ON book.id=sources.book_id
     WHERE ($1::uuid IS NULL OR sources.book_id=$1) AND ($2::text IS NULL OR sources.domain=$2)
     AND ($3::text IS NULL OR strpos(lower(COALESCE(sources.title,'')||' '||COALESCE(book.name,'')),lower($3))>0)
   ), filtered AS (SELECT * FROM scoped WHERE ($4::text IS NULL OR projected_status=$4) AND ($5::text IS NULL OR $5=ANY(${AUTHOR_TASK_TAG_SQL}))), page AS (

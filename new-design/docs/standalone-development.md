@@ -1,5 +1,9 @@
 # 独立开发与运行
 
+需要在同一 5273 入口对比新旧版本时，使用[新旧版本同源对比入口](comparison-entry.md)。对比入口分别启动两个前端进程；下文的独立启动仍只运行新版。
+
+源码checkout首次配置、可重建Docker数据库、开发快照与隔离恢复演练，见 [开发交付与跨机器数据](development-delivery.md)。源码开发包装是 `scripts/develop.ps1`；原 `scripts/start.ps1` 只适用于私有发布包，不能替代源码入口。本批仅编码，没有生成真实备份或执行启动／恢复。
+
 ## 边界与闭环
 
 目标动作是在不加载旧小说业务目录的情况下，启动页面、读取 PostgreSQL 并通过新设计自有模型生成资料。旧系统只供只读行为参考；本入口不导入旧 AppLayout、旧模型网关、旧提示词注册、旧 shared 或 SQLite 链。
@@ -23,7 +27,7 @@ npm ci --workspaces=false
 npm run dev
 ```
 
-独立页面：`http://127.0.0.1:5174/new-design`。开发 API：`http://127.0.0.1:5301/api/new-design`。5174 的同源 API 代理指向 5301，不经过旧服务。已有 5173／3000 的过渡旧壳不受此入口修改；不能以它们代替独立验收。
+独立页面：`http://127.0.0.1:5273/new-design`。开发 API：`http://127.0.0.1:5301/api/new-design`。5273 的同源 API 代理指向 5301，不经过旧服务。5173／3000 的过渡旧壳不能代替独立入口。本机 5174 被其他项目使用，不停止该项目。前端依赖扫描固定从 `index.html` 入口出发，文件监视跳过 `.data`，不让数据库文件与备份进入源码热更新扫描。
 
 也可分别执行 `npm run dev:server` 与 `npm run dev:client`。默认开发数据库模式只使用已锁定的 Docker PostgreSQL17／AGE／pgvector，不回退系统数据库或 SQLite。`AI_NOVEL_NEW_DESIGN_DEV_RUNTIME=0` 是受控私有运行包模式，需自有运行包 manifest，本阶段开发环境不要求打包。
 

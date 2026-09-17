@@ -223,4 +223,10 @@ export const migrations: Migration[] = [
   { id: "074_asset_receipt_function_scope", fileName: "074_asset_receipt_function_scope.sql" },
   { id: "075_asset_locator_regular_expression", fileName: "075_asset_locator_regular_expression.sql" },
   { id: "076_asset_invalidation_event_identity", fileName: "076_asset_invalidation_event_identity.sql" },
+  { id: "077_world_consistency", fileName: "077_world_consistency.sql" },
+  { id: "078_creative_extraction", fileName: "078_creative_extraction.sql" },
+  { id: "079_image_generation", fileName: "079_image_generation.sql" },
+  { id: "080_creative_model_task_scope", fileName: "080_creative_model_task_scope.sql" },
+  { id: "081_knowledge_reference_segments", fileName: "081_knowledge_reference_segments.sql" },
+  { id: "083_character_dialogue", fileName: "083_character_dialogue.sql" },
 ];

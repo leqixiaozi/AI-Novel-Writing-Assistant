@@ -10,7 +10,7 @@ const planningOutput = { title: "主线规划", goal: "找回记忆", storyTime:
 
 test("registered assets include chapter changes and chapter generation and expose only public metadata", () => {
   const assets = listPromptAssets();
-  assert.equal(assets.length, 8);
+  assert.equal(assets.length, PROMPT_TASK_TYPES.length);
   assert.deepEqual(new Set(assets.map(item => item.taskType)), new Set(PROMPT_TASK_TYPES));
   assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, 8);
   assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v1" && item.label === "生成章节正文"));

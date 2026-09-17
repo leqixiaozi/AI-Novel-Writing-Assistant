@@ -1,0 +1,14 @@
+.nd-ai-planning-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); margin: auto; padding: 1rem; overflow-y: auto; color: var(--nd-ink); background: var(--nd-paper); border: 0; border-radius: var(--radius); box-shadow: 0 24px 70px hsl(var(--foreground) / .18); }
+.nd-ai-planning-dialog::backdrop { background: hsl(var(--foreground) / .28); }
+.nd-ai-planning-dialog h2 { margin: .25rem 0; font-size: 1.2rem; }
+.nd-ai-planning-dialog p,.nd-ai-planning-dialog details { margin: .5rem 0; font-size: 1rem; line-height: 1.6; overflow-wrap: anywhere; }
+.nd-ai-planning-dialog .nd-ai-planning-form label { font-size: 1rem; }
+.nd-ai-planning-dialog .nd-ai-planning-form select,.nd-ai-planning-dialog .nd-ai-planning-form textarea { min-height: 44px; font-size: 1rem; }
+.nd-ai-planning-dialog button { min-height: 44px; cursor: pointer; }
+.nd-ai-planning-dialog .nd-dialog-close { min-width: 44px; }
+.nd-ai-planning-dialog summary { cursor: pointer; }
+.nd-ai-planning-dialog button:focus-visible,.nd-ai-planning-dialog summary:focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 3px; }
+.nd-ai-planning-dialog button:disabled { cursor: not-allowed; }
+.nd-plan-editor-tools { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: .4rem; }
+.nd-plan-editor-tools .nd-button { white-space: nowrap; }
+#planning-versions-title:focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 4px; }

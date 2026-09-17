@@ -14,7 +14,11 @@ function route(scope="system_default", taskType=null, current=settings) {return 
 function catalog(routes=[route()]) {return {routes,credentials:[],tasks:routing.MODEL_TASKS,environmentReferences:[]};}
 
 test("Chinese tasks include chapter changes and chapter generation and inherit defaults without copying persisted facts", () => {
-  assert.equal(routing.MODEL_TASKS.length,8);
+  assert.equal(new Set(routing.MODEL_TASKS.map(task=>task.key)).size,routing.MODEL_TASKS.length);
+  assert.ok(routing.MODEL_TASKS.some(task=>task.key==='world_consistency'));
+  assert.ok(routing.MODEL_TASKS.some(task=>task.key==='creative_extraction'));
+  assert.ok(routing.MODEL_TASKS.some(task=>task.key==='character_dialogue'));
+  assert.equal(routing.MODEL_TASKS.some(task=>task.key==='image_generation'),false);
   assert.ok(routing.MODEL_TASKS.some(task=>task.key==='chapter_settlement'));
   assert.ok(routing.MODEL_TASKS.some(task=>task.key==='chapter_generation'&&task.label==='生成章节正文'));
   const value=catalog();

@@ -12,7 +12,7 @@ export async function startIndependentServer() {
   const app = createIndependentApplication();
   let workers: PrivateRuntimeServices | null = null;
   const server = app.listen(port, "127.0.0.1");
-  server.on("listening", () => console.log(`小说创作独立 API：http://127.0.0.1:${port}/api/new-design/independent-health；开发页面：http://127.0.0.1:5174/new-design`));
+  server.on("listening", () => console.log(`小说创作独立 API：http://127.0.0.1:${port}/api/new-design/independent-health；开发页面：http://127.0.0.1:5273/new-design`));
   server.on("error", () => { console.error(`失败阶段：服务端口监听。恢复：释放 ${port} 端口或设置 NEW_DESIGN_HTTP_PORT 后执行 npm run dev:server；已有数据未清空。`); process.exitCode = 1; void workers?.stop(); });
   await new Promise<void>((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
   app.locals.independentStartup = { phase: "database", database: "starting", workers: "pending" };

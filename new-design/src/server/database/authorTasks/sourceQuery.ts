@@ -26,12 +26,12 @@ FROM new_design.ai_generation_batches b JOIN new_design.book_creation_sessions s
 WHERE b.preparation_contract='creation_preparation_v1'
 UNION ALL
 SELECT 'planning_run',r.id,'planning',r.book_id,r.status,'AI 规划候选',COALESCE(r.completed_at,r.created_at),
- '/new-design/books/'||r.book_id::text||'/planning'||COALESCE('#plan-'||COALESCE(r.result_object_id,r.target_object_id)::text,''),NULL::integer,
+ '/new-design/books/'||r.book_id::text||'/planning'||COALESCE('?plan='||COALESCE(r.result_object_id,r.target_object_id)::text,''),NULL::integer,
  jsonb_build_object('saved',r.result_version_id IS NOT NULL,'resultId',r.result_version_id)
 FROM new_design.planning_ai_candidate_runs r
 UNION ALL
 SELECT 'planning_review',o.id,'planning',o.book_id,'review',o.title,o.updated_at,
- '/new-design/books/'||o.book_id::text||'/planning#plan-'||o.id::text,NULL::integer,
+ '/new-design/books/'||o.book_id::text||'/planning?plan='||o.id::text,NULL::integer,
  jsonb_build_object('saved',true,'resultId',o.current_version_id,'manual',v.source='manual')
 FROM new_design.planning_objects o JOIN new_design.planning_versions v ON v.id=o.current_version_id
 WHERE o.status='active' AND v.status IN ('draft','proposed') AND o.current_version_id IS DISTINCT FROM o.adopted_version_id

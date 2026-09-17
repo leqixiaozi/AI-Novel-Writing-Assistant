@@ -1,0 +1,3 @@
+import {IMAGE_CONTRACT,type ImageGenerationInput} from "../../../common/imageGeneration";
+/** Dedicated image protocol contract, never routed through a text PromptAsset/gateway. */
+export function prepareImageContract(input:ImageGenerationInput){return{...IMAGE_CONTRACT,prompt:`图片用途：${input.kind==='cover'?'小说封面':'小说插图'}\n画面要求：\n${input.prompt}\n画面说明：\n${input.description}`,outputSchema:{type:"object",required:["base64","mimeType","checksum","byteSize"],properties:{base64:{type:"string",maxLength:13981016},mimeType:{enum:["image/png","image/jpeg","image/webp"]},checksum:{type:"string",pattern:"^[a-f0-9]{64}$"},byteSize:{type:"integer",minimum:1,maximum:10485760}}}};}

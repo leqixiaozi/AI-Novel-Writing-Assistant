@@ -1,0 +1,16 @@
+import type {FieldDefinition,QualityIssue} from "../contracts";
+export interface WorldConsistencyField {key:string;label:string;specVersionId:string|null;specHash:string;specification:FieldDefinition;value:unknown;}
+export interface WorldConsistencySubject {kind:"card"|"relation";id:string;versionId:string;revision:number;label:string;typeId:string;typeLabel:string;fields:WorldConsistencyField[];sourceId?:string;targetId?:string;}
+export interface WorldConsistencyCatalog {bookId:string;hash:string;subjects:WorldConsistencySubject[];dictionaryNodes:Array<{dictionaryId:string;id:string;parentId:string|null;versionId:string;label:string;status:"active"|"archived"}>;}
+export interface WorldConsistencyInput {requestKey:string;catalogHash:string;cardIds:string[];relationIds:string[];recheckIssueId?:string;}
+export interface WorldConsistencyEvidence {kind:"card"|"relation";id:string;versionId:string;fieldKey:string;specVersionId:string|null;specHash:string;valueHash:string;note:string;}
+export interface WorldConsistencyFix {cardId:string;cardVersionId:string;fieldKey:string;specVersionId:string;specHash:string;beforeHash:string;after:unknown;reason:string;}
+export interface WorldConsistencyFinding {stableKey:string;title:string;description:string;severity:"info"|"low"|"medium"|"high";evidence:WorldConsistencyEvidence[];fixes:WorldConsistencyFix[];}
+export interface WorldConsistencyOutput {summary:string;findings:WorldConsistencyFinding[];recheckOutcome:"not_requested"|"supports_verified"|"still_present"|"inconclusive";}
+export interface WorldConsistencyFailure {failedStep:string;summary:string;savedResult:string;sourceRoute:string;actionLabel:string;mutationOutcome:"unknown"|"not_written";}
+export interface WorldConsistencyReceipt {id:string;bookId:string;requestKey:string;requestHash:string;input:WorldConsistencyInput;inputHash:string;status:"running"|"failed"|"succeeded"|"stale"|"ended_unknown";modelRequestState:"not_sent"|"sent_unknown"|"completed";reportId:string|null;modelResultSaved:boolean;output:WorldConsistencyOutput|null;catalog:WorldConsistencyCatalog;canImportSavedResult:boolean;canReleaseSavedResult:boolean;canEndExpiredUnknown:boolean;failure:WorldConsistencyFailure|null;}
+export interface WorldConsistencyWorkspace {catalog:WorldConsistencyCatalog;requests:WorldConsistencyReceipt[];issues:QualityIssue[];}
+export interface WorldConsistencyRepairDraft {candidateId:string;candidateVersionId:string;bookId:string;cardId:string;cardVersionId:string;revision:number;fieldKey:string;fieldLabel:string;specVersionId:string;specHash:string;beforeHash:string;after:unknown;}
+export interface WorldRepairSavedInput {requestKey:string;authorWriteRequestKey:string;allowManualRevision?:boolean;}
+export interface WorldRepairSavedReceipt {candidateId:string;requestKey:string;cardVersionId:string;authorWriteRequestKey:string;requestHash:string;input:WorldRepairSavedInput;}
+export function stableWorldConsistencyValue(value:unknown):string{if(Array.isArray(value))return`[${value.map(stableWorldConsistencyValue).join(",")}]`;if(value!==null&&typeof value==="object")return`{${Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,item])=>`${JSON.stringify(key)}:${stableWorldConsistencyValue(item)}`).join(",")}}`;return JSON.stringify(value);}

@@ -6,3 +6,4 @@ export * from "./validation";
 export {loadKnowledgeReferenceContext} from "./context";
 export {getKnowledgeContent,getKnowledgeReferenceCandidates,resolveReadyKnowledgeVersion,readReadyKnowledgeRows} from "./content";
 export {getKnowledgeReferenceTargets,adoptKnowledgeReferences,loadKnowledgeManifestSupplement} from "./references";
+export {resolveKnowledgeReferenceSegment} from "./paragraphs";

@@ -14,7 +14,7 @@ const SCOPE_TYPE_KEYS: Record<BusinessFormScope, string[]> = {
 };
 
 export const SCOPE_COPY: Record<BusinessFormScope, { eyebrow: string; title: string; description: string }> = {
-  overview: { eyebrow: "创作概览", title: "开书规划", description: "按创作顺序填写作品约定、故事构思和主题方向。" },
+  overview: { eyebrow: "故事设定", title: "本书创作方向", description: "填写本书的作品约定、故事构思、主题方向与创作策略。" },
   characters: { eyebrow: "人物", title: "人物档案", description: "集中维护人物身份、外在表现、内核与当前状态。" },
   world: { eyebrow: "世界设定", title: "世界资料", description: "维护世界观、地点、势力、道具与不可违背的规则。" },
   events: { eyebrow: "剧情与事件", title: "事件规划", description: "从事件事实、冲突和剧情线组织故事推进。" },

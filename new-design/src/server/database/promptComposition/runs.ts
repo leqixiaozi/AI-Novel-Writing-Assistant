@@ -40,6 +40,7 @@ async function validateFrozen(client:PoolClient,row:Row):Promise<{plan:DebugFroz
   for(const [index,entry]of storedEntries.entries()){
     const reference=expectedReferences[index]!,knowledge=reference.kind==="asset_version"?exact.knowledgeSources?.find(source=>source.parsedAssetId===reference.cardId&&source.parsedVersionId===reference.versionId):null;
     if(reference.kind==="asset_version"&&!knowledge)throw new NewDesignError("冻结知识正文精确版本不可用，请返回知识参考核对后重新预览。",409);
+    if(stableHash(entry.knowledge_segment??null)!==stableHash(knowledge?.segment??null))throw new NewDesignError("冻结知识段落锚点与明确选择不一致，请重新生成预览。",409);
     const hash=knowledge?knowledge.checksum:stableHash({revision:entry.exact_revision,typeVersionId:entry.exact_type_version_id,title:entry.exact_title,values:entry.exact_values}),spaceId=knowledge?knowledge.spaceId:entry.exact_space_id,revision=knowledge?knowledge.revision:entry.exact_revision;
     if(entry.source_type!==reference.kind||entry.stable_object_id!==reference.cardId||entry.exact_version_id!==reference.versionId||entry.content_hash!==hash||entry.source_space_id!==spaceId||entry.source_revision!==revision||entry.content_role!==(reference.role==="formal"?"required":"reference")||entry.slot_key!==(reference.kind==="prompt_component"?"author_additions":"explicit_context"))throw new NewDesignError("冻结上下文内容、角色或精确引用不一致，请重新生成预览。",409);
     reconstructed.push({reference,spaceId,revision:Number(revision),hash});

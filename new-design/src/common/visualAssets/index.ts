@@ -6,7 +6,7 @@ export interface VisualVersion {id:string;assetId:string;version:number;title:st
 export interface VisualAsset {id:string;title:string;kind:"cover"|"illustration";revision:number;status:"active"|"archived";currentVersionId:string|null;versions:VisualVersion[];}
 export interface VisualOwner {kind:"book"|"card_version"|"chapter_body_version";stableId:string;versionId:string;title:string;}
 export interface VisualMount {id:string;assetId:string;versionId:string;ownerKind:VisualOwner["kind"];ownerStableId:string;ownerVersionId:string;label:string;status:"active"|"ended";}
-export interface VisualWorkspace {bookId:string;bookName:string;capability:{generation:false;reason:string;sourceRoute:string};assets:VisualAsset[];owners:VisualOwner[];mounts:VisualMount[];}
+export interface VisualWorkspace {bookId:string;bookName:string;capability:{generation:boolean;reason:string;sourceRoute:string};assets:VisualAsset[];owners:VisualOwner[];mounts:VisualMount[];}
 const uuid=z.string().uuid(),key=z.string().trim().min(8).max(160),revision=z.number().int().positive(),text=z.string().trim().max(240);
 const ref={bookId:uuid,assetId:uuid,expectedRevision:revision,requestKey:key};
 export const visualUploadSchema=z.object({bookId:uuid,assetId:uuid.nullable(),expectedRevision:revision.nullable(),kind:z.enum(["cover","illustration"]),title:text.min(1),description:z.string().max(4000),filename:z.string().min(1).max(240).refine(value=>!/[\\/\x00-\x1f]/.test(value),"文件名不能包含路径或控制字符。"),mimeType:z.enum(VISUAL_MIME_TYPES),base64:z.string().min(1).max(Math.ceil(VISUAL_MAX_BYTES/3)*4),requestKey:key}).strict().refine(value=>Boolean(value.assetId)===(value.expectedRevision!==null),"更新已有图片需提供原修订，新增不借原修订。");

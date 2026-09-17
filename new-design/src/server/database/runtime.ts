@@ -52,6 +52,11 @@ async function applyMigrations(pool:Pool,connection:PrivateRuntimeConnection):Pr
 }
 
 export async function getNewDesignPool():Promise<Pool>{poolPromise??=createPool().catch(error=>{poolPromise=null;throw error;});return poolPromise;}
+/** Dashboard reads must not initialize infrastructure or apply migrations. */
+export async function getInitializedNewDesignPool():Promise<Pool>{
+  if(!poolPromise||!runtimeStatus)throw new Error("创作数据服务尚未就绪，请稍后重新读取。");
+  return poolPromise;
+}
 export async function getDatabaseRuntimeStatus():Promise<DatabaseRuntimeStatus>{await getNewDesignPool();if(!runtimeStatus)throw new Error("新设计 PostgreSQL 尚未就绪。");return runtimeStatus;}
 
 export async function getPrivateRuntimeDiagnostics():Promise<PrivateRuntimeDiagnostics>{
