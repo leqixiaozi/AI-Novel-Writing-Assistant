@@ -40,13 +40,14 @@ export async function endUnknownResourceFocus(bookId:string,input:ResourceFocusR
 /** Claim once, then execute once; duplicates and recovery only read the full original. */
 export async function generateResourceFocus(bookId:string,input:ResourceFocusRequest,ai?:NewDesignAiGateway):Promise<ResourceFocusRecord>{
  const parsed=resourceFocusRequestSchema.parse(input),pool=await getNewDesignPool(),db=await pool.connect();let committing=false,promptInput:ResourceFocusPromptInput;
+ const task=parsed.includeHistory?'character_resource_history_focus':'character_resource_focus',generate=parsed.includeHistory?ai?.generateCharacterResourceHistoryFocus:ai?.generateCharacterResourceFocus;
  try{
   await db.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`resource-focus:${bookId}:${parsed.requestKey}`]);await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
   const original=await readRow(db,bookId,parsed.requestKey);if(original){sameRequest(original,parsed);await db.query('ROLLBACK');return record(original);}
-  if(!ai?.generateCharacterResourceFocus)throw new NewDesignError('请在模型设置连接创作模型后准备人物资源显示建议。',503);
-  const source=await freezeResourceFocusSources(db,bookId,parsed.characterId,parsed.selection);
+  if(!generate)throw new NewDesignError('请在模型设置连接创作模型后准备人物资源显示建议。',503);
+  const source=await freezeResourceFocusSources(db,bookId,parsed.characterId,parsed.selection,parsed.includeHistory);
   if(source.sourceHash!==parsed.expectedSourceHash)throw new NewDesignError('人物、资源策划或账本来源已变化，请重新核对完整范围；未发送模型请求。',409);
-  promptInput={snapshot:source.snapshot,instruction:parsed.instruction};const prompt=preparePrompt('character_resource_focus',promptInput);
+  promptInput={snapshot:source.snapshot,instruction:parsed.instruction};const prompt=preparePrompt(task,promptInput);
   await db.query("INSERT INTO new_design.ai_generation_batches(id,book_id,operation,status,stage,instruction,input_payload,prompt_id,prompt_version) VALUES($1,$2,'form_assist','running','generating',$3,$4::jsonb,$5,$6)",[parsed.requestKey,bookId,parsed.instruction,JSON.stringify({contract,request:parsed,requestHash:formHash(parsed),snapshot:source.snapshot}),prompt.assetId,prompt.version]);
   committing=true;await db.query('COMMIT');
  }catch(error){let rolledBack=false;try{await db.query('ROLLBACK');rolledBack=true;}catch{}if(error instanceof ResourceFocusWriteError)throw error;throw new ResourceFocusWriteError(error instanceof NewDesignError?error.message:'原资源建议领取结果待核对，请保留完整凭证。',error instanceof NewDesignError?error.status:503,!committing&&rolledBack?'not_written':'unknown');}finally{await db.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[`resource-focus:${bookId}:${parsed.requestKey}`]).catch(()=>undefined);db.release(true);}
@@ -54,8 +55,8 @@ export async function generateResourceFocus(bookId:string,input:ResourceFocusReq
  try{
   await execution.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`resource-focus-execution:${parsed.requestKey}`]);
   const existing=assertFound(await readRow(execution,bookId,parsed.requestKey),'原资源建议领取不存在。');sameRequest(existing,parsed);if(existing.status!=='running')return record(existing);
-  const generated=await ai!.generateCharacterResourceFocus!(promptInput!);modelCompleted=true;
-  const output=preparePrompt('character_resource_focus',promptInput!).parseOutput(generated.output) as ResourceFocusOutput;
+  const generated=await generate!(promptInput!);modelCompleted=true;
+  const output=preparePrompt(task,promptInput!).parseOutput(generated.output) as ResourceFocusOutput;
   const row=(await execution.query("UPDATE new_design.ai_generation_batches SET status='review',stage='review',progress=100,output_payload=$2::jsonb,completed_at=now(),updated_at=now() WHERE id=$1 AND book_id=$3 AND status='running' RETURNING *",[parsed.requestKey,JSON.stringify({...generated,result:output}),bookId])).rows[0];
   return record(assertFound(row,'原资源建议保存结果待核对。'));
  }catch(error){

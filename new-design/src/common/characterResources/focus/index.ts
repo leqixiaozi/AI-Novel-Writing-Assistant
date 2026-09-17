@@ -1,15 +1,18 @@
 import type {CharacterResourceLedger, ResourceLedgerSelection} from '..';
 import type {ProfessionalObject} from '../../worldCharacterMaintenance';
 import {z} from 'zod';
+import type {CharacterResourceHistory,ResourceHistoryFocusOutput} from '../history';
+import {resourceHistoryFocusOutputSchema,resourceHistoryFocusSchemaFor} from '../history';
 
 const uuid=z.string().uuid(), hash=z.string().regex(/^[a-f0-9]{64}$/);
 export const resourceFocusSelectionSchema=z.object({relationTypeId:uuid,holdingDimensionKey:z.string().min(1).max(100),specificationHash:hash}).strict();
-export const resourceFocusRequestSchema=z.object({requestKey:uuid,characterId:uuid,selection:resourceFocusSelectionSchema,expectedSourceHash:hash,instruction:z.string().trim().max(2000)}).strict();
+export const resourceFocusRequestSchema=z.object({requestKey:uuid,characterId:uuid,selection:resourceFocusSelectionSchema,expectedSourceHash:hash,instruction:z.string().trim().max(2000),includeHistory:z.literal(true).optional()}).strict();
 export type ResourceFocusRequest=z.infer<typeof resourceFocusRequestSchema>;
 export interface ResourceFocusEvidenceSource {cardId:string;versionId:string;fieldKey:string;text:string;}
 export interface ResourceFocusSnapshot {
- contract:'character_resource_focus_v1';bookId:string;characterId:string;selection:ResourceLedgerSelection;
+ contract:'character_resource_focus_v1'|'character_resource_focus_v2';bookId:string;characterId:string;selection:ResourceLedgerSelection;
  ledger:CharacterResourceLedger;objects:ProfessionalObject[];evidenceSources:ResourceFocusEvidenceSource[];
+ history?:CharacterResourceHistory;
 }
 export interface ResourceFocusPreview {sourceHash:string;snapshot:ResourceFocusSnapshot;}
 export interface ResourceFocusPromptInput {snapshot:ResourceFocusSnapshot;instruction:string;}
@@ -20,7 +23,8 @@ export const resourceFocusOutputSchema=z.object({
  resources:z.array(z.object({relationId:uuid,resourceId:uuid,importance:z.enum(['key','ordinary','unknown']),reasons:z.array(z.enum(['cross_chapter','conflict','promise','hidden_card','transfer_plan'])).max(5),explanation,evidence:z.array(evidenceSchema).max(10)}).strict()).max(200),
  notes:z.array(z.string().max(4000)).max(30),
 }).strict();
-export type ResourceFocusOutput=z.infer<typeof resourceFocusOutputSchema>;
+const historicalOutputSchema=resourceFocusOutputSchema.extend({history:resourceHistoryFocusOutputSchema});
+export type ResourceFocusOutput=z.infer<typeof resourceFocusOutputSchema>&{history?:ResourceHistoryFocusOutput};
 export function sameResourceFocusValue(left:unknown,right:unknown):boolean {
  if(left===right)return true;if(Array.isArray(left)||Array.isArray(right))return Array.isArray(left)&&Array.isArray(right)&&left.length===right.length&&left.every((value,index)=>sameResourceFocusValue(value,right[index]));
  if(!left||!right||typeof left!=='object'||typeof right!=='object')return false;
@@ -28,7 +32,7 @@ export function sameResourceFocusValue(left:unknown,right:unknown):boolean {
 }
 export interface ResourceFocusRecord {id:string;bookId:string;request:ResourceFocusRequest;status:string;stage:string;error:string;snapshot:ResourceFocusSnapshot;output:ResourceFocusOutput|null;createdAt:string;sourceRoute:string;}
 export interface ResourceFocusApi {
- previewResourceFocus:(bookId:string,characterId:string,selection:ResourceLedgerSelection)=>Promise<ResourceFocusPreview>;
+ previewResourceFocus:(bookId:string,characterId:string,selection:ResourceLedgerSelection,includeHistory?:boolean)=>Promise<ResourceFocusPreview>;
  generateResourceFocus:(bookId:string,input:ResourceFocusRequest)=>Promise<ResourceFocusRecord>;
  readResourceFocusOriginal:(bookId:string,input:ResourceFocusRequest)=>Promise<ResourceFocusRecord|null>;
  getResourceFocusRecord:(bookId:string,characterId:string,requestKey:string)=>Promise<ResourceFocusRecord|null>;
@@ -39,6 +43,7 @@ export function validResourceFocusRecord(value:unknown,bookId:string,characterId
   const record=value as ResourceFocusRecord,request=resourceFocusRequestSchema.parse(record.request);
   if(record.bookId!==bookId||record.id!==request.requestKey||request.characterId!==characterId||!uuid.safeParse(record.id).success||!['running','review','failed','discarded'].includes(record.status)||typeof record.stage!=='string'||typeof record.error!=='string'||typeof record.createdAt!=='string'||!Number.isFinite(Date.parse(record.createdAt))||record.snapshot.bookId!==bookId||record.snapshot.characterId!==characterId||JSON.stringify(resourceFocusSelectionSchema.parse(record.snapshot.selection))!==JSON.stringify(request.selection)||record.sourceRoute!==`/new-design/books/${bookId}/story-setting?tab=characters&selected=${characterId}&detail=resources&resourceFocus=${record.id}`)return false;
   const schema=resourceFocusSchemaFor({snapshot:record.snapshot,instruction:request.instruction});
+  if(Boolean(request.includeHistory)!==(record.snapshot.contract==='character_resource_focus_v2'))return false;
   return record.status==='review'?record.output!==null&&schema.safeParse(record.output).success:record.output===null;
  }catch{return false;}
 }
@@ -52,10 +57,16 @@ export function resourceFocusEvidenceText(value:unknown):string|null {
 /** Evidence is from actual saved fields; inference never becomes a holding or fact. */
 export function resourceFocusSchemaFor(input:ResourceFocusPromptInput){
  const {snapshot}=input;
- if(!snapshot||snapshot.contract!=='character_resource_focus_v1'||!uuid.safeParse(snapshot.bookId).success||!uuid.safeParse(snapshot.characterId).success||snapshot.ledger.bookId!==snapshot.bookId||snapshot.ledger.characterId!==snapshot.characterId||snapshot.ledger.truncated||snapshot.ledger.items.length>200||!snapshot.ledger.selection||snapshot.ledger.selection.relationTypeId!==snapshot.selection.relationTypeId||snapshot.ledger.selection.holdingDimensionKey!==snapshot.selection.holdingDimensionKey||snapshot.ledger.selection.specificationHash!==snapshot.selection.specificationHash)throw new Error('人物资源判断需要完整实际来源。');
+ if(!snapshot||!['character_resource_focus_v1','character_resource_focus_v2'].includes(snapshot.contract)||!uuid.safeParse(snapshot.bookId).success||!uuid.safeParse(snapshot.characterId).success||snapshot.ledger.bookId!==snapshot.bookId||snapshot.ledger.characterId!==snapshot.characterId||snapshot.ledger.truncated||snapshot.ledger.items.length>200||!snapshot.ledger.selection||snapshot.ledger.selection.relationTypeId!==snapshot.selection.relationTypeId||snapshot.ledger.selection.holdingDimensionKey!==snapshot.selection.holdingDimensionKey||snapshot.ledger.selection.specificationHash!==snapshot.selection.specificationHash)throw new Error('人物资源判断需要完整实际来源。');
+ const historical=snapshot.contract==='character_resource_focus_v2';
+ if(historical&&(!snapshot.history||snapshot.history.bookId!==snapshot.bookId||snapshot.history.characterId!==snapshot.characterId||!sameResourceFocusValue(snapshot.history.selection,snapshot.selection))||!historical&&snapshot.history)throw new Error('历史判断与完整原人物范围不同。');
+ const historySchema=historical?resourceHistoryFocusSchemaFor(snapshot.history!):null;
  const objects=new Map(snapshot.objects.map(object=>[object.id,object]));
  if(objects.size!==snapshot.objects.length||!objects.has(snapshot.characterId)||snapshot.ledger.items.some(item=>objects.get(item.resourceId)?.versionId!==item.resourceVersionId)||snapshot.evidenceSources.some(source=>objects.get(source.cardId)?.versionId!==source.versionId||!objects.get(source.cardId)?.fields.some(item=>item.field.key===source.fieldKey&&!item.field.hidden)||resourceFocusEvidenceText(objects.get(source.cardId)?.values[source.fieldKey])!==source.text))throw new Error('人物资源证据与实际档案版本不同。');
- return resourceFocusOutputSchema.superRefine((output,ctx)=>{
+ return (historical?historicalOutputSchema:resourceFocusOutputSchema).superRefine((rawOutput,ctx)=>{
+  const output=rawOutput as ResourceFocusOutput;
+  if(historySchema){const result=historySchema.safeParse(output.history);if(!result.success)result.error.issues.forEach(issue=>ctx.addIssue({code:'custom',path:['history',...issue.path],message:issue.message}));}
+  else if(output.history)ctx.addIssue({code:'custom',path:['history'],message:'原v1档案建议没有确认历史来源。'});
   const check=(proof:z.infer<typeof evidenceSchema>,path:(string|number)[])=>{const source=snapshot.evidenceSources.find(source=>source.cardId===proof.cardId&&source.versionId===proof.versionId&&source.fieldKey===proof.fieldKey);if(!source||proof.start>=proof.end||proof.end>source.text.length||source.text.slice(proof.start,proof.end)!==proof.excerpt)ctx.addIssue({code:'custom',path,message:'原档案证据的版本或UTF-16位置不匹配。'});};
   output.role.evidence.forEach((proof,index)=>{check(proof,['role','evidence',index]);if(proof.cardId!==snapshot.characterId)ctx.addIssue({code:'custom',path:['role','evidence',index],message:'人物定位只能引用当前人物原档案。'});});
   if(output.role.value!=='unknown'&&(!output.role.evidence.length||objects.get(snapshot.characterId)?.unavailableReason))ctx.addIssue({code:'custom',path:['role'],message:'定位缺少有效原档案证据时须保持未知。'});

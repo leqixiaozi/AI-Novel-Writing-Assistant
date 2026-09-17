@@ -15,13 +15,14 @@ export function createIndependentAiGateway(options:ExecutionDependencies={}):New
   async function execute<T>(taskType:Exclude<PromptTaskType,"stable_resource_supplement"|"stable_resource_correction">,input:unknown):Promise<AiResearchRunResult<T>> {
     let prompt;
     try {prompt=preparePrompt(taskType,input);}catch{throw new AiExecutionError("准备创作资料","创作资料与当前表单规格不一致，请回来源页检查必填信息和可用内容类型。",422);}
-    const visible=taskType==="character_resource_focus"||taskType==="character_experiences"||taskType==="visible_prepare"||taskType==="visible_adjust";
+    const visible=taskType==="character_resource_focus"||taskType==="character_resource_history_focus"||taskType==="character_experiences"||taskType==="visible_prepare"||taskType==="visible_adjust";
     const managedTask=taskType==="character_resource_backfill"?"chapter_settlement":visible?"form_assist":taskType==="story_workspace_batch"?((input as import("../../common/storyWorkspace").StoryBatchPromptInput).mode==="setting"?"form_assist":"planning_candidate"):taskType;
     let result;
     try{result=await executeManagedPrompt<T>(managedTask,prompt,(taskType==="story_workspace_batch"||visible)?{...options,stopOnUnknownResponse:true}:options);}catch(error){if((taskType==="story_workspace_batch"||visible)&&error instanceof AiExecutionError&&!error.executionSnapshot)error.executionSnapshot={attempts:[],usageStatus:"not_invoked",knownTokens:0};throw error;}
     return {...result,promptSnapshot:{assetId:prompt.assetId,version:prompt.version,taskType,contextPolicy:prompt.contextPolicy,outputSchema:prompt.outputSchema},modelSnapshot:{...result.modelSnapshot,temperature:prompt.temperature}};
   }
   return {
+    generateCharacterResourceHistoryFocus:input=>execute<import("../../common/characterResources/focus").ResourceFocusOutput>("character_resource_history_focus",input),
     generateCharacterResourceFocus:input=>execute<import("../../common/characterResources/focus").ResourceFocusOutput>("character_resource_focus",input),
     generateCharacterExperiences:input=>execute<import("../../common/characterExperiences").ExperienceOutput>("character_experiences",input),
     generateDirections:async input=>(await execute<{directions:BookDirectionCandidate[]}>("directions",input)).output.directions,

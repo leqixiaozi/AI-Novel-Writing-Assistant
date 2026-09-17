@@ -19,9 +19,9 @@ exports.resourceSupplementFixture=async function(t,extraMigrations=[]){
  const planContent={goal:'取得资源',mustHappen:[],mustPreserve:[],forbiddenBoundaries:[],expectedChanges:[],characterArc:'',notes:''};
  async function plan(level,parent,cardId,sortOrder){let object=await planning.createPlanningObject({bookId:book.id,level,parentObjectId:parent?.id??null,basedOnParentVersionId:parent?.adoptedVersionId??null,cardId:cardId??null,title:level,sortOrder,content:planContent,source:'manual',executionMode:'ai_assisted',references:[],idempotencyKey:key()});return planning.adoptPlanningVersion(object.id,{versionId:object.currentVersionId,expectedRevision:object.revision,idempotencyKey:key()});}
  const story=await plan('story',null,null,0),volumeCard=await create('volume','资源卷',{volume_name:'资源卷',major_goal:'取得资源'}),volume=await plan('volume',story,volumeCard.id,0);
- async function chapter(order,after,withConfirmations=false,additionalDrafts){
+ async function chapter(order,after,withConfirmations=false,additionalDrafts,bodyContent){
   const card=await create('chapter',`第${order}章`,{chapter_name:`第${order}章`,chapter_goal:'取得资源'}),object=await plan('chapter',volume,card.id,order);
-  const document=await body.createChapterDocument({bookId:book.id,chapterCardId:card.id,logicalOrder:order,title:`第${order}章`}),content=`资源人物取得资源😀，数量为${after}。`;
+  const document=await body.createChapterDocument({bookId:book.id,chapterCardId:card.id,logicalOrder:order,title:`第${order}章`}),content=bodyContent??`资源人物取得资源😀，数量为${after}。`;
   const candidate=await writing.saveChapterCandidate(document.id,{content,operationKind:'manual_draft',expectedRevision:document.revision,idempotencyKey:key()}),version=candidate.versions[0],preparation=await writing.prepareChapterAdoption(document.id,{bodyVersionId:version.id,expectedRevision:candidate.revision,idempotencyKey:key()}),started=await settlement.startChapterAdoptionSession(preparation.id,{expectedRevision:candidate.revision,idempotencyKey:key()});
   let workspace=await settlement.getChapterSettlementEditingWorkspace(started.session.id);
   for(const category of withConfirmations?['fact','knowledge','character_state']:['character_state']){

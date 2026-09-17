@@ -37,6 +37,7 @@ export interface PlanningCandidateOutput {title:string;goal:string;storyTime:str
 
 export interface NewDesignAiGateway {
   generateCharacterResourceFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
+  generateCharacterResourceHistoryFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
   generateCharacterExperiences?(input:import("../../common/characterExperiences").ExperienceSnapshot):Promise<AiResearchRunResult<import("../../common/characterExperiences").ExperienceOutput>>;
   generateStoryWorkspaceBatch?(input:import("../../common/storyWorkspace").StoryBatchPromptInput):Promise<AiResearchRunResult<import("../../common/storyWorkspace").StoryBatchOutput>>;
   generateDirections(input: DirectionGenerationInput): Promise<BookDirectionCandidate[]>;

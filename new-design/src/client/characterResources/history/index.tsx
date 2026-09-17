@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import type {ResourceLedgerSelection} from '../../../common/characterResources';
 import type {CharacterResourceHistory} from '../../../common/characterResources/history';
+import type {ResourceHistoryItem,ResourceHistoryFocusOutput} from '../../../common/characterResources/history';
 import {newDesignApi} from '../../api';
 /** Explicit source-page read. Historical confirmations never replace current holding. */
 export function ResourceHistoryPanel({bookId,characterId,selection,disabled}:{bookId:string;characterId:string;selection:ResourceLedgerSelection|null;disabled:boolean}){
@@ -19,4 +20,12 @@ export function ResourceHistoryPanel({bookId,characterId,selection,disabled}:{bo
    {history&&!history.items.length&&<p>没有对应的原章节资源状态变化。未确认的持有与转交保持未知。</p>}
   </>}
  </section>;
+}
+export function ResourceHistoryItemView({item,suggestion}:{item:ResourceHistoryItem;suggestion?:ResourceHistoryFocusOutput[number]}){
+ const latest=item.changes[0];
+ return <article><h4>{item.name}<small>当前持有：{item.currentHolding?.available?item.currentHolding.display:'未确认'}</small></h4>
+  <p>原人物关系关联的资源 · 历史确认</p>{suggestion&&<p>AI 原确认显示建议：{({transferred:'已转交',stale:'已淡出',other:'其它原确认',unknown:'待核对'})[suggestion.status]}；{suggestion.explanation}</p>}
+  {latest&&<><p>第 {latest.chapterOrder} 章 · {latest.fieldLabel}：{latest.beforeDisplay} → {latest.afterDisplay}</p>{latest.unavailableReason&&<p role="alert">{latest.unavailableReason}</p>}<a href={latest.sourceRoute}>核对原章节确认与正文</a></>}
+  <details><summary>全部原确认与引用证据</summary>{item.changes.map(change=><section key={change.id}><p>第 {change.chapterOrder} 章 · {change.fieldLabel}：{change.beforeDisplay} → {change.afterDisplay}；{change.available?'原确认已核对':'原来源待核对'}。</p>{change.original.anchor&&<blockquote>{String(change.original.anchor.excerpt)}</blockquote>}<p>原确认：{change.id}；采用正文：{change.bodyVersionId}；关系引用：{String(change.original.relationVersion?.id??'缺失')}。</p><a href={change.sourceRoute}>打开确切原确认</a></section>)}</details>
+ </article>;
 }
