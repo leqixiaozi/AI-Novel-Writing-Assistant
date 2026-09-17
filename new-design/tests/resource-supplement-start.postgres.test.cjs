@@ -145,7 +145,7 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal((await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId)).impactHash,impact.impactHash);assert.deepEqual(await counts(),unchanged);
   await assert.rejects(supplements.previewResourceSupplementSettlement(key(),receipt.sessionId),error=>error.status===409);
   const reviewInput={requestKey:key(),expectedSessionRevision:workspace.session.revision,expectedImpactHash:impact.impactHash,acknowledgedConflictStateChangeIds:[chain.stateChangeId],note:'已核对原0→2与补充后预期前值1；影响确认不会修复下游状态。'};
-  let savedReview;
+  let savedReview,freshReview;
   await reviewTests.test('impact review missing conflict acknowledgement writes nothing',async()=>{
    await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),acknowledgedConflictStateChangeIds:[]}),error=>error.status===422&&error.mutationOutcome==='not_written');
    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,0);
@@ -191,8 +191,8 @@ test('stable supplement preview and exact original request create only an indepe
    const checker=await pool.connect();try{await checker.query('BEGIN');
     await assert.rejects(supplements.readResourceSupplementImpactReviewForSettlementInTransaction(checker,book.id,receipt.sessionId,savedReview.reviewId,refreshed),error=>error.status===409);
    }finally{await checker.query('ROLLBACK');checker.release();}
-   const fresh=await supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),expectedImpactHash:refreshed.impactHash});
-   assert.deepEqual(fresh.impact,refreshed);assert.equal(fresh.impact.stateChain[0].reason,'before_conflict');assert.deepEqual(await counts(),unchanged);
+   freshReview=await supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),expectedImpactHash:refreshed.impactHash});
+   assert.deepEqual(freshReview.impact,refreshed);assert.equal(freshReview.impact.stateChain[0].reason,'before_conflict');assert.deepEqual(await counts(),unchanged);
   });
   const verifier=await pool.connect();try{await verifier.query('BEGIN');await verifier.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[impact.downstreamSource.states[0].change.text_anchor_id]);
    await assert.rejects(supplements.previewResourceSupplementSettlementInTransaction(verifier,book.id,receipt.sessionId),error=>error.status===409);
@@ -201,6 +201,28 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal((await pool.query('SELECT value_json FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].value_json,2);
   await assert.rejects(settlement.commitChapterSettlementEditing(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),note:'下游尚未复核'}),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
+  await reviewTests.test('real merged SQL retains all old confirmations and the unchanged deferred guard prevents publication',async()=>{
+   const merger=await pool.connect();let merged;
+   try{await merger.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+    merged=await settlement.writeResourceSupplementMergedSettlementInTransaction(merger,book.id,receipt.sessionId,{requestKey:key(),reviewId:freshReview.reviewId,expectedSessionRevision:workspace.session.revision,expectedImpactHash:refreshed.impactHash});
+    assert.deepEqual(merged.confirmed.facts,preview.basis.confirmed.facts);assert.deepEqual(merged.confirmed.knowledge,preview.basis.confirmed.knowledge);
+    assert.deepEqual(merged.confirmed.states,[...preview.basis.confirmed.states,...merged.newStateChangeIds]);assert.equal(merged.newStateChangeIds.length,1);
+    const newCheckpoint=(await merger.query('SELECT * FROM new_design.chapter_stable_checkpoints WHERE id=$1',[merged.checkpointId])).rows[0];
+    assert.equal(newCheckpoint.previous_checkpoint_id,first.checkpoint.id);assert.equal(newCheckpoint.body_version_id,first.version.id);assert.equal(newCheckpoint.status,'stable');
+    const oldRows=(await merger.query(`SELECT to_jsonb(session) session,to_jsonb(checkpoint) checkpoint,to_jsonb(settlement) settlement,to_jsonb(body) body
+      FROM new_design.chapter_stable_checkpoints checkpoint JOIN new_design.chapter_adoption_sessions session ON session.id=checkpoint.session_id
+      JOIN new_design.chapter_settlements settlement ON settlement.id=checkpoint.settlement_id JOIN new_design.chapter_body_versions body ON body.id=checkpoint.body_version_id WHERE checkpoint.id=$1`,[first.checkpoint.id])).rows[0];
+    assert.equal(oldRows.checkpoint.status,'superseded');oldRows.checkpoint.status='stable';assert.deepEqual(oldRows,originalSnapshot);
+    const context=await settlement.getNextChapterStableContextInTransaction(merger,book.id,second.card.id);
+    assert.equal(context.previousCheckpoint.id,merged.checkpointId);assert.deepEqual(context.previousCheckpoint.summary.confirmed,merged.confirmed);
+    assert.deepEqual(context.confirmedFacts.map(row=>row.id),merged.confirmed.facts);assert.deepEqual(context.knowledgeChanges.map(row=>row.id),merged.confirmed.knowledge);
+    assert.ok(context.recentStateChanges.some(row=>row.id===preview.basis.confirmed.states[0]));assert.ok(context.recentStateChanges.some(row=>row.id===merged.newStateChangeIds[0]&&row.afterValue===1));
+    await assert.rejects(merger.query('SET CONSTRAINTS new_design.chapter_resource_supplement_closure_required IMMEDIATE'),error=>error.code==='23514'&&/downstream closure is not operational/.test(error.message));
+   }finally{await merger.query('ROLLBACK');merger.release();}
+   assert.deepEqual(await originalRows(),originalSnapshot);assert.deepEqual(await counts(),unchanged);
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_stable_checkpoints WHERE id=$1',[merged.checkpointId])).rows[0].n,0);
+  });
   await reviewTests.test('review deactivation retains receipts and forbids new writes without clearing any source conflict',async()=>{
    await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/089_resource_supplement_impact_reviews.sql'),'utf8'));
    assert.equal((await supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput)).reviewId,savedReview.reviewId);

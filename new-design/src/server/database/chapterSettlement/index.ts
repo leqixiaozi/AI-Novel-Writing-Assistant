@@ -5,6 +5,7 @@ export {
   getChapterBodySwitchImpactContract,
   getChapterSettlementWorkspace,
   getNextChapterStableContext,
+  getNextChapterStableContextInTransaction,
   ingestChapterProposalExtractionResult,
   settleChapterAdoptionSession,
   updateChapterSettlementItem,
@@ -23,3 +24,4 @@ export {SettlementEditingError,displaySettlementValue} from "./editingPolicy";
 export * from "./relationConfiguration";
 export { readFrozenSupplementSource,assertResourceSupplementCandidateContract } from "./supplementRead";
 export {readResourceSupplementSettlementChangesInTransaction} from "./supplementRead/settlementPreview";
+export {writeResourceSupplementMergedSettlementInTransaction} from './supplementWrite';
