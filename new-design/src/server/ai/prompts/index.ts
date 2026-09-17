@@ -1,4 +1,5 @@
 import { z } from "zod";
+import {storyWorkspaceAsset} from "./storyWorkspace";
 import { creationAssets } from "./creation";
 import { planningAsset } from "./planning";
 import { chapterSettlementAsset } from "./chapterSettlement";
@@ -16,7 +17,7 @@ export type {CreationPreparationPromptInput} from "./creationPreparation";
 export {creationPreparationPromptInputSchema} from "./creationPreparation";
 export type {ChapterGenerationInput} from "./chapterGeneration";
 
-const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, worldConsistencyAsset, creativeExtractionAsset, characterDialogueAsset];
+const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, worldConsistencyAsset, creativeExtractionAsset, characterDialogueAsset, storyWorkspaceAsset];
 const registry = new Map<PromptTaskType, PromptAsset>();
 const identity = new Set<string>();
 for (const asset of assets) {

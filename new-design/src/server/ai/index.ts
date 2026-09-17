@@ -15,7 +15,9 @@ export function createIndependentAiGateway(options:ExecutionDependencies={}):New
   async function execute<T>(taskType:PromptTaskType,input:unknown):Promise<AiResearchRunResult<T>> {
     let prompt;
     try {prompt=preparePrompt(taskType,input);}catch{throw new AiExecutionError("准备创作资料","创作资料与当前表单规格不一致，请回来源页检查必填信息和可用内容类型。",422);}
-    const result=await executeManagedPrompt<T>(taskType,prompt,options);
+    const managedTask=taskType==="story_workspace_batch"?((input as import("../../common/storyWorkspace").StoryBatchPromptInput).mode==="setting"?"form_assist":"planning_candidate"):taskType;
+    let result;
+    try{result=await executeManagedPrompt<T>(managedTask,prompt,taskType==="story_workspace_batch"?{...options,stopOnUnknownResponse:true}:options);}catch(error){if(taskType==="story_workspace_batch"&&error instanceof AiExecutionError&&!error.executionSnapshot)error.executionSnapshot={attempts:[],usageStatus:"not_invoked",knownTokens:0};throw error;}
     return {...result,promptSnapshot:{assetId:prompt.assetId,version:prompt.version,taskType,contextPolicy:prompt.contextPolicy,outputSchema:prompt.outputSchema},modelSnapshot:{...result.modelSnapshot,temperature:prompt.temperature}};
   }
   return {
@@ -24,6 +26,7 @@ export function createIndependentAiGateway(options:ExecutionDependencies={}):New
     assistForm:async input=>(await execute<{suggestions:Record<string,unknown>}>("form_assist",input)).output.suggestions,
     analyzeMarket:input=>execute<MarketAnalysisResult>("market_analysis",input),
     analyzeBook:input=>execute<BookAnalysisResult>("book_analysis",input),
+    generateStoryWorkspaceBatch:input=>execute<import("../../common/storyWorkspace").StoryBatchOutput>("story_workspace_batch",input),
     generatePlanningCandidate:input=>execute<PlanningCandidateOutput>("planning_candidate",input),
   };
 }

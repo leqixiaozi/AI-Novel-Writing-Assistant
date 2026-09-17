@@ -1,0 +1,24 @@
+import {planningObjectInputSchema,planningVersionInputSchema,initialStateInputSchema} from '../../domain/validation';
+import {saveInitialState} from '../../database/stateStore';
+import {NewDesignError} from '../../domain/errors';
+import {createPlanningObject,addPlanningVersion,readPlanningWriteReceipt} from '../../database/planning';
+import {readInitialStateWriteReceipt} from '../../database/stateStore';
+import {Router} from 'express';
+import {z} from 'zod';
+import type {NewDesignAiGateway} from '../../ai/gateway';
+import {AiExecutionError} from '../../ai';
+import {generateStoryBatch,readStoryBatch,checkStoryBatchSlot,endUnknownStoryBatch,storyBatchRequestSchema,StoryBatchError} from '../../database/storyWorkspace';
+export function storyWorkspaceRouter(ai?:NewDesignAiGateway):Router{
+ const router=Router();
+ router.get('/books/:bookId/initial-state-write-receipts/:key',(req,res,next)=>{void Promise.resolve().then(()=>readInitialStateWriteReceipt(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key))).then(data=>res.json({success:true,data})).catch(next);});
+ router.get('/books/:bookId/planning-write-receipts/:key',(req,res,next)=>{void Promise.resolve().then(()=>readPlanningWriteReceipt(z.string().uuid().parse(req.params.bookId),z.string().min(8).max(160).parse(req.params.key))).then(data=>res.json({success:true,data})).catch(next);});
+ const fail=(error:unknown,next:(error:unknown)=>void)=>{if(error instanceof z.ZodError){const problem=new AiExecutionError('核对提交内容','字段不完整或格式不正确，填写保留；请检查后再提交。',422,null,Object.fromEntries(error.issues.map(issue=>[issue.path.join('.'),issue.message])));problem.recovery.mutationOutcome='not_written';next(problem);return;}if(error instanceof StoryBatchError){const problem=new AiExecutionError('准备故事候选',error.message,error.status);problem.recovery.mutationOutcome=error.mutationOutcome;next(problem);}else next(error);};
+ router.post('/books/:bookId/planning-objects',(req,res,next)=>{void Promise.resolve().then(()=>createPlanningObject({bookId:z.string().uuid().parse(req.params.bookId),...planningObjectInputSchema.parse(req.body)})).then(data=>res.status(201).json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/planning-objects/:id/versions',(req,res,next)=>{void Promise.resolve().then(()=>addPlanningVersion(z.string().uuid().parse(req.params.id),planningVersionInputSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/initial-states',(req,res,next)=>{void Promise.resolve().then(()=>saveInitialState({bookId:z.string().uuid().parse(req.params.bookId),...initialStateInputSchema.parse(req.body)})).then(data=>res.status(201).json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/story-ai-batches',(req,res,next)=>{void Promise.resolve().then(()=>generateStoryBatch(z.string().uuid().parse(req.params.bookId),storyBatchRequestSchema.parse(req.body),ai)).then(data=>res.json({success:true,data})).catch(error=>fail(error,next));});
+ router.post('/books/:bookId/story-ai-batches/by-request/:key/end-unknown',(req,res,next)=>{void Promise.resolve().then(()=>{z.object({confirm:z.literal(true)}).strict().parse(req.body);return endUnknownStoryBatch(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key));}).then(data=>res.json({success:true,data})).catch(next);});
+ router.get('/books/:bookId/story-ai-batches/by-request/:key',(req,res,next)=>{void Promise.resolve().then(()=>readStoryBatch(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key))).then(data=>res.json({success:true,data})).catch(next);});
+ router.get('/books/:bookId/story-ai-batches/by-request/:key/slots/:slotId',(req,res,next)=>{void Promise.resolve().then(()=>checkStoryBatchSlot(z.string().uuid().parse(req.params.bookId),z.string().uuid().parse(req.params.key),z.string().uuid().parse(req.params.slotId))).then(data=>res.json({success:true,data})).catch(next);});
+ return router;
+}

@@ -46,6 +46,7 @@ interface Props {
   onEditorStateChange?:(state:BusinessEditorState)=>void;
   onSaved?:()=>Promise<void>;
   repairDraft?:WorldConsistencyRepairDraft;
+  batchDraft?:import("../../common/storyWorkspace").StoryBatchDraft;
   onSavedReceipt?:(receipt:AuthorMaterialWriteReceipt)=>void;
 }
 
@@ -73,7 +74,8 @@ function changedKeys(local: Record<string, unknown>, latest: Record<string, unkn
 const TYPE_LABELS:Record<string,string>={short_text:"短文本",long_text:"长文本",number:"数字",boolean:"是／否",select:"单选",multi_select:"多选",date:"日期"};
 function fieldSourceDetail(item:ScopedFieldDefinition){if(item.origin==="core")return "系统核心规格";if(item.origin==="template")return `随模板安装${item.sourceTemplateVersionId?` · 来源版本 ${item.sourceTemplateVersionId.slice(0,8)}`:""}`;if(item.origin==="book_extension")return `本书独立规格 · 字段版本 ${item.currentVersion.version}`;return `当前资料独立补充 · 字段版本 ${item.currentVersion.version}`;}
 
-export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCardId,embedded=false,compact=false,initialTypeId,startCreating=false,onEditorStateChange,onSaved,repairDraft,onSavedReceipt }: Props) {
+export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCardId,embedded=false,compact=false,initialTypeId,startCreating=false,onEditorStateChange,onSaved,repairDraft,batchDraft,onSavedReceipt }: Props) {
+  const [batchApplied,setBatchApplied]=useState("");
   const [browserMode,setBrowserMode]=useState<"types"|"tags"|"groups"|"views">("types");
   const [liveCardTypes,setLiveCardTypes]=useState(cardTypes);
   const availableTypes = useMemo(() => typesForScope(liveCardTypes, scope), [liveCardTypes, scope]);
@@ -240,6 +242,24 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
     setConflict(null);
   };
 
+  const adoptBatchDraft=()=>{
+    const draft=batchDraft,target=draft?.slot.target;
+    if(!draft||!target||draft.bookId!==book.id||busy||aiLocked||unknownWrite||requestKey||!sourcesReady||!resolution){setError("候选来源尚未匹配，填写保留。");return;}
+    if(target.cardTypeId!==selectedType?.id||target.typeVersionId!==currentTypeVersion?.id||target.cardId!==(editing?.id??null)||target.cardRevision!==(editing?.revision??null) ){setError("此候选的资料或内容规格已更新，请另行准备。");return;}
+    const nextValues={...values},nextLocal={...localValues};
+    let nextTitle=title;
+    for(const [key,value] of Object.entries(draft.values)){
+      if(key==="__title"){if(title.trim()){setError("名称已有填写，候选未覆盖人工名称。");return;}nextTitle=String(value);continue;}
+      const field=combinedFields.find(item=>item.key===key);
+      if(!field||field.hidden||field.aiSuggestible===false){setError("候选字段不属于此表单，填写保留。");return;}
+      const actual=localFieldKeys.has(key)?localValues[key]:values[key],original=draft.slot.values[key];
+      const blank=(item:unknown)=>item==null||item===""||Array.isArray(item)&&item.length===0;
+      if(!(blank(actual)&&blank(original))&&JSON.stringify(actual)!==JSON.stringify(original)&&!(creating&&JSON.stringify(actual)===JSON.stringify(field.defaultValue))){setError("此字段已有新的填写，候选未覆盖。请回候选列表取消勾选此字段。");return;}
+      if(localFieldKeys.has(key))nextLocal[key]=value;else nextValues[key]=value;
+    }
+    if(!target.cardId)setCreating(true);setTitle(nextTitle);setValues(nextValues);setLocalValues(nextLocal);setBatchApplied(draft.key);setError("");setNotice("已选候选载入填写。请检查后保存，其他字段保留。");
+  };
+
   const adoptRepairDraft=async()=>{
     const draft=repairDraft,card=editing,field=combinedFields.find(item=>item.key===draft?.fieldKey);if(!draft||!card||!field||busy||unknownWrite||requestKey||!sourcesReady||repairInFlight.current)return;
     const capturedScope=repairScope.current;repairInFlight.current=true;setBusy(true);try{
@@ -371,6 +391,7 @@ export default function BusinessFormWorkspace({ book, cardTypes, scope,initialCa
             <input disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} value={title} placeholder={`输入${selectedType?.name ?? "资料"}标题`} aria-invalid={Boolean(issues.title)} onChange={(event) => setTitle(event.target.value)} />
             {issues.title && <em>{issues.title}</em>}
           </label>
+          {batchDraft&&batchApplied!==batchDraft.key&&<section className="nd-message"><p>已选整组候选：只载入勾选字段，请检查后保存。</p><button className="nd-button" type="button" disabled={busy||aiLocked||unknownWrite||requestKey!==null||!sourcesReady} onClick={adoptBatchDraft}>采用已选字段到填写</button></section>}
           {repairDraft&&<section className="nd-message"><p>世界修复建议：{repairDraft.fieldLabel}。只采用到同一资料草稿，正常保存后才能记录正式修复。</p><button className="nd-button" type="button" disabled={busy||unknownWrite||requestKey!==null||!sourcesReady||editing?.id!==repairDraft.cardId} onClick={()=>void adoptRepairDraft()}>明确采用修复到当前草稿</button></section>}
           <DynamicForm compactHelp={compact} fields={combinedFields} values={{...values,...localValues}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady} issues={issues} scopeLabelByKey={scopeLabelByKey} aiContext={selectedType?.currentVersionId&&draftTagIds!==undefined?{label:compact?'AI 辅助当前项':undefined,onLockChange:setAiLocked,target:{bookId:book.id,cardTypeId:selectedType.id,cardId:editing?.id??null,typeVersionId:selectedType.currentVersionId,cardRevision:editing?.revision??null,formVersionId:resolution.formId?forms.find(form=>form.id===resolution.formId)?.currentVersionId??null:null,title},tagIds:draftTagIds??[],onAdopt:result=>{if(result.title!==undefined)setTitle(result.title);setValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(result.values).filter(([key])=>localFieldKeys.has(key))));setDraftTagIds(result.tagIds);setAiDraftDecisionIds(ids=>[...ids,result.decisionId]);}}:undefined} onChange={(next)=>{setValues(Object.fromEntries(Object.entries(next).filter(([key])=>!localFieldKeys.has(key))));setLocalValues(Object.fromEntries(Object.entries(next).filter(([key])=>localFieldKeys.has(key))));}}/>
           {selectedType&&<CardTagFields key={editing?.id??"new"} scope={{bookId:book.id}} spaceId={book.spaceId} cardTypeId={selectedType.id} cardId={editing?.id??""} selectedTagIds={draftTagIds} onDraftChange={setDraftTagIds} onInitialTags={ids=>{baselineTags.current=ids;setDraftTagIds(current=>current??ids);}} disabled={busy||unknownWrite||requestKey!==null||!sourcesReady}/>}

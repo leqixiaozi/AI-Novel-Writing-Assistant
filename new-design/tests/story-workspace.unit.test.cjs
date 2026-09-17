@@ -80,8 +80,8 @@ function planningEditorFixture(context,failure=false){
  const chapter={...plan('chapter','chapter','volume'),bookId:'book',title:'本章',revision:4,cardId:'chapter-card',adoptedVersionId:'adopted',currentVersion:{id:'old-version',version:1,source:'manual',status:'draft',executionMode:'manual',createdAt:'2026-01-01',content:base,references:[]},versions:[]};
  const workspace={bookId:'book',objects:[{...plan('volume','volume'),adoptedVersionId:'volume-version',currentVersion:{...chapter.currentVersion}},chapter],materials:[material('person1','character'),material('person2','character'),material('event1','event'),material('chapter-card','chapter')],settlementSummary:{},aiCapability:{configured:false}},book={id:'book'},calls=[];
  const api={addPlanningVersion:async(id,input)=>{calls.push({id,input});if(failure)throw Error('connection interrupted');return {...chapter,revision:5,currentVersion:{...chapter.currentVersion,id:'saved',content:input.content,references:input.references}};},getBook:async()=>book,getPlanningCenter:async()=>workspace};
- const h=hooks([book,workspace,'chapter',draft,'all',false,'','',false,'','',false,false]);
- const module=load('src/client/planningCenter/PlanningCenterPage.tsx',{'react':h.react,'react/jsx-runtime':jsx,'../api':{newDesignApi:new Proxy(api,{get(target,key){if(!(key in target)&&key!==Symbol.toStringTag)throw Error(`Forbidden side effect ${String(key)}`);return target[key];}}),ApiError:class ApiError extends Error{}},'../BookShell':{default:()=>null},'./AiPlanningPanel':{default:()=>null},'../storyWorkspace/Help':{default:()=>null}});
+ const h=hooks([book,workspace,'chapter',draft,'all',false,'','',false,'','','','manual',false,false]);
+ const module=load('src/client/planningCenter/PlanningCenterPage.tsx',{'react':h.react,'react/jsx-runtime':jsx,'../api':{newDesignApi:new Proxy(api,{get(target,key){if(!(key in target)&&key!==Symbol.toStringTag)throw Error(`Forbidden side effect ${String(key)}`);return target[key];}}),ApiError:class ApiError extends Error{}},'../BookShell':{default:()=>null},'./AiPlanningPanel':{default:()=>null},'../../common/storyWorkspace':load('src/common/storyWorkspace/receipts.ts'),'../storyWorkspace/Help':{default:()=>null}});
  return {render:()=>h.render(()=>module.default({bookId:'book',embedded:true})),calls,store};
 }
 test('actual shared planning save preserves custom content and writes plans/references without adopting or settling facts',async context=>{
@@ -95,6 +95,6 @@ test('actual shared planning save preserves custom content and writes plans/refe
 test('an interrupted actual planning save retains the same request and locks a second submission',async context=>{
  const fixture=planningEditorFixture(context,true);button(fixture.render(),'另存新候选').props.onClick();await new Promise(resolve=>setImmediate(resolve));
  assert.equal(fixture.calls.length,1);assert.equal(fixture.store.size,1);
- const pending=JSON.parse([...fixture.store.values()][0]);assert.equal(pending.input.idempotencyKey,fixture.calls[0].input.idempotencyKey);
+ const pending=JSON.parse([...fixture.store.values()][0]);assert.equal(pending.input.idempotencyKey,fixture.calls[0].input.idempotencyKey);assert.equal(pending.input.expectedRevision,4);assert.deepEqual(pending.input,fixture.calls[0].input);assert.equal(pending.kind,"revise");
  const next=button(fixture.render(),'另存新候选');assert.equal(next.props.disabled,true);next.props.onClick();await new Promise(resolve=>setImmediate(resolve));assert.equal(fixture.calls.length,1);
 });

@@ -1,5 +1,12 @@
 /** One read-only projection. JSON carries only bounded public provenance, not domain payloads. */
 export const AUTHOR_TASK_SOURCE_QUERY=`
+SELECT 'story_batch'::text kind,b.id,CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN 'planning' ELSE 'execution' END::text domain,b.book_id,
+ CASE WHEN b.stage='ended_unknown' THEN 'ended_unknown' WHEN b.status='running' AND (b.stage IN ('result_unknown','result_pending') OR b.created_at<now()-interval '15 minutes') THEN 'unknown' ELSE b.status END status,
+ CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN '范围规划 AI 候选' ELSE '整组设定 AI 候选' END title,b.updated_at,
+ '/new-design/books/'||b.book_id::text||CASE WHEN b.input_payload->'request'->>'mode'='planning' THEN '/planning' ELSE '/story-setting' END||'?batch='||b.id::text route,b.progress,
+ jsonb_build_object('requestKey',b.id,'stage',b.stage,'saved',b.output_payload->'result' IS NOT NULL,'exact',true) meta
+ FROM new_design.ai_generation_batches b WHERE b.input_payload->>'contract'='story_workspace_ai_v1'
+ UNION ALL
 SELECT 'ai_task'::text kind,task.id,'execution'::text domain,task.book_id,task.status,
  contract.name title,task.updated_at,task.source_route route,NULL::integer progress,
  jsonb_build_object('requestKey',task.request_idempotency_key,'step',task.current_step_key,

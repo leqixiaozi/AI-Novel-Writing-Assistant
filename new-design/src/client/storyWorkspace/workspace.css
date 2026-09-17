@@ -5,3 +5,5 @@
 .nd-story-plan-links{display:grid;gap:.8rem;margin-block:1rem}.nd-story-plan-links h3,.nd-story-plan-links h4{margin:0}.nd-story-detail>[hidden]{display:none}.nd-story-plan-detail[hidden]{display:none}
 @container nd-book-content (max-width:850px){.nd-story-planning-layout{grid-template-columns:150px minmax(0,1fr)}.nd-story-plan-detail{grid-column:2}}
 @container nd-book-content (max-width:550px){.nd-story-setting-layout,.nd-story-planning-layout,.nd-story-planning-layout.is-detail-closed{grid-template-columns:1fr}.nd-story-plan-detail{grid-column:auto}}
+
+.nd-story-batch{display:grid;gap:1rem;padding-block:1rem;border-bottom:1px solid var(--nd-line)}.nd-story-batch[hidden]{display:none}.nd-story-batch>label{display:grid;gap:.4rem}.nd-story-batch-item{padding-block:1rem;border-top:1px solid var(--nd-line)}.nd-story-batch-field{display:flex;align-items:flex-start;gap:.7rem;margin-block:.8rem}.nd-story-batch-field>input{flex:0 0 auto;min-height:24px}.nd-story-batch-field>span{min-width:0;overflow-wrap:anywhere}.nd-story-batch-field small{display:block;color:var(--nd-muted)}.nd-story-batch-field p{white-space:pre-wrap;margin-block:.35rem}

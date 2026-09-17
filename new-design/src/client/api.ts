@@ -392,6 +392,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  endUnknownStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/end-unknown`,{method:"POST",body:JSON.stringify({confirm:true})}),
+  readInitialStateWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").InitialStateWriteReceipt|null>(`/books/${bookId}/initial-state-write-receipts/${encodeURIComponent(key)}`),
+  readPlanningWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").PlanningWriteReceipt|null>(`/books/${bookId}/planning-write-receipts/${encodeURIComponent(key)}`),
+  checkStoryBatchSlot:(bookId:string,key:string,slotId:string)=>request<import("../common/storyWorkspace").StoryBatchDraft>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/slots/${slotId}`),
+  generateStoryBatch:(bookId:string,input:import("../common/storyWorkspace").StoryBatchRequest)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches`,{method:"POST",body:JSON.stringify(input)}),
+  readStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord|null>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}`),
   ...createFeatureApi(request),
   getSavedChapterWritingReply:(id:string)=>request<SavedChapterWritingReply>(`/chapter-writing-requests/${encodeURIComponent(id)}/saved-reply`),
   completeSavedChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/complete-saved-result`,{method:'POST'}),
@@ -743,7 +749,7 @@ export const newDesignApi = {
   saveStateTypeCapability:(spaceId:string,input:{typeKey:string;settlementCapability:StateTypeCapability["settlementCapability"];stateMode:StateTypeCapability["stateMode"];defaultFieldPolicy:SettlementPolicy;expectedRevision?:number;fieldPolicies:StateTypeCapability["fieldPolicies"]})=>request<StateTypeCapability>(`/spaces/${spaceId}/state-capabilities/types`,{method:"PUT",body:JSON.stringify(input)}),
   saveStateRelationCapability:(spaceId:string,input:{relationKey:string;settlementCapability:StateRelationCapability["settlementCapability"];stateMode:StateRelationCapability["stateMode"];expectedRevision?:number;dimensions:StateRelationCapability["dimensions"]})=>request<StateRelationCapability>(`/spaces/${spaceId}/state-capabilities/relations`,{method:"PUT",body:JSON.stringify(input)}),
   listInitialStates:(bookId:string)=>request<EntityInitialState[]>(`/books/${bookId}/initial-states`),
-  saveInitialState:(bookId:string,input:{subjectKind:StateSubjectKind;subjectId:string;stateKey:string;value:unknown;sourceFactId?:string|null;expectedRevision?:number;actor?:string;note?:string})=>request<EntityInitialState>(`/books/${bookId}/initial-states`,{method:"POST",body:JSON.stringify(input)}),
+  saveInitialState:(bookId:string,input:{requestKey?:string;subjectKind:StateSubjectKind;subjectId:string;stateKey:string;value:unknown;sourceFactId?:string|null;expectedRevision?:number;actor?:string;note?:string})=>request<EntityInitialState>(`/books/${bookId}/initial-states`,{method:"POST",body:JSON.stringify(input)}),
   getInitialState:(id:string)=>request<EntityInitialState>(`/initial-states/${id}`),
   listStateChangeProposals:(chapterDocumentId:string)=>request<StateChangeProposal[]>(`/chapter-documents/${chapterDocumentId}/state-change-proposals`),
   proposeStateChange:(bookId:string,input:{chapterDocumentId:string;bodyVersionId:string;textAnchorId?:string|null;causeEventCardId?:string|null;subjectKind:StateSubjectKind;subjectId:string;stateKey:string;beforeValue:unknown;afterValue:unknown;delta?:unknown;reason:string;effectiveStoryOrder?:number|null;source:StateChangeProposal["source"]})=>request<StateChangeProposal>(`/books/${bookId}/state-change-proposals`,{method:"POST",body:JSON.stringify(input)}),

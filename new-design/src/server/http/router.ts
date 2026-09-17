@@ -3,6 +3,7 @@ import { homeRouter } from "./home";
 import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
+import {storyWorkspaceRouter} from "./storyWorkspace";
 import { businessFormAiRouter } from "./formAssist";
 import { mountCreationDirector } from "./creationDirector";
 import {promptManagementRouter} from "./promptManagement";
@@ -438,6 +439,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
     const scope=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid()}).parse({bookId:req.params.id,requestKey:req.params.requestKey});
     success(res,await readAiRunSubmissionByRequest(scope.bookId,scope.requestKey));
   }));
+  router.use(storyWorkspaceRouter(dependencies.ai));
   router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
   router.use(businessFormAiRouter(dependencies.ai));
 
