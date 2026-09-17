@@ -89,3 +89,4 @@ export async function runChapterSettlementAiExtraction(sessionId:string,value:Ch
 function failureSnapshotSent(error:unknown):boolean {const traces=error instanceof AiExecutionError?error.executionSnapshot?.attempts:null;return Array.isArray(traces)&&traces.some(trace=>trace&&typeof trace==="object"&&(trace as Record<string,unknown>).requestSent===true);}
 
 export {readSettlementAiOriginalReceipt} from "./requests";
+export {prepareStableResourceSupplementPrompt} from "./stableResources";

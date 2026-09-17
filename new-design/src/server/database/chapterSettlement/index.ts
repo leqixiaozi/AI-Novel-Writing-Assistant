@@ -21,3 +21,4 @@ export {
 export {withSettlementDatabasePool} from "./transaction";
 export {SettlementEditingError,displaySettlementValue} from "./editingPolicy";
 export * from "./relationConfiguration";
+export { readFrozenSupplementSource } from "./supplementRead";

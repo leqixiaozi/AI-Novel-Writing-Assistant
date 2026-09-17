@@ -76,6 +76,34 @@ test('stable supplement preview and exact original request create only an indepe
   await fault(sql=>sql.includes('SELECT input_hash,full_input,original_receipt'),'rollback',()=>assert.rejects(supplements.startResourceSupplement(book.id,command),error=>error.mutationOutcome==='unknown'));
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_resource_supplements')).rows[0].n,1);
  });
+ await t.test('registered stable prompt freezes original confirmed sources and old plan without model or write',async()=>{
+  const ai=compiled('server/ai/chapterSettlement'),prompts=compiled('server/ai/prompts');
+  assert.equal(prompts.listPromptAssets().find(item=>item.taskType==='stable_resource_supplement').assetId,'new_design.character.stable_resource_supplement');
+  const prompt=await ai.prepareStableResourceSupplementPrompt(receipt.sessionId),data=JSON.parse(prompt.messages[1].content).taskData;
+  assert.equal(data.catalog.sessionId,receipt.sessionId);assert.equal(data.catalog.subjects.find(item=>item.id===relationId).fields.find(item=>item.key==='quantity').baseline.value,0);
+  assert.equal(data.stableOrigin.planningVersionId,preview.basis.planningVersionId);assert.deepEqual(data.stableOrigin.confirmed,preview.basis.confirmed);
+  assert.deepEqual(data.stableOrigin.confirmedSources,preview.basis.original.confirmedSources);assert.deepEqual(prompt.parseOutput({items:[],notes:['请核对遗漏变化']}),{items:[],notes:['请核对遗漏变化']});
+  assert.deepEqual(await originalRows(),originalSnapshot);assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.ai_tasks')).rows[0].n,0);
+  const draft={category:'relationship',title:'正文资源数量变化',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:quantity(preview).specificationHash,baselineHash:quantity(preview).baseline.hash,beforeValue:0,afterValue:1,changeValue:1,riskLevel:'low',confidence:0.8,confidenceNote:'需作者确认',planAlignment:'not_applicable',planExpectation:'',evidenceStart:0,evidenceEnd:2,evidenceLabel:preview.basis.bodyContent.slice(0,2),reason:'原正文证据'};
+  assert.deepEqual(prompt.parseOutput({items:[draft],notes:[]}).items[0],draft);
+  assert.throws(()=>prompt.parseOutput({items:[{...draft,beforeValue:2,afterValue:3}],notes:[]}));
+  assert.throws(()=>prompt.parseOutput({items:[{...draft,category:'fact'}],notes:[]}));
+  assert.throws(()=>prompt.parseOutput({items:[{...draft,afterValue:0,changeValue:0}],notes:[]}));
+  await assert.rejects(ai.prepareStableResourceSupplementPrompt(preview.basis.sessionId),error=>error.status===409);
+ });
+ await t.test('stable prompt rejects altered frame, incomplete original sources and repeated confirmed changes',async()=>{
+  const {preparePrompt}=compiled('server/ai/prompts'),{stableHash}=compiled('server/database/aiContracts');
+  const raw={sessionId:receipt.sessionId,sessionRevision:1,source:structuredClone(preview)};
+  raw.source.basis.bodyContent+='伪造';assert.throws(()=>preparePrompt('stable_resource_supplement',raw));
+  raw.source=structuredClone(preview);raw.source.basis.original.confirmedSources.facts=[];
+  function rehash(source){delete source.basis.sourceHash;source.basis.sourceHash=stableHash(source.basis);delete source.sourceHash;source.sourceHash=stableHash(source);}
+  rehash(raw.source);assert.throws(()=>preparePrompt('stable_resource_supplement',raw));
+  raw.source=structuredClone(preview);
+  const row=raw.source.basis.original.confirmedSources.states[0];row.subject_kind='relation';row.subject_id=relationId;row.state_key='quantity';row.before_json=0;row.after_json=1;
+  rehash(raw.source);const prompt=preparePrompt('stable_resource_supplement',raw);
+  const draft={category:'relationship',title:'已有变化',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:quantity(preview).specificationHash,baselineHash:quantity(preview).baseline.hash,beforeValue:0,afterValue:1,changeValue:1,riskLevel:'low',confidence:0.8,confidenceNote:'',planAlignment:'not_applicable',planExpectation:'',evidenceStart:0,evidenceEnd:2,evidenceLabel:preview.basis.bodyContent.slice(0,2),reason:'候选'};
+  assert.throws(()=>prompt.parseOutput({items:[draft],notes:[]}));
+ });
  await t.test('archive does not rewrite or hide the saved original result and new writes stay blocked',async()=>{
   await pool.query("UPDATE new_design.books SET status='archived' WHERE id=$1",[book.id]);
   assert.equal((await supplements.readResourceSupplementStartOriginal(book.id,command)).sessionId,receipt.sessionId);

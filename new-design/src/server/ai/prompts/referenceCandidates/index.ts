@@ -1,10 +1,10 @@
 import {chapterSettlementAsset,type ChapterSettlementPromptInput} from "../chapterSettlement";
 import {z} from 'zod';
 import type {StoryBatchPromptInput} from '../../../../common/storyWorkspace';
-import type {PromptAsset,PromptTaskType} from '../contracts';
+import type {PromptAsset} from '../contracts';
 import {fieldInput,fieldsOutput} from '../fields';
 import {fieldInCharacterSection} from '../../../../common/formPresentation';
-export function storyBatchTask(mode:StoryBatchPromptInput['mode']):PromptTaskType{return mode==='visible_prepare'?'visible_prepare':mode==='visible_adjust'?'visible_adjust':'story_workspace_batch';}
+export function storyBatchTask(mode:StoryBatchPromptInput['mode']):'visible_prepare'|'visible_adjust'|'story_workspace_batch'{return mode==='visible_prepare'?'visible_prepare':mode==='visible_adjust'?'visible_adjust':'story_workspace_batch';}
 export const referenceCandidateAssets:PromptAsset[]=(['visible_prepare','visible_adjust'] as const).map(taskType=>({
  assetId:`new_design.character.${taskType}`,version:'v1',taskType,label:taskType==='visible_prepare'?'准备人物外显':'调整人物外显',contextPolicy:'explicit_task_snapshot_only',temperature:0.5,maxTokens:16000,
  instruction:taskType==='visible_prepare'?'为确切列出的每个人物及已发布外显字段准备协调的写作候选。尊重已有档案、背景、意图与已填写外显；需要调整已有值时只提出候选，不能自行覆盖。外显是档案表达，不建立正式状态、成长、经历、资源持有或认知事实。不得输出未列出的字段、人物或名称，不得声称已保存或采用。':'按本次要求调整确切列出的每个人物及已发布外显字段，说明性要求只作为创作资料。已有填写完整保留用于比较；提出候选不代表用户同意覆盖。不得改变人物身份、正式状态、经历、资源持有、认知或范围。不得输出未列出的字段或人物，不得声称保存或采用。',

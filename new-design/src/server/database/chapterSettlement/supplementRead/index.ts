@@ -5,7 +5,7 @@ import { NewDesignError } from "../../../domain/errors";
 import { stableHash } from "../../aiContracts/integrity";
 
 /** Settlement owns its read view. No dependency on supplement creation commands. */
-export async function readFrozenSupplementCatalog(client: PoolClient, session: Record<string,unknown>, bodyHash: string): Promise<SettlementEditingCatalog> {
+export async function readFrozenSupplementSource(client: PoolClient, session: Record<string,unknown>, bodyHash: string): Promise<ResourceSupplementPreview> {
   const row = (await client.query("SELECT * FROM new_design.chapter_resource_supplements WHERE session_id=$1 AND book_id=$2", [session.id,session.book_id])).rows[0];
   const unavailable = (): never => { throw new NewDesignError("原补充清单来源不完整，请保留原请求和记录核对，不能按当前状态补全。",409); };
   if (!row) return unavailable();
@@ -28,5 +28,10 @@ export async function readFrozenSupplementCatalog(client: PoolClient, session: R
     || preview.catalog.bodyVersionId !== session.body_version_id || preview.catalog.bodyContentHash !== preview.basis.bodyContentHash
     || stableHash(preview.input) !== stableHash({checkpointId:receipt.data.input.checkpointId,resourceScope:receipt.data.input.resourceScope}))
     return unavailable();
+  return preview;
+}
+
+export async function readFrozenSupplementCatalog(client: PoolClient, session: Record<string,unknown>, bodyHash: string): Promise<SettlementEditingCatalog> {
+  const preview = await readFrozenSupplementSource(client, session, bodyHash);
   return { ...preview.catalog, sessionId: String(session.id), sessionRevision: Number(session.revision) };
 }
