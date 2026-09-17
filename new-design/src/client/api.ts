@@ -420,7 +420,7 @@ export const newDesignApi = {
   readReferenceAssociationsReceipt:(input:ReferenceAssociationPublicationInput)=>request<TemplateGroupSummary|null>(`/reference-associations/receipt`,{method:'POST',body:JSON.stringify(input)}),
   verifyFieldWriteReceipt:(bookId:string,command:unknown)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipt`,{method:'POST',body:JSON.stringify(command)}),
   readFieldWriteReceipt:(bookId:string,key:string)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipts/${encodeURIComponent(key)}`),
-  previewReferenceSpecification:(versionId:string,kind?:"profile"|"visible")=>request<ReferenceSpecificationPreview>(`/reference-specifications/${versionId}${kind?`?kind=${kind}`:""}`),
+  previewReferenceSpecification:(versionId:string,kind?:"profile"|"visible"|"resource")=>request<ReferenceSpecificationPreview>(`/reference-specifications/${versionId}${kind?`?kind=${kind}`:""}`),
   publishReferenceSpecification:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary>(`/reference-specifications/publish`,{method:'POST',body:JSON.stringify(input)}),
   readReferenceSpecificationReceipt:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary|null>(`/reference-specifications/receipt`,{method:'POST',body:JSON.stringify(input)}),
   endUnknownStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/end-unknown`,{method:"POST",body:JSON.stringify({confirm:true})}),

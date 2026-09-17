@@ -1,5 +1,5 @@
 import type {FieldDefinition} from '../contracts';
-import type {ProfessionalState} from '../worldCharacterMaintenance';
+import type {ProfessionalState,ProfessionalKnowledge} from '../worldCharacterMaintenance';
 /** Explicit display mapping to an actual published relationship and state dimension. */
 export interface ResourceLedgerSelection {relationTypeId:string;holdingDimensionKey:string;specificationHash:string;}
 export interface ResourceLedgerChoice extends ResourceLedgerSelection {name:string;holdingLabel:string;relationTypeRevision:number;fields:FieldDefinition[];}
@@ -8,6 +8,7 @@ export interface CharacterResourceItem {
  name:string;holderName:string;available:boolean;reason:string|null;holding:ProfessionalState|null;
  properties:Array<{key:string;label:string;display:string}>;states:ProfessionalState[];
  sourceRoute:string;
+ planning:Array<{key:string;label:string;display:string}>;planningRoute:string;readerKnowledge:ProfessionalKnowledge[];holderKnowledge:ProfessionalKnowledge[];
 }
 export interface ResourceBackfillChapter {
  documentId:string;chapterCardId:string;title:string;logicalOrder:number;bodyVersionId:string;bodyContentHash:string;

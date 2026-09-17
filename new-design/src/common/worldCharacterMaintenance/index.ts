@@ -21,6 +21,8 @@ export interface ProfessionalState {
  sourceId:string|null;bodyVersionId:string|null;action:ProfessionalSourceAction;
 }
 export interface ProfessionalKnowledge {
+ objectId?:string|null;
+ holderKind?:'reader'|'character';
  id:string;subjectId:string|null;holderId:string|null;holderLabel:string;predicateLabel:string;display:string;
  stanceLabel:string;truthLabel:string;available:boolean;reason:string|null;bodyVersionId:string|null;
  projectionRevision:number;action:ProfessionalSourceAction;

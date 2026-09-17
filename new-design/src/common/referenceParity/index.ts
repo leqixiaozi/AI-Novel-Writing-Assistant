@@ -14,12 +14,12 @@ export const CHARACTER_REFERENCE_FIELDS:FieldDefinition[]=[
   text("initial_situation_draft","起始处境草稿","故事开始时的处境设想；正式状态从初始状态确认或已采用正文结算。","起始设定",23),
 ];
 export interface ReferenceSpecificationPreview {
-  kind?:"profile"|"visible";
+  kind?:"profile"|"visible"|"resource";
   sourceTemplateVersionId:string;templateId:string;templateRevision:number;inputHash:string;
   additions:FieldDefinition[];conflicts:string[];canPublish:boolean;
 }
 export interface ReferenceSpecificationPublishInput {
-  kind?:"profile"|"visible";
+  kind?:"profile"|"visible"|"resource";
   sourceTemplateVersionId:string;templateRevision:number;previewHash:string;requestKey:string;
 }
 export function characterFieldAdditions(fields:FieldDefinition[]):{additions:FieldDefinition[];conflicts:string[]}{
@@ -29,3 +29,4 @@ export function characterFieldAdditions(fields:FieldDefinition[]):{additions:Fie
 }
 
 export * from "./visibleFields";
+export * from "./resourceFields";

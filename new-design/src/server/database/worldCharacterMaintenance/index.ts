@@ -69,4 +69,4 @@ export async function getWorldCharacterMaintenanceWorkspace(bookId:string,input:
  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 
-export {readProfessionalState} from "./sources";
+export {readProfessionalState,readProfessionalKnowledge} from "./sources";
