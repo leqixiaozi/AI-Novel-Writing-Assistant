@@ -234,6 +234,11 @@ test('stable supplement preview and exact original request create only an indepe
     assert.equal(correction.beforeValue,1);assert.equal(correction.originalRecordedBefore,0);assert.equal(correction.originalRecordedAfter,2);
     assert.equal(correction.baseCheckpointId,second.checkpoint.id);assert.equal(correction.prefixSource.change.id,merged.newStateChangeIds[0]);
     assert.equal(correction.prefixSource.checkpoint.id,merged.checkpointId);assert.equal(correction.chapterEndBasis.bodyVersionId,second.version.id);
+    const correctivePreview=await supplements.previewResourceSupplementCorrectionInTransaction(merger,book.id,{issueId:issue.issue_id,resourceScope:input.resourceScope});
+    assert.equal(correctivePreview.contract,'stable_resource_correction_preview_v1');assert.equal(correctivePreview.relatedIssues.length,1);
+    assert.equal(quantity(correctivePreview).baseline.value,1);assert.equal(quantity(correctivePreview).baseline.stale,false);assert.equal(correctivePreview.correction.originalRecordedAfter,2);
+    assert.equal((await supplements.previewResourceSupplementCorrectionInTransaction(merger,book.id,{issueId:issue.issue_id,resourceScope:input.resourceScope})).sourceHash,correctivePreview.sourceHash);
+    assert.deepEqual(correctivePreview.basis.confirmed,correction.chapterEndBasis.confirmed);assert.equal(correctivePreview.resourceScope.resources[0].relationVersionId,futurePreview.resourceScope.resources[0].relationVersionId);
     const endState=await supplements.readResourceSupplementHistoricalStateInTransaction(merger,{bookId:book.id,checkpointId:second.checkpoint.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});
     assert.equal(endState.value,2);assert.equal((await supplements.readResourceSupplementCorrectionBasisInTransaction(merger,book.id,issue.issue_id)).sourceHash,correction.sourceHash);
     await assert.rejects(supplements.previewResourceSupplementInTransaction(merger,book.id,{...input,checkpointId:second.checkpoint.id}),error=>error.status===409&&/未修正的真实冲突/.test(error.message));

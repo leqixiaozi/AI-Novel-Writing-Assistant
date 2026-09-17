@@ -4,25 +4,24 @@ import {z} from 'zod';
 import {NewDesignError} from '../../../domain/errors';
 import {stableHash} from '../../aiContracts';
 import {readStableResourceSupplementBasisInTransaction} from '../basis';
+import type {ResourceSupplementCorrectionBasis} from '../../../../common/resourceSupplements/correction';
+import {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './sourceFence';
 
 /** Explicit issue-owned BEFORE-chapter source. Kept separate from the normal
  * END-of-chapter v1 contract; no arbitrary before-value or latest initial fallback. */
-export async function readResourceSupplementCorrectionBasisInTransaction(client:PoolClient,bookId:string,issueId:string):Promise<{
-  contract:'resource_supplement_correction_basis_v1';bookId:string;issueId:string;chapterDocumentId:string;bodyVersionId:string;
-  baseCheckpointId:string;subjectKind:'card'|'relation';subjectId:string;stateKey:string;
-  beforeValue:unknown;originalRecordedBefore:unknown;originalRecordedAfter:unknown;
-  issue:Record<string,unknown>;chapterEndBasis:Awaited<ReturnType<typeof readStableResourceSupplementBasisInTransaction>>;
-  prefixSource:Record<string,any>;sourceHash:string;
-}>{
+export async function readResourceSupplementCorrectionBasisInTransaction(client:PoolClient,bookId:string,issueId:string):Promise<ResourceSupplementCorrectionBasis>{
   z.string().uuid().parse(bookId);z.string().uuid().parse(issueId);
-  const issue=(await client.query(`SELECT issue.*,to_jsonb(checkpoint) current_checkpoint
+  const installed=(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='090_resource_supplement_integrity'
+    AND to_regclass('new_design.resource_supplement_integrity_issues') IS NOT NULL AND to_regclass('new_design.resource_supplement_integrity_resolutions') IS NOT NULL`)).rowCount;
+  if(!installed)throw new NewDesignError('真实资源冲突来源尚不可读取，请保留原请求核对。',503);
+  const issue=(await client.query(`SELECT to_jsonb(issue)||jsonb_build_object('current_checkpoint',to_jsonb(checkpoint)) full_issue
     FROM new_design.resource_supplement_integrity_issues issue
     JOIN new_design.chapter_documents document ON document.id=issue.chapter_document_id AND document.book_id=issue.book_id
       AND document.status='active' AND document.adopted_version_id=issue.body_version_id
     LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.book_id=issue.book_id AND checkpoint.chapter_document_id=document.id
       AND checkpoint.body_version_id=issue.body_version_id AND checkpoint.status='stable'
     WHERE issue.issue_id=$1 AND issue.book_id=$2 AND NOT EXISTS(
-      SELECT 1 FROM new_design.resource_supplement_integrity_resolutions resolution WHERE resolution.issue_id=issue.issue_id)`,[issueId,bookId])).rows[0];
+      SELECT 1 FROM new_design.resource_supplement_integrity_resolutions resolution WHERE resolution.issue_id=issue.issue_id)`,[issueId,bookId])).rows[0]?.full_issue;
   if(!issue||!issue.current_checkpoint?.summary?.confirmed?.states?.includes(issue.state_change_id))throw new NewDesignError('请选择本书仍有原确认来源的真实资源冲突；原正文或确认状态已变化时不能套用修正。',409);
   const basis=await readStableResourceSupplementBasisInTransaction(client,bookId,String(issue.current_checkpoint.id));
   // Select the actual latest row first, then validate its proof. Invalid proof
@@ -58,6 +57,7 @@ export async function readResourceSupplementCorrectionBasisInTransaction(client:
     ||checkpoint_commit?.status!=='committed'||checkpoint_commit.book_id!==bookId||checkpoint_commit.chapter_document_id!==change.chapter_document_id||checkpoint_commit.body_version_id!==change.body_version_id
     ||checkpoint_session?.status!=='stable'||checkpoint_session.book_id!==bookId||checkpoint_session.chapter_document_id!==change.chapter_document_id||checkpoint_session.body_version_id!==change.body_version_id||checkpoint_session.settlement_id!==checkpoint_commit.id
     ||change.text_anchor_id!==null&&(!anchor||anchor.status!=='active'||anchor.book_id!==bookId||anchor.chapter_document_id!==change.chapter_document_id||anchor.body_version_id!==change.body_version_id))fail();
+  await assertResourceSupplementHistoricalSourceAvailableInTransaction(client,bookId,Number(row.document.logical_order),[{subjectKind:issue.subject_kind,id:issue.subject_id}]);
   const frame={contract:'resource_supplement_correction_basis_v1' as const,bookId,issueId,chapterDocumentId:issue.chapter_document_id,bodyVersionId:issue.body_version_id,
     baseCheckpointId:basis.checkpointId,subjectKind:issue.subject_kind as 'card'|'relation',subjectId:issue.subject_id,stateKey:issue.state_key,
     beforeValue:change.after_json,originalRecordedBefore:issue.impact.recordedBefore,originalRecordedAfter:issue.impact.recordedAfter,
