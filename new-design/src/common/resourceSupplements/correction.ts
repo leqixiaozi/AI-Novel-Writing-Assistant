@@ -14,3 +14,15 @@ export interface ResourceSupplementCorrectionPreview extends Omit<ResourceSupple
   correction:ResourceSupplementCorrectionBasis;
   relatedIssues:Record<string,unknown>[];
 }
+const hash=z.string().regex(/^[a-f0-9]{64}$/),uuid=z.string().uuid();
+/** Explicit current checkpoint plus actual issue; never a free before-value. */
+export const resourceSupplementCorrectionStartInputSchema=resourceSupplementCorrectionPreviewInputSchema.extend({checkpointId:uuid,requestKey:uuid,expectedSourceHash:hash}).strict();
+export type ResourceSupplementCorrectionStartInput=z.infer<typeof resourceSupplementCorrectionStartInputSchema>;
+export const resourceSupplementCorrectionStartReceiptSchema=z.object({
+  contract:z.literal('stable_resource_correction_start_v1'),bookId:uuid,chapterDocumentId:uuid,sessionId:uuid,preparationId:uuid,baseCheckpointId:uuid,bodyVersionId:uuid,
+  issueId:uuid,relatedIssueIds:z.array(uuid).min(1).max(5000).refine(ids=>new Set(ids).size===ids.length),requestKey:uuid,
+  input:resourceSupplementCorrectionStartInputSchema,inputHash:hash,sourceHash:hash,sourceRoute:z.string(),repeated:z.boolean(),
+}).strict().refine(value=>value.requestKey===value.input.requestKey&&value.issueId===value.input.issueId&&value.relatedIssueIds.includes(value.issueId)
+  &&value.baseCheckpointId===value.input.checkpointId&&value.sourceHash===value.input.expectedSourceHash
+  &&value.sourceRoute===`/new-design/books/${value.bookId}/writing?chapterDocument=${value.chapterDocumentId}&session=${value.sessionId}&resourceIssue=${value.issueId}`);
+export type ResourceSupplementCorrectionStartReceipt=z.infer<typeof resourceSupplementCorrectionStartReceiptSchema>;

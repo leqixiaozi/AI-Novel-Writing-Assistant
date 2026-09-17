@@ -8,3 +8,4 @@ export {recordResourceSupplementIntegrityInTransaction} from './integrity';
 export {readResourceSupplementCorrectionBasisInTransaction} from './integrity/correctionBasis';
 export {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './integrity/sourceFence';
 export {previewResourceSupplementCorrectionInTransaction} from './integrity/correctionPreview';
+export {startResourceSupplementCorrectionInTransaction,readResourceSupplementCorrectionStartOriginal,readResourceSupplementCorrectionStartOriginalInTransaction} from './correcting';

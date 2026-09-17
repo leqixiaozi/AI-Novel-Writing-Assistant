@@ -109,7 +109,7 @@ test('stable supplement preview and exact original request create only an indepe
   const fs=require('node:fs'),path=require('node:path');
   assert.equal((await pool.query('SELECT current_database() name')).rows[0].name,fixture.database);
   assert.match(fixture.database,/^nd_reference_test_[a-f0-9]{32}$/);
-  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql'],['089_resource_supplement_impact_reviews','089_resource_supplement_impact_reviews.sql'],['090_resource_supplement_integrity','090_resource_supplement_integrity.sql']]){
+  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql'],['089_resource_supplement_impact_reviews','089_resource_supplement_impact_reviews.sql'],['090_resource_supplement_integrity','090_resource_supplement_integrity.sql'],['091_resource_supplement_correction_origins','091_resource_supplement_correction_origins.sql']]){
    await installer.query(fs.readFileSync(path.join(__dirname,'../migrations',file),'utf8'));await installer.query('INSERT INTO new_design.schema_migrations(id) VALUES($1)',[id]);
   }await installer.query('COMMIT');}catch(error){await installer.query('ROLLBACK');throw error;}finally{installer.release();}
   const ai=compiled('server/ai/chapterSettlement'),models=compiled('server/database/modelManagement');
@@ -204,7 +204,7 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal((await pool.query('SELECT value_json FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].value_json,2);
   await assert.rejects(settlement.commitChapterSettlementEditing(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),note:'下游尚未复核'}),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
-  await reviewTests.test('real merged SQL retains all old confirmations and the unchanged deferred guard prevents publication',async()=>{
+  await reviewTests.test('real merged SQL retains all old confirmations and the unchanged deferred guard prevents publication',async mergeTests=>{
    const futurePreview=await supplements.previewResourceSupplement(book.id,{...input,checkpointId:second.checkpoint.id});
    const futureCommand={...input,checkpointId:second.checkpoint.id,requestKey:key(),expectedSourceHash:futurePreview.sourceHash};
    const futureReceipt=await supplements.startResourceSupplement(book.id,futureCommand);
@@ -248,6 +248,78 @@ test('stable supplement preview and exact original request create only an indepe
     await supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(merger,book.id,2,[{subjectKind:'card',id:relationId}]);
     const pendingFuture=(await merger.query('SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1',[futureReceipt.sessionId])).rows[0];
     await assert.rejects(settlement.assertResourceSupplementCandidateContract(merger,pendingFuture,'preview',false),error=>error.status===409&&/未修正的真实冲突/.test(error.message));
+    await mergeTests.test('actual correction creation preserves the original body, all proofs and receipts while all writes past creation remain closed',async correctionTests=>{
+      const correctiveCommand={issueId:issue.issue_id,checkpointId:second.checkpoint.id,resourceScope:input.resourceScope,requestKey:key(),expectedSourceHash:correctivePreview.sourceHash};
+      await assert.rejects(supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,correctiveCommand),error=>error.status===409&&/待处理清单/.test(error.message));
+      assert.equal((await merger.query('SELECT count(*)::int n FROM new_design.resource_supplement_correction_origins')).rows[0].n,0);
+      await merger.query('SAVEPOINT isolated_corrective_request');
+      try{
+        // Only this disposable fixture represents an explicit cancellation of its
+        // empty pending request, through the two allowed actual SQL transitions.
+        await merger.query("UPDATE new_design.chapter_adoption_sessions SET status='failed',revision=revision+1 WHERE id=$1",[futureReceipt.sessionId]);
+        await merger.query("UPDATE new_design.chapter_adoption_sessions SET status='cancelled',revision=revision+1 WHERE id=$1",[futureReceipt.sessionId]);
+        await correctionTests.test('actual independent SQL rejects rehashed chapter-end substitution and fabricated related issues',async()=>{
+          const adapter=compiled('server/database/resourceSupplements/integrity/correctionPreview'),readActual=adapter.previewResourceSupplementCorrectionInTransaction,{stableHash}=compiled('server/database/aiContracts');
+          for(const kind of ['chapter_end_substitution','fabricated_related_issue']){
+            const forged=structuredClone(correctivePreview);
+            if(kind==='chapter_end_substitution'){
+              forged.correction.beforeValue=2;const {sourceHash,...frame}=forged.correction;forged.correction.sourceHash=stableHash(frame);
+              quantity(forged).baseline.value=2;
+            }else forged.relatedIssues.push({...forged.relatedIssues[0],issue_id:key()});
+            const {sourceHash,...frame}=forged;forged.sourceHash=stableHash(frame);
+            await merger.query('SAVEPOINT forged_correction_source');adapter.previewResourceSupplementCorrectionInTransaction=async()=>forged;
+            try{await assert.rejects(supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,{...correctiveCommand,requestKey:key(),expectedSourceHash:forged.sourceHash}),error=>error.code==='23514'
+              &&(kind==='chapter_end_substitution'?/actual valid latest chapter-before proof/:/every selected actual related issue/).test(error.message));
+            }finally{adapter.previewResourceSupplementCorrectionInTransaction=readActual;await merger.query('ROLLBACK TO SAVEPOINT forged_correction_source');await merger.query('RELEASE SAVEPOINT forged_correction_source');}
+            assert.equal((await merger.query('SELECT count(*)::int n FROM new_design.resource_supplement_correction_origins')).rows[0].n,0);
+          }
+        });
+        await correctionTests.test('actual deferred guard refuses a correction session without its atomic original proof',async()=>{
+          await merger.query('SAVEPOINT missing_correction_original');
+          const missingOrigin=new Proxy(merger,{get(target,name){if(name==='query')return async(sql,values)=>typeof sql==='string'&&sql.includes('INSERT INTO new_design.resource_supplement_correction_origins')?{rows:[],rowCount:0}:target.query(sql,values);
+            const value=Reflect.get(target,name);return typeof value==='function'?value.bind(target):value;}});
+          try{await supplements.startResourceSupplementCorrectionInTransaction(missingOrigin,book.id,{...correctiveCommand,requestKey:key()});
+            await assert.rejects(merger.query('SET CONSTRAINTS new_design.resource_supplement_correction_origin_required IMMEDIATE'),error=>error.code==='23514'&&/atomic full original proof/.test(error.message));
+          }finally{await merger.query('ROLLBACK TO SAVEPOINT missing_correction_original');await merger.query('RELEASE SAVEPOINT missing_correction_original');}
+        });
+        const beforeCorrection=(await merger.query(`SELECT to_jsonb(session) session,to_jsonb(checkpoint) checkpoint,to_jsonb(body) body
+          FROM new_design.chapter_stable_checkpoints checkpoint JOIN new_design.chapter_adoption_sessions session ON session.id=checkpoint.session_id
+          JOIN new_design.chapter_body_versions body ON body.id=checkpoint.body_version_id WHERE checkpoint.id=$1`,[second.checkpoint.id])).rows[0];
+        await assert.rejects(supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,{...correctiveCommand,expectedSourceHash:'0'.repeat(64)}),error=>error.status===409);
+        const correctiveReceipt=await supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,correctiveCommand);
+        assert.equal(correctiveReceipt.contract,'stable_resource_correction_start_v1');assert.equal(correctiveReceipt.issueId,issue.issue_id);
+        assert.deepEqual(correctiveReceipt.relatedIssueIds,[issue.issue_id]);assert.equal(correctiveReceipt.bodyVersionId,second.version.id);
+        assert.notEqual(correctiveReceipt.sessionId,second.workspace.session.id);assert.notEqual(correctiveReceipt.sessionId,futureReceipt.sessionId);
+        assert.equal((await supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,correctiveCommand)).sessionId,correctiveReceipt.sessionId);
+        const savedCorrection=await supplements.readResourceSupplementCorrectionStartOriginalInTransaction(merger,book.id,correctiveCommand);
+        assert.deepEqual(savedCorrection,{...correctiveReceipt,repeated:true});
+        const unreadOriginal=new Proxy(merger,{get(target,name){if(name==='query')return async(sql,values)=>{
+          if(typeof sql==='string'&&sql.includes('SELECT origin.*,correction.issue_id'))throw new Error('Isolated original lookup interruption');return target.query(sql,values);};
+          const value=Reflect.get(target,name);return typeof value==='function'?value.bind(target):value;}});
+        await assert.rejects(supplements.startResourceSupplementCorrectionInTransaction(unreadOriginal,book.id,correctiveCommand),error=>error.mutationOutcome==='unknown');
+        assert.deepEqual(await supplements.readResourceSupplementCorrectionStartOriginalInTransaction(merger,book.id,correctiveCommand),savedCorrection);
+        await assert.rejects(supplements.readResourceSupplementCorrectionStartOriginalInTransaction(merger,book.id,{...correctiveCommand,expectedSourceHash:'1'.repeat(64)}),error=>error.mutationOutcome==='unknown');
+        const afterCorrection=(await merger.query(`SELECT to_jsonb(session) session,to_jsonb(checkpoint) checkpoint,to_jsonb(body) body
+          FROM new_design.chapter_stable_checkpoints checkpoint JOIN new_design.chapter_adoption_sessions session ON session.id=checkpoint.session_id
+          JOIN new_design.chapter_body_versions body ON body.id=checkpoint.body_version_id WHERE checkpoint.id=$1`,[second.checkpoint.id])).rows[0];
+        assert.deepEqual(afterCorrection,beforeCorrection);
+        const frozenCorrection=(await merger.query('SELECT source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1',[correctiveReceipt.sessionId])).rows[0].source_snapshot;
+        assert.deepEqual(frozenCorrection,correctivePreview);assert.equal(quantity(frozenCorrection).baseline.value,1);
+        await merger.query('SET CONSTRAINTS new_design.resource_supplement_correction_origin_required IMMEDIATE');
+        const forbid=async action=>{await merger.query('SAVEPOINT correction_guard');try{await assert.rejects(action,error=>error.code==='23514');}
+          finally{await merger.query('ROLLBACK TO SAVEPOINT correction_guard');await merger.query('RELEASE SAVEPOINT correction_guard');}};
+        await forbid(()=>merger.query('DELETE FROM new_design.resource_supplement_correction_origins WHERE session_id=$1',[correctiveReceipt.sessionId]));
+        await forbid(()=>merger.query(`INSERT INTO new_design.chapter_proposal_extraction_requests(id,session_id,book_id,body_version_id,expected_session_revision)
+          VALUES($1,$2,$3,$4,1)`,[key(),correctiveReceipt.sessionId,book.id,second.version.id]));
+        await forbid(()=>merger.query(`INSERT INTO new_design.chapter_settlement_items(id,session_id,category,title)
+          VALUES($1,$2,'relationship','禁止提前写入')`,[key(),correctiveReceipt.sessionId]));
+        await merger.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/091_resource_supplement_correction_origins.sql'),'utf8'));
+        assert.deepEqual(await supplements.readResourceSupplementCorrectionStartOriginalInTransaction(merger,book.id,correctiveCommand),savedCorrection);
+        assert.equal((await supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,correctiveCommand)).repeated,true);
+        await assert.rejects(supplements.startResourceSupplementCorrectionInTransaction(merger,book.id,{...correctiveCommand,requestKey:key()}),error=>error.status===503);
+        assert.equal((await merger.query('SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].is_stale,true);
+      }finally{await merger.query('ROLLBACK TO SAVEPOINT isolated_corrective_request');await merger.query('RELEASE SAVEPOINT isolated_corrective_request');}
+    });
     await assert.rejects(supplements.readResourceSupplementCorrectionBasisInTransaction(merger,key(),issue.issue_id),error=>error.status===409);
     await merger.query('SAVEPOINT invalid_correction_prefix');
     try{await merger.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[correction.prefixSource.change.text_anchor_id]);
