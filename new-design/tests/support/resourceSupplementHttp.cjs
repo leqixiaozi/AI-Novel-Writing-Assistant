@@ -1,9 +1,10 @@
 const express=require('express'),{compiled}=require('./isolatedDatabase.cjs');
 /** Real router and isolated pool. Only the provider fetcher may be controlled. */
-exports.resourceSupplementHttp=async function(t,{runExtraction}={}){
+exports.resourceSupplementHttp=async function(t,{runExtraction,ai,beforeRouter}={}){
  const app=express();app.use(express.json({limit:'1mb'}));
+ beforeRouter?.(app);
  if(runExtraction)app.use('/api/new-design',compiled('server/http/chapterSettlementEditing').chapterSettlementEditingRouter({runChapterSettlementAiExtraction:runExtraction}));
- app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
+ app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter({ai}));
  app.use((error,_request,response,_next)=>response.status(error.status??500).json({success:false,error:error.message,issues:error.issues,recovery:error.recovery}));
  const server=await new Promise(resolve=>{const listener=app.listen(0,'127.0.0.1',()=>resolve(listener));});
  t.after(()=>new Promise(resolve=>server.close(resolve)));

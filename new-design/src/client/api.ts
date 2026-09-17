@@ -5,6 +5,7 @@ import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../co
 import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
 import {createResourceSupplementApi} from './resourceSupplements/api';
+import {createResourceFocusApi} from './characterResources/focus/api';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -442,7 +443,8 @@ export const newDesignApi = {
   generateStoryBatch:(bookId:string,input:import("../common/storyWorkspace").StoryBatchRequest)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches`,{method:"POST",body:JSON.stringify(input)}),
   readStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord|null>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}`),
   ...createFeatureApi(request),
-  ...createResourceSupplementApi(request),
+ ...createResourceSupplementApi(request),
+ ...createResourceFocusApi(request),
   getSavedChapterWritingReply:(id:string)=>request<SavedChapterWritingReply>(`/chapter-writing-requests/${encodeURIComponent(id)}/saved-reply`),
   completeSavedChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/complete-saved-result`,{method:'POST'}),
   endExpiredChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/end-expired`,{method:'POST'}),

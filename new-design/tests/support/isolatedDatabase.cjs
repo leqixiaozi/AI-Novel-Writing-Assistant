@@ -9,6 +9,7 @@ exports.isolatedDatabase=async function(t,extraMigrations=[]){
  const database=`nd_reference_test_${randomUUID().replaceAll('-','')}`;
  const admin=new Pool({...config,host:'127.0.0.1',database:'postgres',max:1,connectionTimeoutMillis:3000});
  try{await admin.query(`CREATE DATABASE "${database}" TEMPLATE template0 ENCODING 'UTF8'`);}finally{await admin.end();}
+ t.diagnostic?.(`Fresh isolated database created and retained: ${database}`);
  const pool=new Pool({...config,host:'127.0.0.1',database,max:8,application_name:'reference_parity_isolated_test'});
  t.after(()=>pool.end());
  await pool.query("CREATE EXTENSION age; LOAD 'age'; CREATE EXTENSION vector; CREATE EXTENSION pg_trgm; CREATE SCHEMA new_design; CREATE TABLE new_design.schema_migrations(id text PRIMARY KEY,applied_at timestamptz DEFAULT now())");

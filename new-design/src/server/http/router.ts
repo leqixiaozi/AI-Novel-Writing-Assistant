@@ -423,7 +423,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(productionDirectorRouter());
   router.use(chapterProductionRouter());
   router.use(createWorldCharacterMaintenanceRouter());
-  router.use(characterResourcesRouter());
+  router.use(characterResourcesRouter(dependencies.ai));
   router.use(resourceSupplementsRouter());
   router.use(characterExperiencesRouter(dependencies.ai));
   router.use(characterImportWriteRouter());
