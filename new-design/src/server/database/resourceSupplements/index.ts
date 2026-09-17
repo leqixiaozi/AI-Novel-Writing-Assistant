@@ -11,3 +11,4 @@ export {previewResourceSupplementCorrectionInTransaction} from './integrity/corr
 export {startResourceSupplementCorrection,startResourceSupplementCorrectionInTransaction,readResourceSupplementCorrectionStartOriginal,readResourceSupplementCorrectionStartOriginalInTransaction} from './correcting';
 export {commitResourceSupplement,readResourceSupplementCommitOriginal} from './committing';
 export {readFrozenResourceSupplementCorrectionInTransaction} from './correcting';
+export {commitResourceSupplementCorrection,readResourceSupplementCorrectionCommitOriginal} from './correctiveCommitting';

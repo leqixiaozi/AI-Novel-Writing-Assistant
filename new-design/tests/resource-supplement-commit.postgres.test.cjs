@@ -157,15 +157,94 @@ test('actual independently committed supplement fences its real downstream sourc
     assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
   });
  });
- await t.test('deactivation and archive preserve full formal and correction originals without clearing actual source fences',async()=>{
+ let correctionFormalCommand,correctionFormalReceipt;
+ await t.test('actual corrective formal commit closes the exact proof and restores a healthy real source',async formalTests=>{
+  const sql93=fs.readFileSync(path.join(__dirname,'../migrations/093_resource_supplement_correction_candidates.sql'),'utf8');
+  const guardStart=sql93.indexOf('CREATE OR REPLACE FUNCTION block_unavailable_resource_correction_candidates(');
+  await pool.query(sql93.slice(guardStart,sql93.indexOf('END $$;',guardStart)+7));
+  const installer=await pool.connect();try{await installer.query('BEGIN');await installer.query(fs.readFileSync(path.join(__dirname,'../migrations/094_resource_supplement_correction_commits.sql'),'utf8'));await installer.query("INSERT INTO new_design.schema_migrations(id) VALUES('094_resource_supplement_correction_commits')");await installer.query('COMMIT');}finally{installer.release();}
+  const impact=await supplements.previewResourceSupplementSettlement(book.id,correctionReceipt.sessionId);
+  assert.equal(impact.changes.length,1);assert.equal(impact.changes[0].before,1);assert.equal(impact.changes[0].after,2);
+  const review=await supplements.confirmResourceSupplementSettlementImpact(book.id,correctionReceipt.sessionId,{requestKey:key(),expectedSessionRevision:impact.sessionRevision,expectedImpactHash:impact.impactHash,acknowledgedConflictStateChangeIds:[],note:'作者核对实际正确章前1及原正文末2，正式修正完整来源'});
+  correctionFormalCommand={requestKey:key(),reviewId:review.reviewId,expectedSessionRevision:impact.sessionRevision,expectedImpactHash:impact.impactHash};
+  await formalTests.test('ordinary formal contract cannot reinterpret the corrective original',async()=>{
+    await assert.rejects(supplements.commitResourceSupplement(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.status===409&&error.mutationOutcome==='not_written');
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+  });
+  await formalTests.test('missing formal original rolls back actual corrective states and all resolution proofs',async()=>{
+    await intercept(sql=>sql.includes('INSERT INTO new_design.resource_supplement_formal_commits'),async(client)=>client.query('SELECT 1/0'),async()=>{
+      await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.mutationOutcome==='not_written');
+    });
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+    assert.equal((await pool.query("SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0].is_stale,true);
+  });
+  await formalTests.test('actual SQL refuses rehashed false correction source in an immutable resolution proof',async()=>{
+    const {stable}=compiled('server/database/aiContracts/integrity');
+    await intercept(sql=>sql.includes('INSERT INTO new_design.resource_supplement_integrity_resolutions'),async(client,sql,values)=>{
+      const proof=JSON.parse(values[5]);proof.correctionSource.correction.beforeValue=2;
+      const {sourceHash,...frame}=proof.correctionSource.correction;proof.correctionSource.correction.sourceHash=stableHash(frame);
+      const {sourceHash:ignored,...sourceFrame}=proof.correctionSource;proof.correctionSource.sourceHash=stableHash(sourceFrame);
+      const hash=stableHash(proof),receipt=JSON.parse(values[8]);receipt.proofHash=hash;
+      const changed=[...values];changed[5]=JSON.stringify(proof);changed[6]=hash;changed[7]=stable(proof);changed[8]=JSON.stringify(receipt);return client.query(sql,changed);
+    },async()=>{await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.mutationOutcome==='not_written'&&error.cause?.code==='23514');});
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+  });
+  await formalTests.test('actual deferred guard cannot publish resolution proofs without the atomic formal original',async()=>{
+    await intercept(sql=>sql.includes('INSERT INTO new_design.resource_supplement_formal_commits'),client=>client.query('SELECT 1'),async()=>{
+      await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.mutationOutcome==='unknown'&&error.cause?.code==='23514'&&/atomic full original commit receipt/.test(error.cause.message));
+    });
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+    assert.equal((await pool.query("SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0].is_stale,true);
+  });
+  await formalTests.test('deferred actual SQL rejects a real prefix change after the complete corrective receipt',async()=>{
+    await intercept(sql=>sql.includes('INSERT INTO new_design.resource_supplement_formal_commits'),async(client,sql,values)=>{
+      const result=await client.query(sql,values);const source=(await client.query('SELECT source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1',[correctionReceipt.sessionId])).rows[0].source_snapshot;
+      await client.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[source.correction.prefixSource.change.text_anchor_id]);return result;
+    },async()=>{await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.mutationOutcome==='unknown'&&error.cause?.code==='23514');});
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+  });
+  await formalTests.test('actual corrective COMMIT with lost acknowledgement recovers the unique complete original',async()=>{
+    await intercept(sql=>sql==='COMMIT',async client=>{await client.query('COMMIT');throw new Error('Isolated corrective formal acknowledgement lost');},async()=>{
+      await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand),error=>error.mutationOutcome==='unknown'&&error.cause?.message==='Isolated corrective formal acknowledgement lost');
+    });
+    correctionFormalReceipt=await supplements.readResourceSupplementCorrectionCommitOriginal(book.id,correctionReceipt.sessionId,correctionFormalCommand);
+    assert.ok(correctionFormalReceipt);assert.equal(correctionFormalReceipt.contract,'resource_supplement_correction_commit_v1');assert.equal(correctionFormalReceipt.resolutions.length,1);
+    assert.deepEqual(correctionFormalReceipt.originalStart,{...correctionReceipt,repeated:false});assert.deepEqual(correctionFormalReceipt.originalReview,review);
+    assert.equal((await supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand)).repeated,true);
+    const concurrent=await Promise.all(Array.from({length:3},()=>supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand)));
+    assert.ok(concurrent.every(row=>row.repeated&&row.merged.settlementId===correctionFormalReceipt.merged.settlementId));
+    await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,{...correctionFormalCommand,expectedImpactHash:'a'.repeat(64)}),error=>error.mutationOutcome==='unknown');
+  });
+  const projection=(await pool.query("SELECT * FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0];
+  assert.equal(projection.is_stale,false);assert.equal(projection.value_json,2);assert.equal(projection.source_state_change_id,correctionFormalReceipt.merged.newStateChangeIds[0]);
+  assert.ok(correctionFormalReceipt.merged.confirmed.states.includes(chain.stateChangeId));
+  assert.deepEqual(correctionFormalReceipt.merged.confirmed.facts,second.checkpoint.summary.confirmed.facts);assert.deepEqual(correctionFormalReceipt.merged.confirmed.knowledge,second.checkpoint.summary.confirmed.knowledge);
+  const thirdCard=await create('chapter','下一章连续性核对',{chapter_name:'下一章连续性核对',chapter_goal:'核对资源'});
+  const thirdPlan=await fixture.planning.createPlanningObject({bookId:book.id,level:'chapter',parentObjectId:fixture.volume.id,basedOnParentVersionId:fixture.volume.adoptedVersionId,cardId:thirdCard.id,title:'下一章连续性核对',sortOrder:3,content:fixture.planContent,source:'manual',executionMode:'ai_assisted',references:[],idempotencyKey:key()});
+  await fixture.planning.adoptPlanningVersion(thirdPlan.id,{versionId:thirdPlan.currentVersionId,expectedRevision:thirdPlan.revision,idempotencyKey:key()});
+  await fixture.body.createChapterDocument({bookId:book.id,chapterCardId:thirdCard.id,logicalOrder:3,title:'下一章连续性核对'});
+  const context=await settlement.getNextChapterStableContext(book.id,thirdCard.id);
+  assert.equal(context.previousCheckpoint.id,correctionFormalReceipt.merged.checkpointId);assert.deepEqual(context.previousCheckpoint.summary.confirmed,correctionFormalReceipt.merged.confirmed);
+  const client=await pool.connect();try{
+    const fresh=await supplements.readResourceSupplementHistoricalStateInTransaction(client,{bookId:book.id,checkpointId:correctionFormalReceipt.merged.checkpointId,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});assert.equal(fresh.value,2);assert.equal(fresh.sourceId,correctionFormalReceipt.merged.newStateChangeIds[0]);
+    await supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(client,book.id,2,[{subjectKind:'relation',id:relationId}]);
+    const continuity=await compiled('server/database/chapterProduction/continuitySources').readChapterContinuitySources(client,book.id,thirdCard.id);
+    assert.ok(continuity.sources.some(row=>row.type==='state_change'&&row.stableId===correctionFormalReceipt.merged.newStateChangeIds[0]));
+  }finally{client.release();}
+  await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_integrity_resolutions WHERE issue_id=$1',[receipt.issues[0].issue_id]),error=>error.code==='23514');
+ });
+ await t.test('deactivation and archive preserve full formal and correction originals and healthy proven source',async()=>{
   await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_formal_commits WHERE settlement_id=$1',[receipt.merged.settlementId]),error=>error.code==='23514');
-  for(const file of ['092_resource_supplement_formal_commits.sql','091_resource_supplement_correction_origins.sql'])await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback',file),'utf8'));
+  for(const file of ['094_resource_supplement_correction_commits.sql','092_resource_supplement_formal_commits.sql','091_resource_supplement_correction_origins.sql'])await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback',file),'utf8'));
   await pool.query("UPDATE new_design.books SET status='archived' WHERE id=$1",[book.id]);
   assert.deepEqual(await supplements.readResourceSupplementCommitOriginal(book.id,start.sessionId,command),receipt);assert.deepEqual(await supplements.readResourceSupplementCorrectionStartOriginal(book.id,correctionCommand),correctionReceipt);
   assert.equal((await supplements.commitResourceSupplement(book.id,start.sessionId,command)).repeated,true);assert.equal((await supplements.startResourceSupplementCorrection(book.id,correctionCommand)).repeated,true);
   await assert.rejects(supplements.commitResourceSupplement(book.id,start.sessionId,{...command,requestKey:key()}),error=>error.status===503&&error.mutationOutcome==='not_written');
   await assert.rejects(supplements.startResourceSupplementCorrection(book.id,{...correctionCommand,requestKey:key()}),error=>error.status===503&&error.mutationOutcome==='not_written');
-  assert.equal((await pool.query("SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0].is_stale,true);
+  assert.deepEqual(await supplements.readResourceSupplementCorrectionCommitOriginal(book.id,correctionReceipt.sessionId,correctionFormalCommand),correctionFormalReceipt);
+  assert.equal((await supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,correctionFormalCommand)).repeated,true);
+  await assert.rejects(supplements.commitResourceSupplementCorrection(book.id,correctionReceipt.sessionId,{...correctionFormalCommand,requestKey:key()}),error=>error.status===503&&error.mutationOutcome==='not_written');
+  assert.equal((await pool.query("SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0].is_stale,false);
   assert.equal((await pool.query('SELECT operational FROM new_design.resource_supplement_capabilities')).rows[0].operational,false);
  });
 });

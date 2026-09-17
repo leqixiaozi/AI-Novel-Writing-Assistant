@@ -1,5 +1,5 @@
 import type {PoolClient} from 'pg';
-import type {ResourceSupplementPreview} from '../../../../common/resourceSupplements';
+import type {ResourceSupplementFrozenSource} from '../../../../common/resourceSupplements/correction';
 import type {SettlementEditingDraft} from '../../../../common/chapterSettlementEditing';
 import {NewDesignError} from '../../../domain/errors';
 import {stableHash} from '../../aiContracts';
@@ -14,7 +14,7 @@ export interface ValidatedResourceSupplementChange extends SettlementEditingDraf
   itemId:string;itemRevision:number;proposalId:string;domainHash:string;effectiveStoryOrder:number|null;
 }
 export async function readResourceSupplementSettlementChangesInTransaction(client:PoolClient,bookId:string,sessionId:string):Promise<{
-  session:Record<string,unknown>;source:ResourceSupplementPreview;changes:ValidatedResourceSupplementChange[];items:Record<string,unknown>[];
+  session:Record<string,unknown>;source:ResourceSupplementFrozenSource;changes:ValidatedResourceSupplementChange[];items:Record<string,unknown>[];
 }>{
   const session=(await client.query(`SELECT session.*,body.content_hash AS body_hash FROM new_design.chapter_adoption_sessions session
     JOIN new_design.books book ON book.id=session.book_id AND book.status='active'
@@ -25,7 +25,10 @@ export async function readResourceSupplementSettlementChangesInTransaction(clien
   if(!session||session.adoption_kind!=='resource_supplement'||!['pending_review','partially_confirmed','adopted_pending_proposals','failed'].includes(session.status))throw new NewDesignError('请选择本书待核对的资源补充清单。',409);
   await assertResourceSupplementCandidateContract(client,session,'preview',false);
   const source=await readFrozenSupplementSource(client,session,String(session.body_hash));
-  if(source.contract!=='stable_resource_supplement_preview_v1')throw new NewDesignError('修正清单的正式来源证明解除尚不可用，请保留原确认和来源核对。',503);
+  if(source.contract==='stable_resource_correction_preview_v1'&&!(await client.query(`SELECT id FROM new_design.schema_migrations
+    WHERE id='094_resource_supplement_correction_commits' AND position('resource_supplement_correction_commit_v1' IN coalesce(
+      pg_get_functiondef(to_regprocedure('new_design.reject_unavailable_resource_integrity_resolution()')),''))>0`)).rowCount)
+    throw new NewDesignError('修正清单的正式来源证明解除尚不可用，请保留原确认和来源核对。',503);
   const catalog=await readEditingCatalog(client,session,false);
   const items=(await client.query('SELECT * FROM new_design.chapter_settlement_items WHERE session_id=$1 ORDER BY id',[sessionId])).rows;
   if(items.some(item=>item.decision!=='confirm'&&item.decision!=='reject'))throw new NewDesignError('请先处理所有补充候选，再核对结算影响。',422);
@@ -42,5 +45,7 @@ export async function readResourceSupplementSettlementChangesInTransaction(clien
     if(effective!==null&&effective!==source.basis.chapterOrder)throw new NewDesignError('稳定章资源补充不能将变化移动到其他故事位置，请核对原提案。',409);
     changes.push({...validated.draft,subjectKind:validated.subject.subjectKind,subjectId:validated.subject.id,stateKey:validated.field.key,itemId:String(item.id),itemRevision:Number(item.revision),proposalId:String(item.state_proposal_id),domainHash:domain.hash,effectiveStoryOrder:effective});
   }
+  if(source.contract==='stable_resource_correction_preview_v1'&&changes.length!==1)
+    throw new NewDesignError('请明确确认该冲突字段的一项真实修正，再核对正式影响。',422);
   return {session,source,changes,items};
 }
