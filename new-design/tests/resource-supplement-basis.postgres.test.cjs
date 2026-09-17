@@ -14,6 +14,14 @@ test('stable supplement sources retain original confirmations and use chapter-en
   const cutoff=await read(client=>supplements.readResourceSupplementHistoricalStateInTransaction(client,stateInput));assert.equal(cutoff.value,1);assert.equal(cutoff.sourceId,basis.confirmed.states[0]);assert.equal(cutoff.sourceKind,'state_change');assert.notEqual(cutoff.sourceId,initialQty.currentVersionId);
  });
  const beforeFollowing=await read(client=>supplements.readResourceSupplementHistoricalStateInTransaction(client,stateInput)),second=await chapter(2,2);
+ await t.test('next-chapter context reads actual checkpoint confirmation ids and refuses a missing merged source',async()=>{
+  const settlement=require('./support/isolatedDatabase.cjs').compiled('server/database/chapterSettlement');
+  const context=await settlement.getNextChapterStableContext(book.id,second.card.id);assert.equal(context.previousCheckpoint.id,first.checkpoint.id);
+  assert.equal(context.recentStateChanges[0].id,basis.confirmed.states[0]);assert.equal(context.recentStateChanges[0].afterValue,1);
+  const summary=(await pool.query('SELECT summary FROM new_design.chapter_stable_checkpoints WHERE id=$1',[first.checkpoint.id])).rows[0].summary;
+  await pool.query("UPDATE new_design.chapter_stable_checkpoints SET summary=jsonb_set(summary,'{confirmed,states}',$2::jsonb) WHERE id=$1",[first.checkpoint.id,JSON.stringify([randomUUID()])]);
+  try{await assert.rejects(settlement.getNextChapterStableContext(book.id,second.card.id),error=>error.status===409);}finally{await pool.query('UPDATE new_design.chapter_stable_checkpoints SET summary=$2::jsonb WHERE id=$1',[first.checkpoint.id,JSON.stringify(summary)]);}
+ });
  await t.test('later committed chapter and latest projection cannot leak into an earlier stable chapter',async()=>{
   assert.equal((await pool.query('SELECT value_json FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,actor.id,quantity])).rows[0].value_json,2);
   const earlier=await read(client=>supplements.readResourceSupplementHistoricalStateInTransaction(client,stateInput));assert.equal(earlier.value,1);assert.equal(earlier.hash,beforeFollowing.hash);

@@ -88,7 +88,7 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     const key=identity(id,'采用正文');if(bodies.has(key)){const prior=bodies.get(key)!;if(prior.chapter_document_id!==documentId)throw new NewDesignError('正文来源跨章节不一致。',409);return prior;}
     const row=assertFound((await client.query<Row>(`SELECT body.id,body.chapter_document_id,body.version,body.content,body.content_hash,
       document.logical_order,document.title,document.revision document_revision,checkpoint.id checkpoint_id,
-      checkpoint.session_id,checkpoint.settlement_id,checkpoint.dependency_hash,session.context_manifest_id
+      checkpoint.session_id,checkpoint.settlement_id,checkpoint.dependency_hash,checkpoint.summary confirmed_summary,session.context_manifest_id
       FROM new_design.chapter_body_versions body JOIN new_design.chapter_documents document ON document.id=body.chapter_document_id
         AND document.book_id=$1 AND document.status='active' AND document.adopted_version_id=body.id
       JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.book_id=document.book_id
@@ -166,7 +166,8 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
           AND settlement.chapter_document_id=change.chapter_document_id AND settlement.body_version_id=change.body_version_id AND settlement.status='committed'
         WHERE change.id=$1 AND change.book_id=$2 AND change.status='active' AND change.subject_kind=$3 AND change.subject_id=$4 AND change.state_key=$5`,[projection.source_state_change_id,bookId,projection.subject_kind,projection.subject_id,projection.state_key])).rows[0],'当前状态的正式确认提案或已提交结算不匹配，请回原章节核对。');
       const change=record(row.change,'状态流水'),proposal=record(row.proposal,'状态提案'),original=await body(change.body_version_id,change.chapter_document_id);
-      if(original.settlement_id!==change.settlement_id||stableHash(change.after_json)!==stableHash(projection.value_json)||proposal.chapter_document_id!==change.chapter_document_id||proposal.body_version_id!==change.body_version_id||proposal.subject_kind!==change.subject_kind||proposal.subject_id!==change.subject_id||proposal.state_key!==change.state_key||stableHash(proposal.after_json)!==stableHash(change.after_json))throw new NewDesignError('当前状态与原确认提案、稳定结算或精确源值不一致，请回原章节核对。',409);
+      const confirmation=record(original.confirmed_summary,'稳定章确认清单'),stateIds=record(confirmation.confirmed,'稳定章确认来源').states;
+      if(!Array.isArray(stateIds)||!stateIds.includes(change.id)||new Set(stateIds).size!==stateIds.length||stableHash(change.after_json)!==stableHash(projection.value_json)||proposal.chapter_document_id!==change.chapter_document_id||proposal.body_version_id!==change.body_version_id||proposal.subject_kind!==change.subject_kind||proposal.subject_id!==change.subject_id||proposal.state_key!==change.state_key||stableHash(proposal.after_json)!==stableHash(change.after_json))throw new NewDesignError('当前状态与原确认提案、稳定结算或精确源值不一致，请回原章节核对。',409);
       const evidence=change.text_anchor_id?await anchor(change.text_anchor_id,change.body_version_id):null;
       const causeEvent=change.cause_event_card_id?await card(change.cause_event_card_id):null;
       add('state_change',change.id,change.id,await sourceHash('state_change',change.id,change.id),{change,proposal,subject:owner,evidence,causeEvent,bodyContentHash:original.content_hash,stableCheckpointId:original.checkpoint_id,projectionRevision:projection.projection_revision});

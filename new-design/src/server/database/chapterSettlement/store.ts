@@ -12,6 +12,7 @@ import { getAdoptedChapterPlanContractInTransaction } from "../planning/center";
 import { getNewDesignPool, settlementTransactionClient } from "./transaction";
 import { findOrCreateKnowledgeClaimInTransaction,rebuildKnowledgeProjectionInTransaction } from "../knowledgeStore";
 import { createStateMilestoneInTransaction,rebuildStateProjectionInTransaction } from "../stateStore";
+import {readCheckpointConfirmedStateChanges} from './supplementRead/confirmedStates';
 
 async function getChapterDocument(id:string) { const client=settlementTransactionClient();return client?getChapterDocumentInTransaction(client,id):readChapterDocument(id); }
 
@@ -94,7 +95,7 @@ export async function getNextChapterStableContext(bookId:string,chapterCardId:st
         JOIN new_design.canonical_fact_evidence evidence ON evidence.fact_id=fact.id AND evidence.stale_at IS NULL
         JOIN new_design.chapter_text_anchors anchor ON anchor.id=evidence.chapter_text_anchor_id AND anchor.status='active'
         WHERE fact.book_id=$1 AND fact.status='confirmed' AND anchor.chapter_document_id=$2 AND anchor.body_version_id=$3 AND fact.id=ANY($4::uuid[])`,[bookId,checkpoint.chapter_document_id,checkpoint.body_version_id,confirmed?.facts??[]])).rows;
-      states=(await client.query("SELECT id,subject_id,state_key,after_json FROM new_design.state_changes WHERE settlement_id=$1 AND body_version_id=$2 AND status='active' ORDER BY sequence",[checkpoint.settlement_id,checkpoint.body_version_id])).rows;
+      states=(await readCheckpointConfirmedStateChanges(client,checkpoint)).effective;
       knowledge=(await client.query(`SELECT change.id,change.holder_key,change.stance,change.claim_id FROM new_design.knowledge_state_changes change
         JOIN new_design.knowledge_state_proposal_versions version ON version.id=change.proposal_version_id
         JOIN new_design.chapter_text_anchors anchor ON anchor.id=version.text_anchor_id AND anchor.status='active'
