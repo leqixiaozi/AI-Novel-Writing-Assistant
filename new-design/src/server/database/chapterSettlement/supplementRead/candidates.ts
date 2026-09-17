@@ -4,7 +4,7 @@ import {stableHash} from "../../aiContracts/integrity";
 import type {ResourceSupplementPreview} from "../../../../common/resourceSupplements";
 
 /** Candidate-only manual contract. Full settlement and initial-state writes stay closed. */
-export async function assertResourceSupplementCandidateContract(client:PoolClient,session:Record<string,unknown>,operation:string):Promise<void> {
+export async function assertResourceSupplementCandidateContract(client:PoolClient,session:Record<string,unknown>,operation:string,lock=true):Promise<void> {
   if(session.adoption_kind!=="resource_supplement")return;
   if(operation==="commit"||operation==="initial")throw new NewDesignError("资源补充尚需完成下游复核，暂不可结算或回溯建立初始状态。原正文和确认记录保留。",503);
   const available=await client.query(`SELECT 1 FROM new_design.schema_migrations
@@ -15,7 +15,7 @@ export async function assertResourceSupplementCandidateContract(client:PoolClien
     JOIN new_design.chapter_adoption_sessions original ON original.id=base.session_id AND original.status='stable'
     JOIN new_design.chapter_settlements settlement ON settlement.id=base.settlement_id AND settlement.status='committed'
     WHERE base.id=$1 AND base.book_id=$2 AND base.chapter_document_id=$3 AND base.body_version_id=$4 AND base.status='stable'
-    FOR SHARE OF base,original,settlement`,[session.supplement_base_checkpoint_id,session.book_id,session.chapter_document_id,session.body_version_id])).rowCount)
+    ${lock?'FOR SHARE OF base,original,settlement':''}`,[session.supplement_base_checkpoint_id,session.book_id,session.chapter_document_id,session.body_version_id])).rowCount)
     throw new NewDesignError("原稳定结算已变化，请核对原补充来源，不能重复写入。",409);
   const saved=(await client.query('SELECT source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1 AND book_id=$2',[session.id,session.book_id])).rows[0]?.source_snapshot as ResourceSupplementPreview|undefined;
   const owner=await import('../../resourceSupplements');
@@ -27,4 +27,8 @@ export async function assertResourceSupplementCandidateContract(client:PoolClien
     ||stableHash(currentPlan.content)!==stableHash(savedPlan.content)
     ||stableHash(current.original.planningReferences)!==stableHash(saved.basis.original.planningReferences))
     throw new NewDesignError('原确认来源或正文所用计划已失效，请保留原补充请求核对。',409);
+  for(const subject of saved.catalog.subjects)for(const field of subject.fields){
+    const actual=await owner.readResourceSupplementHistoricalStateInTransaction(client,{bookId:String(session.book_id),checkpointId:current.checkpointId,subjectKind:subject.subjectKind,subjectId:subject.id,stateKey:field.key});
+    if(actual.hash!==field.baseline.hash)throw new NewDesignError('该章实际历史前值已变化，请保留原清单核对，不能按新来源解释旧候选。',409);
+  }
 }

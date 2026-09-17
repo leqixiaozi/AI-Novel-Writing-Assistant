@@ -105,3 +105,19 @@ export function resourceSupplementChangeAlreadyConfirmed(states:Record<string,un
     &&row.subject_id===draft.subjectId&&row.state_key===draft.stateKey
     &&same(row.before_json,draft.beforeValue)&&same(row.after_json,draft.afterValue));
 }
+
+export interface ResourceSupplementStateChainImpact {
+  chapterDocumentId:string;bodyVersionId:string;chapterOrder:number;stateChangeId:string;
+  subjectKind:'card'|'relation';subjectId:string;stateKey:string;
+  expectedBefore:unknown;recordedBefore:unknown;recordedAfter:unknown;
+  effectiveStoryOrder:number|null;reason:'compatible'|'before_conflict'|'backdated_source';
+}
+export interface ResourceSupplementSettlementImpact {
+  contract:'resource_supplement_settlement_impact_v1';bookId:string;sessionId:string;sessionRevision:number;
+  baseCheckpointId:string;bodyVersionId:string;sourceHash:string;
+  changes:Array<{itemId:string;proposalId:string;subjectKind:'card'|'relation';subjectId:string;stateKey:string;before:unknown;after:unknown}>;
+  stateChain:ResourceSupplementStateChainImpact[];
+  /** Full actual future document/body/plan/checkpoint and selected state-source records. */
+  downstreamSource:{chapters:Record<string,unknown>[];states:Record<string,unknown>[];planningReferences:Record<string,unknown>[]};
+  inputSnapshot:Record<string,unknown>;impactHash:string;
+}

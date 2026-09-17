@@ -19,7 +19,7 @@ test('stable supplement preview and exact original request create only an indepe
   assert.ok(before.catalog.subjects.every(item=>[prop.id,relationId].includes(item.id)));assert.equal(before.basis.confirmed.facts.length,1);assert.equal(before.basis.confirmed.knowledge.length,1);assert.equal(before.basis.confirmed.states.length,1);
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_resource_supplements')).rows[0].n,0);
  });
- await chapter(2,2,false,(workspace,content)=>['quantity','holding'].map(stateKey=>{
+ const second=await chapter(2,2,false,(workspace,content)=>['quantity','holding'].map(stateKey=>{
   const field=workspace.catalog.subjects.find(item=>item.id===relationId).fields.find(item=>item.key===stateKey);
   return{category:'relationship',title:'后续资源确认',subjectKind:'relation',subjectId:relationId,stateKey,specificationHash:field.specificationHash,baselineHash:field.baseline.hash,beforeValue:field.baseline.value,afterValue:stateKey==='quantity'?2:true,...(stateKey==='quantity'?{changeValue:2}:{}),riskLevel:'medium',evidenceStart:0,evidenceEnd:content.length,evidenceLabel:'后续正文',reason:'作者明确确认后续资源变化'};
  }));
@@ -137,6 +137,20 @@ test('stable supplement preview and exact original request create only an indepe
   await assert.rejects(settlement.createChapterSettlementEditingItem(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),draft:{...draft,afterValue:0,changeValue:0}}),error=>error.status===409);
   const decided=await settlement.decideChapterSettlementEditingItems(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),decisions:[{itemId:item.id,expectedRevision:workspace.items[0].revision,decision:'confirm',note:'明确核对原正文'}],actor:'isolated_author'});workspace=decided.workspace;
   assert.equal(workspace.items[0].decision,'confirm');assert.deepEqual(await originalRows(),originalSnapshot);
+  const counts=async()=>(await pool.query('SELECT (SELECT count(*) FROM new_design.chapter_settlements) settlements,(SELECT count(*) FROM new_design.chapter_stable_checkpoints) checkpoints,(SELECT count(*) FROM new_design.state_changes) states,(SELECT count(*) FROM new_design.ai_tasks) tasks')).rows[0],unchanged=await counts();
+  const impact=await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId),chain=impact.stateChain.find(row=>row.subjectId===relationId&&row.stateKey==='quantity');
+  assert.ok(chain);assert.equal(chain.expectedBefore,1);assert.equal(chain.recordedBefore,0);assert.equal(chain.recordedAfter,2);assert.equal(chain.reason,'before_conflict');
+  assert.equal(impact.downstreamSource.chapters.length,1);assert.equal(impact.downstreamSource.chapters[0].body.id,chain.bodyVersionId);
+  assert.equal(impact.downstreamSource.states[0].change.id,chain.stateChangeId);assert.equal(impact.changes[0].proposalId,workspace.items[0].stateProposalId);
+  assert.equal((await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId)).impactHash,impact.impactHash);assert.deepEqual(await counts(),unchanged);
+  await assert.rejects(supplements.previewResourceSupplementSettlement(key(),receipt.sessionId),error=>error.status===409);
+  let nextPlan=await fixture.planning.addPlanningVersion(second.object.id,{content:{...fixture.planContent,notes:'下游预览后另行采用的新计划'},source:'manual',executionMode:'ai_assisted',basedOnParentVersionId:fixture.volume.adoptedVersionId,references:[],expectedRevision:second.object.revision,idempotencyKey:key()});
+  nextPlan=await fixture.planning.adoptPlanningVersion(nextPlan.id,{versionId:nextPlan.currentVersionId,expectedRevision:nextPlan.revision,idempotencyKey:key()});
+  const refreshed=await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId);assert.notEqual(refreshed.impactHash,impact.impactHash);assert.equal(refreshed.downstreamSource.chapters[0].adopted_plan.id,nextPlan.adoptedVersionId);assert.equal(refreshed.downstreamSource.chapters[0].body_plan.id,second.object.adoptedVersionId);
+  const verifier=await pool.connect();try{await verifier.query('BEGIN');await verifier.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[impact.downstreamSource.states[0].change.text_anchor_id]);
+   await assert.rejects(supplements.previewResourceSupplementSettlementInTransaction(verifier,book.id,receipt.sessionId),error=>error.status===409);
+  }finally{await verifier.query('ROLLBACK');verifier.release();}
+  assert.equal((await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId)).impactHash,refreshed.impactHash);assert.deepEqual(await counts(),unchanged);
   assert.equal((await pool.query('SELECT value_json FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].value_json,2);
   await assert.rejects(settlement.commitChapterSettlementEditing(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),note:'下游尚未复核'}),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
