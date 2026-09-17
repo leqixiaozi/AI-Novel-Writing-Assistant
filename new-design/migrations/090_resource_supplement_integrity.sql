@@ -126,3 +126,19 @@ CREATE FUNCTION reject_unavailable_resource_integrity_resolution() RETURNS trigg
 BEGIN RAISE EXCEPTION 'actual corrective source proof is not operational; acknowledgement cannot resolve integrity' USING ERRCODE='23514'; END $$;
 CREATE TRIGGER resource_supplement_integrity_resolution_guard BEFORE INSERT ON resource_supplement_integrity_resolutions FOR EACH ROW EXECUTE FUNCTION reject_unavailable_resource_integrity_resolution();
 -- No replacement of require_resource_supplement_closure(), no capability flip.
+-- Protect cached claim code as well as current application preflight. Original
+-- saved results stay readable; this guard only rejects a new ordinary claim.
+CREATE FUNCTION fence_resource_supplement_integrity_extraction() RETURNS trigger LANGUAGE plpgsql SET search_path TO new_design,public AS $$
+DECLARE origin chapter_resource_supplements%ROWTYPE;
+BEGIN
+  SELECT * INTO origin FROM chapter_resource_supplements WHERE session_id=NEW.session_id AND book_id=NEW.book_id;
+  IF origin.session_id IS NULL THEN RETURN NEW; END IF;
+  IF EXISTS(SELECT 1 FROM resource_supplement_integrity_issues issue JOIN chapter_documents document ON document.id=issue.chapter_document_id AND document.book_id=issue.book_id
+    WHERE issue.book_id=NEW.book_id AND document.logical_order<=(origin.source_snapshot#>>'{basis,chapterOrder}')::numeric
+      AND EXISTS(SELECT 1 FROM jsonb_array_elements(origin.source_snapshot#>'{catalog,subjects}') subject WHERE (subject->>'id')::uuid=issue.subject_id AND subject->>'subjectKind'=issue.subject_kind)
+      AND NOT EXISTS(SELECT 1 FROM resource_supplement_integrity_resolutions resolution WHERE resolution.issue_id=issue.issue_id)) THEN
+    RAISE EXCEPTION 'ordinary stable resource extraction cannot bypass actual source conflict' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER a_resource_supplement_integrity_extraction_fence BEFORE INSERT ON chapter_proposal_extraction_requests FOR EACH ROW EXECUTE FUNCTION fence_resource_supplement_integrity_extraction();

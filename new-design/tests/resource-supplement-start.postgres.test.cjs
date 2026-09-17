@@ -205,6 +205,9 @@ test('stable supplement preview and exact original request create only an indepe
   await assert.rejects(settlement.commitChapterSettlementEditing(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),note:'下游尚未复核'}),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
   await reviewTests.test('real merged SQL retains all old confirmations and the unchanged deferred guard prevents publication',async()=>{
+   const futurePreview=await supplements.previewResourceSupplement(book.id,{...input,checkpointId:second.checkpoint.id});
+   const futureCommand={...input,checkpointId:second.checkpoint.id,requestKey:key(),expectedSourceHash:futurePreview.sourceHash};
+   const futureReceipt=await supplements.startResourceSupplement(book.id,futureCommand);
    const merger=await pool.connect();let merged;
    try{await merger.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
     merged=await settlement.writeResourceSupplementMergedSettlementInTransaction(merger,book.id,receipt.sessionId,{requestKey:key(),reviewId:freshReview.reviewId,expectedSessionRevision:workspace.session.revision,expectedImpactHash:refreshed.impactHash});
@@ -233,6 +236,13 @@ test('stable supplement preview and exact original request create only an indepe
     assert.equal(correction.prefixSource.checkpoint.id,merged.checkpointId);assert.equal(correction.chapterEndBasis.bodyVersionId,second.version.id);
     const endState=await supplements.readResourceSupplementHistoricalStateInTransaction(merger,{bookId:book.id,checkpointId:second.checkpoint.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});
     assert.equal(endState.value,2);assert.equal((await supplements.readResourceSupplementCorrectionBasisInTransaction(merger,book.id,issue.issue_id)).sourceHash,correction.sourceHash);
+    await assert.rejects(supplements.previewResourceSupplementInTransaction(merger,book.id,{...input,checkpointId:second.checkpoint.id}),error=>error.status===409&&/未修正的真实冲突/.test(error.message));
+    await assert.rejects(supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(merger,book.id,2,[{subjectKind:'relation',id:relationId}]),error=>error.status===409);
+    await supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(merger,book.id,1,[{subjectKind:'relation',id:relationId}]);
+    await supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(merger,book.id,2,[{subjectKind:'card',id:actor.id}]);
+    await supplements.assertResourceSupplementHistoricalSourceAvailableInTransaction(merger,book.id,2,[{subjectKind:'card',id:relationId}]);
+    const pendingFuture=(await merger.query('SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1',[futureReceipt.sessionId])).rows[0];
+    await assert.rejects(settlement.assertResourceSupplementCandidateContract(merger,pendingFuture,'preview',false),error=>error.status===409&&/未修正的真实冲突/.test(error.message));
     await assert.rejects(supplements.readResourceSupplementCorrectionBasisInTransaction(merger,key(),issue.issue_id),error=>error.status===409);
     await merger.query('SAVEPOINT invalid_correction_prefix');
     try{await merger.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[correction.prefixSource.change.text_anchor_id]);
@@ -247,6 +257,10 @@ test('stable supplement preview and exact original request create only an indepe
     await cannotBypass(()=>merger.query('DELETE FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity']));
     await cannotBypass(()=>merger.query("UPDATE new_design.current_state_projections SET state_key='fake_move' WHERE book_id=$1 AND subject_id=$2 AND state_key=$3",[book.id,relationId,'quantity']));
     await cannotBypass(()=>merger.query('DELETE FROM new_design.resource_supplement_integrity_issues WHERE issue_id=$1',[issue.issue_id]));
+    await merger.query('SAVEPOINT cached_source_claim');try{
+      await assert.rejects(merger.query(`INSERT INTO new_design.chapter_proposal_extraction_requests(id,session_id,book_id,body_version_id,expected_session_revision)
+        VALUES($1,$2,$3,$4,$5)`,[key(),futureReceipt.sessionId,book.id,second.version.id,pendingFuture.revision]),error=>error.code==='23514'&&/cannot bypass actual source conflict/.test(error.message));
+    }finally{await merger.query('ROLLBACK TO SAVEPOINT cached_source_claim');await merger.query('RELEASE SAVEPOINT cached_source_claim');}
     await cannotBypass(()=>merger.query(`INSERT INTO new_design.resource_supplement_integrity_resolutions(resolution_id,issue_id,book_id,correction_checkpoint_id,request_key,full_proof,proof_hash,original_receipt)
       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)`,[key(),issue.issue_id,book.id,second.checkpoint.id,key(),JSON.stringify({acknowledged:true}),'a'.repeat(64),JSON.stringify({resolved:true})]));
     await merger.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/090_resource_supplement_integrity.sql'),'utf8'));

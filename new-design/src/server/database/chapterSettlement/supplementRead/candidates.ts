@@ -27,6 +27,7 @@ export async function assertResourceSupplementCandidateContract(client:PoolClien
     ||stableHash(currentPlan.content)!==stableHash(savedPlan.content)
     ||stableHash(current.original.planningReferences)!==stableHash(saved.basis.original.planningReferences))
     throw new NewDesignError('原确认来源或正文所用计划已失效，请保留原补充请求核对。',409);
+  await owner.assertResourceSupplementHistoricalSourceAvailableInTransaction(client,String(session.book_id),current.chapterOrder,saved.catalog.subjects);
   for(const subject of saved.catalog.subjects)for(const field of subject.fields){
     const actual=await owner.readResourceSupplementHistoricalStateInTransaction(client,{bookId:String(session.book_id),checkpointId:current.checkpointId,subjectKind:subject.subjectKind,subjectId:subject.id,stateKey:field.key});
     if(actual.hash!==field.baseline.hash)throw new NewDesignError('该章实际历史前值已变化，请保留原清单核对，不能按新来源解释旧候选。',409);

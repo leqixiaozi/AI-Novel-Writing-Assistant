@@ -6,3 +6,4 @@ export {previewResourceSupplementSettlement,previewResourceSupplementSettlementI
 export {confirmResourceSupplementSettlementImpact,readResourceSupplementImpactReviewOriginal,readResourceSupplementImpactReviewForSettlementInTransaction} from './reviewing';
 export {recordResourceSupplementIntegrityInTransaction} from './integrity';
 export {readResourceSupplementCorrectionBasisInTransaction} from './integrity/correctionBasis';
+export {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './integrity/sourceFence';

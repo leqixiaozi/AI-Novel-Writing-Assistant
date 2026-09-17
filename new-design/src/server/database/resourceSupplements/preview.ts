@@ -6,6 +6,7 @@ import { getChapterSettlementEditingCatalogInTransaction, displaySettlementValue
 import { freezeResourceBackfillScope } from "../characterResources";
 import { readStableResourceSupplementBasisInTransaction } from "./basis";
 import { readHistoricalStateForValidatedBasis } from "./history";
+import {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './integrity/sourceFence';
 
 /** Pure read contract; normal editing catalog supplies actual published specs. */
 export async function previewResourceSupplementInTransaction(
@@ -14,6 +15,7 @@ export async function previewResourceSupplementInTransaction(
   const parsed = resourceSupplementPreviewInputSchema.safeParse(raw);
   if (!parsed.success) throw new NewDesignError("请选择完整的稳定章节、人物及资源范围。", 422);
   const input = parsed.data, basis = await readStableResourceSupplementBasisInTransaction(client, bookId, input.checkpointId);
+  await assertResourceSupplementHistoricalSourceAvailableInTransaction(client,bookId,basis.chapterOrder,[...input.resourceScope.resourceIds.map(id=>({subjectKind:'card' as const,id})),...input.resourceScope.relationIds.map(id=>({subjectKind:'relation' as const,id}))]);
   if ((await client.query(`SELECT id FROM new_design.chapter_adoption_sessions WHERE chapter_document_id=$1
     AND status IN ('reviewing','adopted_pending_proposals','pending_review','partially_confirmed','settling','failed')`, [basis.chapterDocumentId])).rowCount)
     throw new NewDesignError("本章有待处理清单，请先返回本章核对原请求。原稳定结算保留。", 409);
