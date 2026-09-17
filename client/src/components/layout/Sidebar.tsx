@@ -36,6 +36,7 @@ import { getTaskOverview } from "@/api/tasks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { VisualAssetLibraryDialog } from "@/components/visualAssets";
+import { APP_RUNTIME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -328,7 +329,13 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               }
 
               return (
-                <NavLink key={item.to} to={item.to} end={item.end} title={collapsed ? item.label : undefined}>
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  reloadDocument={APP_RUNTIME !== "desktop" && !item.to.startsWith("/new-design")}
+                  title={collapsed ? item.label : undefined}
+                >
                   {({ isActive }) => (
                     <div
                       className={cn(
