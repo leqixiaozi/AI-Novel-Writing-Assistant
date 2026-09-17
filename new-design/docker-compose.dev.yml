@@ -11,9 +11,9 @@ services:
       POSTGRES_PASSWORD: ${NEW_DESIGN_DEV_DB_PASSWORD}
       POSTGRES_DB: ${NEW_DESIGN_DEV_DB_NAME}
     ports:
-      - "127.0.0.1:${NEW_DESIGN_DEV_DB_PORT}:5432"
+      - "${NEW_DESIGN_DEV_DB_BIND_ADDRESS:-127.0.0.1}:${NEW_DESIGN_DEV_DB_PORT}:5432"
     volumes:
-      - new-design-postgres-data:/var/lib/postgresql/data
+      - "${NEW_DESIGN_DEV_DB_DATA_SOURCE:-new-design-postgres-data}:/var/lib/postgresql/data"
     command: ["postgres", "-c", "shared_preload_libraries=age"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]

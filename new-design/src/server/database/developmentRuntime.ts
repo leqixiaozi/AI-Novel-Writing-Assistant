@@ -5,12 +5,15 @@ import path from "node:path";
 import { Pool } from "pg";
 import type { PrivateRuntimeDiagnosticCheck, PrivateRuntimeDiagnostics } from "../../common/contracts";
 import { migrations } from "./migrations";
+import { resolveDockerTarget, matchesDockerTarget } from "../../../scripts/development/docker-target.cjs";
 
 interface DevelopmentRuntimeConfig {
   port: number;
   user: string;
   password: string;
   database: string;
+  bindAddress?: "127.0.0.1" | "0.0.0.0";
+  dataDirectory?: string;
 }
 
 export interface DevelopmentDatabaseRuntime {
@@ -21,6 +24,7 @@ export interface DevelopmentDatabaseRuntime {
   pgTrgmVersion: string;
   port: number;
   migrationCount: number;
+  storageType: "volume" | "bind";
 }
 
 const COMPOSE_PROJECT = "ai-novel-new-design-dev";
@@ -35,7 +39,7 @@ export function isDevelopmentDatabaseRuntimeEnabled(): boolean {
   return process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME === "1";
 }
 
-function runCommand(executable: string, args: string[], environment?: NodeJS.ProcessEnv): Promise<void> {
+function runCommand(executable: string, args: string[], environment?: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { windowsHide: true, env: environment ?? process.env });
     let stdout = "";
@@ -43,8 +47,8 @@ function runCommand(executable: string, args: string[], environment?: NodeJS.Pro
     child.stdout?.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
     child.stderr?.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
     child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) resolve();
+    child.once("close", (code) => {
+      if (code === 0) resolve(stdout);
       else reject(new Error(`${path.basename(executable)} 执行失败（${code ?? "unknown"}）：${(stderr || stdout).trim()}`));
     });
   });
@@ -56,6 +60,7 @@ async function readRuntimeConfig(): Promise<DevelopmentRuntimeConfig> {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.user) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.database) || !parsed.password) {
     throw new Error("开发数据库配置字段无效。为保护已有数据，系统不会自动覆盖 runtime.json。");
   }
+  resolveDockerTarget(parsed);
   return parsed;
 }
 
@@ -75,14 +80,22 @@ function canConnect(port: number): Promise<boolean> {
 }
 
 async function startCompose(config: DevelopmentRuntimeConfig): Promise<void> {
+  const target = resolveDockerTarget(config);
   const dockerEnvironment = {
     ...process.env,
     NEW_DESIGN_DEV_DB_PORT: String(config.port),
     NEW_DESIGN_DEV_DB_USER: config.user,
     NEW_DESIGN_DEV_DB_PASSWORD: config.password,
     NEW_DESIGN_DEV_DB_NAME: config.database,
+    NEW_DESIGN_DEV_DB_BIND_ADDRESS: target.bindAddress,
+    NEW_DESIGN_DEV_DB_DATA_SOURCE: target.mountType === "bind" ? target.source : "new-design-postgres-data",
   };
   try {
+    const existing = await runCommand("docker", ["container", "ls", "--all", "--format", "{{.Names}}"], dockerEnvironment);
+    if (existing.split(/\r?\n/).includes("ai-novel-new-design-postgres-dev")) {
+      const inspected = JSON.parse(await runCommand("docker", ["inspect", "--type", "container", "ai-novel-new-design-postgres-dev"], dockerEnvironment));
+      if (inspected.length !== 1 || !matchesDockerTarget(inspected[0], config, false)) throw new Error("已有开发容器的数据目录或监听地址与保存配置不同；请先备份并完成受控切换，不会自动重建容器。");
+    }
     const imageExists = await runCommand("docker", ["image", "inspect", DEVELOPMENT_IMAGE], dockerEnvironment)
       .then(() => true)
       .catch(() => false);
@@ -161,7 +174,7 @@ async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDataba
     const extensions = await ensureExtensions(pool);
     const migrationCount = await applyMigrations(pool);
     const version = await pool.query<{ server_version: string }>("SHOW server_version");
-    activeRuntime = { pool, postgresVersion: version.rows[0]?.server_version ?? "unknown", ageVersion: extensions.age, vectorVersion: extensions.vector, pgTrgmVersion: extensions.pgTrgm, port: config.port, migrationCount };
+    activeRuntime = { pool, postgresVersion: version.rows[0]?.server_version ?? "unknown", ageVersion: extensions.age, vectorVersion: extensions.vector, pgTrgmVersion: extensions.pgTrgm, port: config.port, migrationCount, storageType: resolveDockerTarget(config).mountType };
     return activeRuntime;
   } catch (error) {
     await pool.end().catch(() => undefined);
@@ -197,10 +210,10 @@ export async function getDevelopmentRuntimeDiagnostics(): Promise<PrivateRuntime
   ]);
   const queueRow = queue.rows[0];
   return {
-    status: { phase: "ready", packageAvailable: true, packageIntegrity: "unknown", runtimeId: "development-age-pgvector", manifestSha256: null, installationId: null, dataGeneration: "docker-volume", databaseReady: true, host: "127.0.0.1", port: runtime.port, versions: { application: "development", node: process.version, postgresql: runtime.postgresVersion, age: runtime.ageVersion, pgvector: runtime.vectorVersion, pgTrgm: runtime.pgTrgmVersion }, migrationsExpected: migrations.length, migrationsApplied: runtime.migrationCount, workerRuntime: "not_started", lastCleanShutdown: null, lastErrorCode: "", lastErrorSummary: "", logLocator: "logs/postgres.log", updatedAt: new Date().toISOString() },
+    status: { phase: "ready", packageAvailable: true, packageIntegrity: "unknown", runtimeId: "development-age-pgvector", manifestSha256: null, installationId: null, dataGeneration: runtime.storageType === "bind" ? "docker-bind" : "docker-volume", databaseReady: true, host: "127.0.0.1", port: runtime.port, versions: { application: "development", node: process.version, postgresql: runtime.postgresVersion, age: runtime.ageVersion, pgvector: runtime.vectorVersion, pgTrgm: runtime.pgTrgmVersion }, migrationsExpected: migrations.length, migrationsApplied: runtime.migrationCount, workerRuntime: "not_started", lastCleanShutdown: null, lastErrorCode: "", lastErrorSummary: "", logLocator: "logs/postgres.log", updatedAt: new Date().toISOString() },
     checks: [
       check("runtime.package", "warning", "开发环境使用项目 Dockerfile 构建的 PostgreSQL，不执行发布运行包 manifest 校验。", "正式打包前再装配并校验私有运行包。"),
-      check("runtime.directories", "passed", "开发数据保存在 Docker 命名卷中。", "跨机器同步请使用数据导出或 pg_dump，不复制运行中的数据卷。"),
+      check("runtime.directories", "passed", runtime.storageType === "bind" ? "开发数据保存在配置的宿主机目录中。" : "开发数据保存在 Docker 命名卷中。", "跨机器同步请使用数据导出或 pg_dump，不复制运行中的数据库文件。"),
       check("runtime.extensions", "passed", `AGE ${runtime.ageVersion}，pgvector ${runtime.vectorVersion}，pg_trgm ${runtime.pgTrgmVersion}。`, ""),
       check("runtime.migrations", runtime.migrationCount === migrations.length ? "passed" : "failed", `已登记 ${runtime.migrationCount}/${migrations.length} 个迁移。`, "迁移不完整时查看容器日志。"),
       check("runtime.queue", Number(queueRow?.dead ?? 0) > 0 ? "warning" : "passed", `活动作业 ${Number(queueRow?.active ?? 0)}，死信 ${Number(queueRow?.dead ?? 0)}。`, "在运行维护中处理积压与死信。"),

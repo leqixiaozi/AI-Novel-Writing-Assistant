@@ -6,7 +6,8 @@ const crypto=require('node:crypto');
 const net=require('node:net');
 const {spawn}=require('node:child_process');
 const appRoot=path.resolve(__dirname,'..');
-const container='ai-novel-new-design-postgres-dev',volume='ai-novel-new-design-pg17-data',image='ai-novel/new-design-postgres-dev:pg17-age1.7-vector0.8.6';
+const container='ai-novel-new-design-postgres-dev';
+const {matchesDockerTarget}=require('./development/docker-target.cjs');
 const roots=['data/assets','data/ai-receipts'];
 class DevelopmentDataError extends Error {}
 const fail=message=>new DevelopmentDataError(message);
@@ -51,8 +52,8 @@ async function backup(directory){
  if(await portOpen(5301)||await portOpen(5174))throw fail('独立应用端口仍可访问。请先保存填写、核对未知结果并停止所有写入者；本工具不结束进程或数据库。');
  const configBytes=await ordinaryBytes(path.join(appRoot,'.data','runtime.json'),16000),config=JSON.parse(configBytes.toString('utf8'));
  if(!Number.isInteger(config.port)||config.port<1024||config.port>65535||!/^([A-Za-z_][A-Za-z0-9_]*)$/.test(config.user)||!/^([A-Za-z_][A-Za-z0-9_]*)$/.test(config.database))throw fail('原开发配置范围无效；不会覆盖原配置或输出凭据。');
- const inspected=JSON.parse(await docker(['inspect','--type','container',container]));const target=inspected[0],ports=target?.NetworkSettings?.Ports?.['5432/tcp']??[],environment=target?.Config?.Env??[];
- if(inspected.length!==1||target?.Config?.Image!==image||target?.Config?.Labels?.['com.docker.compose.project']!=='ai-novel-new-design-dev'||!target?.State?.Running||!target.Mounts?.some(item=>item.Type==='volume'&&item.Name===volume&&item.Destination==='/var/lib/postgresql/data')||ports.length!==1||ports[0].HostIp!=='127.0.0.1'||ports[0].HostPort!==String(config.port)||!environment.includes(`POSTGRES_USER=${config.user}`)||!environment.includes(`POSTGRES_DB=${config.database}`))throw fail('数据库容器、原卷、镜像或端口不符合原开发目标；没有导出其他数据库。');
+ const inspected=JSON.parse(await docker(['inspect','--type','container',container]));
+ if(inspected.length!==1||!matchesDockerTarget(inspected[0],config))throw fail('数据库容器、数据目录、镜像或端口不符合原开发目标；没有导出其他数据库。');
  const sql="SELECT json_build_object('postgresVersion',current_setting('server_version'),'database',current_database(),'extensions',(SELECT json_agg(json_build_object('name',extname,'version',extversion) ORDER BY extname) FROM pg_extension WHERE extname IN ('age','vector','pg_trgm')),'migrations',(SELECT json_agg(id ORDER BY id) FROM new_design.schema_migrations))::text";
  const metadata=JSON.parse((await docker(['exec',container,'psql','-X','-A','-t','--set','ON_ERROR_STOP=1','--username',config.user,'--dbname',config.database,'--command',sql])).trim());
  if(metadata.database!==config.database||!Array.isArray(metadata.migrations)||!Array.isArray(metadata.extensions)||metadata.extensions.length!==3)throw fail('原数据库迁移／扩展未完整核对，没有生成就绪备份。');

@@ -27,6 +27,23 @@ node scripts/initialize-development.cjs --initialize-new
 
 镜像重建只构建固定标签，不启动容器／挂卷。`npm run dev` 与显式`-Start`不是只读动作：服务可能初始化扩展与迁移，因此先备份已有数据。配置没有“完整App镜像”宣称，网络失败不删除卷。
 
+### 宿主机数据目录与其他设备连接
+
+开发配置 `.data/runtime.json` 可保存 `bindAddress` 和 `dataDirectory`。省略时仍使用 `127.0.0.1` 与原命名卷；明确设置 `0.0.0.0` 才发布到所有 IPv4 网卡。应用自身仍连接本机回环地址。启动和备份共用同一目标校验，核对镜像、Compose 项目、目录或卷、监听地址、端口、用户名与库名；已有容器与保存配置不符时拒绝自动重建，避免切换到另一套数据。
+
+仅全新环境可在初始化前指定以下环境变量，生成配置后以后续保存的配置为准：
+
+```powershell
+$env:NEW_DESIGN_DEV_DB_PORT = '15433'
+$env:NEW_DESIGN_DEV_DB_BIND_ADDRESS = '0.0.0.0'
+$env:NEW_DESIGN_DEV_DB_DATA_SOURCE = 'D:/infra/data/ai-novel-new-design/postgres17'
+node scripts/initialize-development.cjs --initialize-new
+```
+
+初始化会拒绝已有配置、原容器、原命名卷或非空目标目录，不会为已有数据库重置密码。已有数据改位置须先完成逻辑备份及验证，再单独执行受控迁移；修改配置本身不是数据迁移。运行中的 PostgreSQL 数据文件不能作为普通文件夹直接同步。
+
+Windows 中镜像层仍由 Docker 数据磁盘管理（本机分类示例 `D:/infra/docker-storage`），数据库绑定目录位于 `D:/infra/data`，备份位于 `D:/infra/backups`；三者用途不同。`55432` 若处于 Windows 保留端口段，可用 `netsh interface ipv4 show excludedportrange protocol=tcp` 核对后选择空闲端口。其他设备用宿主机局域网 IP 和保存端口连接，仍需数据库密码及对应防火墙许可；Compose 监听成功不代表远端网络验证完成。
+
 ## 导出开发快照
 
 先在原业务页保留所有草稿、核对未知请求；停止所有应用写入者（含另开的Node进程、后台处理器、其他机器连接），**数据库容器可继续运行**。工具不杀进程、不停止容器，不自动解决未知模型领取；工具已有监听检查仍检查5301／5174，不能把该检查当作所有写入者已停。使用5273或其他端口的页面及外部写入者须操作者自己确认停止。
