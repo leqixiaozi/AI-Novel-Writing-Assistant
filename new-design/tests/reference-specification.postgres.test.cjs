@@ -1,8 +1,8 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto');
-const {isolatedDatabase}=require('./support/isolatedDatabase.cjs');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 test('character specification publication, additive old-book install, frozen receipts and stale-preview protection',async t=>{
  const {pool,database}=await isolatedDatabase(t);t.diagnostic(`Isolated database retained: ${database}`);
- const specs=require('../dist/server/database/referenceParity'),templates=require('../dist/server/database/templateStore'),fields=require('../dist/server/database/fieldExtensions');
+ const specs=compiled('server/database/referenceParity'),templates=compiled('server/database/templateStore'),fields=compiled('server/database/fieldExtensions');
  // Freeze the actual current sources into a dedicated test template, leaving older seeds intact.
  let template=await templates.saveTemplate({key:`test_${randomUUID().replaceAll('-','')}`,name:'隔离人物模板',description:'',draftConfig:{},requestKey:randomUUID()});
  template=await templates.publishTemplate(template.id,template.revision,randomUUID());
@@ -40,7 +40,7 @@ test('character specification publication, additive old-book install, frozen rec
  await assert.rejects(fields.readFieldWriteReceipt(other.id,extension.idempotencyKey),e=>e.recovery.mutationOutcome==='unknown');
  const legacy=randomUUID();await pool.query("INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,to_version_id,impact,created_by) VALUES($1,$2,'create',$3,$4,'{}','isolated_test')",[randomUUID(),first.id,legacy,first.currentVersion.id]);
  await assert.rejects(fields.readFieldWriteReceipt(old.id,legacy),e=>e.recovery.mutationOutcome==='unknown');
- const cards=require('../dist/server/database/store');
+ const cards=compiled('server/database/store');
  const card=await cards.createCard({cardTypeId:character.id,spaceId:old.spaceId,title:'隔离人物',values:{name:'隔离人物',story_role:'supporting'}});
  const localInput={expectedCardRevision:card.revision,field:extension.field,initialValue:'原填写',idempotencyKey:randomUUID(),createdBy:'isolated_test'};
  const local=await fields.createCardLocalField(old.id,card.id,localInput);

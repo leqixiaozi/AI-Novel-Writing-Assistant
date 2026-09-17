@@ -398,6 +398,7 @@ export interface CardGroupFormDefinition {
   groups: CardGroupFormGroup[];
   fieldExtensions?: Array<{fieldKey:string;group:string;order:number}>;
   archivedFieldKeys?:string[];
+  installation?:import("./referenceParity").ReferenceFormInstallation;
 }
 
 export interface CardGroupFormVersion {

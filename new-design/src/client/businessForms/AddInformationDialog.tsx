@@ -1,13 +1,13 @@
 import {useFieldWriteRecovery,type FieldCommand} from "./fieldWrites";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { AddInformationFieldInput, AssociationItem, CardSummary, CardTypeSummary, FieldExtensionPreview, FieldType, ScopedFieldDefinition } from "../../common/contracts";
 import { ApiError, newDesignApi } from "../api";
 
-interface Props{bookId:string;cardType:CardTypeSummary;card:CardSummary|null;association?:AssociationItem|null;definition?:ScopedFieldDefinition|null;initialValue?:unknown;onClose:()=>void;onCreated:()=>Promise<void>}
+interface Props{bookId:string;cardType:CardTypeSummary;card:CardSummary|null;association?:AssociationItem|null;definition?:ScopedFieldDefinition|null;initialValue?:unknown;onLock?:(locked:boolean)=>void;onClose:()=>void;onCreated:()=>Promise<void>}
 type Scope="book_type"|"card"|"card_mount";
 const TYPE_OPTIONS:Array<{value:FieldType;label:string}>=[{value:"short_text",label:"短文本"},{value:"long_text",label:"长文本"},{value:"number",label:"数字"},{value:"boolean",label:"是／否"},{value:"select",label:"单选"},{value:"multi_select",label:"多选"},{value:"date",label:"日期"}];
 
-export default function AddInformationDialog({bookId,cardType,card,association,definition,initialValue,onClose,onCreated}:Props){
+export default function AddInformationDialog({bookId,cardType,card,association,definition,initialValue,onLock,onClose,onCreated}:Props){
   const formId=useId().replace(/:/g,"");
   const existing=definition?.currentVersion.field;
   const initialRawValue=Array.isArray(initialValue)?initialValue[0]:initialValue;
@@ -16,6 +16,7 @@ export default function AddInformationDialog({bookId,cardType,card,association,d
   const [name,setName]=useState(existing?.name??"");const [description,setDescription]=useState(existing?.description??"");const [type,setType]=useState<FieldType>(existing?.type??"short_text");const [optionText,setOptionText]=useState(existing?.options.map((option)=>option.label).join("\n")??"");const [required,setRequired]=useState(existing?.required??false);const [group,setGroup]=useState(existing?.group??"补充信息");const [defaultValue,setDefaultValue]=useState(initialDisplayValue);const [aiSuggestible,setAiSuggestible]=useState(existing?.aiSuggestible??false);const [stateSettlement,setStateSettlement]=useState<AddInformationFieldInput["stateSettlement"]>(existing?.stateSettlement??"none");
   const [advanced,setAdvanced]=useState(false);const [preview,setPreview]=useState<FieldExtensionPreview|null>(null);const [issues,setIssues]=useState<Record<string,string>>({});const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);
   const writes=useFieldWriteRecovery(bookId,cardType.id,{cardId:card?.id??null,fieldId:definition?.id??null,mountId:association?.id??null},raw=>{setScope(raw.scope as Scope);setName(String(raw.name));setDescription(String(raw.description));setType(raw.type as FieldType);setOptionText(String(raw.optionText));setRequired(Boolean(raw.required));setGroup(String(raw.group));setDefaultValue(String(raw.defaultValue));setAiSuggestible(Boolean(raw.aiSuggestible));setStateSettlement(raw.stateSettlement as AddInformationFieldInput["stateSettlement"]);setPreview(null);},onCreated);
+  useEffect(()=>{onLock?.(writes.locked||busy);},[onLock,writes.locked,busy]);
   const close=()=>{if(!busy&&!writes.isLocked())onClose();};
   const needsOptions=type==="select"||type==="multi_select";
   const field=():AddInformationFieldInput=>({name:name.trim(),description:description.trim(),type,options:needsOptions?optionText.split("\n").map((label)=>label.trim()).filter(Boolean).map((label,index)=>({id:existing?.options.find((option)=>option.label===label)?.id??existing?.options[index]?.id,label})):[],required,group:group.trim()||"补充信息",defaultValue:defaultValue===""?undefined:type==="number"?Number(defaultValue):type==="boolean"?defaultValue==="true":type==="multi_select"?[defaultValue]:defaultValue,aiSuggestible,stateSettlement});

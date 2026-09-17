@@ -50,6 +50,7 @@ export async function executeStructureWrite<T extends CardGroupFormSummary|Templ
     committing=true;await client.query("COMMIT");return result;
   }catch(error){try{await client.query("ROLLBACK");rolledBack=true;}catch{rolledBack=false;}
     const proven=!committing&&rolledBack;
+    if(error instanceof StructureWriteError&&error.recovery.mutationOutcome==='unknown')throw error;
     if(priorConflict)throw new StructureWriteError(kind,operation,"原请求已有不同输入的保存回执；本次未覆盖，但原请求结果不能按当前草稿确认。请保留原凭证核对。",409,"unknown");
     if(proven&&error instanceof NewDesignError)throw new StructureWriteError(kind,operation,error.message,error.status,"not_written",error.issues,"rollback");
     if(proven&&(error as {code?:string})?.code==="23505")throw new StructureWriteError(kind,operation,"内部标识已存在；请保留草稿，重新准备一个新项目后再保存。",409,"not_written",undefined,"rollback");

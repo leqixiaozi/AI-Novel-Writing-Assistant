@@ -1,3 +1,4 @@
+import {resolveBookFormVersion} from "./referenceParity";
 import { randomUUID } from "node:crypto";
 import { typeFieldIssuePaths } from "../../common/typeEditing";
 import type { Pool, PoolClient } from "pg";
@@ -91,13 +92,15 @@ async function validateFormProvenance(queryable: Queryable, input: {
     return;
   }
   if (!input.formVersionId) throw new NewDesignError("缺少本次填写采用的创作表单版本。", 422);
+  const selected=input.requireCurrent?await resolveBookFormVersion(queryable,input.spaceId,input.typeKey):null;
+  if(input.requireCurrent&&selected?.id!==input.formVersionId)throw new NewDesignError("本次表单版本与本书明确选择不同，请核对原填写后选择表单。",409);
   const result = await queryable.query(`
     SELECT 1
     FROM new_design.card_group_form_versions version
     JOIN new_design.card_group_forms form ON form.id=version.form_id
     WHERE version.id=$1
       AND form.space_id=$2
-      AND ($4::boolean=false OR (form.status='published' AND form.current_version_id=version.id))
+      AND ($4::boolean=false OR form.status='published')
       AND version.definition->>'primaryTypeKey'=$3
   `, [input.formVersionId, input.spaceId, input.typeKey, input.requireCurrent]);
   if (!result.rows[0]) throw new NewDesignError("本次填写引用的创作表单版本不属于当前书籍、内容类型或已发布版本。", 422);

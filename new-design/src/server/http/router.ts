@@ -341,6 +341,7 @@ import {
   associationAddSchema,
   associationCreateAndAddSchema,
   associationRemoveSchema,
+  associationRefreshSchema,
   associationReorderSchema,
   associationLocalValuesSchema,
   associationLocalFieldSchema,
@@ -586,14 +587,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/material-management/cards/:id/archive-preview",asyncRoute(async(req,res)=>success(res,await previewCardArchive(materialScope(req),String(req.params.id),body(cardArchivePreviewSchema,req)),201)));
   router.post("/material-management/cards/:id/archive",asyncRoute(async(req,res)=>success(res,await confirmCardArchive(materialScope(req),String(req.params.id),body(cardArchiveConfirmSchema,req)))));
   router.post("/material-management/cards/:id/restore",asyncRoute(async(req,res)=>success(res,await restoreArchivedCard(materialScope(req),String(req.params.id),body(cardRestoreManagedSchema,req)))));
-  router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId)))));
+  router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId),req.query.instanceId===undefined?undefined:z.string().uuid().parse(req.query.instanceId)))));
   router.get("/books/:bookId/cards/:cardId/association-candidates",asyncRoute(async(req,res)=>success(res,await searchAssociationCandidates(String(req.params.bookId),String(req.params.cardId),associationSearchSchema.parse(req.query)))));
   router.post("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await addExistingAssociation(String(req.params.bookId),String(req.params.cardId),body(associationAddSchema,req)),201)));
   router.post("/books/:bookId/cards/:cardId/associations/create",asyncRoute(async(req,res)=>success(res,await createAndAddAssociation(String(req.params.bookId),String(req.params.cardId),body(associationCreateAndAddSchema,req)),201)));
   router.post("/books/:bookId/cards/:cardId/associations/reorder",asyncRoute(async(req,res)=>success(res,await reorderAssociations(String(req.params.bookId),String(req.params.cardId),body(associationReorderSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/remove",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/restore",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req),true))));
-  router.post("/books/:bookId/associations/:mountId/refresh-source",asyncRoute(async(req,res)=>success(res,await refreshAssociationSource(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
+  router.post("/books/:bookId/associations/:mountId/refresh-source",asyncRoute(async(req,res)=>success(res,await refreshAssociationSource(String(req.params.bookId),String(req.params.mountId),body(associationRefreshSchema,req)))));
   router.patch("/books/:bookId/associations/:mountId/local-values",asyncRoute(async(req,res)=>success(res,await saveAssociationLocalValues(String(req.params.bookId),String(req.params.mountId),body(associationLocalValuesSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/local-fields",asyncRoute(async(req,res)=>success(res,await addAssociationLocalField(String(req.params.bookId),String(req.params.mountId),body(associationLocalFieldSchema,req)),201)));
   router.get("/books/:bookId/associations/:mountId/history",asyncRoute(async(req,res)=>success(res,await listAssociationHistory(String(req.params.bookId),String(req.params.mountId)))));

@@ -1,6 +1,7 @@
+const {compiled}=require('./support/isolatedDatabase.cjs');
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {FieldWriteSession}=require('../dist/server/database/fieldExtensions/receipts');
-const {NewDesignError}=require('../dist/server/domain/errors');
+const {FieldWriteSession}=compiled('server/database/fieldExtensions/receipts');
+const {NewDesignError}=compiled('server/domain/errors');
 test('a lost COMMIT acknowledgement remains unknown even if a later rollback succeeds',async()=>{
  const client={query:async sql=>{if(sql==='COMMIT')throw new Error('ack lost');return{rows:[]};}},write=new FieldWriteSession(client,'book','create','key',{});
  await write.begin();try{await write.commit({id:'result'});assert.fail();}catch(error){await assert.rejects(write.fail(error),failure=>failure.recovery.mutationOutcome==='unknown');}
