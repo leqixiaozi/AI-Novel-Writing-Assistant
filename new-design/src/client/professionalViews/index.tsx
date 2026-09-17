@@ -29,11 +29,12 @@ function ProfessionalViewContent({bookId,api}:{bookId:string;api:ProfessionalVie
   void Promise.resolve().then(async()=>{
    if(!professionalUuid.test(bookId))throw new Error('来源书籍格式无效，请返回书架选择真实书籍。');
    const raw=new URLSearchParams(location.search).getAll('selected');if(raw.length&&(raw.length!==1||!professionalUuid.test(raw[0])))throw new Error('来源节点格式无效，不会选择其他资料替代。');
+   const requestedView=new URLSearchParams(location.search).getAll('view');if(requestedView.length&&(requestedView.length!==1||!views.some(item=>item.key===requestedView[0])))throw new Error('来源视图无效，请选择有效的专业视图。');
    const next=await api.getProfessionalViewsWorkspace(bookId);if(!valid())return;
    if(next.book.id!==bookId||next.book.status!=='active'||next.timeline.bookId!==bookId)throw new Error('图形来源与本书不一致，原视图保留。');
    const selected=raw[0]??preferencesRef.current.selectedId;if(selected&&!next.objects.some(object=>object.id===selected))throw new Error('指定节点已不在本书有效来源中，未换成其他首项，请回本书资料核对。');
    if(editorState.current?.dirty||editorState.current?.locked){setError('来源已读取，但当前填写或未知保存保留；不覆盖表单，不清除原请求锁。');return;}
-   setData(next);if(raw[0]&&raw[0]!==preferencesRef.current.selectedId&&!storageBlocked.current)change({...preferencesRef.current,selectedId:raw[0]});
+   setData(next);if((raw[0]||requestedView[0])&&!storageBlocked.current)change({...preferencesRef.current,selectedId:raw[0]??preferencesRef.current.selectedId,view:(requestedView[0]??preferencesRef.current.view) as ProfessionalView});
    const nextTypes=await newDesignApi.listCardTypes(next.book.spaceId);if(valid())setTypes(nextTypes);
   }).catch(reason=>{if(valid())setError(reason instanceof ApiError&&reason.recovery?`${reason.recovery.failedStep}：${reason.message} ${reason.recovery.savedResult}`:reason instanceof Error?reason.message:'读取来源失败；原资料与填写保留。');}).finally(()=>{if(valid())setReading(false);});
   return()=>{active=false;};

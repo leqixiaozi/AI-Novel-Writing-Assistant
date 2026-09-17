@@ -45,7 +45,7 @@
     "dev:compare": "node scripts/comparison/gateway.mjs",
     "start": "node dist/server/app/main.js",
     "check:boundary": "node --test tests/standalone-boundary.test.cjs",
-    "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs tests/client-entry.unit.test.cjs",
+    "test": "pnpm run build:server && node --test tests/unit.test.cjs tests/form-ai.unit.test.cjs tests/presentation.unit.test.cjs tests/client-entry.unit.test.cjs tests/reference-form-layout.unit.test.cjs",
     "test:form-ai": "pnpm run build:server && node --test tests/form-ai.postgres.test.cjs tests/form-ai.live-model.test.cjs",
     "test:research-adoption": "pnpm run build:server && node --test tests/research-adoption.postgres.test.cjs",
     "test:context-author": "pnpm run build:server && node --test tests/context-author.unit.test.cjs tests/context-author.postgres.test.cjs",
