@@ -8,7 +8,7 @@ import {NewDesignError,assertFound} from '../../../domain/errors';
 import {getNewDesignPool} from '../../runtime';
 import {formHash} from '../../formAssist';
 import {freezeRecentBodyExperienceSources,assignRecentBodySlots} from './sources';
-export {previewRecentBodyExperiences,getRecentBodyExperienceWorkspace} from './sources';
+export {previewRecentBodyExperiences,previewRecentBodyExperienceSeries,getRecentBodyExperienceWorkspace} from './sources';
 export {getRecentBodyExperienceDraft,validateRecentBodyExperienceCommandInTransaction,saveRecentBodyExperienceTimeInTransaction,recordRecentBodyExperienceAdoptionInTransaction} from './adoption';
 export const recentBodyExperienceContract='character_recent_body_experiences_v1';
 export class RecentBodyExperienceWriteError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:'not_written'|'unknown'){super(message,status);}}

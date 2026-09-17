@@ -12,3 +12,4 @@ export interface RecentBodyExperienceRecord {id:string;bookId:string;request:Rec
 export interface RecentBodyExperienceCandidateSource {contract:'character_recent_body_candidate_v1';batchId:string;candidateId:string;characterId:string;sourceHash:string;}
 export interface RecentBodyExperienceDraft {source:RecentBodyExperienceCandidateSource;command:AuthorTimelineCommand;title:string;summary:string;evidence:string;sourceRoute:string;bodySourceRoute:string;}
 export * from './schema';
+export * from './series';
