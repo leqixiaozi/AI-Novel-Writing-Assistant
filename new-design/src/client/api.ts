@@ -397,6 +397,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+ getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
+ endUnknownExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences/end-unknown`,{method:'POST',body:JSON.stringify({confirm:true,input})}),
+ getExperienceWorkspace:(bookId:string,characterId:string)=>request<import('../common/characterExperiences').ExperienceWorkspace>(`/books/${bookId}/character-experiences/workspace?characterId=${encodeURIComponent(characterId)}`),
+ generateExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences`,{method:'POST',body:JSON.stringify(input)}),
+ readExperienceOriginal:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/original-receipt`,{method:'POST',body:JSON.stringify(input)}),
+ getExperienceDraft:(bookId:string,batchId:string,candidateId:string,eventId:string)=>request<import('../common/characterExperiences').ExperienceDraft>(`/books/${bookId}/character-experiences/${batchId}/candidates/${candidateId}/draft`,{method:'POST',body:JSON.stringify({eventId})}),
+ readBookCompositionTimelineOriginalReceipt:(bookId:string,input:import('../common/bookComposition/timeline').AuthorTimelineSaveInput)=>request<import('../common/bookComposition/timeline').AuthorTimelineReceipt|null>(`/books/${bookId}/composition-timeline/original-receipt`,{method:'POST',body:JSON.stringify(input)}),
+
   getReferenceForms:(bookId:string)=>request<ReferenceFormsWorkspace>(`/books/${bookId}/reference-forms`),
   getBookFormSelection:(bookId:string)=>request<{bookId:string;bookRevision:number;activeForms:Record<string,string>}>(`/books/${bookId}/form-selection`),
   previewReferenceForm:(bookId:string,input:ReferenceFormPreviewInput)=>request<ReferenceFormPreview>(`/books/${bookId}/reference-forms/preview`,{method:'POST',body:JSON.stringify(input)}),

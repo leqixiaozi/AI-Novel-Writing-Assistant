@@ -1,3 +1,5 @@
+import {experienceCandidateSourceSchema} from '../../../common/characterExperiences/schema';
+import {validateExperienceCommandInTransaction,recordExperienceAdoptionInTransaction} from '../characterExperiences';
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
 import {z} from "zod";
@@ -5,7 +7,7 @@ import type {AuthorTimelineCommand,AuthorTimelineWorkspace,AuthorTimelinePreview
 import {getNewDesignPool} from "../runtime";
 import {NewDesignError,assertFound} from "../../domain/errors";
 import {formHash} from "../formAssist";
-import {getStoryTimeProposal,getStoryRelationProposal,listAuthorStoryOccurrencesInTransaction,readAuthorFormalStoryTimelineInTransaction,validateAuthorTimelineCommandInTransaction,proposeStoryTime,editStoryTimeProposal,reviewStoryTimeProposal,proposeStoryRelation,editStoryRelationProposal,reviewStoryRelationProposal,saveStoryNarrativeOccurrence} from "../storyTimeline/store";
+import {getStoryTimeProposal,getStoryRelationProposal,listAuthorStoryOccurrencesInTransaction,readAuthorFormalStoryTimelineInTransaction,validateAuthorTimelineCommandInTransaction,proposeStoryTime,editStoryTimeProposal,reviewStoryTimeProposal,proposeStoryRelation,editStoryRelationProposal,reviewStoryRelationProposal,saveStoryNarrativeOccurrence} from "../storyTimeline";
 
 const id=z.string().uuid(),text=z.string().max(10000),nullableText=text.nullable(),nullableId=id.nullable(),number=z.number().finite().nullable();
 const instant=nullableText.refine(value=>value===null||/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)&&Number.isFinite(Date.parse(value)),"请填写带明确时区的有效日期时间，例如 2026-09-16T08:00:00+08:00。");
@@ -20,7 +22,7 @@ const command=z.discriminatedUnion("operation",[
  z.object({operation:z.literal("relation_create"),value:relation}).strict(),z.object({operation:z.literal("relation_edit"),proposalId:id,expectedRevision:z.number().int().positive(),value:relation}).strict(),z.object({operation:z.literal("relation_review"),...review}).strict(),
  z.object({operation:z.literal("occurrence_create"),value:occurrence}).strict(),z.object({operation:z.literal("occurrence_edit"),occurrenceId:id,expectedRevision:z.number().int().positive(),value:occurrence}).strict()
 ]);
-export const authorTimelinePreviewSchema=z.object({requestKey:id,expectedSourceHash:z.string().regex(/^[a-f0-9]{64}$/),command}).strict();
+export const authorTimelinePreviewSchema=z.object({requestKey:id,expectedSourceHash:z.string().regex(/^[a-f0-9]{64}$/),command,candidateSource:experienceCandidateSourceSchema.optional()}).strict();
 export const authorTimelineSaveSchema=authorTimelinePreviewSchema.extend({previewHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 export class BookCompositionTimelineWriteError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:"not_written"|"unknown",issues?:Record<string,string>){super(message,status,issues);}}
 
@@ -48,6 +50,7 @@ function describe(source:AuthorTimelineWorkspace,value:unknown):string{if(!value
 }
 async function preview(client:PoolClient,bookId:string,input:AuthorTimelinePreviewInput,source:AuthorTimelineWorkspace):Promise<AuthorTimelinePreview>{
  if(input.expectedSourceHash!==source.sourceHash)throw new NewDesignError("事件、目录或正文来源已变化；草稿保留，先只读核对再明确重新准备。",409,{expectedSourceHash:"请核对并采用最新来源。"});
+ if(input.candidateSource)await validateExperienceCommandInTransaction(client,bookId,input.candidateSource,input.command);
  const current=await validateAuthorTimelineCommandInTransaction(client,bookId,input.command),review="action" in input.command;
  const changes=[{label:review?"提案审核决定":input.command.operation.startsWith("time_")?"事件故事时间":input.command.operation.startsWith("relation_")?"事件因果或时间关系":"跨章叙述位置",before:describe(source,current),after:"action" in input.command?(input.command.action==="confirm"?"明确确认为正式安排":"不采用，历史保留"):describe(source,"value" in input.command?input.command.value:null)}];
  if(input.command.operation==="time_review"&&input.command.action==="confirm"&&current&&"eventCardId" in current){changes.push({label:"正式故事时间",before:describe(source,source.timings.find(item=>item.eventCardId===current.eventCardId)),after:describe(source,current)});}
@@ -59,7 +62,7 @@ async function preview(client:PoolClient,bookId:string,input:AuthorTimelinePrevi
 export function previewBookCompositionTimeline(bookId:string,raw:AuthorTimelinePreviewInput):Promise<AuthorTimelinePreview>{const input=authorTimelinePreviewSchema.parse(raw) as AuthorTimelinePreviewInput;return read(bookId,async client=>preview(client,bookId,input,await readSource(client,bookId)));}
 async function execute(client:PoolClient,bookId:string,input:AuthorTimelineSaveInput):Promise<AuthorTimelineReceipt["result"]>{const c=input.command;
  switch(c.operation){
- case "time_create":return proposeStoryTime({...c.value,evidenceKind:"manual",bookId,eventCardId:c.eventCardId,proposalSource:"manual",editor:"user"},client);
+ case "time_create":return proposeStoryTime({...c.value,evidenceKind:"manual",bookId,eventCardId:c.eventCardId,proposalSource:"manual",editor:input.candidateSource?`user:experience:${input.candidateSource.batchId}:${input.candidateSource.candidateId}`:"user"},client);
  case "time_edit":return editStoryTimeProposal(c.proposalId,{...c.value,evidenceKind:"manual",expectedRevision:c.expectedRevision,actor:"user"},client);
  case "time_review":return reviewStoryTimeProposal(c.proposalId,{action:c.action,note:c.note,expectedRevision:c.expectedRevision,idempotencyKey:input.requestKey,actor:"user"},client);
  case "relation_create":return proposeStoryRelation({...c.value,bookId,proposalSource:"manual",editor:"user"},client);
@@ -69,9 +72,30 @@ async function execute(client:PoolClient,bookId:string,input:AuthorTimelineSaveI
  case "occurrence_edit":return saveStoryNarrativeOccurrence({...c.value,bookId,id:c.occurrenceId,expectedRevision:c.expectedRevision},client);
  }
 }
-export async function saveBookCompositionTimeline(bookId:string,raw:AuthorTimelineSaveInput):Promise<AuthorTimelineReceipt>{const input=authorTimelineSaveSchema.parse(raw) as AuthorTimelineSaveInput,inputHash=formHash(input);let client:PoolClient;try{client=await(await getNewDesignPool()).connect();}catch{throw new BookCompositionTimelineWriteError("连接底座失败，本次尚未写入；草稿与影响预览保留。",503,"not_written");}let commitStarted=false;
- try{await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`composition-timeline:${bookId}`]);const existing=(await client.query("SELECT input_hash,receipt FROM new_design.book_composition_timeline_commands WHERE book_id=$1 AND request_key=$2",[bookId,input.requestKey])).rows[0];if(existing){if(existing.input_hash!==inputHash)throw new NewDesignError("原请求标识已用于不同事件修改，请保留原凭证核对。",409);commitStarted=true;await client.query("COMMIT");return {...existing.receipt,repeated:true};}
- const source=await readSource(client,bookId,true),checked=await preview(client,bookId,{requestKey:input.requestKey,expectedSourceHash:input.expectedSourceHash,command:input.command},source);if(checked.previewHash!==input.previewHash)throw new NewDesignError("影响预览已变化，请重新预览后明确确认。",409,{previewHash:"重新预览此修改。"});
- const result=await execute(client,bookId,input),receipt:AuthorTimelineReceipt={bookId,requestKey:input.requestKey,inputHash,operation:input.command.operation,result,repeated:false};await client.query("INSERT INTO new_design.book_composition_timeline_commands(id,book_id,request_key,input_hash,receipt) VALUES($1,$2,$3,$4,$5::jsonb)",[randomUUID(),bookId,input.requestKey,inputHash,JSON.stringify(receipt)]);commitStarted=true;await client.query("COMMIT");return receipt;
- }catch(error){let rolledBack=false;try{await client.query("ROLLBACK");rolledBack=true;}catch{}throw new BookCompositionTimelineWriteError(error instanceof NewDesignError?error.message:"本次事件修改回执尚未确认；原请求、草稿与已保存来源保留，请只读核对。",error instanceof NewDesignError?error.status:503,!commitStarted&&rolledBack?"not_written":"unknown",error instanceof NewDesignError?error.issues:undefined);}finally{client.release();}}
+export async function saveBookCompositionTimeline(bookId:string,raw:AuthorTimelineSaveInput):Promise<AuthorTimelineReceipt>{
+ const input=authorTimelineSaveSchema.parse(raw) as AuthorTimelineSaveInput,inputHash=formHash(input);let client:PoolClient;
+ try{client=await(await getNewDesignPool()).connect();}catch{throw new BookCompositionTimelineWriteError('连接底座失败，本次尚未写入；草稿与影响预览保留。',503,'not_written');}
+ let commitStarted=false,locked=false,discardConnection=false;
+ try{
+  // Acquire the session lock before SERIALIZABLE establishes its snapshot; queued duplicates see the committed original.
+  await client.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[`composition-timeline:${bookId}`]);locked=true;
+  await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+  const existing=(await client.query('SELECT input_hash,receipt FROM new_design.book_composition_timeline_commands WHERE book_id=$1 AND request_key=$2',[bookId,input.requestKey])).rows[0];
+  if(existing){if(existing.input_hash!==inputHash)throw new BookCompositionTimelineWriteError('原请求标识已用于不同事件修改，请保留原凭证核对。',409,'unknown');commitStarted=true;await client.query('COMMIT');return{...existing.receipt,repeated:true};}
+  const source=await readSource(client,bookId,true),checked=await preview(client,bookId,{requestKey:input.requestKey,expectedSourceHash:input.expectedSourceHash,command:input.command,...(input.candidateSource?{candidateSource:input.candidateSource}:{})},source);
+  if(checked.previewHash!==input.previewHash)throw new NewDesignError('影响预览已变化，请重新预览后明确确认。',409,{previewHash:'重新预览此修改。'});
+  const result=await execute(client,bookId,input),receipt:AuthorTimelineReceipt={bookId,requestKey:input.requestKey,inputHash,operation:input.command.operation,result,repeated:false,...(input.candidateSource?{candidateSource:input.candidateSource}:{})};
+  if(input.candidateSource)await recordExperienceAdoptionInTransaction(client,bookId,input.candidateSource,receipt,inputHash);
+  await client.query('INSERT INTO new_design.book_composition_timeline_commands(id,book_id,request_key,input_hash,receipt) VALUES($1,$2,$3,$4,$5::jsonb)',[randomUUID(),bookId,input.requestKey,inputHash,JSON.stringify(receipt)]);
+  commitStarted=true;await client.query('COMMIT');return receipt;
+ }catch(error){let rolledBack=false;try{await client.query('ROLLBACK');rolledBack=true;}catch{discardConnection=true;}if(error instanceof BookCompositionTimelineWriteError)throw error;
+  throw new BookCompositionTimelineWriteError(error instanceof NewDesignError?error.message:'本次事件修改回执尚未确认；原请求、草稿与已保存来源保留，请只读核对。',error instanceof NewDesignError?error.status:503,!commitStarted&&rolledBack?'not_written':'unknown',error instanceof NewDesignError?error.issues:undefined);
+ }finally{if(locked)try{await client.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[`composition-timeline:${bookId}`]);}catch{discardConnection=true;}client.release(discardConnection);}
+}
+
 export async function getBookCompositionTimelineReceipt(bookId:string,key:string):Promise<AuthorTimelineReceipt|null>{id.parse(key);const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN");await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`composition-timeline:${bookId}`]);assertFound((await client.query("SELECT id FROM new_design.books WHERE id=$1",[bookId])).rows[0],"本书不存在。");const row=(await client.query("SELECT receipt FROM new_design.book_composition_timeline_commands WHERE book_id=$1 AND request_key=$2",[bookId,key])).rows[0];await client.query("COMMIT");return row?row.receipt:null;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+
+export async function readBookCompositionTimelineOriginalReceipt(bookId:string,raw:AuthorTimelineSaveInput):Promise<AuthorTimelineReceipt|null>{
+ const input=authorTimelineSaveSchema.parse(raw),receipt=await getBookCompositionTimelineReceipt(bookId,input.requestKey);
+ if(receipt&&receipt.inputHash!==formHash(input))throw new BookCompositionTimelineWriteError('原事件回执与完整修改或候选来源不同，保留原凭证核对。',409,'unknown');return receipt;
+}

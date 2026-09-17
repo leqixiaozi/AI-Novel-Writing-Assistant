@@ -55,7 +55,8 @@
     "test:reference-parity": "pnpm run build:server && node --test tests/reference-specification.postgres.test.cjs tests/reference-receipts.unit.test.cjs tests/reference-field-recovery.unit.test.cjs",
     "test:reference-resources": "pnpm run build:server && node --test tests/reference-resources.postgres.test.cjs tests/chapter-settlement-ai.unit.test.cjs tests/reference-command-recovery.unit.test.cjs tests/managed-snapshot-dependency-bridge.unit.test.cjs",
     "test:reference-visible": "pnpm run build:server && node --test tests/reference-visible.postgres.test.cjs tests/story-batch.unit.test.cjs tests/author-materials.unit.test.cjs tests/form-ai.unit.test.cjs tests/reference-command-recovery.unit.test.cjs",
-    "test:reference-associations": "pnpm run build:server && node --test tests/reference-associations.postgres.test.cjs tests/reference-command-recovery.unit.test.cjs tests/structure-writes.unit.test.cjs tests/reference-receipts.unit.test.cjs tests/reference-field-recovery.unit.test.cjs"
+    "test:reference-associations": "pnpm run build:server && node --test tests/reference-associations.postgres.test.cjs tests/reference-command-recovery.unit.test.cjs tests/structure-writes.unit.test.cjs tests/reference-receipts.unit.test.cjs tests/reference-field-recovery.unit.test.cjs",
+    "test:character-experiences": "pnpm run build:server && node --test tests/character-experiences.postgres.test.cjs tests/character-experiences.unit.test.cjs tests/book-composition-timeline.unit.test.cjs tests/reference-command-recovery.unit.test.cjs tests/author-tasks.unit.test.cjs tests/author-tasks-http.unit.test.cjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",

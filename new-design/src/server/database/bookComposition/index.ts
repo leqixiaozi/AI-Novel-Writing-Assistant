@@ -7,7 +7,7 @@ import {getNewDesignPool} from "../runtime";
 import {NewDesignError,assertFound} from "../../domain/errors";
 import {getCompositionOrderBasisHash} from "./ordering";
 export {previewBookCompositionOrder,saveBookCompositionOrder,getBookCompositionOrderReceipt,BookCompositionWriteError,compositionOrderInputSchema,compositionOrderSaveSchema} from "./ordering";
-export {getBookCompositionTimelineWorkspace,previewBookCompositionTimeline,saveBookCompositionTimeline,getBookCompositionTimelineReceipt,BookCompositionTimelineWriteError,authorTimelinePreviewSchema,authorTimelineSaveSchema} from "./timeline";
+export {getBookCompositionTimelineWorkspace,previewBookCompositionTimeline,saveBookCompositionTimeline,getBookCompositionTimelineReceipt,readBookCompositionTimelineOriginalReceipt,BookCompositionTimelineWriteError,authorTimelinePreviewSchema,authorTimelineSaveSchema} from "./timeline";
 
 export async function getBookCompositionWorkspace(bookId:string):Promise<BookCompositionWorkspace>{const [book,planning,writing,orderBasisHash]=await Promise.all([getBook(bookId),getPlanningCenterWorkspace(bookId),getChapterWritingWorkspace(bookId),getCompositionOrderBasisHash(bookId)]);if(book.id!==bookId||planning.bookId!==bookId||writing.bookId!==bookId)throw new NewDesignError("全书目录来源范围不一致，请保留草稿并重新读取本书。",409);return {bookId,book,planning,writing,orderBasisHash};}
 /** Waits on the original owning document lock; null is not permission to repeat a write. */

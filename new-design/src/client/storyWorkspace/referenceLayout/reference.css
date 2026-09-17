@@ -40,3 +40,5 @@
 
 .nd-character-resources{display:grid;gap:.75rem}.nd-resource-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem}.nd-resource-grid article,.nd-resource-backfill{padding:.75rem;background:var(--nd-soft,#f5f6f8)}.nd-resource-grid h4{display:flex;align-items:center;justify-content:space-between;gap:.5rem}.nd-resource-grid dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.35rem}.nd-resource-backfill{display:grid;gap:.5rem}
 @media(max-width:800px){.nd-resource-grid{grid-template-columns:minmax(0,1fr)}}
+
+.nd-experience-input{display:grid;grid-template-columns:minmax(180px,1fr) 2fr;gap:12px}.nd-experience-input label{display:flex;flex-direction:column;gap:6px}.nd-experience-input details{grid-column:1/-1}.nd-experience-input details label{display:inline-flex;flex-direction:row;margin-right:12px}.nd-character-experiences article{padding:12px 0;border-bottom:1px solid var(--nd-line)}.nd-character-experiences blockquote,.nd-experience-evidence blockquote{margin:8px 0;padding:8px 12px;background:var(--nd-soft);white-space:pre-wrap}@media(max-width:700px){.nd-experience-input{grid-template-columns:1fr}}
