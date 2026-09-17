@@ -398,6 +398,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const newDesignApi = {
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
+ prepareExperienceSeries:(bookId:string,input:import('../common/characterExperiences').ExperienceSeriesInput)=>request<import('../common/characterExperiences').ExperienceSeriesSources>(`/books/${bookId}/character-experiences/series-preview`,{method:'POST',body:JSON.stringify(input)}),
  endUnknownExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences/end-unknown`,{method:'POST',body:JSON.stringify({confirm:true,input})}),
  getExperienceWorkspace:(bookId:string,characterId:string)=>request<import('../common/characterExperiences').ExperienceWorkspace>(`/books/${bookId}/character-experiences/workspace?characterId=${encodeURIComponent(characterId)}`),
  generateExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences`,{method:'POST',body:JSON.stringify(input)}),

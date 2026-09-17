@@ -1,6 +1,8 @@
 import type {FormAssistSnapshot} from '../formAssist';
 import type {AuthorTimelineTimeValue,AuthorTimelineCommand} from '../bookComposition/timeline';
-export interface ExperienceRequest {requestKey:string;instruction:string;sources:Array<{characterId:string;fieldKey:string}>;}
+export interface ExperienceRequest {requestKey:string;instruction:string;sources:Array<{characterId:string;fieldKey:string;sourceHash?:string}>;}
+export interface ExperienceSeriesInput {characterIds:string[];fieldKey:string;}
+export interface ExperienceSeriesSources {bookId:string;sources:Array<{characterId:string;fieldKey:string;sourceHash:string}>;}
 export interface ExperienceEventChoice {id:string;versionId:string;title:string;}
 export interface ExperienceActorSource {id:string;title:string;versionId:string;revision:number;fieldKey:string;fieldLabel:string;text:string;form:FormAssistSnapshot;slotIds:string[];}
 export interface ExperienceSnapshot {bookId:string;bookName:string;instruction:string;actors:ExperienceActorSource[];events:ExperienceEventChoice[];}

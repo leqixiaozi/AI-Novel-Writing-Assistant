@@ -10,7 +10,7 @@ import {assertFound,NewDesignError} from '../../domain/errors';
 import {formHash} from '../formAssist';
 import {experienceRequestSchema} from '../../../common/characterExperiences/schema';
 import {freezeExperienceSources,actorSource} from './sources';
-export {getExperienceWorkspace} from './sources';
+export {getExperienceWorkspace,prepareExperienceSeries} from './sources';
 export {experienceRequestSchema};
 const contract='character_experiences_v1';
 export class ExperienceWriteError extends NewDesignError{constructor(message:string,status:number,public readonly mutationOutcome:'not_written'|'unknown'){super(message,status);}}

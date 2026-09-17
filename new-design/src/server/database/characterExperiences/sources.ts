@@ -1,9 +1,10 @@
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
-import type {ExperienceWorkspace,ExperienceSnapshot,ExperienceActorSource,ExperienceRequest} from '../../../common/characterExperiences';
+import type {ExperienceWorkspace,ExperienceSnapshot,ExperienceActorSource,ExperienceRequest,ExperienceSeriesInput,ExperienceSeriesSources} from '../../../common/characterExperiences';
+import {experienceSeriesInputSchema} from '../../../common/characterExperiences/schema';
 import {assertFound,NewDesignError} from '../../domain/errors';
 import {getNewDesignPool} from '../runtime';
-import {freezeFormContext} from '../formAssist';
+import {freezeFormContext,formHash} from '../formAssist';
 import {resolveBookFormVersion} from '../referenceParity';
 import {formAiFieldVisible} from '../../../common/formAssist';
 async function bookSource(db:PoolClient,bookId:string){return assertFound((await db.query("SELECT id,space_id,name FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'本书不存在或已归档。');}
@@ -17,6 +18,11 @@ export async function actorSource(db:PoolClient,bookId:string,characterId:string
 async function events(db:PoolClient,spaceId:string){return(await db.query("SELECT card.id,card.current_version_id version_id,card.title FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='event' AND type.status='published' WHERE card.space_id=$1 AND card.status='active' AND card.current_version_id IS NOT NULL ORDER BY card.id LIMIT 301",[spaceId])).rows.map(row=>({id:String(row.id),versionId:String(row.version_id),title:String(row.title)}));}
 export async function freezeExperienceSources(db:PoolClient,bookId:string,request:ExperienceRequest):Promise<ExperienceSnapshot>{
  const book=await bookSource(db,bookId),eventChoices=await events(db,book.space_id);if(eventChoices.length>300)throw new NewDesignError('事件资料超出单次经历准备范围，请先缩小本书资料范围；未发送模型请求。',422);
- const actors=[];for(const source of request.sources){const actor=await actorSource(db,bookId,source.characterId,source.fieldKey);actor.slotIds=[randomUUID(),randomUUID(),randomUUID()];actors.push(actor);}return{bookId,bookName:String(book.name),instruction:request.instruction,actors,events:eventChoices};
+ const actors=[];for(const source of request.sources){const actor=await actorSource(db,bookId,source.characterId,source.fieldKey);if(source.sourceHash&&source.sourceHash!==formHash(actor))throw new NewDesignError('分批选择的人物或小传来源已变化，原分批范围与已保存结果保留，未发送本批模型请求。',409);actor.slotIds=[randomUUID(),randomUUID(),randomUUID()];actors.push(actor);}return{bookId,bookName:String(book.name),instruction:request.instruction,actors,events:eventChoices};
+}
+export async function prepareExperienceSeries(bookId:string,input:ExperienceSeriesInput):Promise<ExperienceSeriesSources>{
+ const parsed=experienceSeriesInputSchema.parse(input),db=await(await getNewDesignPool()).connect();
+ try{await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const book=await bookSource(db,bookId);if((await events(db,book.space_id)).length>300)throw new NewDesignError('本书事件来源超过可核对范围，未准备分批或发送模型请求。',422);const sources=[];for(const characterId of parsed.characterIds){const actor=await actorSource(db,bookId,characterId,parsed.fieldKey);sources.push({characterId,fieldKey:parsed.fieldKey,sourceHash:formHash(actor)});}await db.query('COMMIT');return{bookId,sources};}
+ catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
 }
 export async function getExperienceWorkspace(bookId:string,characterId:string):Promise<ExperienceWorkspace>{const db=await(await getNewDesignPool()).connect();try{await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const book=await bookSource(db,bookId),actor=await actorSource(db,bookId,characterId),choices=(await db.query("SELECT card.id,card.title FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='character' AND type.status='published' WHERE card.space_id=$1 AND card.status='active' AND card.current_version_id IS NOT NULL ORDER BY card.id LIMIT 301",[book.space_id])).rows,eventChoices=await events(db,book.space_id),eventType=(await db.query("SELECT id FROM new_design.card_types WHERE space_id=$1 AND type_key='event' AND status='published' AND current_version_id IS NOT NULL",[book.space_id])).rows[0];const result={bookId,characterId,characterName:actor.title,sourceFields:actor.form.fields.filter(field=>!field.hidden&&['short_text','long_text'].includes(field.type)&&formAiFieldVisible(field,actor.form.values)&&typeof actor.form.values[field.key]==='string'&&String(actor.form.values[field.key]).trim()).map(field=>({key:field.key,label:field.name,text:String(actor.form.values[field.key])})),characters:choices.slice(0,300).map(row=>({id:String(row.id),title:String(row.title)})),events:eventChoices.slice(0,300),eventTypeId:eventType?String(eventType.id):null,truncated:choices.length>300||eventChoices.length>300};await db.query('COMMIT');return result;}catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}}
