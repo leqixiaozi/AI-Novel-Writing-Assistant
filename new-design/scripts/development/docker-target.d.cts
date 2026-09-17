@@ -7,4 +7,5 @@ export interface DockerTargetConfig {
 }
 export function resolveDockerTarget(config: DockerTargetConfig): { bindAddress: string; mountType: 'volume' | 'bind'; source: string };
 export function matchesDockerTarget(container: unknown, config: DockerTargetConfig, requireRunning?: boolean): boolean;
+export function matchesDockerStorage(container: unknown, config: DockerTargetConfig): boolean;
 export function assertNewDataDirectory(directory: string): Promise<void>;

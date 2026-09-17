@@ -16,31 +16,37 @@
 # 所有命令在 new-design 内
 npm ci --workspaces=false
 node scripts/initialize-development.cjs
-# 仅真正新机器：原config、原容器及原卷均不存在
+# 仅真正新机器：原配置、原容器及原卷均不存在，生成 .env 后按需编辑
 node scripts/initialize-development.cjs --initialize-new
+# 已有 runtime.json 的机器：保留原参数和密码，转写 .env
+node scripts/initialize-development.cjs --import-runtime-json
 ./scripts/rebuild-development-image.ps1 -Build
 ./scripts/develop.ps1          # 仅计划
 ./scripts/develop.ps1 -Start   # 明确启动，会检查／应用已登记迁移
 ```
 
-页面5273，API5301；旧5173／3000不作为独立入口。开发数据库原默认55432。`.data/runtime.json` 仅本机保留，初始化只用独占创建、密码不输出，不读取／替换已有配置。发现原容器或原卷则拒绝初始化；原配置遗失时先恢复原配置，不生成新密码冒充空白机器。Windows应限制`.data`访问权限。环境变量只引用原模型凭据，不能把密钥放进页面、Git或快照。
+页面5273，API5301；旧5173／3000不作为独立入口。开发数据库由 `new-design/.env` 控制，样例见 `.env.example`，新环境建议端口15433。初始化独占创建文件且不输出密码；发现原配置、原容器或原卷则拒绝生成新凭据。旧 `.data/runtime.json` 只能通过显式 `--import-runtime-json` 转写，保留旧文件但启动和备份不再读取它；该操作不会连接数据库或修改密码。Windows 应限制环境文件访问权限，不能把密钥放进页面、Git或快照。
 
 镜像重建只构建固定标签，不启动容器／挂卷。`npm run dev` 与显式`-Start`不是只读动作：服务可能初始化扩展与迁移，因此先备份已有数据。配置没有“完整App镜像”宣称，网络失败不删除卷。
 
 ### 宿主机数据目录与其他设备连接
 
-开发配置 `.data/runtime.json` 可保存 `bindAddress` 和 `dataDirectory`。省略时仍使用 `127.0.0.1` 与原命名卷；明确设置 `0.0.0.0` 才发布到所有 IPv4 网卡。应用自身仍连接本机回环地址。启动和备份共用同一目标校验，核对镜像、Compose 项目、目录或卷、监听地址、端口、用户名与库名；已有容器与保存配置不符时拒绝自动重建，避免切换到另一套数据。
+`new-design/.env` 是数据库部署参数和凭据的唯一运行配置入口。启动与备份共用 `scripts/development/environment.cjs`；每次启动重新读取文件，并将解析结果传给带 `--env-file` 的 Compose，覆盖残留终端变量，避免应用连接参数与容器参数不同。修改后重启应用；运行中的连接池不会热切换。直接调用 Docker Compose 时仍遵循 Docker 自身的 shell 环境优先级，手工命令前应清除残留的同名变量。
 
-仅全新环境可在初始化前指定以下环境变量，生成配置后以后续保存的配置为准：
+本机部署示例（写入 `.env`，密码使用原值，不要照抄占位文字）：
 
-```powershell
-$env:NEW_DESIGN_DEV_DB_PORT = '15433'
-$env:NEW_DESIGN_DEV_DB_BIND_ADDRESS = '0.0.0.0'
-$env:NEW_DESIGN_DEV_DB_DATA_SOURCE = 'D:/infra/data/ai-novel-new-design/postgres17'
-node scripts/initialize-development.cjs --initialize-new
+```dotenv
+NEW_DESIGN_DEV_DB_PORT=15433
+NEW_DESIGN_DEV_DB_BIND_ADDRESS=0.0.0.0
+NEW_DESIGN_DEV_DB_DATA_SOURCE=D:/infra/data/ai-novel-new-design/postgres17
+NEW_DESIGN_DEV_DB_USER=new_design
+NEW_DESIGN_DEV_DB_NAME=new_design
+NEW_DESIGN_DEV_DB_PASSWORD='原数据库密码'
 ```
 
-初始化会拒绝已有配置、原容器、原命名卷或非空目标目录，不会为已有数据库重置密码。已有数据改位置须先完成逻辑备份及验证，再单独执行受控迁移；修改配置本身不是数据迁移。运行中的 PostgreSQL 数据文件不能作为普通文件夹直接同步。
+`NEW_DESIGN_DEV_DB_DATA_SOURCE=new-design-postgres-data` 代表原命名卷；绝对路径代表宿主机绑定目录。省略地址或数据源时保留回环监听与原命名卷；只有明确设置 `0.0.0.0` 才发布到所有 IPv4 网卡，应用仍通过 `127.0.0.1` 连接。数据库值使用单行写法，含 `#` 必须加引号，含 `$` 使用单引号字面值，不依赖变量展开、反引号或双引号反斜杠转义；这样可以避免 Node 与 Compose 的解析差异。账号、密码、库名和端口缺失时停止。
+
+同一数据目录和数据库身份下，启动可按环境文件更新监听地址与端口。已有容器的数据目录或数据库身份不符时拒绝重建；没有容器而绑定目录非空时也拒绝作为新实例接管。已有数据改位置须先完成逻辑备份及验证，再单独执行受控迁移；修改 `.env` 本身不会搬数据或修改已有数据库密码。备份严格核对实际挂载、发布端口、镜像、Compose项目及数据库身份。运行中的 PostgreSQL 数据文件不能作为普通文件夹直接同步。
 
 Windows 中镜像层仍由 Docker 数据磁盘管理（本机分类示例 `D:/infra/docker-storage`），数据库绑定目录位于 `D:/infra/data`，备份位于 `D:/infra/backups`；三者用途不同。`55432` 若处于 Windows 保留端口段，可用 `netsh interface ipv4 show excludedportrange protocol=tcp` 核对后选择空闲端口。其他设备用宿主机局域网 IP 和保存端口连接，仍需数据库密码及对应防火墙许可；Compose 监听成功不代表远端网络验证完成。
 
@@ -54,7 +60,7 @@ node scripts/development-data.cjs backup --package C:/Backups/new-design-2026091
 node scripts/development-data.cjs verify --package C:/Backups/new-design-20260917-01
 ```
 
-工具只核对原受控容器名／镜像／Compose项目／数据卷／本机端口／DB用户名和库名，`pg_dump`经无shell Docker参数导出当前完整数据库，保留AGE/vector原结构。目录仅包含`database.dump`、`data/assets`、`data/ai-receipts`及SHA-256清单；不复制`.data/runtime.json`、密钥环境、node_modules、浏览器本机布局或镜像层。metadata记录实际扩展和实际已应用迁移ID，不以源码registry数量冒充源库升级成功。
+工具从 `.env` 核对原受控容器名／镜像／Compose项目／数据目录或卷／发布端口／DB用户名和库名，`pg_dump`经无shell Docker参数导出当前完整数据库，保留AGE/vector原结构。目录仅包含`database.dump`、`data/assets`、`data/ai-receipts`及SHA-256清单；不复制`.env`、`.data/runtime.json`、密钥环境、node_modules、浏览器本机布局或镜像层。metadata记录实际扩展和实际已应用迁移ID，不以源码registry数量冒充源库升级成功。
 
 附件和原回复拒绝链接、重解析点、硬链接及非法路径；导出前后重新核对清单和文件hash，变化或失败不生成manifest、不自动删除部分产物，也不覆盖旧备份。附件单文件限50MiB，目录文件限100000；超限须先设计受控大文件备份，不能跳过文件假称完整。
 
@@ -85,7 +91,7 @@ docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-2
 
 ## Git同步与隐私
 
-Dockerfile、Compose、SQL、源码和本说明进入Git；镜像无需提交。开发快照包含小说全文、附件、认知／事实与运行历史，加入Git前须人工确认授权和私人内容范围；脚本不自动stage或commit。`.data/runtime.json`已经由根现有ignore排除，不能把该配置混进backups目录。清单SHA只验损坏，不加密；敏感作品使用权限受限或加密的外部备份，而不是公开仓库。
+Dockerfile、Compose、`.env.example`、SQL、源码和本说明进入Git；镜像无需提交。开发快照包含小说全文、附件、认知／事实与运行历史，加入Git前须人工确认授权和私人内容范围；脚本不自动stage或commit。`.env` 与旧 `.data/runtime.json` 由根现有ignore排除，不能把配置混进backups目录。清单SHA只验损坏，不加密；敏感作品使用权限受限或加密的外部备份，而不是公开仓库。
 
 ## 未完成步骤与恢复位置
 

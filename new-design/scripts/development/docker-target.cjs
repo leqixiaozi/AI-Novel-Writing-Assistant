@@ -21,20 +21,25 @@ function normalizedSource(value) {
   return /^[A-Za-z]:\//.test(result) ? result.toLowerCase() : result;
 }
 
-function matchesDockerTarget(container, config, requireRunning = true) {
+function matchesDockerStorage(container, config) {
   const target = resolveDockerTarget(config);
-  const ports = container?.NetworkSettings?.Ports?.['5432/tcp'] ?? [];
-  const bindings = requireRunning ? ports : container?.HostConfig?.PortBindings?.['5432/tcp'] ?? ports;
   const env = container?.Config?.Env ?? [];
   const mounts = (container?.Mounts ?? []).filter(item => item.Destination === '/var/lib/postgresql/data');
   const mount = mounts[0];
   return container?.Config?.Image === IMAGE
     && container?.Config?.Labels?.['com.docker.compose.project'] === 'ai-novel-new-design-dev'
-    && (!requireRunning || container?.State?.Running === true)
     && mounts.length === 1 && mount?.RW === true && mount.Type === target.mountType
     && (target.mountType === 'volume' ? mount.Name === target.source : normalizedSource(mount.Source) === normalizedSource(target.source))
-    && bindings.length === 1 && bindings[0].HostIp === target.bindAddress && bindings[0].HostPort === String(config.port)
     && env.includes(`POSTGRES_USER=${config.user}`) && env.includes(`POSTGRES_DB=${config.database}`);
+}
+
+function matchesDockerTarget(container, config, requireRunning = true) {
+  const target = resolveDockerTarget(config);
+  const ports = container?.NetworkSettings?.Ports?.['5432/tcp'] ?? [];
+  const bindings = requireRunning ? ports : container?.HostConfig?.PortBindings?.['5432/tcp'] ?? ports;
+  return matchesDockerStorage(container, config)
+    && (!requireRunning || container?.State?.Running === true)
+    && bindings.length === 1 && bindings[0].HostIp === target.bindAddress && bindings[0].HostPort === String(config.port);
 }
 
 async function assertNewDataDirectory(directory) {
@@ -49,4 +54,4 @@ async function assertNewDataDirectory(directory) {
   if ((await fs.readdir(resolved)).length) throw new Error('数据库目录已有内容；请恢复原配置，不生成新密码或初始化。');
 }
 
-module.exports = { resolveDockerTarget, matchesDockerTarget, assertNewDataDirectory };
+module.exports = { resolveDockerTarget, matchesDockerStorage, matchesDockerTarget, assertNewDataDirectory };

@@ -5,16 +5,8 @@ import path from "node:path";
 import { Pool } from "pg";
 import type { PrivateRuntimeDiagnosticCheck, PrivateRuntimeDiagnostics } from "../../common/contracts";
 import { migrations } from "./migrations";
-import { resolveDockerTarget, matchesDockerTarget } from "../../../scripts/development/docker-target.cjs";
-
-interface DevelopmentRuntimeConfig {
-  port: number;
-  user: string;
-  password: string;
-  database: string;
-  bindAddress?: "127.0.0.1" | "0.0.0.0";
-  dataDirectory?: string;
-}
+import { resolveDockerTarget, matchesDockerStorage, assertNewDataDirectory } from "../../../scripts/development/docker-target.cjs";
+import { readDevelopmentConfig, dockerEnvironment, type DevelopmentRuntimeConfig } from "../../../scripts/development/environment.cjs";
 
 export interface DevelopmentDatabaseRuntime {
   pool: Pool;
@@ -30,8 +22,8 @@ export interface DevelopmentDatabaseRuntime {
 const COMPOSE_PROJECT = "ai-novel-new-design-dev";
 const COMPOSE_FILE = path.resolve(__dirname, "../../../docker-compose.dev.yml");
 const DEVELOPMENT_IMAGE = "ai-novel/new-design-postgres-dev:pg17-age1.7-vector0.8.6";
-const RUNTIME_ROOT = path.resolve(__dirname, "../../..", ".data");
-const CONFIG_PATH = path.join(RUNTIME_ROOT, "runtime.json");
+const DEVELOPMENT_ROOT = path.resolve(__dirname, "../../..");
+const ENV_FILE = path.join(DEVELOPMENT_ROOT, ".env");
 let activeRuntime: DevelopmentDatabaseRuntime | null = null;
 let startingRuntime: Promise<DevelopmentDatabaseRuntime> | null = null;
 
@@ -55,13 +47,7 @@ function runCommand(executable: string, args: string[], environment?: NodeJS.Pro
 }
 
 async function readRuntimeConfig(): Promise<DevelopmentRuntimeConfig> {
-  const parsed = JSON.parse(await fs.readFile(CONFIG_PATH, "utf8")) as DevelopmentRuntimeConfig;
-  if (!Number.isInteger(parsed.port) || parsed.port < 1024 || parsed.port > 65535) throw new Error("开发数据库端口配置无效。");
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.user) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.database) || !parsed.password) {
-    throw new Error("开发数据库配置字段无效。为保护已有数据，系统不会自动覆盖 runtime.json。");
-  }
-  resolveDockerTarget(parsed);
-  return parsed;
+  return readDevelopmentConfig(DEVELOPMENT_ROOT);
 }
 
 function canConnect(port: number): Promise<boolean> {
@@ -80,29 +66,24 @@ function canConnect(port: number): Promise<boolean> {
 }
 
 async function startCompose(config: DevelopmentRuntimeConfig): Promise<void> {
-  const target = resolveDockerTarget(config);
-  const dockerEnvironment = {
-    ...process.env,
-    NEW_DESIGN_DEV_DB_PORT: String(config.port),
-    NEW_DESIGN_DEV_DB_USER: config.user,
-    NEW_DESIGN_DEV_DB_PASSWORD: config.password,
-    NEW_DESIGN_DEV_DB_NAME: config.database,
-    NEW_DESIGN_DEV_DB_BIND_ADDRESS: target.bindAddress,
-    NEW_DESIGN_DEV_DB_DATA_SOURCE: target.mountType === "bind" ? target.source : "new-design-postgres-data",
-  };
+  const composeEnvironment = dockerEnvironment(config);
+  const composeArgs = ["compose", "--env-file", ENV_FILE, "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT];
   try {
-    const existing = await runCommand("docker", ["container", "ls", "--all", "--format", "{{.Names}}"], dockerEnvironment);
+    const existing = await runCommand("docker", ["container", "ls", "--all", "--format", "{{.Names}}"], composeEnvironment);
     if (existing.split(/\r?\n/).includes("ai-novel-new-design-postgres-dev")) {
-      const inspected = JSON.parse(await runCommand("docker", ["inspect", "--type", "container", "ai-novel-new-design-postgres-dev"], dockerEnvironment));
-      if (inspected.length !== 1 || !matchesDockerTarget(inspected[0], config, false)) throw new Error("已有开发容器的数据目录或监听地址与保存配置不同；请先备份并完成受控切换，不会自动重建容器。");
+      const inspected = JSON.parse(await runCommand("docker", ["inspect", "--type", "container", "ai-novel-new-design-postgres-dev"], composeEnvironment));
+      if (inspected.length !== 1 || !matchesDockerStorage(inspected[0], config)) throw new Error("已有开发容器的数据目录或数据库身份与 .env 不同；请先备份并完成受控切换，不会自动重建容器。");
+    } else {
+      const target = resolveDockerTarget(config);
+      if (target.mountType === "bind") await assertNewDataDirectory(target.source);
     }
-    const imageExists = await runCommand("docker", ["image", "inspect", DEVELOPMENT_IMAGE], dockerEnvironment)
+    const imageExists = await runCommand("docker", ["image", "inspect", DEVELOPMENT_IMAGE], composeEnvironment)
       .then(() => true)
       .catch(() => false);
     if (!imageExists) {
-      await runCommand("docker", ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, "build", "postgres"], dockerEnvironment);
+      await runCommand("docker", [...composeArgs, "build", "postgres"], composeEnvironment);
     }
-    await runCommand("docker", ["compose", "-f", COMPOSE_FILE, "-p", COMPOSE_PROJECT, "up", "-d", "--no-build", "--pull", "never", "--wait", "postgres"], dockerEnvironment);
+    await runCommand("docker", [...composeArgs, "up", "-d", "--no-build", "--pull", "never", "--wait", "postgres"], composeEnvironment);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     if (/dockerDesktopLinuxEngine|daemon|pipe/i.test(detail)) {

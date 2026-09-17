@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveDockerTarget, matchesDockerTarget, assertNewDataDirectory } = require('../scripts/development/docker-target.cjs');
+const { resolveDockerTarget, matchesDockerStorage, matchesDockerTarget, assertNewDataDirectory } = require('../scripts/development/docker-target.cjs');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -43,6 +43,13 @@ test('stopped containers are checked against saved port bindings before startup'
 test('unsafe directory and unsupported bind address fail closed', () => {
   for (const dataDirectory of ['D:/', '/', '../data', 'D:/data/../other', '']) assert.throws(() => resolveDockerTarget({ ...local, dataDirectory }));
   assert.throws(() => resolveDockerTarget({ ...local, bindAddress: '192.168.1.120' }));
+});
+test('port changes can recreate the same database but cannot switch storage', () => {
+  const inspected = container(local, { Type: 'volume', Name: 'ai-novel-new-design-pg17-data', Destination: '/var/lib/postgresql/data', RW: true });
+  const changedPort = { ...local, port: 15433, bindAddress: '0.0.0.0' };
+  assert.equal(matchesDockerStorage(inspected, changedPort), true);
+  assert.equal(matchesDockerTarget(inspected, changedPort), false);
+  assert.equal(matchesDockerStorage(inspected, { ...changedPort, dataDirectory: 'D:/infra/data/other' }), false);
 });
 test('new initialization refuses an existing nonempty host directory', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'novel-docker-target-'));

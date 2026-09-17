@@ -19,4 +19,6 @@
 
 `compose.restore-drill.yml` 是另一个恢复演练目标：**55584＋tmpfs、无 container_name、无开发卷挂载、无应用服务**。必须使用独立明确项目名，不是把开发库改名；停止演练容器后临时内容不保证保留。恢复命令与数据范围见 [开发交付和同步](../docs/development-delivery.md)。
 
-不提交镜像层、数据库密码、`.data/runtime.json` 或运行环境文件；Dockerfile与Compose本身可进入Git。此文件不表示已重建镜像或已执行恢复演练。
+开发数据库配置入口为 `new-design/.env`，模板为 `.env.example`；应用启动和备份共同读取该文件。已有 `.data/runtime.json` 使用 `node scripts/initialize-development.cjs --import-runtime-json` 转写，原凭据与原文件保留。监听地址、端口和宿主机数据目录的用法见 [开发交付和同步](../docs/development-delivery.md)。
+
+不提交镜像层、数据库密码、`.env`、旧 `.data/runtime.json` 或其他运行环境文件；Dockerfile、Compose及 `.env.example` 可进入Git。此文件不表示已重建镜像或已执行恢复演练。
