@@ -66,6 +66,12 @@
 - If a workflow belongs in another module, explain the correct user entry point directly, for example "从小说基础信息设置书级默认写法", rather than "书级默认写法已经迁回小说页".
 - Before finishing UI work, review newly added copy and rewrite any sentence that sounds like it is talking to the developer or describing the modification process.
 
+## 页面参考与复刻规则
+
+- 当用户要求参考旧版、现有页面、截图或其他页面实现时，默认需要高度复刻参考页面的布局和页面功能，包括信息密度、尺寸、间距、操作入口、交互流程及相关状态；不能自行简化、重新设计或省略功能。
+- 用户明确提出的修改方式优先于参考页面和默认视觉规则；除此之外，以参考页面为实现依据。
+- 若有无法复刻的布局、功能或交互，必须先说明具体差异及原因，与用户确认后再处理，或按用户明确给出的修改方式执行；不得静默替换为其他方案，也不得用无效按钮冒充已实现功能。
+
 ## UI Visual Rules
 
 - The client uses project-owned UI primitives, Tailwind CSS, and semantic CSS variables. Do not add or install new shadcn/ui components, run shadcn generators, or treat shadcn defaults as the product's visual authority. Existing files under `client/src/components/ui/` are maintained as project-owned compatibility primitives.
