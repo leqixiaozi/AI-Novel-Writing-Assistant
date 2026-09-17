@@ -65,12 +65,12 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
   }
   async function relation(id:unknown):Promise<Row> {
     const key=identity(id,'关系对象');if(relations.has(key))return relations.get(key)!;
-    const row=assertFound((await client.query<Row>(`SELECT to_jsonb(relation) relation,to_jsonb(version) version,
+    const row=assertFound((await client.query<Row>(`SELECT to_jsonb(relation) relation,to_jsonb(relation_version) version,
       to_jsonb(type) specification FROM new_design.card_relations relation
-      JOIN new_design.card_relation_versions version ON version.id=relation.current_version_id AND version.card_relation_id=relation.id
+      JOIN new_design.card_relation_versions relation_version ON relation_version.id=relation.current_version_id AND relation_version.card_relation_id=relation.id
       JOIN new_design.relation_types type ON type.id=relation.relation_type_id AND type.status='published'
         AND (type.owner_space_id IS NULL OR type.owner_space_id=relation.space_id)
-      WHERE relation.id=$1 AND relation.space_id=$2 AND relation.status='active' AND version.status='active'`,[key,spaceId])).rows[0],
+      WHERE relation.id=$1 AND relation.space_id=$2 AND relation.status='active' AND relation_version.status='active'`,[key,spaceId])).rows[0],
       '连续性关系缺少正式规格或真实当前版本，请打开本书关系配置明确重绑并核对。');
     const entity=record(row.relation,'关系'),version=record(row.version,'关系版本');
     if(Number(entity.revision)!==Number(version.revision)||stableHash(entity.properties)!==stableHash(version.properties))throw new NewDesignError('关系当前值与不可变版本账本不一致，请打开本书关系配置核对。',409);
@@ -146,13 +146,14 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
   // A projection selects the currently effective source only. Its cached value is never
   // exported as a fact, and every selected source is checked against the original ledger.
   const projections=bounded((await client.query<Row>('SELECT * FROM new_design.current_state_projections WHERE book_id=$1 ORDER BY subject_kind,subject_id,state_key LIMIT 301',[bookId])).rows,'当前状态');
+  if(projections.some(projection=>projection.is_stale))throw new NewDesignError('当前状态的原来源已失效，请回原章节审阅与结算核对，不能使用缓存状态生成。',409);
   for(const projection of projections) {
     if(projection.is_stale)throw new NewDesignError('当前状态的原来源已失效，请回原章节审阅与结算核对，不能使用缓存状态生成。',409);
     const owner=await subject(projection.subject_kind,projection.subject_id);
     if(projection.source_initial_version_id) {
-      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(initial) initial,to_jsonb(version) version FROM new_design.entity_initial_states initial
-        JOIN new_design.entity_initial_state_versions version ON version.id=initial.current_version_id AND version.initial_state_id=initial.id
-        WHERE initial.book_id=$1 AND initial.subject_kind=$2 AND initial.subject_id=$3 AND initial.state_key=$4 AND version.id=$5`,[bookId,projection.subject_kind,projection.subject_id,projection.state_key,projection.source_initial_version_id])).rows[0],'当前初始状态的精确版本已变化，请核对初始状态来源。');
+      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(initial) initial,to_jsonb(initial_version) version FROM new_design.entity_initial_states initial
+        JOIN new_design.entity_initial_state_versions initial_version ON initial_version.id=initial.current_version_id AND initial_version.initial_state_id=initial.id
+        WHERE initial.book_id=$1 AND initial.subject_kind=$2 AND initial.subject_id=$3 AND initial.state_key=$4 AND initial_version.id=$5`,[bookId,projection.subject_kind,projection.subject_id,projection.state_key,projection.source_initial_version_id])).rows[0],'当前初始状态的精确版本已变化，请核对初始状态来源。');
       const initial=record(row.initial,'初始状态'),version=record(row.version,'初始状态版本');
       if(stableHash(version.value_json)!==stableHash(projection.value_json))throw new NewDesignError('初始状态投影与精确源值不一致，请核对初始状态。',409);
       let sourceFact:Row|null=null;
@@ -176,10 +177,10 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
 
   const knowledge=bounded((await client.query<Row>('SELECT * FROM new_design.current_knowledge_state_projections WHERE book_id=$1 ORDER BY holder_kind,holder_key,claim_id LIMIT 301',[bookId])).rows,'当前人物与读者认知');
   for(const projection of knowledge) {
-    const row=assertFound((await client.query<Row>(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal,to_jsonb(version) version,to_jsonb(claim) claim
+    const row=assertFound((await client.query<Row>(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal,to_jsonb(knowledge_version) version,to_jsonb(claim) claim
       FROM new_design.knowledge_state_changes change JOIN new_design.knowledge_state_proposals proposal ON proposal.id=change.proposal_id
         AND proposal.book_id=change.book_id AND proposal.status='confirmed' AND proposal.confirmed_change_id=change.id AND proposal.current_version_id=change.proposal_version_id
-      JOIN new_design.knowledge_state_proposal_versions version ON version.id=change.proposal_version_id AND version.proposal_id=proposal.id
+      JOIN new_design.knowledge_state_proposal_versions knowledge_version ON knowledge_version.id=change.proposal_version_id AND knowledge_version.proposal_id=proposal.id
       JOIN new_design.epistemic_claims claim ON claim.id=change.claim_id AND claim.book_id=change.book_id
       WHERE change.id=$1 AND change.book_id=$2 AND change.status='active' AND change.claim_id=$3 AND change.holder_kind=$4 AND change.holder_key=$5`,[projection.source_change_id,bookId,projection.claim_id,projection.holder_kind,projection.holder_key])).rows[0],'当前认知的原提案、确认版本或流水已失效，请回原章节认知审阅核对。');
     const change=record(row.change,'认知流水'),proposal=record(row.proposal,'认知提案'),version=record(row.version,'认知版本'),claim=record(row.claim,'认知内容');

@@ -62,15 +62,15 @@ export async function readStableResourceSupplementBasisInTransaction(
     WHERE fact.book_id=$1 AND fact.status='confirmed' AND anchor.book_id=$1
       AND anchor.chapter_document_id=$2 AND anchor.body_version_id=$3 AND fact.id=ANY($4::uuid[])
     ORDER BY fact.id`, [bookId, document.id, body.id, confirmed.facts])).rows;
-  const knowledge = (await client.query(`SELECT change.*,to_jsonb(version) proposal_version
+  const knowledge = (await client.query(`SELECT change.*,to_jsonb(knowledge_version) proposal_version
     FROM new_design.knowledge_state_changes change
     JOIN new_design.knowledge_state_proposals proposal ON proposal.id=change.proposal_id
       AND proposal.book_id=change.book_id AND proposal.status='confirmed' AND proposal.confirmed_change_id=change.id
-    JOIN new_design.knowledge_state_proposal_versions version ON version.id=change.proposal_version_id
-      AND version.proposal_id=proposal.id AND version.id=proposal.current_version_id
-    JOIN new_design.chapter_text_anchors anchor ON anchor.id=version.text_anchor_id AND anchor.status='active'
+    JOIN new_design.knowledge_state_proposal_versions knowledge_version ON knowledge_version.id=change.proposal_version_id
+      AND knowledge_version.proposal_id=proposal.id AND knowledge_version.id=proposal.current_version_id
+    JOIN new_design.chapter_text_anchors anchor ON anchor.id=knowledge_version.text_anchor_id AND anchor.status='active'
     WHERE change.book_id=$1 AND change.status='active' AND anchor.book_id=$1
-      AND version.chapter_document_id=$2 AND version.body_version_id=$3
+      AND knowledge_version.chapter_document_id=$2 AND knowledge_version.body_version_id=$3
       AND anchor.chapter_document_id=$2 AND anchor.body_version_id=$3 AND change.id=ANY($4::uuid[])
     ORDER BY change.sequence`, [bookId, document.id, body.id, confirmed.knowledge])).rows;
   const states = (await client.query(`SELECT change.* FROM new_design.state_changes change
@@ -89,11 +89,11 @@ export async function readStableResourceSupplementBasisInTransaction(
       AND change.id=ANY($4::uuid[]) ORDER BY change.sequence`, [bookId, document.id, body.id, confirmed.states])).rows;
   if (facts.length !== confirmed.facts.length || knowledge.length !== confirmed.knowledge.length || states.length !== confirmed.states.length)
     unavailable("原结算的确认事实、认知或状态有失效来源，请先核对；补充不能覆盖或丢弃原确认记录。");
-  const planningReferences = (await client.query(`SELECT reference.*,to_jsonb(version) source_version
+  const planningReferences = (await client.query(`SELECT to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) full_reference
     FROM new_design.planning_version_references reference
-    JOIN new_design.card_versions version ON version.id=reference.card_version_id AND version.card_id=reference.card_id
+    JOIN new_design.card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id
     WHERE reference.book_id=$1 AND reference.planning_object_id=$2 AND reference.planning_version_id=$3
-    ORDER BY reference.id`, [bookId, session.planning_object_id, session.planning_version_id])).rows;
+    ORDER BY reference.id`, [bookId, session.planning_object_id, session.planning_version_id])).rows.map(row=>row.full_reference);
   const original = normalize({ ...row, planningReferences, confirmedSources: { facts, knowledge, states } });
   const basis: Omit<StableResourceSupplementBasis, "sourceHash"> = {
     contract: "stable_resource_supplement_basis_v1", bookId, chapterDocumentId: String(document.id),

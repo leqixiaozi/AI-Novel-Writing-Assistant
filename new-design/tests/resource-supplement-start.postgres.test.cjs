@@ -17,6 +17,7 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal(quantity(before).baseline.value,0);assert.equal(before.catalog.subjects.find(item=>item.id===relationId).fields.find(item=>item.key==='holding').baseline.value,false);
   assert.equal(before.resourceScope.resources[0].id,prop.id);assert.equal(before.resourceScope.resources[0].relationId,relationId);assert.ok(before.resourceScope.anchors.length);
   assert.ok(before.catalog.subjects.every(item=>[prop.id,relationId].includes(item.id)));assert.equal(before.basis.confirmed.facts.length,1);assert.equal(before.basis.confirmed.knowledge.length,1);assert.equal(before.basis.confirmed.states.length,1);
+  const knowledge=before.basis.original.confirmedSources.knowledge[0];assert.equal(typeof knowledge.proposal_version,'object');assert.equal(knowledge.proposal_version.id,knowledge.proposal_version_id);assert.ok(knowledge.proposal_version.text_anchor_id);
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_resource_supplements')).rows[0].n,0);
  });
  const second=await chapter(2,2,false,(workspace,content)=>['quantity','holding'].map(stateKey=>{
@@ -108,7 +109,7 @@ test('stable supplement preview and exact original request create only an indepe
   const fs=require('node:fs'),path=require('node:path');
   assert.equal((await pool.query('SELECT current_database() name')).rows[0].name,fixture.database);
   assert.match(fixture.database,/^nd_reference_test_[a-f0-9]{32}$/);
-  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql'],['089_resource_supplement_impact_reviews','089_resource_supplement_impact_reviews.sql']]){
+  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql'],['089_resource_supplement_impact_reviews','089_resource_supplement_impact_reviews.sql'],['090_resource_supplement_integrity','090_resource_supplement_integrity.sql']]){
    await installer.query(fs.readFileSync(path.join(__dirname,'../migrations',file),'utf8'));await installer.query('INSERT INTO new_design.schema_migrations(id) VALUES($1)',[id]);
   }await installer.query('COMMIT');}catch(error){await installer.query('ROLLBACK');throw error;}finally{installer.release();}
   const ai=compiled('server/ai/chapterSettlement'),models=compiled('server/database/modelManagement');
@@ -182,9 +183,11 @@ test('stable supplement preview and exact original request create only an indepe
    }finally{await checker.query('ROLLBACK');checker.release();}
    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,1);assert.deepEqual(await counts(),unchanged);
   });
-  let nextPlan=await fixture.planning.addPlanningVersion(second.object.id,{content:{...fixture.planContent,notes:'下游预览后另行采用的新计划'},source:'manual',executionMode:'ai_assisted',basedOnParentVersionId:fixture.volume.adoptedVersionId,references:[],expectedRevision:second.object.revision,idempotencyKey:key()});
+  const propVersionId=(await pool.query('SELECT current_version_id FROM new_design.cards WHERE id=$1 AND space_id=$2',[prop.id,book.spaceId])).rows[0].current_version_id;
+  let nextPlan=await fixture.planning.addPlanningVersion(second.object.id,{content:{...fixture.planContent,notes:'下游预览后另行采用的新计划'},source:'manual',executionMode:'ai_assisted',basedOnParentVersionId:fixture.volume.adoptedVersionId,references:[{role:'item',cardId:prop.id,cardVersionId:propVersionId,note:'核对确切资源版本',sortOrder:1}],expectedRevision:second.object.revision,idempotencyKey:key()});
   nextPlan=await fixture.planning.adoptPlanningVersion(nextPlan.id,{versionId:nextPlan.currentVersionId,expectedRevision:nextPlan.revision,idempotencyKey:key()});
   const refreshed=await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId);assert.notEqual(refreshed.impactHash,impact.impactHash);assert.equal(refreshed.downstreamSource.chapters[0].adopted_plan.id,nextPlan.adoptedVersionId);assert.equal(refreshed.downstreamSource.chapters[0].body_plan.id,second.object.adoptedVersionId);
+  assert.equal(refreshed.downstreamSource.planningReferences.length,1);assert.equal(typeof refreshed.downstreamSource.planningReferences[0].source_version,'object');assert.equal(refreshed.downstreamSource.planningReferences[0].source_version.id,propVersionId);assert.equal(refreshed.downstreamSource.planningReferences[0].source_version.card_id,prop.id);
   await reviewTests.test('changed downstream plan invalidates a new review and preserves the complete saved one',async()=>{
    await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key()}),error=>error.status===409&&error.mutationOutcome==='not_written');
    assert.deepEqual((await supplements.readResourceSupplementImpactReviewOriginal(book.id,receipt.sessionId,reviewInput)).impact,impact);
@@ -220,11 +223,42 @@ test('stable supplement preview and exact original request create only an indepe
     await state.rebuildStateProjectionInTransaction(merger,{bookId:book.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});
     const projection=(await merger.query('SELECT * FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0];
     assert.equal(projection.value_json,2);assert.equal(projection.source_state_change_id,chain.stateChangeId);
+    const integrity=await supplements.recordResourceSupplementIntegrityInTransaction(merger,book.id,merged,refreshed);assert.equal(integrity.issueIds.length,1);
+    const issue=(await merger.query('SELECT * FROM new_design.resource_supplement_integrity_issues WHERE issue_id=$1',[integrity.issueIds[0]])).rows[0];
+    assert.equal(issue.state_change_id,chain.stateChangeId);assert.equal(issue.chapter_document_id,second.document.id);assert.equal(issue.body_version_id,second.version.id);assert.equal(issue.impact.expectedBefore,1);assert.equal(issue.impact.recordedBefore,0);
+    assert.equal((await merger.query('SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].is_stale,true);
+    const correction=await supplements.readResourceSupplementCorrectionBasisInTransaction(merger,book.id,issue.issue_id);
+    assert.equal(correction.beforeValue,1);assert.equal(correction.originalRecordedBefore,0);assert.equal(correction.originalRecordedAfter,2);
+    assert.equal(correction.baseCheckpointId,second.checkpoint.id);assert.equal(correction.prefixSource.change.id,merged.newStateChangeIds[0]);
+    assert.equal(correction.prefixSource.checkpoint.id,merged.checkpointId);assert.equal(correction.chapterEndBasis.bodyVersionId,second.version.id);
+    const endState=await supplements.readResourceSupplementHistoricalStateInTransaction(merger,{bookId:book.id,checkpointId:second.checkpoint.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});
+    assert.equal(endState.value,2);assert.equal((await supplements.readResourceSupplementCorrectionBasisInTransaction(merger,book.id,issue.issue_id)).sourceHash,correction.sourceHash);
+    await assert.rejects(supplements.readResourceSupplementCorrectionBasisInTransaction(merger,key(),issue.issue_id),error=>error.status===409);
+    await merger.query('SAVEPOINT invalid_correction_prefix');
+    try{await merger.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[correction.prefixSource.change.text_anchor_id]);
+      await assert.rejects(supplements.readResourceSupplementCorrectionBasisInTransaction(merger,book.id,issue.issue_id),error=>error.status===409&&/真实章前状态来源/.test(error.message));
+    }finally{await merger.query('ROLLBACK TO SAVEPOINT invalid_correction_prefix');await merger.query('RELEASE SAVEPOINT invalid_correction_prefix');}
+    const production=compiled('server/database/chapterProduction/continuitySources');
+    await assert.rejects(production.readChapterContinuitySources(merger,book.id,second.card.id),error=>error.status===409&&/原来源已失效/.test(error.message));
+    const cannotBypass=async action=>{await merger.query('SAVEPOINT actual_integrity_guard');
+      try{await assert.rejects(action,error=>error.code==='23514');}finally{await merger.query('ROLLBACK TO SAVEPOINT actual_integrity_guard');await merger.query('RELEASE SAVEPOINT actual_integrity_guard');}};
+    await cannotBypass(()=>state.rebuildStateProjectionInTransaction(merger,{bookId:book.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'}));
+    await cannotBypass(()=>merger.query('UPDATE new_design.current_state_projections SET is_stale=false WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity']));
+    await cannotBypass(()=>merger.query('DELETE FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity']));
+    await cannotBypass(()=>merger.query("UPDATE new_design.current_state_projections SET state_key='fake_move' WHERE book_id=$1 AND subject_id=$2 AND state_key=$3",[book.id,relationId,'quantity']));
+    await cannotBypass(()=>merger.query('DELETE FROM new_design.resource_supplement_integrity_issues WHERE issue_id=$1',[issue.issue_id]));
+    await cannotBypass(()=>merger.query(`INSERT INTO new_design.resource_supplement_integrity_resolutions(resolution_id,issue_id,book_id,correction_checkpoint_id,request_key,full_proof,proof_hash,original_receipt)
+      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8::jsonb)`,[key(),issue.issue_id,book.id,second.checkpoint.id,key(),JSON.stringify({acknowledged:true}),'a'.repeat(64),JSON.stringify({resolved:true})]));
+    await merger.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/090_resource_supplement_integrity.sql'),'utf8'));
+    await cannotBypass(()=>merger.query('UPDATE new_design.current_state_projections SET is_stale=false WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity']));
+    await assert.rejects(production.readChapterContinuitySources(merger,book.id,second.card.id),error=>error.status===409&&/原来源已失效/.test(error.message));
     await assert.rejects(merger.query('SET CONSTRAINTS new_design.chapter_resource_supplement_closure_required IMMEDIATE'),error=>error.code==='23514'&&/downstream closure is not operational/.test(error.message));
    }finally{await merger.query('ROLLBACK');merger.release();}
    assert.deepEqual(await originalRows(),originalSnapshot);assert.deepEqual(await counts(),unchanged);
    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_stable_checkpoints WHERE id=$1',[merged.checkpointId])).rows[0].n,0);
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_issues')).rows[0].n,0);
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_journals')).rows[0].n,0);
   });
   await reviewTests.test('review deactivation retains receipts and forbids new writes without clearing any source conflict',async()=>{
    await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/089_resource_supplement_impact_reviews.sql'),'utf8'));

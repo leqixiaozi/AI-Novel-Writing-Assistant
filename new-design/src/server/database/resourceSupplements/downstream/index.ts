@@ -67,7 +67,8 @@ export async function previewResourceSupplementSettlementInTransaction(client:Po
     values.set(key,change.after_json);
   }
   const planIds=[...new Set(chapters.flatMap(row=>[row.adopted_plan?.id,row.body?.planning_version_id]).filter(Boolean))];
-  const planningReferences=(await client.query('SELECT reference.*,to_jsonb(version) source_version FROM new_design.planning_version_references reference LEFT JOIN new_design.card_versions version ON version.id=reference.card_version_id AND version.card_id=reference.card_id WHERE reference.book_id=$1 AND reference.planning_version_id=ANY($2::uuid[]) ORDER BY reference.id',[bookId,planIds])).rows;
+  // Keep native persisted JSON timestamps as well as the complete version row.
+  const planningReferences=(await client.query("SELECT to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) full_reference FROM new_design.planning_version_references reference LEFT JOIN new_design.card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id WHERE reference.book_id=$1 AND reference.planning_version_id=ANY($2::uuid[]) ORDER BY reference.id",[bookId,planIds])).rows.map(row=>row.full_reference);
   if(planningReferences.some(row=>!row.source_version))throw new NewDesignError('后续计划引用缺少确切资料版本，请核对原来源。',409);
   const frame:Omit<ResourceSupplementSettlementImpact,'impactHash'>={contract:'resource_supplement_settlement_impact_v1',bookId,sessionId,sessionRevision:Number(input.session.revision),baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,sourceHash:input.source.sourceHash,
     changes:input.changes.map(change=>({itemId:change.itemId,proposalId:change.proposalId,subjectKind:change.subjectKind,subjectId:change.subjectId,stateKey:change.stateKey,before:change.beforeValue,after:change.afterValue})),stateChain,

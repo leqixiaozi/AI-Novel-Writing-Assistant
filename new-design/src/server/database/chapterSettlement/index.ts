@@ -25,3 +25,4 @@ export * from "./relationConfiguration";
 export { readFrozenSupplementSource,assertResourceSupplementCandidateContract } from "./supplementRead";
 export {readResourceSupplementSettlementChangesInTransaction} from "./supplementRead/settlementPreview";
 export {writeResourceSupplementMergedSettlementInTransaction} from './supplementWrite';
+export type {ResourceSupplementMergedWrite} from './supplementWrite';

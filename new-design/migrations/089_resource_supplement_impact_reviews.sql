@@ -93,8 +93,8 @@ BEGIN
     field_key=jsonb_build_array(snapshot->>'subjectKind',snapshot->>'subjectId',snapshot->>'stateKey')::text;
     field_values=jsonb_set(field_values,ARRAY[field_key],snapshot->'after');
   END LOOP;
-  SELECT coalesce(jsonb_agg(to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(version)) ORDER BY reference.id),'[]'::jsonb) INTO actual
-    FROM planning_version_references reference LEFT JOIN card_versions version ON version.id=reference.card_version_id AND version.card_id=reference.card_id
+  SELECT coalesce(jsonb_agg(to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) ORDER BY reference.id),'[]'::jsonb) INTO actual
+    FROM planning_version_references reference LEFT JOIN card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id
     WHERE reference.book_id=NEW.book_id AND reference.planning_version_id IN (
       SELECT (value#>>'{adopted_plan,id}')::uuid FROM jsonb_array_elements(NEW.impact_snapshot#>'{downstreamSource,chapters}')
       UNION SELECT (value#>>'{body,planning_version_id}')::uuid FROM jsonb_array_elements(NEW.impact_snapshot#>'{downstreamSource,chapters}'));

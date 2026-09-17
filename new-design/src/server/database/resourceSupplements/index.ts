@@ -4,3 +4,5 @@ export { previewResourceSupplementInTransaction } from "./preview";
 export { previewResourceSupplement, startResourceSupplement, readResourceSupplementStartOriginal, ResourceSupplementError } from "./commands";
 export {previewResourceSupplementSettlement,previewResourceSupplementSettlementInTransaction} from './downstream';
 export {confirmResourceSupplementSettlementImpact,readResourceSupplementImpactReviewOriginal,readResourceSupplementImpactReviewForSettlementInTransaction} from './reviewing';
+export {recordResourceSupplementIntegrityInTransaction} from './integrity';
+export {readResourceSupplementCorrectionBasisInTransaction} from './integrity/correctionBasis';
