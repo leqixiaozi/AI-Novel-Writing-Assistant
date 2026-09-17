@@ -7,6 +7,7 @@ import { selectableTreeNodeIds,validateTreeSelection } from "../../../common/tre
 export interface ChapterSettlementPromptInput {
   sessionId:string;bodyVersionId:string;bodyContentHash:string;
   catalog:SettlementEditingCatalog;bodyContent:string;expectedChanges:string[];resourceScope?:import("../../../common/characterResources").ResourceBackfillFrozenScope;
+  stableSupplement?:{sessionRevision:number;source:import("../../../common/resourceSupplements").ResourceSupplementPreview};
 }
 export interface ChapterSettlementPromptOutput {items:SettlementEditingDraft[];notes:string[]}
 const scalar=z.union([z.string().max(30000),z.number().finite(),z.boolean(),z.array(z.string()).max(300),z.null()]);

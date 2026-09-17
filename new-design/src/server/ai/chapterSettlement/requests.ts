@@ -6,8 +6,8 @@ import type { ChapterSettlementEditingWorkspace } from "../../../common/chapterS
 import type { AiRuntimeRecovery } from "../../../common/aiRuntime";
 import { stableHash } from "../../database/aiContracts";
 import { assertFound,NewDesignError } from "../../domain/errors";
-import { getChapterSettlementEditingCatalogInTransaction } from "../../database/chapterSettlement";
-import { preparePrompt } from "../prompts";
+import { getChapterSettlementEditingCatalogInTransaction,assertResourceSupplementCandidateContract,readFrozenSupplementSource } from "../../database/chapterSettlement";
+import { preparePrompt,buildStableResourceSupplementPromptInput } from "../prompts";
 import type { ChapterSettlementPromptInput } from "../prompts/chapterSettlement";
 import type { SettlementAiClaim,SettlementAiOutput,SettlementFrozenPlan } from "./contracts";
 import { database,preparationDatabase,lock,lockBook } from "./database";
@@ -36,7 +36,7 @@ export async function claimSettlementAi(workspace:ChapterSettlementEditingWorksp
     if(previous){if(previous.request_hash!==requestHash)throw new NewDesignError("同一提取请求不能提交不同正文、清单或规格，请核对原结果。",409);return receipt(previous,true);}
     await lockBook(client,workspace.session.bookId);
     const session=assertFound((await client.query("SELECT session.*,book.space_id,document.chapter_card_id,document.adopted_version_id,body.content FROM new_design.chapter_adoption_sessions session JOIN new_design.books book ON book.id=session.book_id AND book.status='active' JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id JOIN new_design.chapter_body_versions body ON body.id=session.body_version_id AND body.archived_at IS NULL WHERE session.id=$1 FOR UPDATE OF session,document",[workspace.session.id])).rows[0],"本章结算会话或正文不可用，请返回章节创作核对。");
-    if(session.adoption_kind==="resource_supplement")throw new NewDesignError("本章资源补充暂不可提取；请查看原结算和资源来源。原正文与确认记录保留。",503);
+    await assertResourceSupplementCandidateContract(client,session,"extract");
     if(!["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(session.status)||Number(session.revision)!==input.expectedSessionRevision||workspace.catalog.sessionRevision!==input.expectedSessionRevision||workspace.catalog.specificationHash!==input.catalogHash||workspace.catalog.bodyVersionId!==session.body_version_id||workspace.candidate.content!==session.content)throw new NewDesignError("本章正文、清单或可结算规格已变化，请先刷新核对；本次模型请求未发送。",409);
     const currentCatalog=await getChapterSettlementEditingCatalogInTransaction(client,session,true);
     if(stableHash(currentCatalog)!==stableHash(workspace.catalog))throw new NewDesignError("本章正式字段、字典选项或状态前值已变化，请刷新核对；本次模型请求未发送。",409);
@@ -44,8 +44,10 @@ export async function claimSettlementAi(workspace:ChapterSettlementEditingWorksp
     if(conflicting)throw new NewDesignError("本章已有未确认提取回执，请先核对原请求；不能并发重复提取。",409);
     if(input.resourceScope&&session.adopted_version_id!==session.body_version_id)throw new NewDesignError("资源回填只使用当前采用正文，请核对原章节；未发送模型请求。",409);
     if(input.resourceScope&&!(await client.query("SELECT id FROM new_design.schema_migrations WHERE id='085_character_resource_backfill' AND position('new_design.character.resource_backfill' IN pg_get_functiondef('new_design.guard_chapter_settlement_ai_payload()'::regprocedure))>0")).rowCount)throw new NewDesignError("资源回填存储合同尚未安装，请由维护人员核对安装；本次未保存领取或调用模型，原正文与填写保留。",503);
-    const resource=input.resourceScope?await freezeResourceBackfillScope(client,workspace,input.resourceScope):null;
-    const frozenInput:ChapterSettlementPromptInput={sessionId:session.id,bodyVersionId:session.body_version_id,bodyContentHash:workspace.catalog.bodyContentHash,catalog:resource?.catalog??workspace.catalog,bodyContent:session.content,expectedChanges:workspace.expectedChanges,...(resource?{resourceScope:resource.resourceScope}:{})},prompt=preparePrompt(resource?"character_resource_backfill":"chapter_settlement",frozenInput),frozen=await freezeSettlement(client,frozenInput,prompt,session.book_id,session.chapter_card_id);
+    const supplement=session.adoption_kind==="resource_supplement"?await readFrozenSupplementSource(client,session,workspace.catalog.bodyContentHash):null;
+    if(supplement&&stableHash(input.resourceScope)!==stableHash(supplement.input.resourceScope))throw new NewDesignError("补充提取必须使用原创建的完整资源范围，请核对原请求。",409);
+    const resource=!supplement&&input.resourceScope?await freezeResourceBackfillScope(client,workspace,input.resourceScope):null;
+    const frozenInput:ChapterSettlementPromptInput=supplement?buildStableResourceSupplementPromptInput({sessionId:session.id,sessionRevision:Number(session.revision),source:supplement}):{sessionId:session.id,bodyVersionId:session.body_version_id,bodyContentHash:workspace.catalog.bodyContentHash,catalog:resource?.catalog??workspace.catalog,bodyContent:session.content,expectedChanges:workspace.expectedChanges,...(resource?{resourceScope:resource.resourceScope}:{})},prompt=preparePrompt(supplement?"stable_resource_supplement":resource?"character_resource_backfill":"chapter_settlement",frozenInput),frozen=await freezeSettlement(client,frozenInput,prompt,session.book_id,session.chapter_card_id);
     const refs={taskId:randomUUID(),stepId:randomUUID(),attemptId:randomUUID()},requestId=randomUUID(),leaseToken=randomUUID(),sourceRoute=`/new-design/books/${session.book_id}/writing?chapterDocument=${session.chapter_document_id}&session=${session.id}`,inputHash=stableHash(frozenInput);
     await client.query("INSERT INTO new_design.ai_tasks(id,space_id,book_id,task_key,task_contract_version_id,source_route,source_kind,source_id,request_idempotency_key,request_hash,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'chapter_settlement')",[refs.taskId,session.space_id,session.book_id,frozen.taskKey,frozen.taskContractVersionId,sourceRoute,SOURCE_KIND,requestId,`settlement_ai:${input.requestKey}`,requestHash]);
     await client.query("INSERT INTO new_design.ai_task_steps(id,task_id,step_key,sort_order,max_attempts) VALUES($1,$2,$3,0,1)",[refs.stepId,refs.taskId,STEP]);

@@ -97,3 +97,11 @@ export const resourceSupplementStartReceiptSchema = z.object({
 }).strict().refine(value => value.requestKey === value.input.requestKey
   && value.baseCheckpointId === value.input.checkpointId && value.sourceHash === value.input.expectedSourceHash
   && value.sourceRoute === `/new-design/books/${value.bookId}/writing?chapterDocument=${value.chapterDocumentId}&session=${value.sessionId}`);
+
+/** Deterministic exclusion of recorded changes; never infers a new state. */
+export function resourceSupplementChangeAlreadyConfirmed(states:Record<string,unknown>[],draft:{subjectKind?:string;subjectId?:string;stateKey?:string;beforeValue?:unknown;afterValue?:unknown}):boolean {
+  const same=(left:unknown,right:unknown)=>JSON.stringify(left)===JSON.stringify(right);
+  return same(draft.beforeValue,draft.afterValue)||states.some(row=>row.subject_kind===draft.subjectKind
+    &&row.subject_id===draft.subjectId&&row.state_key===draft.stateKey
+    &&same(row.before_json,draft.beforeValue)&&same(row.after_json,draft.afterValue));
+}

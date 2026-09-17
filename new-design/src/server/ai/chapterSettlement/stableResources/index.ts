@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getNewDesignPool } from "../../../database/runtime";
 import { readFrozenSupplementSource } from "../../../database/chapterSettlement";
 import { assertFound, NewDesignError } from "../../../domain/errors";
-import { preparePrompt, type PreparedPrompt } from "../../prompts";
+import { preparePrompt,buildStableResourceSupplementPromptInput, type PreparedPrompt } from "../../prompts";
 
 /** Internal read-only preparation. No claim, publication, model or candidate write. */
 export async function prepareStableResourceSupplementPrompt(sessionId: string): Promise<PreparedPrompt> {
@@ -22,7 +22,7 @@ export async function prepareStableResourceSupplementPrompt(sessionId: string): 
       || !["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(row.status))
       throw new NewDesignError("请选择待核对的稳定章资源补充清单。",409);
     const source = await readFrozenSupplementSource(client,row,String(row.body_hash));
-    const prompt = preparePrompt("stable_resource_supplement",{sessionId,sessionRevision:Number(row.revision),source});
+    const prompt = preparePrompt("stable_resource_supplement",buildStableResourceSupplementPromptInput({sessionId,sessionRevision:Number(row.revision),source}));
     await client.query("COMMIT");
     return prompt;
   } catch (error) {

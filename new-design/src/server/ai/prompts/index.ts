@@ -1,5 +1,6 @@
 import {characterExperiencesAsset} from './referenceCandidates/experiences';
 import {stableResourceSupplementAsset} from './referenceCandidates/stableResources';
+export {buildStableResourceSupplementPromptInput} from './referenceCandidates/stableResources';
 import {referenceCandidateAssets,characterResourceBackfillAsset} from "./referenceCandidates";
 export {storyBatchTask} from "./referenceCandidates";
 import { z } from "zod";

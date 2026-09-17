@@ -4,6 +4,8 @@ import type { SettlementEditingCatalog, SettlementFieldChoice, SettlementSubject
 import { stableHash } from "../aiContracts/integrity";
 import { fieldDefinitionSchema } from "../../domain/validation";
 import { readBaseline, type EditingRow } from "./editingPolicy";
+import {readFrozenSupplementSource} from "./supplementRead";
+import {NewDesignError} from "../../domain/errors";
 
 const SYSTEM="00000000-0000-4000-8000-000000000001";
 function schemas(value:unknown):FieldDefinition[]{
@@ -24,6 +26,23 @@ async function dictionaryNodes(client:PoolClient,field:FieldDefinition,lock:bool
   return rows.rows.map(row=>({id:String(row.id),parentId:row.parent_id?String(row.parent_id):null,label:String(row.label),path:Array.isArray(row.path_labels)?row.path_labels.map(String):[],versionId:String(row.version_id),status:row.status as "active"|"archived"}));
 }
 export async function readEditingCatalog(client:PoolClient,session:EditingRow,lock=false):Promise<SettlementEditingCatalog>{
+  if(session.adoption_kind==="resource_supplement"){
+    const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];
+    const source=await readFrozenSupplementSource(client,session,String(body?.content_hash??""));
+    const frozen={...source.catalog,sessionId:String(session.id),sessionRevision:Number(session.revision)};
+    const current=await readEditingCatalog(client,{...session,adoption_kind:"candidate_specification_check"},lock);
+    for(const subject of frozen.subjects){
+      const live=current.subjects.find(item=>item.id===subject.id&&item.subjectKind===subject.subjectKind);
+      const compared=live&&{...live,categories:live.categories.filter(category=>category===(subject.subjectKind==='relation'?'relationship':'prop')),
+        fields:live.fields.map(field=>({...field,baseline:subject.fields.find(item=>item.key===field.key)?.baseline}))};
+      if(!compared||stableHash(compared)!==stableHash(subject))throw new NewDesignError("原补充资源、字段或字典版本已变化，请保留原清单核对，不能用新规格覆盖。",409);
+    }
+    if(!(await client.query(`SELECT card.id FROM new_design.cards card JOIN new_design.books book ON book.space_id=card.space_id
+      WHERE book.id=$1 AND card.id=$2 AND card.current_version_id=$3 AND card.revision=$4 AND card.status='active'
+      ${lock?'FOR SHARE OF card':''}`,[session.book_id,source.resourceScope.characterId,source.resourceScope.characterVersionId,source.resourceScope.characterRevision])).rowCount)
+      throw new NewDesignError("原补充人物资料版本已变化，请保留原来源核对。",409);
+    return frozen;
+  }
   const book=(await client.query("SELECT space_id FROM new_design.books WHERE id=$1",[session.book_id])).rows[0],spaceId=String(book?.space_id??"");
   const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];
   const cards=(await client.query(`SELECT card.id,card.card_type_id,card.current_version_id,card.type_version_id,card.revision card_revision,

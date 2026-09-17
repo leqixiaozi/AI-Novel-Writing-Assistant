@@ -11,6 +11,7 @@ import {addChapterSettlementItem,updateChapterSettlementItem,decideChapterSettle
 import {readEditingCatalog} from "./editingCatalog";
 import {validateEditingDraft,SettlementEditingError,fail,isStateCategory,type EditingRow} from "./editingPolicy";
 import {lockEditingSession,assertEditingSession,readEditingWorkspace,receiptByKey,appendEditingReceipt,freezeEditingItem,readDomain,frozenItemContract} from "./editingRepository";
+import {assertResourceSupplementCandidateContract} from "./supplementRead";
 
 async function requestLock(client:PoolClient,sessionId:string,key:string):Promise<void>{
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`chapter_settlement_editing:${sessionId}:${key}`]);
@@ -23,7 +24,7 @@ function requestInput(input:SettlementEditingMutation):void{
 type Command=(client:PoolClient,session:EditingRow)=>Promise<string|null>;
 async function mutate(sessionId:string,operation:SettlementEditingReceipt["operation"],input:SettlementEditingMutation,fullInput:unknown,command:Command):Promise<SettlementEditingReceipt>{
   requestInput(input);
-  const pool=await getNewDesignPool(),client=await pool.connect();let session:EditingRow|null=null,committing=false;
+  const pool=await getNewDesignPool(),client=await pool.connect();let session:EditingRow|null=null,committing=false,readingOriginal=true;
   try{
     await client.query("BEGIN");await requestLock(client,sessionId,input.requestKey);
     const prior=await receiptByKey(client,sessionId,input.requestKey),hash=stableHash(JSON.parse(JSON.stringify({sessionId,operation,input:fullInput})));
@@ -32,9 +33,11 @@ async function mutate(sessionId:string,operation:SettlementEditingReceipt["opera
       if(prior.inputHash!==hash)fail(session,"该保存请求标识已用于不同内容，不能覆盖；请核对原请求结果。",409,"requestKey");
       committing=true;await client.query("COMMIT");return{...prior.receipt,repeated:true};
     }
+    readingOriginal=false;
     const initial=(await client.query("SELECT book_id FROM new_design.chapter_adoption_sessions WHERE id=$1",[sessionId])).rows[0];
     if(!initial)fail(null,"章节确认会话不存在。",404);
-    await bookLock(client,initial.book_id);session=await lockEditingSession(client,sessionId);assertEditingSession(session,input.expectedSessionRevision);
+    await bookLock(client,initial.book_id);session=await lockEditingSession(client,sessionId);
+    await assertResourceSupplementCandidateContract(client,session,operation);assertEditingSession(session,input.expectedSessionRevision,true);
     const receipt=await inSettlementTransaction(client,async()=>{
       const itemId=await command(client,session as EditingRow),workspace=await readEditingWorkspace(client,sessionId);
       const receipt:SettlementEditingReceipt={sessionId,requestKey:input.requestKey,operation,itemId,workspace,repeated:false};
@@ -43,7 +46,7 @@ async function mutate(sessionId:string,operation:SettlementEditingReceipt["opera
     committing=true;await client.query("COMMIT");return receipt;
   }catch(error){
     let rolledBack=false;try{await client.query("ROLLBACK");rolledBack=true;}catch{/* The write outcome stays unknown. */}
-    if(committing||!rolledBack)throw new SettlementEditingError("服务器未确认保存结果，请保留当前输入，使用原请求核对保存结果，不重复提交。",503,session,undefined,"核对保存回执");
+    if(committing||readingOriginal||!rolledBack)throw new SettlementEditingError(readingOriginal&&error instanceof NewDesignError?error.message:"服务器未确认保存结果，请保留当前输入，使用原请求核对保存结果，不重复提交。",readingOriginal&&error instanceof NewDesignError?error.status:503,session,undefined,"核对保存回执");
     const reported=error instanceof SettlementEditingError?error:error instanceof NewDesignError?new SettlementEditingError(error.message,error.status,session,error.issues):new SettlementEditingError("保存未完成，服务器已确认回滚；请保留输入，修复服务后重新读取清单并明确重新准备。",503,session,undefined,"保存章节清单");
     reported.recovery.mutationOutcome="not_written";reported.recovery.savedResult="本次操作已回滚，未写入；已保存的正文、清单和正式事实，以及当前输入保留。";throw reported;
   }finally{client.release();}

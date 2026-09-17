@@ -5,6 +5,8 @@ import { NewDesignError } from "../../domain/errors";
 import { validateFieldValue } from "../../domain/validation";
 import { validateDictionaryTreeBindings, validateDictionaryTreeValues } from "../treeResources";
 import { stableHash } from "../aiContracts/integrity";
+import {resourceSupplementChangeAlreadyConfirmed} from "../../../common/resourceSupplements";
+import {readFrozenSupplementSource} from "./supplementRead";
 
 export type EditingRow = Record<string, unknown>;
 export class SettlementEditingError extends NewDesignError {
@@ -55,6 +57,12 @@ export async function readBaseline(client:PoolClient,session:EditingRow,kind:"ca
 }
 export function isStateCategory(category:ChapterSettlementDraft["category"]):boolean{return category!=="fact"&&category!=="knowledge";}
 export async function validateEditingDraft(client:PoolClient,session:EditingRow,draft:SettlementEditingDraft,subjects:SettlementSubjectChoice[]):Promise<{draft:SettlementEditingDraft;subject:SettlementSubjectChoice;field:SettlementFieldChoice}> {
+  if(session.adoption_kind==="resource_supplement"){
+    const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];
+    const source=await readFrozenSupplementSource(client,session,String(body?.content_hash??""));
+    const states=(source.basis.original.confirmedSources as {states:Record<string,unknown>[]}).states;
+    if(resourceSupplementChangeAlreadyConfirmed(states,draft))fail(session,"已有确认变化或无变化不能再次纳入补充清单。",409,"draft.afterValue");
+  }
   const kind=draft.subjectKind??"card",id=draft.subjectId??draft.subjectCardId;
   const subject=subjects.find(subject=>subject.id===id&&subject.subjectKind===kind);
   if(!subject)fail(session,"所选变化对象不属于本书，或已停用。",422,"draft.subjectId");

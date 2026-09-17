@@ -27,8 +27,8 @@ export async function lockEditingSession(client:PoolClient,id:string):Promise<Ed
   if(!book||book.status!=="active"||document.status!=="active")fail(session,"本书或章节已归档，不能覆盖已有结果。",409,"sessionId");
   return{...session,adopted_version_id:document.adopted_version_id,logical_order:document.logical_order,document_revision:document.revision};
 }
-export function assertEditingSession(session:EditingRow,revision:number):void {
-  if(session.adoption_kind==="resource_supplement")fail(session,"本章资源补充暂不可提交；请查看原结算和资源来源。原正文与确认记录保留。",503,"sessionId");
+export function assertEditingSession(session:EditingRow,revision:number,candidateContract=false):void {
+  if(session.adoption_kind==="resource_supplement"&&!candidateContract)fail(session,"本章资源补充暂不可提交；请查看原结算和资源来源。原正文与确认记录保留。",503,"sessionId");
   if(Number(session.revision)!==revision)fail(session,"确认清单已被修改，请重新读取清单后核对当前输入。",409,"expectedSessionRevision");
   if(session.adopted_version_id!==session.body_version_id)fail(session,"本章采用正文已切换，当前清单不能覆盖新正文；请重新进入本章结果确认。",409,"bodyVersionId");
   if(!["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(String(session.status)))fail(session,"本章结果已稳定或正在处理，不能覆盖；请重新读取已保存结果。",409,"sessionId");

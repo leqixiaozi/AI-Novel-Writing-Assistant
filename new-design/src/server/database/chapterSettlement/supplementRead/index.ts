@@ -3,6 +3,7 @@ import type { SettlementEditingCatalog } from "../../../../common/chapterSettlem
 import { resourceSupplementStartReceiptSchema, type ResourceSupplementPreview } from "../../../../common/resourceSupplements";
 import { NewDesignError } from "../../../domain/errors";
 import { stableHash } from "../../aiContracts/integrity";
+export {assertResourceSupplementCandidateContract} from "./candidates";
 
 /** Settlement owns its read view. No dependency on supplement creation commands. */
 export async function readFrozenSupplementSource(client: PoolClient, session: Record<string,unknown>, bodyHash: string): Promise<ResourceSupplementPreview> {
