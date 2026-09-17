@@ -104,11 +104,11 @@ test('stable supplement preview and exact original request create only an indepe
   const draft={category:'relationship',title:'已有变化',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:quantity(preview).specificationHash,baselineHash:quantity(preview).baseline.hash,beforeValue:0,afterValue:1,changeValue:1,riskLevel:'low',confidence:0.8,confidenceNote:'',planAlignment:'not_applicable',planExpectation:'',evidenceStart:0,evidenceEnd:2,evidenceLabel:preview.basis.bodyContent.slice(0,2),reason:'候选'};
   assert.throws(()=>prompt.parseOutput({items:[draft],notes:[]}));
  });
- await t.test('manual candidate-only contract uses governed generation and author review while formal history stays closed',async()=>{
+ await t.test('manual candidate-only contract uses governed generation and author review while formal history stays closed',async reviewTests=>{
   const fs=require('node:fs'),path=require('node:path');
   assert.equal((await pool.query('SELECT current_database() name')).rows[0].name,fixture.database);
   assert.match(fixture.database,/^nd_reference_test_[a-f0-9]{32}$/);
-  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql']]){
+  const installer=await pool.connect();try{await installer.query('BEGIN');for(const [id,file] of [['085_character_resource_backfill','085_character_resource_backfill.sql'],['088_stable_resource_supplement_candidates','088_stable_resource_supplement_candidates.sql'],['089_resource_supplement_impact_reviews','089_resource_supplement_impact_reviews.sql']]){
    await installer.query(fs.readFileSync(path.join(__dirname,'../migrations',file),'utf8'));await installer.query('INSERT INTO new_design.schema_migrations(id) VALUES($1)',[id]);
   }await installer.query('COMMIT');}catch(error){await installer.query('ROLLBACK');throw error;}finally{installer.release();}
   const ai=compiled('server/ai/chapterSettlement'),models=compiled('server/database/modelManagement');
@@ -144,9 +144,56 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal(impact.downstreamSource.states[0].change.id,chain.stateChangeId);assert.equal(impact.changes[0].proposalId,workspace.items[0].stateProposalId);
   assert.equal((await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId)).impactHash,impact.impactHash);assert.deepEqual(await counts(),unchanged);
   await assert.rejects(supplements.previewResourceSupplementSettlement(key(),receipt.sessionId),error=>error.status===409);
+  const reviewInput={requestKey:key(),expectedSessionRevision:workspace.session.revision,expectedImpactHash:impact.impactHash,acknowledgedConflictStateChangeIds:[chain.stateChangeId],note:'已核对原0→2与补充后预期前值1；影响确认不会修复下游状态。'};
+  let savedReview;
+  await reviewTests.test('impact review missing conflict acknowledgement writes nothing',async()=>{
+   await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),acknowledgedConflictStateChangeIds:[]}),error=>error.status===422&&error.mutationOutcome==='not_written');
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,0);
+  });
+  await reviewTests.test('impact review lookup interruption remains unknown and insert failure rolls back',async()=>{
+   await fault(sql=>sql.includes('SELECT review_id,book_id,session_id,input_hash'),'rollback',()=>assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput),error=>error.mutationOutcome==='unknown'));
+   await fault(sql=>sql.includes('INSERT INTO new_design.resource_supplement_impact_reviews'),'rollback',()=>assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput),error=>error.mutationOutcome==='not_written'));
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,0);
+  });
+  await reviewTests.test('impact review real commit with lost acknowledgement recovers full original',async()=>{
+   await fault(sql=>sql==='COMMIT','ack_lost',()=>assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput),error=>{assert.equal(error.mutationOutcome,'unknown',error.cause?.stack??error.stack);return true;}));
+   savedReview=await supplements.readResourceSupplementImpactReviewOriginal(book.id,receipt.sessionId,reviewInput);
+   assert.ok(savedReview);assert.deepEqual(savedReview.input,reviewInput);assert.deepEqual(savedReview.impact,impact);assert.equal(savedReview.repeated,true);
+   const repeats=await Promise.all([supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput),supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput)]);
+   assert.ok(repeats.every(row=>row.reviewId===savedReview.reviewId&&row.repeated));
+   await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,note:'同原键修改说明'}),error=>error.mutationOutcome==='unknown');
+   await assert.rejects(supplements.readResourceSupplementImpactReviewOriginal(book.id,key(),reviewInput),error=>error.mutationOutcome==='unknown');
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,1);assert.deepEqual(await counts(),unchanged);
+   await assert.rejects(pool.query('UPDATE new_design.resource_supplement_impact_reviews SET full_input=full_input WHERE review_id=$1',[savedReview.reviewId]),error=>error.code==='23514');
+   await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_impact_reviews WHERE review_id=$1',[savedReview.reviewId]),error=>error.code==='23514');
+  });
+  await reviewTests.test('actual SQL rejects a rehashed fake compatible chain or omitted downstream sources',async()=>{
+   const {stable,stableHash}=compiled('server/database/aiContracts/integrity');
+   for(const modify of [r=>{r.impact.stateChain[0].reason='compatible';r.input.acknowledgedConflictStateChangeIds=[];},r=>{r.impact.downstreamSource.states=[];r.impact.stateChain=[];r.input.acknowledgedConflictStateChangeIds=[];},r=>{r.impact.downstreamSource.chapters=[];}]){
+    const r=structuredClone(savedReview);r.reviewId=key();r.input.requestKey=key();r.repeated=false;modify(r);
+    delete r.impact.impactHash;r.impact.impactHash=stableHash(r.impact);r.input.expectedImpactHash=r.impact.impactHash;
+    const requestFrame={contract:r.contract,bookId:book.id,sessionId:receipt.sessionId,input:r.input};r.inputHash=stableHash(requestFrame);
+    const {impactHash,...frame}=r.impact;
+    await assert.rejects(pool.query(`INSERT INTO new_design.resource_supplement_impact_reviews(review_id,book_id,session_id,request_key,session_revision,full_input,input_hash,canonical_input,impact_snapshot,impact_hash,canonical_impact,original_receipt)
+      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12::jsonb)`,[r.reviewId,book.id,receipt.sessionId,r.input.requestKey,r.sessionRevision,JSON.stringify(r.input),r.inputHash,stable(requestFrame),JSON.stringify(r.impact),impactHash,stable(frame),JSON.stringify(r)]),error=>error.code==='23514');
+   }
+   const checker=await pool.connect();try{await checker.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+    assert.equal((await supplements.readResourceSupplementImpactReviewForSettlementInTransaction(checker,book.id,receipt.sessionId,savedReview.reviewId,impact)).reviewId,savedReview.reviewId);
+   }finally{await checker.query('ROLLBACK');checker.release();}
+   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_impact_reviews')).rows[0].n,1);assert.deepEqual(await counts(),unchanged);
+  });
   let nextPlan=await fixture.planning.addPlanningVersion(second.object.id,{content:{...fixture.planContent,notes:'下游预览后另行采用的新计划'},source:'manual',executionMode:'ai_assisted',basedOnParentVersionId:fixture.volume.adoptedVersionId,references:[],expectedRevision:second.object.revision,idempotencyKey:key()});
   nextPlan=await fixture.planning.adoptPlanningVersion(nextPlan.id,{versionId:nextPlan.currentVersionId,expectedRevision:nextPlan.revision,idempotencyKey:key()});
   const refreshed=await supplements.previewResourceSupplementSettlement(book.id,receipt.sessionId);assert.notEqual(refreshed.impactHash,impact.impactHash);assert.equal(refreshed.downstreamSource.chapters[0].adopted_plan.id,nextPlan.adoptedVersionId);assert.equal(refreshed.downstreamSource.chapters[0].body_plan.id,second.object.adoptedVersionId);
+  await reviewTests.test('changed downstream plan invalidates a new review and preserves the complete saved one',async()=>{
+   await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key()}),error=>error.status===409&&error.mutationOutcome==='not_written');
+   assert.deepEqual((await supplements.readResourceSupplementImpactReviewOriginal(book.id,receipt.sessionId,reviewInput)).impact,impact);
+   const checker=await pool.connect();try{await checker.query('BEGIN');
+    await assert.rejects(supplements.readResourceSupplementImpactReviewForSettlementInTransaction(checker,book.id,receipt.sessionId,savedReview.reviewId,refreshed),error=>error.status===409);
+   }finally{await checker.query('ROLLBACK');checker.release();}
+   const fresh=await supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),expectedImpactHash:refreshed.impactHash});
+   assert.deepEqual(fresh.impact,refreshed);assert.equal(fresh.impact.stateChain[0].reason,'before_conflict');assert.deepEqual(await counts(),unchanged);
+  });
   const verifier=await pool.connect();try{await verifier.query('BEGIN');await verifier.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[impact.downstreamSource.states[0].change.text_anchor_id]);
    await assert.rejects(supplements.previewResourceSupplementSettlementInTransaction(verifier,book.id,receipt.sessionId),error=>error.status===409);
   }finally{await verifier.query('ROLLBACK');verifier.release();}
@@ -154,6 +201,12 @@ test('stable supplement preview and exact original request create only an indepe
   assert.equal((await pool.query('SELECT value_json FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0].value_json,2);
   await assert.rejects(settlement.commitChapterSettlementEditing(receipt.sessionId,{expectedSessionRevision:workspace.session.revision,requestKey:key(),note:'下游尚未复核'}),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.chapter_settlements WHERE supplement_base_checkpoint_id IS NOT NULL')).rows[0].n,0);
+  await reviewTests.test('review deactivation retains receipts and forbids new writes without clearing any source conflict',async()=>{
+   await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/089_resource_supplement_impact_reviews.sql'),'utf8'));
+   assert.equal((await supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,reviewInput)).reviewId,savedReview.reviewId);
+   await assert.rejects(supplements.confirmResourceSupplementSettlementImpact(book.id,receipt.sessionId,{...reviewInput,requestKey:key(),expectedImpactHash:refreshed.impactHash}),error=>error.status===503&&error.mutationOutcome==='not_written');
+   assert.deepEqual((await supplements.readResourceSupplementImpactReviewOriginal(book.id,receipt.sessionId,reviewInput)).impact,impact);assert.deepEqual(await counts(),unchanged);
+  });
   const actorView=await fixture.cards.getCard(actor.id);
   await fixture.cards.updateCard(actor.id,{title:actorView.title+'资料更新',values:actorView.values,revision:actorView.revision});
   await assert.rejects(ai.runChapterSettlementAiExtraction(receipt.sessionId,{...request,requestKey:key(),expectedSessionRevision:workspace.session.revision},{fetcher}),error=>error.status===409&&error.modelRequestState==='not_sent');assert.equal(calls,1);
