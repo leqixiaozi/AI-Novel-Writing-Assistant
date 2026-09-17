@@ -31,7 +31,33 @@ async function requireStateKey(client:PoolClient,bookId:string,subjectKind:State
 export async function getInitialState(id:string):Promise<EntityInitialState>{const pool=await getNewDesignPool(),row=assertFound((await pool.query("SELECT * FROM new_design.entity_initial_states WHERE id=$1",[id])).rows[0],"初始状态不存在。"),versions=await pool.query("SELECT * FROM new_design.entity_initial_state_versions WHERE initial_state_id=$1 ORDER BY version DESC",[id]),mapped=versions.rows.map(mapInitialVersion),current=assertFound(mapped.find((item)=>item.id===String(row.current_version_id)),"初始状态当前版本不存在。");return{id:String(row.id),bookId:String(row.book_id),subjectKind:row.subject_kind,subjectId:String(row.subject_id),stateKey:String(row.state_key),currentVersionId:current.id,revision:Number(row.revision),currentValue:current.value,versions:mapped,createdAt:asDate(row.created_at),updatedAt:asDate(row.updated_at)};}
 export async function listInitialStates(bookId:string):Promise<EntityInitialState[]>{const rows=await(await getNewDesignPool()).query("SELECT id FROM new_design.entity_initial_states WHERE book_id=$1 ORDER BY subject_kind,subject_id,state_key",[bookId]);return Promise.all(rows.rows.map((row)=>getInitialState(String(row.id))));}
 
-async function rebuildProjectionKey(client:PoolClient,key:{bookId:string;subjectKind:StateSubjectKind;subjectId:string;stateKey:string}):Promise<void>{const change=(await client.query("SELECT * FROM new_design.state_changes WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4 AND status='active' ORDER BY effective_story_order DESC NULLS LAST,sequence DESC LIMIT 1",[key.bookId,key.subjectKind,key.subjectId,key.stateKey])).rows[0];const initial=change?null:(await client.query("SELECT version.* FROM new_design.entity_initial_states state JOIN new_design.entity_initial_state_versions version ON version.id=state.current_version_id WHERE state.book_id=$1 AND state.subject_kind=$2 AND state.subject_id=$3 AND state.state_key=$4",[key.bookId,key.subjectKind,key.subjectId,key.stateKey])).rows[0];if(!change&&!initial){await client.query("DELETE FROM new_design.current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4",[key.bookId,key.subjectKind,key.subjectId,key.stateKey]);return;}await client.query("INSERT INTO new_design.current_state_projections(book_id,subject_kind,subject_id,state_key,value_json,source_initial_version_id,source_state_change_id,is_stale) VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,false) ON CONFLICT(book_id,subject_kind,subject_id,state_key) DO UPDATE SET value_json=EXCLUDED.value_json,source_initial_version_id=EXCLUDED.source_initial_version_id,source_state_change_id=EXCLUDED.source_state_change_id,projection_revision=current_state_projections.projection_revision+1,is_stale=false,rebuilt_at=now()",[key.bookId,key.subjectKind,key.subjectId,key.stateKey,stable(change?change.after_json:initial.value_json),initial?.id??null,change?.id??null]);}
+async function rebuildProjectionKey(client:PoolClient,key:{bookId:string;subjectKind:StateSubjectKind;subjectId:string;stateKey:string}):Promise<void>{
+  // A supplemental record is inserted later in real time but still belongs to
+  // its original chapter. Never let its larger sequence replace a later chapter.
+  const change=(await client.query(`SELECT change.* FROM new_design.state_changes change
+    JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id AND document.book_id=change.book_id
+      AND document.status='active' AND document.adopted_version_id=change.body_version_id
+    JOIN new_design.chapter_body_versions body ON body.id=change.body_version_id AND body.chapter_document_id=document.id AND body.archived_at IS NULL
+    JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id AND settlement.book_id=change.book_id
+      AND settlement.chapter_document_id=document.id AND settlement.body_version_id=change.body_version_id AND settlement.status='committed'
+    JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id AND proposal.book_id=change.book_id
+      AND proposal.chapter_document_id=document.id AND proposal.body_version_id=change.body_version_id
+      AND proposal.status='confirmed' AND proposal.confirmed_state_change_id=change.id
+      AND proposal.subject_kind=change.subject_kind AND proposal.subject_id=change.subject_id AND proposal.state_key=change.state_key
+      AND proposal.before_json IS NOT DISTINCT FROM change.before_json AND proposal.after_json IS NOT DISTINCT FROM change.after_json
+    WHERE change.book_id=$1 AND change.subject_kind=$2 AND change.subject_id=$3 AND change.state_key=$4 AND change.status='active'
+    ORDER BY coalesce(change.effective_story_order,document.logical_order) DESC,document.logical_order DESC,change.sequence DESC LIMIT 1`,
+    [key.bookId,key.subjectKind,key.subjectId,key.stateKey])).rows[0];
+  const initial=change?null:(await client.query(`SELECT version.* FROM new_design.entity_initial_states state
+    JOIN new_design.entity_initial_state_versions version ON version.id=state.current_version_id
+    WHERE state.book_id=$1 AND state.subject_kind=$2 AND state.subject_id=$3 AND state.state_key=$4`,[key.bookId,key.subjectKind,key.subjectId,key.stateKey])).rows[0];
+  if(!change&&!initial){await client.query('DELETE FROM new_design.current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4',[key.bookId,key.subjectKind,key.subjectId,key.stateKey]);return;}
+  await client.query(`INSERT INTO new_design.current_state_projections(book_id,subject_kind,subject_id,state_key,value_json,source_initial_version_id,source_state_change_id,is_stale)
+    VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,false) ON CONFLICT(book_id,subject_kind,subject_id,state_key) DO UPDATE SET value_json=EXCLUDED.value_json,
+      source_initial_version_id=EXCLUDED.source_initial_version_id,source_state_change_id=EXCLUDED.source_state_change_id,
+      projection_revision=current_state_projections.projection_revision+1,is_stale=false,rebuilt_at=now()`,
+    [key.bookId,key.subjectKind,key.subjectId,key.stateKey,stable(change?change.after_json:initial.value_json),initial?.id??null,change?.id??null]);
+}
 
 export async function saveInitialState(input:import("../../common/storyWorkspace").InitialStateWriteInput):Promise<EntityInitialState>{return saveInitialStateWithReceipt(await getNewDesignPool(),input,{requireStateKey,rebuildProjectionKey,getInitialState});}
 

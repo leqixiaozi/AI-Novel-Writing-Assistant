@@ -217,6 +217,9 @@ test('stable supplement preview and exact original request create only an indepe
     assert.equal(context.previousCheckpoint.id,merged.checkpointId);assert.deepEqual(context.previousCheckpoint.summary.confirmed,merged.confirmed);
     assert.deepEqual(context.confirmedFacts.map(row=>row.id),merged.confirmed.facts);assert.deepEqual(context.knowledgeChanges.map(row=>row.id),merged.confirmed.knowledge);
     assert.ok(context.recentStateChanges.some(row=>row.id===preview.basis.confirmed.states[0]));assert.ok(context.recentStateChanges.some(row=>row.id===merged.newStateChangeIds[0]&&row.afterValue===1));
+    await state.rebuildStateProjectionInTransaction(merger,{bookId:book.id,subjectKind:'relation',subjectId:relationId,stateKey:'quantity'});
+    const projection=(await merger.query('SELECT * FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key=$3',[book.id,relationId,'quantity'])).rows[0];
+    assert.equal(projection.value_json,2);assert.equal(projection.source_state_change_id,chain.stateChangeId);
     await assert.rejects(merger.query('SET CONSTRAINTS new_design.chapter_resource_supplement_closure_required IMMEDIATE'),error=>error.code==='23514'&&/downstream closure is not operational/.test(error.message));
    }finally{await merger.query('ROLLBACK');merger.release();}
    assert.deepEqual(await originalRows(),originalSnapshot);assert.deepEqual(await counts(),unchanged);
