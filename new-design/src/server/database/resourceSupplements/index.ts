@@ -12,3 +12,5 @@ export {startResourceSupplementCorrection,startResourceSupplementCorrectionInTra
 export {commitResourceSupplement,readResourceSupplementCommitOriginal} from './committing';
 export {readFrozenResourceSupplementCorrectionInTransaction} from './correcting';
 export {commitResourceSupplementCorrection,readResourceSupplementCorrectionCommitOriginal} from './correctiveCommitting';
+export {getResourceSupplementSource,getResourceSupplementChapterBasis,listResourceSupplementIssues,getResourceSupplementIssueSource} from './sourcePages';
+export {previewResourceSupplementCorrection} from './sourcePages';

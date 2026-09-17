@@ -1,6 +1,7 @@
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {characterResourcesRouter} from "./characterResources";
+import {resourceSupplementsRouter} from './resourceSupplements';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import {referenceParityRouter} from "./referenceParity";
 import { homeRouter } from "./home";
@@ -423,6 +424,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(chapterProductionRouter());
   router.use(createWorldCharacterMaintenanceRouter());
   router.use(characterResourcesRouter());
+  router.use(resourceSupplementsRouter());
   router.use(characterExperiencesRouter(dependencies.ai));
   router.use(characterImportWriteRouter());
   router.use(visualAssetsRouter());

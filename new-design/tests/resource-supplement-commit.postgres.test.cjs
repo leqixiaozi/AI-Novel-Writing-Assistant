@@ -1,5 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto'),fs=require('node:fs'),path=require('node:path');
 const {compiled}=require('./support/isolatedDatabase.cjs'),{resourceSupplementFixture}=require('./support/resourceSupplementFixture.cjs');
+const {resourceSupplementHttp}=require('./support/resourceSupplementHttp.cjs');
 const key=()=>randomUUID(),field=(key,name,type)=>({key,name,type,description:'正式资源维度',required:false,defaultValue:null,options:[],group:'资源',order:1,aiSuggestible:true});
 test('actual independently committed supplement fences its real downstream source and creates a separately recoverable correction',async t=>{
  const fixture=await resourceSupplementFixture(t,[['087','stable_resource_supplements'],['085','character_resource_backfill'],['088','stable_resource_supplement_candidates'],['089','resource_supplement_impact_reviews'],['090','resource_supplement_integrity'],['091','resource_supplement_correction_origins']].map(([n,name])=>({id:`${n}_${name}`,fileName:`${n}_${name}.sql`})));
@@ -15,8 +16,9 @@ test('actual independently committed supplement fences its real downstream sourc
   return[{category:'relationship',title:'后续章确认数量',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:choice.specificationHash,baselineHash:choice.baseline.hash,beforeValue:choice.baseline.value,afterValue:2,changeValue:2,riskLevel:'medium',evidenceStart:0,evidenceEnd:content.length,evidenceLabel:content,reason:'明确确认原后续章'}];
  });
  const quantity=preview=>preview.catalog.subjects.find(item=>item.id===relationId).fields.find(item=>item.key==='quantity');
- const preview=await supplements.previewResourceSupplement(book.id,{checkpointId:first.checkpoint.id,resourceScope:scope});
- const startInput={...preview.input,requestKey:key(),expectedSourceHash:preview.sourceHash},start=await supplements.startResourceSupplement(book.id,startInput);
+ const http=await resourceSupplementHttp(t),httpBase=`/books/${book.id}/resource-supplements`;
+ const preview=await http.get(`${httpBase}/preview${http.query({checkpointId:first.checkpoint.id,resourceScope:scope})}`);
+ const startInput={...preview.input,requestKey:key(),expectedSourceHash:preview.sourceHash},start=await http.post(httpBase,startInput);
  let workspace=await settlement.getChapterSettlementEditingWorkspace(start.sessionId);
  const added=await settlement.createChapterSettlementEditingItem(start.sessionId,{requestKey:key(),expectedSessionRevision:workspace.session.revision,actor:'isolated_author',draft:{category:'relationship',title:'补充遗漏资源数量',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:quantity(preview).specificationHash,baselineHash:quantity(preview).baseline.hash,beforeValue:0,afterValue:1,changeValue:1,riskLevel:'low',evidenceStart:0,evidenceEnd:first.content.length,evidenceLabel:first.content,reason:'作者核对实际原正文'}});workspace=added.workspace;
  workspace=(await settlement.decideChapterSettlementEditingItems(start.sessionId,{requestKey:key(),expectedSessionRevision:workspace.session.revision,decisions:[{itemId:workspace.items[0].id,expectedRevision:workspace.items[0].revision,decision:'confirm',note:'明确核对正文及数量'}],actor:'isolated_author'})).workspace;
@@ -232,6 +234,22 @@ test('actual independently committed supplement fences its real downstream sourc
     assert.ok(continuity.sources.some(row=>row.type==='state_change'&&row.stableId===correctionFormalReceipt.merged.newStateChangeIds[0]));
   }finally{client.release();}
   await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_integrity_resolutions WHERE issue_id=$1',[receipt.issues[0].issue_id]),error=>error.code==='23514');
+ });
+ await t.test('real source HTTP reads preserve complete originals without importing, resolving or changing rows',async()=>{
+  const prior=await counts();
+  assert.equal((await http.get(`${httpBase}/sessions/${start.sessionId}/source`)).contract,'stable_resource_supplement_preview_v1');
+  const corrective=await http.get(`${httpBase}/sessions/${correctionReceipt.sessionId}/source`);assert.equal(corrective.contract,'stable_resource_correction_preview_v1');assert.equal(corrective.correction.beforeValue,1);
+  assert.deepEqual(await http.get(`${httpBase}/original${http.query(startInput)}`),{...start,repeated:true});
+  assert.deepEqual(await http.get(`${httpBase}/corrections/original${http.query(correctionCommand)}`),correctionReceipt);
+  assert.deepEqual(await http.get(`${httpBase}/sessions/${start.sessionId}/commit-original${http.query(command)}`),receipt);
+  assert.deepEqual(await http.get(`${httpBase}/sessions/${correctionReceipt.sessionId}/correction-commit-original${http.query(correctionFormalCommand)}`),correctionFormalReceipt);
+  assert.equal((await http.get(`${httpBase}/chapters/${second.document.id}`)).checkpointId,correctionFormalReceipt.merged.checkpointId);
+  assert.deepEqual(await http.get(`${httpBase}/characters/${actor.id}/issues`),[]);
+  assert.equal((await http.get(`${httpBase}/issues/${receipt.issues[0].issue_id}`)).issue.issue_id,receipt.issues[0].issue_id);
+  assert.deepEqual(await counts(),prior);
+  const foreign=`/books/${key()}/resource-supplements/sessions/${correctionReceipt.sessionId}/source`,missing=await http.raw('GET',foreign);assert.equal(missing.status,404);assert.match((await missing.json()).recovery.sourceRoute,/^\/new-design\/books\//);
+  const malformed=await http.raw('POST',`${httpBase}/sessions/${correctionReceipt.sessionId}/correction-commit`,{...correctionFormalCommand,expectedSessionRevision:0});assert.equal(malformed.status,422);assert.equal((await malformed.json()).recovery.mutationOutcome,'not_written');
+  assert.deepEqual(await counts(),prior);
  });
  await t.test('deactivation and archive preserve full formal and correction originals and healthy proven source',async()=>{
   await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_formal_commits WHERE settlement_id=$1',[receipt.merged.settlementId]),error=>error.code==='23514');
