@@ -101,3 +101,20 @@ export async function readResourceSupplementCorrectionStartOriginal(bookId:strin
     throw new ResourceSupplementError(error instanceof NewDesignError?error.message:'原修正结果未确认，请保留原键和完整输入核对。',error instanceof NewDesignError?error.status:503,'unknown');
   }finally{client.release();}
 }
+/** Independent command over a committed actual conflict. No model, candidate,
+ * formal correction or resolution; full original is read before the write gate. */
+export async function startResourceSupplementCorrection(bookId:string,raw:ResourceSupplementCorrectionStartInput):Promise<ResourceSupplementCorrectionStartReceipt>{
+  z.string().uuid().parse(bookId);const input=resourceSupplementCorrectionStartInputSchema.parse(raw);
+  const client=await getNewDesignPool().then(pool=>pool.connect()).catch(()=>{throw new ResourceSupplementError('原修正结果未能读取，请保留原键和完整输入核对。',503,'unknown');});
+  const locks=[`resource-supplement:${bookId}:${input.requestKey}`,`chapter_settlement_editing_book:${bookId}`];let readingOriginal=true,committing=false;
+  try{
+    for(const lock of locks)await client.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[lock]);
+    await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');await storage(client,false);
+    const saved=await original(client,bookId,input);readingOriginal=false;if(saved){await client.query('ROLLBACK');return saved;}
+    const receipt=await startResourceSupplementCorrectionInTransaction(client,bookId,input);committing=true;await client.query('COMMIT');return receipt;
+  }catch(error){let rolledBack=false;try{await client.query('ROLLBACK');rolledBack=true;}catch{/* Keep unknown. */}
+    if(error instanceof ResourceSupplementError)throw error;
+    const reported=new ResourceSupplementError(error instanceof NewDesignError?error.message:'修正创建结果未确认，请保留原键和完整输入核对。',error instanceof NewDesignError?error.status:503,readingOriginal||committing||!rolledBack?'unknown':'not_written');
+    Object.defineProperty(reported,'cause',{value:error});throw reported;
+  }finally{let broken=false;for(const lock of [...locks].reverse())try{await client.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[lock]);}catch{broken=true;}client.release(broken);}
+}

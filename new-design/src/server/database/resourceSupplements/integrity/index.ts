@@ -5,8 +5,8 @@ import type {ResourceSupplementMergedWrite} from '../../chapterSettlement';
 import {NewDesignError} from '../../../domain/errors';
 import {stable,stableHash} from '../../aiContracts/integrity';
 
-/** Internal transaction foundation. Does not make 087 committable or resolve an
- * issue. Journal, source fence, merged state and the future receipt must be atomic. */
+/** Transaction-owned journal. It cannot publish or resolve an issue by itself.
+ * Journal, source fence, merged state and the full formal receipt must be atomic. */
 export async function recordResourceSupplementIntegrityInTransaction(client:PoolClient,bookId:string,merged:ResourceSupplementMergedWrite,impact:ResourceSupplementSettlementImpact):Promise<{settlementId:string;issueIds:string[]}>{
   const marker=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='090_resource_supplement_integrity'
     AND position('resource_supplement_integrity_v1' IN coalesce(pg_get_functiondef(to_regprocedure('new_design.validate_resource_supplement_integrity_journal()')),''))>0`);

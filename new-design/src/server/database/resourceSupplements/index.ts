@@ -8,4 +8,5 @@ export {recordResourceSupplementIntegrityInTransaction} from './integrity';
 export {readResourceSupplementCorrectionBasisInTransaction} from './integrity/correctionBasis';
 export {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './integrity/sourceFence';
 export {previewResourceSupplementCorrectionInTransaction} from './integrity/correctionPreview';
-export {startResourceSupplementCorrectionInTransaction,readResourceSupplementCorrectionStartOriginal,readResourceSupplementCorrectionStartOriginalInTransaction} from './correcting';
+export {startResourceSupplementCorrection,startResourceSupplementCorrectionInTransaction,readResourceSupplementCorrectionStartOriginal,readResourceSupplementCorrectionStartOriginalInTransaction} from './correcting';
+export {commitResourceSupplement,readResourceSupplementCommitOriginal} from './committing';

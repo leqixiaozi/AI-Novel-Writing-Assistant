@@ -13,9 +13,10 @@ export interface ResourceSupplementMergedWrite {
   sessionId:string;settlementId:string;checkpointId:string;baseCheckpointId:string;bodyVersionId:string;
   newStateChangeIds:string[];confirmed:{facts:string[];knowledge:string[];states:string[]};reviewId:string;impactHash:string;
 }
-/** Transaction-owned infrastructure only. NOT a command or a committable flow:
- * 087 still unconditionally rejects COMMIT until the real downstream closure
- * and complete original commit receipt exist. Never disable that guard to test. */
+/** Transaction-owned writer only. It cannot publish a partial merge. Plain 087
+ * rejects COMMIT; explicit manual 092 requires the actual downstream journal,
+ * projection/source fences, semantic sources and complete original commit receipt.
+ * The resource supplement commit owner must close that same physical transaction. */
 export async function writeResourceSupplementMergedSettlementInTransaction(client:PoolClient,bookId:string,sessionId:string,raw:Input):Promise<ResourceSupplementMergedWrite>{
   z.string().uuid().parse(bookId);z.string().uuid().parse(sessionId);const input=inputSchema.parse(raw);
   if((await client.query('SHOW transaction_isolation')).rows[0].transaction_isolation!=='serializable')throw new NewDesignError('资源补充合并需要同一完整来源事务。',409);
@@ -60,8 +61,8 @@ export async function writeResourceSupplementMergedSettlementInTransaction(clien
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)`,[checkpointId,bookId,basis.chapterDocumentId,basis.bodyVersionId,sessionId,settlementId,basis.checkpointId,basis.chapterOrder,
       JSON.stringify(mergedSummary),stableHash({sessionId,settlementId,bodyVersionId:basis.bodyVersionId,summary:mergedSummary})]);
     await registerResourceSupplementStateSourcesInTransaction(client,bookId,basis.chapterDocumentId,settlementId,newStateChangeIds);
-    // Projections and downstream journals/fences are deliberately owned by the
-    // still-missing closure command. Do not publish a partial merged result.
+    // Projections, downstream journals/fences and the full formal original belong
+    // to the resource supplement commit command in this same transaction.
     await client.query("UPDATE new_design.chapter_adoption_sessions SET settlement_id=$2,status='stable',revision=revision+1,error_summary='',updated_at=now() WHERE id=$1",[sessionId,settlementId]);
     const result:ResourceSupplementMergedWrite={sessionId,settlementId,checkpointId,baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,newStateChangeIds,confirmed,reviewId:review.reviewId,impactHash:impact.impactHash};
     await client.query(`INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,from_status,to_status,idempotency_key,actor,detail)
