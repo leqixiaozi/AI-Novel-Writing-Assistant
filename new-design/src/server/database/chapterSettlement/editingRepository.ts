@@ -27,6 +27,7 @@ export async function lockEditingSession(client:PoolClient,id:string):Promise<Ed
   return{...session,adopted_version_id:document.adopted_version_id,logical_order:document.logical_order,document_revision:document.revision};
 }
 export function assertEditingSession(session:EditingRow,revision:number):void {
+  if(session.adoption_kind==="resource_supplement")fail(session,"本章资源补充暂不可提交；请查看原结算和资源来源。原正文与确认记录保留。",503,"sessionId");
   if(Number(session.revision)!==revision)fail(session,"确认清单已被修改，请重新读取清单后核对当前输入。",409,"expectedSessionRevision");
   if(session.adopted_version_id!==session.body_version_id)fail(session,"本章采用正文已切换，当前清单不能覆盖新正文；请重新进入本章结果确认。",409,"bodyVersionId");
   if(!["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(String(session.status)))fail(session,"本章结果已稳定或正在处理，不能覆盖；请重新读取已保存结果。",409,"sessionId");
@@ -94,7 +95,7 @@ export async function readEditingWorkspace(client:PoolClient,sessionId:string):P
   const itemSpecifications:SettlementItemEditingMetadata[]=[];
   for(const item of base.items)itemSpecifications.push(await itemMetadata(client,session,item,catalog));
   if(!base.candidate.isAdopted)for(const metadata of itemSpecifications){metadata.editable=false;metadata.unavailableReason="本章采用正文已切换，旧清单仅供核对；请重新进入当前正文的结果确认。";}
-  return{...base,catalog,itemSpecifications,blockedReason:session.status==="impact_review_required"?"候选正文需要先核对切换影响；当前会话仅供查看，不能提交变化。":!base.candidate.isAdopted?"本章采用正文已切换，旧清单不能覆盖当前正文；请回到当前正文重新准备结果确认。":null,aiCapability:{configured:false,taskKey:null,taskContractVersionId:null,message:"正文变化提取需专属受控执行能力；正式清单可手工填写并核对。"},aiDisabled:{reason:"正文变化提取尚未接入专属受控执行链。",sourceRoute:"/new-design/structure/models",actionLabel:"打开模型设置"}};
+  return{...base,catalog,itemSpecifications,blockedReason:session.adoption_kind==="resource_supplement"?"本章资源补充暂不可提交；请查看原结算和资源来源。原正文与确认记录保留。":session.status==="impact_review_required"?"候选正文需要先核对切换影响；当前会话仅供查看，不能提交变化。":!base.candidate.isAdopted?"本章采用正文已切换，旧清单不能覆盖当前正文；请回到当前正文重新准备结果确认。":null,aiCapability:{configured:false,taskKey:null,taskContractVersionId:null,message:"正文变化提取需专属受控执行能力；正式清单可手工填写并核对。"},aiDisabled:{reason:"正文变化提取尚未接入专属受控执行链。",sourceRoute:"/new-design/structure/models",actionLabel:"打开模型设置"}};
 }
 export async function receiptByKey(client:PoolClient,sessionId:string,key:string):Promise<{inputHash:string;receipt:SettlementEditingReceipt}|null>{
   const row=(await client.query("SELECT editing_input_hash,editing_receipt FROM new_design.chapter_settlement_events WHERE session_id=$1 AND editing_request_key=$2",[sessionId,key])).rows[0];
