@@ -1,0 +1,11 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+test('actual full-router reads, missing sources and invalid unrelated writes preserve queued and running research',async t=>{
+ const {pool,database}=await isolatedDatabase(t);t.diagnostic(`Isolated database retained: ${database}`);
+ const market=compiled('server/database/marketStore'),sources=compiled('server/research/marketService').listMarketSources(),queued=await market.beginMarketScan({sources:[sources[0]]}),running=await market.beginMarketScan({sources:[sources[0]]});await pool.query("UPDATE new_design.research_record_versions SET run_status='running',progress=37 WHERE id=$1",[running.versionId]);
+ const snapshot=async()=>JSON.parse(JSON.stringify({rows:(await pool.query('SELECT * FROM new_design.research_record_versions ORDER BY id')).rows,counts:(await pool.query('SELECT (SELECT count(*) FROM new_design.ai_tasks) tasks,(SELECT count(*) FROM new_design.card_versions) versions,(SELECT count(*) FROM new_design.research_record_versions) research')).rows[0]})),before=await snapshot();
+ const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());const server=app.listen(0,'127.0.0.1');await new Promise((resolve,reject)=>{server.once('listening',resolve);server.once('error',reject);});
+ try{const base=`http://127.0.0.1:${server.address().port}/api/new-design`;for(let pass=0;pass<2;pass++)for(const path of ['/card-types','/research/market/sources','/research/records',`/research/records/${queued.recordId}`,`/research/market/scans/${running.recordId}`]){const response=await fetch(base+path);assert.equal(response.status,200,path);assert.equal((await response.json()).success,true);}
+ assert.equal((await fetch(`${base}/research/records/${randomUUID()}`)).status,404);assert.equal((await fetch(`${base}/cards`,{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).status,422);assert.equal((await fetch(`${base}/missing-source`)).status,404);assert.deepEqual(await snapshot(),before);
+ }finally{await new Promise(resolve=>server.close(resolve));}
+});

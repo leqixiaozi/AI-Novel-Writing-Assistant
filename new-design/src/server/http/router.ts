@@ -116,7 +116,7 @@ import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
 import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
 import { resolvePublicationExportDownload } from "../publicationExport";
-import { ensureResearchRecovery, getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
+import { getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
 import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, readAiRunPreviewByRequest, readAiRunSubmissionByRequest, submitAiRunPreview } from "../database/aiRunOrchestration";
@@ -401,7 +401,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   const router = Router();
   router.use(bookshelfMutationFence());
   router.use(bookshelfWritableGuard());
-  // Home reads precede research recovery and never resume work by visiting a page.
+  // Visiting a source or home page must never resume research work.
   router.use("/home", homeRouter());
   router.use(bookshelfRouter());
   router.use("/models",modelSettingsRouter());
@@ -435,8 +435,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/structure-write-receipts/:kind/:key",asyncRoute(async(req,res)=>{
     success(res,await readStructureWriteReceipt(z.enum(['form','template']).parse(req.params.kind),structureRequestKeySchema.parse(req.params.key)));
   }));
-  // Original-request reads must precede the research recovery middleware: checking
-  // an uncertain receipt must not recover runs, create tasks or invoke models.
+  // Checking an uncertain receipt must not recover runs, create tasks or invoke models.
   router.get("/research/market/analyses/by-key/:requestKey",asyncRoute(async(req,res)=>{
     const scope=z.object({scanRecordId:z.string().uuid(),requestKey:z.string().uuid()}).parse({scanRecordId:req.query.scanRecordId,requestKey:req.params.requestKey});
     success(res,await getMarketAnalysisByKey(scope.scanRecordId,scope.requestKey));
@@ -450,7 +449,6 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
     success(res,await readAiRunSubmissionByRequest(scope.bookId,scope.requestKey));
   }));
   router.use(storyWorkspaceRouter(dependencies.ai));
-  router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
   router.use(businessFormAiRouter(dependencies.ai));
 
   router.get("/health", asyncRoute(async (_req, res) => {
