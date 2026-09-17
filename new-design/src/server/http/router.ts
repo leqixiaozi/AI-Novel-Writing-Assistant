@@ -1,5 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import { homeRouter } from "./home";
+import {bookshelfRouter,bookshelfMutationFence,bookshelfWritableGuard} from './bookshelf';
 import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
@@ -394,8 +395,11 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
+  router.use(bookshelfMutationFence());
+  router.use(bookshelfWritableGuard());
   // Home reads precede research recovery and never resume work by visiting a page.
   router.use("/home", homeRouter());
+  router.use(bookshelfRouter());
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
   router.use(chapterSettlementEditingRouter());
