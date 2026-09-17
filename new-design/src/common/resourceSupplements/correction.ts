@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {resourceSupplementPreviewInputSchema,type StableResourceSupplementBasis,type ResourceSupplementPreview} from './index';
+import type {SettlementEditingCatalog} from '../chapterSettlementEditing';
 export const resourceSupplementCorrectionPreviewInputSchema=resourceSupplementPreviewInputSchema.omit({checkpointId:true}).extend({issueId:z.string().uuid()}).strict();
 export type ResourceSupplementCorrectionPreviewInput=z.infer<typeof resourceSupplementCorrectionPreviewInputSchema>;
 export interface ResourceSupplementCorrectionBasis {
@@ -26,3 +27,12 @@ export const resourceSupplementCorrectionStartReceiptSchema=z.object({
   &&value.baseCheckpointId===value.input.checkpointId&&value.sourceHash===value.input.expectedSourceHash
   &&value.sourceRoute===`/new-design/books/${value.bookId}/writing?chapterDocument=${value.chapterDocumentId}&session=${value.sessionId}&resourceIssue=${value.issueId}`);
 export type ResourceSupplementCorrectionStartReceipt=z.infer<typeof resourceSupplementCorrectionStartReceiptSchema>;
+export type ResourceSupplementFrozenSource=ResourceSupplementPreview|ResourceSupplementCorrectionPreview;
+/** The full source remains frozen. Operations are limited to its proven issue field. */
+export function resourceCorrectionCandidateCatalog(source:ResourceSupplementCorrectionPreview,sessionId:string,sessionRevision:number):SettlementEditingCatalog{
+  const bound=source.correction;
+  const subjects=source.catalog.subjects.filter(subject=>subject.subjectKind===bound.subjectKind&&subject.id===bound.subjectId)
+    .map(subject=>({...subject,fields:subject.fields.filter(field=>field.key===bound.stateKey)}));
+  if(subjects.length!==1||subjects[0]?.fields.length!==1)throw new Error('修正清单必须保留唯一的实际冲突字段。');
+  return {...source.catalog,sessionId,sessionRevision,subjects};
+}

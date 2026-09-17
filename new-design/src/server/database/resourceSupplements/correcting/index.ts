@@ -91,6 +91,20 @@ export async function readResourceSupplementCorrectionStartOriginalInTransaction
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`resource-supplement:${bookId}:${input.requestKey}`]);
   return original(client,bookId,input);
 }
+/** Saved complete frame, never reconstructed from current publication or state. */
+export async function readFrozenResourceSupplementCorrectionInTransaction(client:PoolClient,session:Record<string,unknown>,bodyHash:string):Promise<ResourceSupplementCorrectionPreview>{
+  await storage(client,false);
+  const row=(await client.query('SELECT full_input,source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1 AND book_id=$2',[session.id,session.book_id])).rows[0];
+  const input=resourceSupplementCorrectionStartInputSchema.safeParse(row?.full_input);
+  if(!input.success)throw new ResourceSupplementError('原修正的完整输入缺失，请保留原请求核对。',409,'unknown');
+  const receipt=await original(client,String(session.book_id),input.data),source=row.source_snapshot as ResourceSupplementCorrectionPreview;
+  if(!receipt||receipt.sessionId!==session.id||receipt.preparationId!==session.preparation_id||receipt.chapterDocumentId!==session.chapter_document_id
+    ||receipt.bodyVersionId!==session.body_version_id||receipt.baseCheckpointId!==session.supplement_base_checkpoint_id
+    ||source.basis.bodyContentHash!==bodyHash||source.basis.planningVersionId!==session.planning_version_id
+    ||source.catalog.bodyVersionId!==session.body_version_id||source.catalog.bodyContentHash!==bodyHash)
+    throw new ResourceSupplementError('原修正正文、会话或冻结来源不一致，请保留原请求核对。',409,'unknown');
+  return source;
+}
 export async function readResourceSupplementCorrectionStartOriginal(bookId:string,raw:ResourceSupplementCorrectionStartInput):Promise<ResourceSupplementCorrectionStartReceipt|null>{
   z.string().uuid().parse(bookId);const input=resourceSupplementCorrectionStartInputSchema.parse(raw);
   const client=await getNewDesignPool().then(pool=>pool.connect()).catch(()=>{throw new ResourceSupplementError('原修正结果未能读取，请保留完整原请求核对。',503,'unknown');});

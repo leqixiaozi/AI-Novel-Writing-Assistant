@@ -105,6 +105,58 @@ test('actual independently committed supplement fences its real downstream sourc
   await assert.rejects(supplements.startResourceSupplementCorrection(book.id,{...correctionCommand,requestKey:key()}),error=>error.status===409&&error.mutationOutcome==='not_written');
   assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_correction_origins')).rows[0].n,1);assert.equal((await counts()).tasks,before.tasks);
  });
+ await t.test('dedicated actual corrective candidate, governed model original and author review remain bound to the proven single field',async candidateTests=>{
+  const ai=compiled('server/ai/chapterSettlement'),models=compiled('server/database/modelManagement'),prompts=compiled('server/ai/prompts');
+  const source=(await pool.query('SELECT source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1',[correctionReceipt.sessionId])).rows[0].source_snapshot;
+  const promptInput=prompts.buildResourceSupplementCorrectionPromptInput({sessionId:correctionReceipt.sessionId,sessionRevision:1,source}),prepared=prompts.preparePrompt('stable_resource_correction',promptInput);
+  const quantityField=promptInput.catalog.subjects[0].fields[0];
+  const draft={category:'relationship',title:'核对本章资源数量来源',subjectKind:'relation',subjectId:relationId,stateKey:'quantity',specificationHash:quantityField.specificationHash,baselineHash:quantityField.baseline.hash,beforeValue:1,afterValue:2,changeValue:1,riskLevel:'medium',confidence:0.8,confidenceNote:'需作者核对',planAlignment:'not_applicable',planExpectation:'',evidenceStart:0,evidenceEnd:second.content.length,evidenceLabel:second.content,reason:'依据原采用正文，原章前0保留供比较，实际章前为1'};
+  await candidateTests.test('registered exact source schema rejects other fields or rehashed false chapter-before, and permits only this repair no-op',async()=>{
+    assert.equal(prepared.assetId,'new_design.character.stable_resource_correction');assert.equal(promptInput.catalog.subjects.length,1);assert.equal(promptInput.catalog.subjects[0].fields.length,1);
+    assert.equal(prepared.parseOutput({items:[draft],notes:[]}).items[0].beforeValue,1);
+    assert.equal(prepared.parseOutput({items:[{...draft,afterValue:1,changeValue:0}],notes:[]}).items[0].afterValue,1);
+    assert.throws(()=>prepared.parseOutput({items:[{...draft,stateKey:'holding'}],notes:[]}));
+    const forged=structuredClone(source);forged.correction.beforeValue=2;const {sourceHash:ignored,...correction}=forged.correction;forged.correction.sourceHash=stableHash(correction);
+    forged.catalog.subjects.find(item=>item.id===relationId).fields.find(item=>item.key==='quantity').baseline.value=2;const {sourceHash,...frame}=forged;forged.sourceHash=stableHash(frame);
+    assert.throws(()=>prompts.preparePrompt('stable_resource_correction',prompts.buildResourceSupplementCorrectionPromptInput({sessionId:correctionReceipt.sessionId,sessionRevision:1,source:forged})));
+  });
+  const route={primary:{provider:'ollama',endpoint:'http://127.0.0.1:11434',model:'isolated-stub-never-real-model',credentialId:null},fallbacks:[],policy:{maxOutputTokens:8000,maxTotalTokens:1000000,timeoutMs:30000,maxRetries:0,retryDelayMs:0}};
+  for(const [scope,taskType] of [['system_default',null],['task','chapter_settlement']]){const current=(await models.getModelRouteCenterCatalog()).routes.find(item=>item.scope===scope&&item.taskType===taskType);await models.saveManagedModelRoute({...route,scope,taskType,expectedConfigId:current?.id??null,expectedRevision:current?.revision??null,replaceUnsupported:true,idempotencyKey:key()});}
+  let workspace=await settlement.getChapterSettlementEditingWorkspace(correctionReceipt.sessionId),calls=0;
+  const request={requestKey:key(),expectedSessionRevision:workspace.session.revision,catalogHash:workspace.catalog.specificationHash,resourceScope:scope};
+  const fetcher=async()=>{calls++;return new Response(JSON.stringify({message:{content:JSON.stringify({items:[draft],notes:['仅核对实际冲突字段']})},prompt_eval_count:100,eval_count:50}),{status:200,headers:{'content-type':'application/json'}});};
+  await assert.rejects(ai.runChapterSettlementAiExtraction(correctionReceipt.sessionId,request,{fetcher}),error=>error.status===503);assert.equal(calls,0);
+  const installer=await pool.connect();try{await installer.query('BEGIN');await installer.query(fs.readFileSync(path.join(__dirname,'../migrations/093_resource_supplement_correction_candidates.sql'),'utf8'));await installer.query("INSERT INTO new_design.schema_migrations(id) VALUES('093_resource_supplement_correction_candidates')");await installer.query('COMMIT');}finally{installer.release();}
+  const generated=await ai.runChapterSettlementAiExtraction(correctionReceipt.sessionId,request,{fetcher});assert.equal(generated.status,'succeeded',JSON.stringify(generated.failure));assert.equal(generated.proposalsSaved,true);assert.equal(calls,1);
+  assert.equal((await ai.runChapterSettlementAiExtraction(correctionReceipt.sessionId,request,{fetcher})).repeated,true);assert.equal(calls,1);
+  const stored=(await pool.query('SELECT * FROM new_design.chapter_proposal_extraction_requests WHERE id=$1',[generated.id])).rows[0];assert.equal(stored.frozen_plan.assetId,'new_design.character.stable_resource_correction');assert.deepEqual(stored.frozen_plan.input.stableCorrection.source,source);assert.equal(stored.frozen_plan.input.stableSupplement,undefined);
+  assert.equal((await pool.query("SELECT exact_version_id FROM new_design.context_manifest_entries WHERE manifest_id=$1 AND source_type='planning_version'",[stored.context_manifest_id])).rows[0].exact_version_id,source.basis.planningVersionId);
+  workspace=await settlement.getChapterSettlementEditingWorkspace(correctionReceipt.sessionId);assert.equal(workspace.items.length,1);assert.equal(workspace.items[0].beforeValue,1);
+  await assert.rejects(settlement.createChapterSettlementEditingItem(correctionReceipt.sessionId,{requestKey:key(),expectedSessionRevision:workspace.session.revision,draft:{...draft,stateKey:'holding'},actor:'isolated_author'}),error=>error.status===409);
+  workspace=(await settlement.updateChapterSettlementEditingItem(workspace.items[0].id,{requestKey:key(),expectedSessionRevision:workspace.session.revision,expectedRevision:workspace.items[0].revision,draft:{...draft,afterValue:1,changeValue:0,reason:'作者以原正文核对本字段来源修正的无净增量候选'},actor:'isolated_author'})).workspace;
+  assert.equal(workspace.items[0].beforeValue,1);assert.equal(workspace.items[0].afterValue,1);
+  const edit={requestKey:key(),expectedSessionRevision:workspace.session.revision,expectedRevision:workspace.items[0].revision,draft:{...draft,title:'作者核对正确前值1与原正文末值2'},actor:'isolated_author'};
+  workspace=(await settlement.updateChapterSettlementEditingItem(workspace.items[0].id,edit)).workspace;
+  workspace=(await settlement.decideChapterSettlementEditingItems(correctionReceipt.sessionId,{requestKey:key(),expectedSessionRevision:workspace.session.revision,decisions:[{itemId:workspace.items[0].id,expectedRevision:workspace.items[0].revision,decision:'confirm',note:'明确核对本字段原0→2及正确1→2'}],actor:'isolated_author'})).workspace;
+  assert.equal(workspace.items[0].decision,'confirm');assert.equal(workspace.items[0].beforeValue,1);assert.equal(workspace.items[0].afterValue,2);
+  await assert.rejects(supplements.previewResourceSupplementSettlement(book.id,correctionReceipt.sessionId),error=>error.status===503);
+  assert.equal((await pool.query("SELECT is_stale FROM new_design.current_state_projections WHERE book_id=$1 AND subject_id=$2 AND state_key='quantity'",[book.id,relationId])).rows[0].is_stale,true);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+  await candidateTests.test('independent cached corrective claim rejects a real invalid latest prefix and preserves the original result',async()=>{
+    const client=await pool.connect();try{await client.query('BEGIN');await client.query("UPDATE new_design.chapter_text_anchors SET status='archived' WHERE id=$1",[source.correction.prefixSource.change.text_anchor_id]);
+      await assert.rejects(client.query(`INSERT INTO new_design.chapter_proposal_extraction_requests(id,session_id,book_id,body_version_id,expected_session_revision,frozen_plan)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb)`,[key(),correctionReceipt.sessionId,book.id,second.version.id,workspace.session.revision,JSON.stringify(stored.frozen_plan)]),error=>error.code==='23514'&&/actual valid latest chapter-before proof/.test(error.message));
+    }finally{await client.query('ROLLBACK');client.release();}
+    assert.equal((await ai.runChapterSettlementAiExtraction(correctionReceipt.sessionId,request,{fetcher})).repeated,true);assert.equal(calls,1);
+  });
+  await candidateTests.test('candidate deactivation preserves full governed result and manual receipts without reopening the source',async()=>{
+    await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback/093_resource_supplement_correction_candidates.sql'),'utf8'));
+    assert.equal((await ai.runChapterSettlementAiExtraction(correctionReceipt.sessionId,request,{fetcher})).repeated,true);assert.equal(calls,1);
+    assert.ok(await settlement.readChapterSettlementEditingReceipt(correctionReceipt.sessionId,edit.requestKey));
+    await assert.rejects(settlement.createChapterSettlementEditingItem(correctionReceipt.sessionId,{requestKey:key(),expectedSessionRevision:workspace.session.revision,draft,actor:'isolated_author'}),error=>error.status===503);
+    assert.equal((await pool.query('SELECT count(*)::int n FROM new_design.resource_supplement_integrity_resolutions')).rows[0].n,0);
+  });
+ });
  await t.test('deactivation and archive preserve full formal and correction originals without clearing actual source fences',async()=>{
   await assert.rejects(pool.query('DELETE FROM new_design.resource_supplement_formal_commits WHERE settlement_id=$1',[receipt.merged.settlementId]),error=>error.code==='23514');
   for(const file of ['092_resource_supplement_formal_commits.sql','091_resource_supplement_correction_origins.sql'])await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/manual-rollback',file),'utf8'));

@@ -1,5 +1,7 @@
 # 模型与知识语义索引连接
 
+稳定资源修正使用专属注册资产`new_design.character.stable_resource_correction@v1`，仅绑定既有`chapter_settlement`受控任务组，不开放通用研究入口。`stableCorrection`与普通v1的`stableSupplement`互斥；完整原资源范围、原正文计划／SHA、当前会话修订、实际issue-owned章前证明和当前正常发布目录全部核验。候选仅限唯一冲突字段，模型输出仍走原结构化字段、字典、证据、差值验证与治理用量原记录。旧v1资产、输入、哈希和领取保护保持。
+
 ## 唯一正本
 
 文字模型与专属向量模型都使用原 `model_route_configs / model_route_versions` 和 `model_credential_refs`，发布使用原 `ai_contract_publications`。不增加第二连接表、端点配置或密钥链。凭据只存原环境变量引用，公开连接版本不读取或返回密钥。

@@ -10,3 +10,4 @@ export {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './
 export {previewResourceSupplementCorrectionInTransaction} from './integrity/correctionPreview';
 export {startResourceSupplementCorrection,startResourceSupplementCorrectionInTransaction,readResourceSupplementCorrectionStartOriginal,readResourceSupplementCorrectionStartOriginalInTransaction} from './correcting';
 export {commitResourceSupplement,readResourceSupplementCommitOriginal} from './committing';
+export {readFrozenResourceSupplementCorrectionInTransaction} from './correcting';

@@ -6,6 +6,7 @@ import { fieldDefinitionSchema } from "../../domain/validation";
 import { readBaseline, type EditingRow } from "./editingPolicy";
 import {readFrozenSupplementSource} from "./supplementRead";
 import {NewDesignError} from "../../domain/errors";
+import {resourceCorrectionCandidateCatalog} from '../../../common/resourceSupplements/correction';
 
 const SYSTEM="00000000-0000-4000-8000-000000000001";
 function schemas(value:unknown):FieldDefinition[]{
@@ -41,7 +42,7 @@ export async function readEditingCatalog(client:PoolClient,session:EditingRow,lo
       WHERE book.id=$1 AND card.id=$2 AND card.current_version_id=$3 AND card.revision=$4 AND card.status='active'
       ${lock?'FOR SHARE OF card':''}`,[session.book_id,source.resourceScope.characterId,source.resourceScope.characterVersionId,source.resourceScope.characterRevision])).rowCount)
       throw new NewDesignError("原补充人物资料版本已变化，请保留原来源核对。",409);
-    return frozen;
+    return source.contract==='stable_resource_correction_preview_v1'?resourceCorrectionCandidateCatalog(source,String(session.id),Number(session.revision)):frozen;
   }
   const book=(await client.query("SELECT space_id FROM new_design.books WHERE id=$1",[session.book_id])).rows[0],spaceId=String(book?.space_id??"");
   const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];

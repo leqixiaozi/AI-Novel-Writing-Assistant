@@ -12,7 +12,7 @@ export { AiExecutionError } from "./runtime/errors";
 export {executeManagedPrompt} from "./runtime/managedExecution";
 
 export function createIndependentAiGateway(options:ExecutionDependencies={}):NewDesignAiGateway {
-  async function execute<T>(taskType:Exclude<PromptTaskType,"stable_resource_supplement">,input:unknown):Promise<AiResearchRunResult<T>> {
+  async function execute<T>(taskType:Exclude<PromptTaskType,"stable_resource_supplement"|"stable_resource_correction">,input:unknown):Promise<AiResearchRunResult<T>> {
     let prompt;
     try {prompt=preparePrompt(taskType,input);}catch{throw new AiExecutionError("准备创作资料","创作资料与当前表单规格不一致，请回来源页检查必填信息和可用内容类型。",422);}
     const visible=taskType==="character_experiences"||taskType==="visible_prepare"||taskType==="visible_adjust";

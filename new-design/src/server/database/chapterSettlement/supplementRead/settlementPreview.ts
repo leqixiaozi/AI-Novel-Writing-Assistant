@@ -24,7 +24,9 @@ export async function readResourceSupplementSettlementChangesInTransaction(clien
     WHERE session.id=$1 AND session.book_id=$2`,[sessionId,bookId])).rows[0];
   if(!session||session.adoption_kind!=='resource_supplement'||!['pending_review','partially_confirmed','adopted_pending_proposals','failed'].includes(session.status))throw new NewDesignError('请选择本书待核对的资源补充清单。',409);
   await assertResourceSupplementCandidateContract(client,session,'preview',false);
-  const source=await readFrozenSupplementSource(client,session,String(session.body_hash)),catalog=await readEditingCatalog(client,session,false);
+  const source=await readFrozenSupplementSource(client,session,String(session.body_hash));
+  if(source.contract!=='stable_resource_supplement_preview_v1')throw new NewDesignError('修正清单的正式来源证明解除尚不可用，请保留原确认和来源核对。',503);
+  const catalog=await readEditingCatalog(client,session,false);
   const items=(await client.query('SELECT * FROM new_design.chapter_settlement_items WHERE session_id=$1 ORDER BY id',[sessionId])).rows;
   if(items.some(item=>item.decision!=='confirm'&&item.decision!=='reject'))throw new NewDesignError('请先处理所有补充候选，再核对结算影响。',422);
   const changes:ValidatedResourceSupplementChange[]=[],seen=new Set<string>();

@@ -22,6 +22,7 @@ export async function prepareStableResourceSupplementPrompt(sessionId: string): 
       || !["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(row.status))
       throw new NewDesignError("请选择待核对的稳定章资源补充清单。",409);
     const source = await readFrozenSupplementSource(client,row,String(row.body_hash));
+    if(source.contract!=='stable_resource_supplement_preview_v1')throw new NewDesignError('请选择普通章末资源补充；真实来源修正使用专属合同。',409);
     const prompt = preparePrompt("stable_resource_supplement",buildStableResourceSupplementPromptInput({sessionId,sessionRevision:Number(row.revision),source}));
     await client.query("COMMIT");
     return prompt;

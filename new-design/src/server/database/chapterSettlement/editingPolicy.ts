@@ -61,7 +61,13 @@ export async function validateEditingDraft(client:PoolClient,session:EditingRow,
     const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];
     const source=await readFrozenSupplementSource(client,session,String(body?.content_hash??""));
     const states=(source.basis.original.confirmedSources as {states:Record<string,unknown>[]}).states;
-    if(resourceSupplementChangeAlreadyConfirmed(states,draft))fail(session,"已有确认变化或无变化不能再次纳入补充清单。",409,"draft.afterValue");
+    if(source.contract==='stable_resource_correction_preview_v1'){
+      const bound=source.correction;
+      if(draft.subjectKind!==bound.subjectKind||draft.subjectId!==bound.subjectId||draft.stateKey!==bound.stateKey)
+        fail(session,'本次修正只能核对原冲突字段，不能增加其他资源变化。',409,'draft.stateKey');
+      // A source correction may legitimately have the same before/after value.
+      // This exception belongs only to its real issue-owned field and evidence.
+    }else if(resourceSupplementChangeAlreadyConfirmed(states,draft))fail(session,"已有确认变化或无变化不能再次纳入补充清单。",409,"draft.afterValue");
   }
   const kind=draft.subjectKind??"card",id=draft.subjectId??draft.subjectCardId;
   const subject=subjects.find(subject=>subject.id===id&&subject.subjectKind===kind);
