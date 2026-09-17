@@ -1,4 +1,6 @@
-export { default } from "./NewDesignPage";
+import {lazy} from "react";
+const NewDesignPage=lazy(()=>import("./NewDesignPage"));
+export default NewDesignPage;
 export {
   BOOK_TASK_NAV,
   CUSTOMER_TERMS,

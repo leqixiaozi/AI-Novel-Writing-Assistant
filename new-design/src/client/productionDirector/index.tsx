@@ -8,8 +8,8 @@ import './director.css';
 import {z} from 'zod';
 const statusLabels={ready:'等待明确开始',running:'逐章生成中',paused:'停在章边界',waiting_recovery:'原结果待核对',failed:'需要处理来源',completed:'候选准备完成',cancelled:'范围已结束'};
 const chapterLabels={pending:'待生成',running:'原生成结果待核对',candidate_saved:'候选已保存',failed:'本章待处理',unknown:'原调用及用量未知'};
-export default function ProductionDirectorPage({bookId}:{bookId:string}){
-  const query=new URLSearchParams(window.location.search),runParams=query.getAll('run'),requested=runParams.length===1&&z.string().uuid().safeParse(runParams[0]).success?runParams[0]:null,invalidRun=runParams.length>0&&!requested;
+export default function ProductionDirectorPage({bookId,initialRunId,embedded=false,onCloseGuardChange}:{bookId:string;initialRunId?:string;embedded?:boolean;onCloseGuardChange?:(state:{blocked:boolean;dirty:boolean})=>void}){
+  const query=new URLSearchParams(initialRunId?'run='+encodeURIComponent(initialRunId):embedded?'':window.location.search),runParams=query.getAll('run'),requested=runParams.length===1&&z.string().uuid().safeParse(runParams[0]).success?runParams[0]:null,invalidRun=runParams.length>0&&!requested;
   const [workspace,setWorkspace]=useState<DirectorWorkspace|null>(null),[selected,setSelected]=useState<string|null>(requested),[chapters,setChapters]=useState<string[]>([]),[instruction,setInstruction]=useState(''),[policy,setPolicy]=useState<'completion_first'|'quality_first'>('completion_first');
   const [pending,setPending]=useState<DirectorPending|null>(null),[storageBlocked,setStorageBlocked]=useState(false),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[notWritten,setNotWritten]=useState(false),[checked,setChecked]=useState(false),[saved,setSaved]=useState<DirectorReceipt|null>(null);
   const [draftLoaded,setDraftLoaded]=useState(false);
@@ -20,6 +20,7 @@ export default function ProductionDirectorPage({bookId}:{bookId:string}){
   const flight=useRef(false),sequence=useRef(0),run=workspace?.runs.find(item=>item.id===selected)??null;
   const capture=(value:unknown)=>setError(value instanceof Error?value:new Error('结果未确认，请保留原请求。'));
   const locked=busy||Boolean(pending)||storageBlocked||!draftLoaded||invalidRun;
+  useEffect(()=>{onCloseGuardChange?.({blocked:busy||Boolean(pending)||storageBlocked,dirty:Boolean(chapters.length||instruction)});},[busy,pending,storageBlocked,chapters.length,instruction,onCloseGuardChange]);
   async function refresh(){const token=++sequence.current;try{const value=await newDesignApi.getDirectorWorkspace(bookId);if(value.bookId!==bookId||value.book.id!==bookId)throw new Error('导演目录来源与本书不一致，禁止替代。');if(requested&&!value.runs.some(item=>item.id===requested)){const exact=await newDesignApi.getDirectorRun(bookId,requested);if(exact.bookId!==bookId||exact.id!==requested)throw new Error('原导演记录来源不匹配，不选择其他记录代替。');value.runs=[exact,...value.runs];}if(token===sequence.current){setWorkspace(value);setNotice('已读取原记录；读取不继续任务、不生成正文。');}}catch(value){if(token===sequence.current)capture(value);}}
   useEffect(()=>{try{const raw=sessionStorage.getItem(directorPendingKey(bookId));if(raw)setPending(parseDirectorPending(raw,bookId));const draft=sessionStorage.getItem(directorDraftKey(bookId));if(draft){const value=parseDirectorDraft(draft,bookId);setChapters(value.chapters);setInstruction(value.instruction);setPolicy(value.policy);setKnowledgeSources(value.knowledgeSources??[]);}}catch{setStorageBlocked(true);}setDraftLoaded(true);void refresh();return()=>{sequence.current++;};},[bookId]);
   useEffect(()=>{if(!draftLoaded||storageBlocked)return;try{const raw=JSON.stringify({bookId,chapters,instruction,policy,knowledgeSources}),key=directorDraftKey(bookId);sessionStorage.setItem(key,raw);if(sessionStorage.getItem(key)!==raw)throw new Error('范围草稿未保存');}catch{setStorageBlocked(true);setNotice('本机未能保留未提交范围，当前填写仍在页面，禁止发出任务；请先复制要求保存。');}},[bookId,chapters,instruction,policy,knowledgeSources,storageBlocked,draftLoaded]);
@@ -71,5 +72,7 @@ export default function ProductionDirectorPage({bookId}:{bookId:string}){
       </section>
       </section></div>}
   </main>;
-  return workspace?<BookShell book={workspace.book} active='director'>{content}</BookShell>:<div className='nd-shell'>{content}</div>;
+  return embedded?<div className='nd-shell'>{content}</div>:workspace?<BookShell book={workspace.book} active='director'>{content}</BookShell>:<div className='nd-shell'>{content}</div>;
 }
+
+export {directorPendingKey,parseDirectorPending,retainDirectorPending,type DirectorPending} from './pending';

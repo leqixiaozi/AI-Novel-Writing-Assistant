@@ -1,6 +1,7 @@
 import type {Pool,PoolClient} from 'pg';
-import type {BookReading,BookshelfSnapshot,ReadingChapter,ShelfBook,BookLifecycle,BookLifecycleInput} from '../../../common/bookshelf';
-import {bookArchiveBlockers} from '../authorTasks';
+import type {BookReading,BookshelfSnapshot,ReadingChapter,ShelfBook,BookLifecycle,BookLifecycleInput,ReadingScope,ShelfTextExport,ShelfBookDetail} from '../../../common/bookshelf';
+import {bookArchiveBlockers,listAuthorTasks,withAuthorTasksPool} from '../authorTasks';
+import {AI_USAGE_SUMMARY_QUERY,projectAiUsageSummary} from '../aiTasks';
 import {HOME_BOOKS_QUERY,HOME_CREATION_QUERY,projectHomeBook,projectHomeCreation} from '../home';
 import {getInitializedNewDesignPool} from '../runtime';
 import {NewDesignError,assertFound} from '../../domain/errors';
@@ -32,10 +33,26 @@ export async function changeBookLifecycle(bookId:string,input:BookLifecycleInput
  if(book.status!==target){await db.query('UPDATE new_design.books SET status=$2,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$3',[bookId,target,input.expectedRevision]);}
  committing=true;await db.query('COMMIT');return {bookId,status:target,revision:revision+(book.status!==target?1:0)};
  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('原归档或恢复结果待核对，请读取原书籍状态，不重复提交。',503);throw error;}finally{db.release();}}
-export async function getBookReading(bookId:string,chapterId?:string,pool?:ReadPool):Promise<BookReading>{return snapshot(pool,async db=>{
+
+export const SAVED_CHAPTERS_QUERY=`SELECT d.id,d.chapter_card_id,d.title,d.logical_order,v.id version_id,v.version,v.source,v.content,v.content_hash,length(regexp_replace(v.content,'[[:space:]]','','g')) word_count,(v.id=d.adopted_version_id) adopted,EXISTS(SELECT 1 FROM new_design.chapter_stable_checkpoints s WHERE s.book_id=d.book_id AND s.chapter_document_id=d.id AND s.body_version_id=v.id AND s.status='stable') stable FROM new_design.chapter_documents d JOIN LATERAL(SELECT body.* FROM new_design.chapter_body_versions body WHERE body.chapter_document_id=d.id AND body.archived_at IS NULL AND length(btrim(body.content))>0 ORDER BY body.version DESC,body.id DESC LIMIT 1)v ON true WHERE d.book_id=$1 AND d.status='active' ORDER BY d.logical_order,d.id`;
+export const ADOPTED_EXPORT_QUERY=READING_CHAPTERS_QUERY.replace('v.version,v.content_hash','v.version,v.source,v.content,v.content_hash');
+function readingChapter(row:Record<string,any>,scope:ReadingScope):ReadingChapter{return {id:row.id,cardId:row.chapter_card_id,title:row.title,order:Number(row.logical_order),versionId:row.version_id,version:Number(row.version),wordCount:Number(row.word_count),stable:row.stable===true,adopted:scope==='adopted'||row.adopted===true,source:String(row.source??'unknown')};}
+export async function getBookReading(bookId:string,chapterId?:string,pool?:ReadPool,scope:ReadingScope='adopted'):Promise<BookReading>{return snapshot(pool,async db=>{
  const book=assertFound((await db.query("SELECT id,name FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'本书不存在或已归档。');
- const rows=(await db.query(READING_CHAPTERS_QUERY,[bookId])).rows,chapters:ReadingChapter[]=rows.map(row=>({id:row.id,cardId:row.chapter_card_id,title:row.title,order:Number(row.logical_order),versionId:row.version_id,version:Number(row.version),wordCount:Number(row.word_count),stable:row.stable===true}));
- const selected=chapterId?chapters.find(chapter=>chapter.id===chapterId):chapters[0];if(chapterId&&!selected)throw new NewDesignError('指定章节没有本书正式采用正文，未自动改选其他章节。',404);
- const body=selected?assertFound((await db.query("SELECT v.content,v.content_hash FROM new_design.chapter_body_versions v JOIN new_design.chapter_documents d ON d.id=v.chapter_document_id AND d.adopted_version_id=v.id WHERE v.id=$1 AND d.book_id=$2 AND d.id=$3 AND d.status='active' AND v.archived_at IS NULL",[selected.versionId,bookId,selected.id])).rows[0],'所选正式版本未读取。'):null;
- const clock=await db.query('SELECT CURRENT_TIMESTAMP read_at');return {bookId,name:book.name,chapters,selected:selected&&body?{...selected,content:body.content,contentHash:body.content_hash}:null,readAt:new Date(clock.rows[0].read_at).toISOString()};
+ const rows=(await db.query(scope==='saved'?SAVED_CHAPTERS_QUERY:READING_CHAPTERS_QUERY,[bookId])).rows,chapters=rows.map(row=>readingChapter(row,scope));
+ const selected=chapterId?chapters.find(chapter=>chapter.id===chapterId):chapters[0];if(chapterId&&!selected)throw new NewDesignError('指定章节没有本书所选稿件，未自动改选其他章节。',404);
+ const body=selected?(scope==='saved'?rows.find(row=>row.version_id===selected.versionId):assertFound((await db.query("SELECT v.content,v.content_hash FROM new_design.chapter_body_versions v JOIN new_design.chapter_documents d ON d.id=v.chapter_document_id AND d.adopted_version_id=v.id WHERE v.id=$1 AND d.book_id=$2 AND d.id=$3 AND d.status='active' AND v.archived_at IS NULL",[selected.versionId,bookId,selected.id])).rows[0],'所选正式版本未读取。')):null;
+ const clock=await db.query('SELECT CURRENT_TIMESTAMP read_at');return {bookId,name:book.name,scope,chapters,selected:selected&&body?{...selected,content:body.content,contentHash:body.content_hash}:null,readAt:new Date(clock.rows[0].read_at).toISOString()};
+ });}
+/** Read-only TXT snapshot; saved drafts are explicitly labelled and never become publication artifacts. */
+export async function getShelfTextExport(bookId:string,scope:ReadingScope,chapterId?:string,pool?:ReadPool):Promise<ShelfTextExport>{return snapshot(pool,async db=>{
+ const book=assertFound((await db.query("SELECT id,name FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'本书不存在或已归档。');const rows=(await db.query(scope==='saved'?SAVED_CHAPTERS_QUERY:ADOPTED_EXPORT_QUERY,[bookId])).rows;
+ const selected=chapterId?rows.filter(row=>row.id===chapterId):rows;if(chapterId&&!selected.length)throw new NewDesignError('指定章节不在本书所选稿件中，未下载其他章节。',404);if(!selected.length)throw new NewDesignError('本书所选稿件尚无可下载正文。',422);
+ const clock=await db.query('SELECT CURRENT_TIMESTAMP read_at');return {bookId,name:book.name,scope,chapters:selected.map(row=>({...readingChapter(row,scope),content:row.content,contentHash:row.content_hash})),readAt:new Date(clock.rows[0].read_at).toISOString()};
+ });}
+export async function getShelfBookDetail(bookId:string,pool?:ReadPool):Promise<ShelfBookDetail>{return snapshot(pool,async db=>{
+ const book=assertFound((await db.query("SELECT id,space_id FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'本书不存在或已归档。');
+ const scoped={query:db.query.bind(db)} as unknown as Pool,records=await withAuthorTasksPool(scoped,()=>listAuthorTasks({bookId,limit:40})),usage=projectAiUsageSummary((await db.query(AI_USAGE_SUMMARY_QUERY,[bookId,null])).rows[0]);
+ const worlds=(await db.query("SELECT card.id,card.title FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active' AND type.type_key='world_overview' ORDER BY card.title,card.id",[book.space_id])).rows;
+ return {bookId,records,usage,worlds:worlds.map(row=>({id:row.id,name:row.title})),readAt:records.readAt};
  });}
