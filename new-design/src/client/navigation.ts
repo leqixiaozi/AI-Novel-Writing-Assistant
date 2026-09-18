@@ -68,21 +68,31 @@ export const BOOK_NAV_GROUPS: readonly BookNavigationGroup[] = [
     { key: "direction", label: "本书创作方向", items: ["direction"] },
   ] },
   { key: "setting", label: "② 故事设定", defaultPath: "story-setting", sections: [
-    { key: "setting", label: "设定档案", items: ["story-setting", "knowledge"] },
-    { key: "tools", label: "辅助工具", items: ["character-dialogue", "visual-assets"] },
+    { key: "setting", label: "设定档案", items: ["story-setting"] },
   ] },
   { key: "production", label: "③ 故事规划", defaultPath: "planning", sections: [
     { key: "content", label: "规划与正文", items: ["planning", "composition", "writing"] },
-    { key: "views", label: "查看与分析", items: ["views", "professional-views"] },
-    { key: "automation", label: "AI 自动创作", items: ["director"] },
+  ] },
+  { key: "analysis", label: "查看与分析", defaultPath: "views/chapters", sections: [
+    { key: "analysis", label: "查看与分析", items: ["views"] },
+  ] },
+  { key: "director", label: "全书导演", defaultPath: "director", sections: [
+    { key: "director", label: "全书导演", items: ["director"] },
   ] },
   { key: "completion", label: "完本与导出", defaultPath: "completion", sections: [
     { key: "delivery", label: "作品交付", items: ["completion"] },
   ] },
 ];
 
+// Auxiliary pages belong to a creative step even when they are not directory entries.
+export function bookNavigationPage(active:BookTaskNavKey):BookTaskNavKey {
+  if (["world","characters","materials","knowledge","character-dialogue","visual-assets"].includes(active)) return "story-setting";
+  if (active === "professional-views") return "views";
+  return active;
+}
+
 export function bookNavigationGroup(active: BookTaskNavKey): BookNavigationGroup | undefined {
-  return BOOK_NAV_GROUPS.find(group => group.sections.some(section => section.items.includes(active)));
+  return BOOK_NAV_GROUPS.find(group => group.sections.some(section => section.items.includes(bookNavigationPage(active))));
 }
 
 export function isNewDesignAdvancedPath(pathname: string): boolean {
