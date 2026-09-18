@@ -5,7 +5,7 @@ const spec=JSON.parse(fs.readFileSync(path.join(__dirname,'../runtime/runtime-pa
 const manifest=()=>({migrationRange:spec.migrationRange,files:spec.requiredFiles.filter(name=>name.startsWith('app/migrations/')).map(name=>({path:name}))});
 test('package migration set includes real registered gaps and default-off manual artifacts',()=>{
  assert.equal(migrations.length,81);assert.equal(migrations.at(-1).fileName,'083_character_dialogue.sql');assert.equal(migrations.some(item=>item.fileName.startsWith('064_')||item.fileName.startsWith('082_')),false);
- assert.deepEqual(spec.defaultMigrationFiles,migrations.map(item=>item.fileName));assert.equal(spec.manualMigrationFiles.includes('101_character_author_trials.sql'),true);validateRuntimeMigrationFiles(manifest());
+ assert.deepEqual(spec.defaultMigrationFiles,migrations.map(item=>item.fileName));assert.equal(spec.manualMigrationFiles.includes('101_character_author_trials.sql'),true);assert.equal(spec.manualMigrationFiles.includes('102_character_author_influences.sql'),true);assert.equal(spec.manualMigrationFiles.includes('103_public_title_factory.sql'),true);assert.equal(spec.manualMigrationFiles.includes('104_book_content_history.sql'),true);validateRuntimeMigrationFiles(manifest());
  for(const name of [...spec.defaultMigrationFiles,...spec.manualMigrationFiles])assert.equal(fs.existsSync(path.join(__dirname,'../migrations',name)),true,name);
 });
 test('package rejects missing, renamed, duplicated and accidentally enabled manual migrations',()=>{

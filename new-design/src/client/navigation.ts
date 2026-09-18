@@ -13,6 +13,7 @@ export const NEW_DESIGN_PRIMARY_NAV = [
   { key: "home", label: "创作首页", href: "/new-design", end: true },
   { key: "books", label: "我的书籍", href: "/new-design/books" },
   { key: "resources", label: "创作资源", href: "/new-design/resources" },
+  { key: "titles", label: "开书前标题", href: "/new-design/resources/titles" },
   { key: "professional", label: "资源工作台", href: "/new-design/resources/professional" },
   { key: "research", label: "研究与分析", href: "/new-design/research" },
   { key: "knowledge", label: "知识与参考", href: "/new-design/knowledge" },
@@ -47,6 +48,7 @@ export const BOOK_TASK_NAV = [
   { key: "materials", label: "本书资料", path: "cards" },
   { key: "knowledge", label: "知识与参考", path: "knowledge" },
   { key: "settings", label: "本书设置", path: "fields" },
+  { key: "history", label: "整书历史", path: "history" },
   { key: "completion", label: "完本与导出", path: "completion" },
 ] as const;
 
@@ -80,7 +82,7 @@ export const BOOK_NAV_GROUPS: readonly BookNavigationGroup[] = [
     { key: "director", label: "全书导演", items: ["director"] },
   ] },
   { key: "completion", label: "完本与导出", defaultPath: "completion", sections: [
-    { key: "delivery", label: "作品交付", items: ["completion"] },
+    { key: "delivery", label: "作品交付", items: ["history", "completion"] },
   ] },
 ];
 

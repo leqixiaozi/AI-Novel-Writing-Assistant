@@ -377,6 +377,7 @@ async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotU
     return authorReceipt?{...saved,authorReceipt}:saved;
 }
 export const updateCardInTransaction=(client:PoolClient,id:string,input:Omit<CardSnapshotUpdateInput,"source">)=>writeCardSnapshot(client,id,{...input,source:"edit"});
+export const archiveCardInTransaction=(client:PoolClient,id:string,revision:number)=>writeCardSnapshot(client,id,{revision,source:"archive"});
 
 async function updateCardSnapshot(id:string,input:CardSnapshotUpdateInput):Promise<AuthorSavedCard>{
  const {client}=await prepareAuthorMaterialConnection(input.authorWrite);let commitStarted=false;

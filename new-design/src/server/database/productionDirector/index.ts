@@ -1,3 +1,4 @@
+import {captureBookHistoryInTransaction} from '../bookHistory';
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
 import {directorCreateSchema,directorCommandSchema,type DirectorCreateInput,type DirectorCommand,type DirectorRun,type DirectorReceipt,type DirectorWorkspace,type DirectorChapter} from "../../../common/productionDirector";
@@ -60,6 +61,7 @@ export async function controlDirectorRun(bookId:string,id:string,raw:DirectorCom
     const allowed=input.action==='retry_failed'?run.status==='failed':input.action==='resume'?run.status==='paused'||(run.status==='waiting_recovery'||run.status==='running'&&run.leaseExpired)&&recoverable:run.status==='ready';
     if(!allowed)throw new NewDesignError("该状态不能直接再次生成。先核对原结果，并在对应章边界处理。",409);
     if(input.action==='retry_failed'){const target=run.chapters.find(item=>item.status==='failed')??run.chapters.find(item=>item.status==='pending');if(!target)throw new NewDesignError("没有已确认失败或未执行章可处理；已有候选要求重规划时，请核对原章并明确准备新范围。",409);if(run.chapters.some(item=>item.status==='running'||item.status==='unknown'||item.ledgerPending||item.boundaryPending))throw new NewDesignError("原章结果或回执待核对，禁止新发重试。",409);if(target.status==='failed')await client.query("UPDATE new_design.production_director_chapters SET current_request_id=NULL,current_request_key=$3,boundary_completed=false WHERE run_id=$1 AND chapter_card_id=$2",[id,target.chapterCardId,randomUUID()]);}
+    if(run.status==='ready')await captureBookHistoryInTransaction(client,{bookId,requestKey:input.requestKey,kind:"before_pipeline",label:"导演范围开始前的规划与正文",sourceId:id});
     await client.query("UPDATE new_design.production_director_runs SET status='running',pause_requested=false,lease_token=$2,lease_expires_at=now()+interval '30 minutes',failure=NULL,revision=revision+1,updated_at=now() WHERE id=$1",[id,randomUUID()]);
   }
   return commandReceipt(client,bookId,id,input.requestKey,hash,input.action);

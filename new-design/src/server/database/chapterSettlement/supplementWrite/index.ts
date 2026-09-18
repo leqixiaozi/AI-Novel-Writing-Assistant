@@ -1,3 +1,4 @@
+import {captureBookHistoryInTransaction} from '../../bookHistory';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {z} from 'zod';
@@ -67,6 +68,7 @@ export async function writeResourceSupplementMergedSettlementInTransaction(clien
     const result:ResourceSupplementMergedWrite={sessionId,settlementId,checkpointId,baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,newStateChangeIds,confirmed,reviewId:review.reviewId,impactHash:impact.impactHash};
     await client.query(`INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,from_status,to_status,idempotency_key,actor,detail)
       VALUES($1,$2,'settlement_committed','settling','stable',$3,'user',$4::jsonb)`,[randomUUID(),sessionId,`resource-supplement:${input.requestKey}`,JSON.stringify(result)]);
+    await captureBookHistoryInTransaction(client,{bookId,requestKey:checkpointId,kind:"auto_milestone",label:`第 ${basis.chapterOrder} 章正式补录后的规划与正文`,sourceId:checkpointId});
     return result;
   });
 }

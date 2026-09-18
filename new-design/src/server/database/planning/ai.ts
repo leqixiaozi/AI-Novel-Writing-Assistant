@@ -16,7 +16,7 @@ export async function generatePlanningAiCandidate(ai:NewDesignAiGateway,input:{b
   else {const row=(await pool.query("SELECT id FROM new_design.planning_objects WHERE book_id=$1 AND level='story' AND status='active' ORDER BY sort_order,id LIMIT 1",[input.bookId])).rows[0];if(row)target=await getPlanningObject(String(row.id));}
   const materialRows=(await pool.query(`SELECT card.id,card.current_version_id,type.type_key,type.name type_name,card.title,card.values
     FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id
-    WHERE card.space_id=$1 AND card.status='active' AND card.current_version_id IS NOT NULL
+    WHERE card.space_id=$1 AND card.status='active' AND type.type_key<>'character_author_guidance' AND card.current_version_id IS NOT NULL
     ORDER BY type.sort_order,card.updated_at DESC,card.id LIMIT 120`,[book.space_id])).rows;
   const adoptedRows=(await pool.query(`SELECT object.level,object.title,version.id version_id,version.content FROM new_design.planning_objects object
     JOIN new_design.planning_versions version ON version.id=object.adopted_version_id

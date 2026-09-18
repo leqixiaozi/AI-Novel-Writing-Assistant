@@ -1,4 +1,6 @@
 import SavedRecoveryPage from './savedRecovery';
+import BookHistoryPage from './bookHistory';
+import PublicTitlesPage from './publicTitles';
 import DependencyReviewPage from './planningCenter/DependencyReviewPage';
 import PublicCharacterWorkshop from './publicCharacters';
 import BookWorkspacePage from "./BookWorkspacePage";
@@ -109,8 +111,11 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(storySettingMatch)return <SettingWorkspace key={storySettingMatch[1]} bookId={decodeURIComponent(storySettingMatch[1])}/>;
   const dependencyReviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/dependency-review$/);
   if(dependencyReviewMatch)return <DependencyReviewPage key={dependencyReviewMatch[1]} bookId={decodeURIComponent(dependencyReviewMatch[1])}/>;
+  if(path==='/new-design/resources/titles')return <PublicTitlesPage/>;
   const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
   if(planningMatch){const stage=new URLSearchParams(location.search).get('stage');return stage==='story_macro'||stage==='outline'||stage==='structured'?<PlanningCenterPage key={`${planningMatch[1]}:${stage}`} bookId={decodeURIComponent(planningMatch[1])} presentation={stage}/>:<PlanningWorkspace key={planningMatch[1]} bookId={decodeURIComponent(planningMatch[1])}/>;}
+  const historyMatch=path.match(/^\/new-design\/books\/([^/]+)\/history$/);
+  if(historyMatch)return <BookRouteShell key={historyMatch[1]} bookId={decodeURIComponent(historyMatch[1])} active="history"><BookHistoryPage bookId={decodeURIComponent(historyMatch[1])}/></BookRouteShell>;
   const writingMatch=path.match(/^\/new-design\/books\/([^/]+)\/(?:writing|chapters\/([^/]+)\/write)$/);
   if(writingMatch)return <ChapterWritingPage bookId={decodeURIComponent(writingMatch[1])} initialChapterCardId={writingMatch[2]?decodeURIComponent(writingMatch[2]):undefined}/>;
   const completionMatch=path.match(/^\/new-design\/books\/([^/]+)\/completion$/);

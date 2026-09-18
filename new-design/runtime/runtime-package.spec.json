@@ -166,7 +166,10 @@
     "app/migrations/manual/098_image_prompt_preparation.sql",
     "app/migrations/manual/099_dependency_creation_record_guards.sql",
     "app/migrations/manual/100_image_reply_native_checksum.sql",
-    "app/migrations/manual/101_character_author_trials.sql"
+    "app/migrations/manual/101_character_author_trials.sql",
+    "app/migrations/manual/102_character_author_influences.sql",
+    "app/migrations/manual/103_public_title_factory.sql",
+    "app/migrations/manual/104_book_content_history.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -284,6 +287,9 @@
     "098_image_prompt_preparation.sql",
     "099_dependency_creation_record_guards.sql",
     "100_image_reply_native_checksum.sql",
-    "101_character_author_trials.sql"
+    "101_character_author_trials.sql",
+    "102_character_author_influences.sql",
+    "103_public_title_factory.sql",
+    "104_book_content_history.sql"
   ]
 }

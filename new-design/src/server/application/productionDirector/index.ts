@@ -10,13 +10,14 @@ import {executeManagedPrompt,AiExecutionError} from "../../ai";
 import {writeChapterProductionReplyReceipt,readChapterProductionReplyReceipt} from '../../ai/chapterProductionReceipts';
 import {stableHash} from "../../database/aiContracts";
 import {assertFound,NewDesignError} from "../../domain/errors";
+import type {ExecutionDependencies} from '../../ai/runtime/managedExecution';
 
 const workers=new Map<string,Promise<void>>();
 const chapterWorkers=new Map<string,Promise<ChapterGenerationOutput>>();
-export async function startPreparedControlledChapterWritingRequest(requestId:string){
+export async function startPreparedControlledChapterWritingRequest(requestId:string,dependencies:ExecutionDependencies={}){
   const receipt=await getChapterWritingRequest(requestId);
   if(receipt.controlled&&receipt.status==='queued'&&!chapterWorkers.has(requestId)){
-    const work=produceChapter(receipt.bookId,requestId).finally(()=>chapterWorkers.delete(requestId));chapterWorkers.set(requestId,work);void work.catch(()=>{});
+    const work=produceChapter(receipt.bookId,requestId,dependencies).finally(()=>chapterWorkers.delete(requestId));chapterWorkers.set(requestId,work);void work.catch(()=>{});
   }
   return receipt;
 }
@@ -45,19 +46,19 @@ export async function getSavedChapterWritingReply(requestId:string):Promise<Save
   if(local&&(local.execution.routeSnapshotId!==saved.snapshot.snapshotId||local.execution.routeSnapshotHash!==saved.snapshot.snapshotHash))throw new NewDesignError('本地原回复与冻结模型路线不一致，不显示替代结果。',409);
   return {requestId,bookId:request.bookId,chapterDocumentId:request.chapterDocumentId,chapterCardId:saved.snapshot.input.chapterCardId,inputBodyVersionId:request.inputBodyVersionId,expectedDocumentRevision:request.expectedDocumentRevision,replyHash:stableHash(output),sourceStatus:saved.output?'database':'local_receipt',content:originalChapterCandidateContent(saved.snapshot.input,output),decision:output.decision,warnings:output.warnings,reason:output.reason};
 }
-async function produceChapter(bookId:string,requestId:string):Promise<ChapterGenerationOutput>{
+async function produceChapter(bookId:string,requestId:string,dependencies:ExecutionDependencies={}):Promise<ChapterGenerationOutput>{
   let saved=await readChapterProduction(bookId,requestId);
   if(saved.request.resultBodyVersionId){await completeChapterProductionLedger(bookId,requestId);return assertFound(saved.output,"原候选没有受控模型回复，不能伪造导演判断。");}
   if(!saved.output){
     const task=await getAiTask(assertFound(saved.request.aiTaskId,"原章节任务不可用。")),step=assertFound(task.steps.find(item=>item.stepKey==='generate_candidate'),"原章节生成步骤不可用。");
     if(saved.request.status!=='queued'||step.currentAttemptId)throw new NewDesignError("本章已领取而模型结果未确认，请只读核对原请求，禁止重新调用模型。",409);
-    const prompt=preparePrompt("chapter_generation",saved.snapshot.input);
+    const prompt=preparePrompt("chapter_generation",saved.snapshot.input,saved.snapshot.assetVersion);
     if(stableHash(prompt.messages)!==stableHash(saved.snapshot.messages)||stableHash(prompt.outputSchema)!==stableHash(saved.snapshot.outputSchema)||prompt.assetId!==saved.snapshot.assetId||prompt.version!==saved.snapshot.assetVersion)throw new NewDesignError("冻结章节输入、提示词或输出合同不一致，请保留原记录并回规划核对。",409);
     const policy=saved.snapshot.route.policy,leaseMs=Math.min(3600000,policy.timeoutMs*(policy.maxRetries+1)*(saved.snapshot.route.fallbacks.length+1)+120000);
     const lease=await startAiTaskAttempt({taskId:task.id,stepId:step.id,expectedStepRevision:step.revision,triggerKind:'initial',owner:'production_director',actorKind:'user',leaseMs,taskContractVersionId:saved.request.taskContractVersionId,promptRecipeVersionId:saved.request.promptRecipeVersionId,contextManifestId:saved.request.contextManifestId,modelRouteSnapshotId:saved.request.modelRouteSnapshotId,inputHash:stableHash(saved.snapshot.input),outputSchemaVersion:stableHash(prompt.outputSchema),checkpointKey:'generate_candidate'});
     await markChapterProductionRunning(bookId,requestId);
     let generated;
-    try{generated=await executeManagedPrompt<ChapterGenerationOutput>("chapter_generation",prompt,{routeResolver:async()=>saved.snapshot.route,snapshotWriter:async()=>({id:saved.snapshot.snapshotId,snapshotHash:saved.snapshot.snapshotHash,taskType:'chapter_generation',route:saved.snapshot.route}),stopOnUnknownResponse:true});}
+    try{generated=await executeManagedPrompt<ChapterGenerationOutput>("chapter_generation",prompt,{...dependencies,routeResolver:async()=>saved.snapshot.route,snapshotWriter:async()=>({id:saved.snapshot.snapshotId,snapshotHash:saved.snapshot.snapshotHash,taskType:'chapter_generation',route:saved.snapshot.route}),stopOnUnknownResponse:true});}
     catch(error){
       const execution=error instanceof AiExecutionError?error.executionSnapshot??null:null;
       const traces=execution?.attempts as Array<{requestSent?:boolean;responseReceived?:boolean}>|undefined;

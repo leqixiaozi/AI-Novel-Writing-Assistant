@@ -1,5 +1,5 @@
 import {z} from 'zod';
-export const recoveryKinds=['image_generation','image_prompt_preparation','public_character_trial','character_author','character_dialogue','world_consistency','chapter_quality','chapter_writing','creation_preparation','knowledge_embedding','knowledge_semantic'] as const;
+export const recoveryKinds=['image_generation','image_prompt_preparation','public_character_trial','public_title_factory','character_author','character_dialogue','world_consistency','chapter_quality','chapter_writing','creation_preparation','knowledge_embedding','knowledge_semantic'] as const;
 export const recoveryTargetSchema=z.object({kind:z.enum(recoveryKinds),id:z.string().uuid(),bookId:z.string().uuid().nullable()}).strict();
 export type RecoveryTarget=z.infer<typeof recoveryTargetSchema>;
 export interface SavedRecoveryItem {target:RecoveryTarget;requestKey:string;title:string;sourceRoute:string;status:string;saved:boolean;canRecover:boolean;fingerprint:string;summary:string;}

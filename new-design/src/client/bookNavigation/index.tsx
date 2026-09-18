@@ -16,7 +16,7 @@ export default function BookNavigation({book,active}:{book:BookSummary;active:Bo
   <div id={bodyId} hidden={collapsed}>
    <div className="nd-book-navigation-context"><strong title={book.name}>{book.name}</strong><p><a href="/new-design/books">返回我的书籍</a></p><p>流程：{current>=0?BOOK_WORKFLOW_STEPS[current].label:'项目工具'}</p></div>
    <nav className="nd-production-steps nd-book-navigation-body" aria-label="小说创作流程">{BOOK_WORKFLOW_STEPS.map((step,index)=><a key={step.label} href={`${base}/${step.path}`} aria-current={index===current?'page':undefined}><span className="nd-production-step-number">{index+1}</span><strong>{step.label}</strong>{index===current&&<small>查看中</small>}</a>)}</nav>
-   <nav className="nd-production-tools" aria-label="本书辅助工具"><a href={`${base}/overview`}>创作概览</a><a href={`${base}/composition`}>全书编排</a><a href={`${base}/planning`}>多维故事规划</a><a href={`${base}/director`}>AI 驾驶舱</a><a href={`${base}/views/chapters`}>查看与分析</a><a href={`${base}/completion`}>完本与导出</a><a href={`${base}/fields`}>本书设置</a></nav>
+   <nav className="nd-production-tools" aria-label="本书辅助工具"><a href={`${base}/overview`}>创作概览</a><a href={`${base}/composition`}>全书编排</a><a href={`${base}/planning`}>多维故事规划</a><a href={`${base}/director`}>AI 驾驶舱</a><a href={`${base}/views/chapters`}>查看与分析</a><a href={`${base}/history`} aria-current={active==='history'?'page':undefined}>整书历史</a><a href={`${base}/completion`}>完本与导出</a><a href={`${base}/fields`}>本书设置</a></nav>
   </div>
  </aside>;
 }
