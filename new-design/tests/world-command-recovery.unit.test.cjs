@@ -7,7 +7,7 @@ function fixture(){
  const storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)};
  Object.defineProperty(global,'localStorage',{configurable:true,value:storage});
  Object.defineProperty(global,'window',{configurable:true,value:{addEventListener(){},removeEventListener(){}}});
- Object.defineProperty(global,'navigator',{configurable:true,value:{locks:{request:async(key,_options,callback)=>{if(held.has(key))return callback(null);held.add(key);try{return await callback({name:key});}finally{held.delete(key);}}}});
+ Object.defineProperty(global,'navigator',{configurable:true,value:{locks:{request:async(key,_options,callback)=>{if(held.has(key))return callback(null);held.add(key);try{return await callback({name:key});}finally{held.delete(key);}}}}});
  const same=(a,b)=>a&&b&&a.length===b.length&&a.every((value,index)=>Object.is(value,b[index]));
  const react={
   useState:initial=>{const index=cursor++;if(!slots[index])slots[index]={value:typeof initial==='function'?initial():initial};return[slots[index].value,value=>{slots[index].value=typeof value==='function'?value(slots[index].value):value;dirty=true;}];},

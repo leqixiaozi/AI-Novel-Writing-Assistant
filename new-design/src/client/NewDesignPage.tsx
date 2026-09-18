@@ -1,3 +1,4 @@
+import SavedRecoveryPage from './savedRecovery';
 import PublicCharacterWorkshop from './publicCharacters';
 import BookWorkspacePage from "./BookWorkspacePage";
 import BooksPage from "./BooksPage";
@@ -62,6 +63,7 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   const readingMatch=path.match(/^\/new-design\/books\/([^/]+)\/reading$/);
   if(readingMatch)return <ReadingPage key={readingMatch[1]} bookId={decodeURIComponent(readingMatch[1])}/>;
   if(path==="/new-design/knowledge")return <KnowledgeReferencePage/>;
+  if(path==="/new-design/operations/recovery")return <SavedRecoveryPage/>;
   if(path==="/new-design/operations/records")return <AuthorTaskCenterPage api={newDesignApi}/>;
   if(path==="/new-design/operations/director")return <DirectorFollowupPage api={newDesignApi.directorFollowup}/>;
   const knowledgeMatch=path.match(/^\/new-design\/books\/([^/]+)\/knowledge$/);

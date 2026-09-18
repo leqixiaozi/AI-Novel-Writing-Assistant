@@ -1,3 +1,4 @@
+import {previewSelectedChapterProduction} from '../../database/chapterProduction/selectedChapter';
 import {Router,type Request,type RequestHandler} from "express";
 import {z} from "zod";
 import {chapterCandidateSaveSchema,chapterWritingRequestSchema} from "../../domain/validation";
@@ -38,6 +39,7 @@ export function chapterProductionRouter(dependencies:typeof defaultDependencies=
    next(chapterProductionFailure(error,step,context.source,write,allowTypedOutcome));
   });
  };
+ router.post('/chapter-documents/:id/generation-source-preview',route('只读核对生成资料取舍',false,async(req,context)=>{const id=uuid.parse(req.params.id);context.resolveSource=()=>documentSource(id);return{data:await previewSelectedChapterProduction(id,chapterWritingRequestSchema.parse(req.body))};}));
  router.get("/books/:id/chapter-writing",route("读取本书章节创作目录",false,async(req)=>({data:await dependencies.getChapterWritingWorkspace(uuid.parse(req.params.id))})));
  router.get("/chapter-documents/:id",route("读取本章正文与候选",false,async(req,context)=>{const id=uuid.parse(req.params.id);context.resolveSource=()=>documentSource(id);const document=await dependencies.getChapterDocument(id);context.source={bookId:document.bookId,chapterCardId:document.chapterCardId};return {data:document};}));
  router.get("/chapter-documents/:id/writing-requests",route("只读核对本章生成请求",false,async(req,context)=>{const id=uuid.parse(req.params.id);context.resolveSource=()=>documentSource(id);context.source=await documentSource(id);return {data:await dependencies.listChapterWritingRequests(id)};}));

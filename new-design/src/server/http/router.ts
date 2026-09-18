@@ -1,3 +1,7 @@
+import {savedRecoveryRouter} from './savedRecovery';
+import {ClassificationWriteError} from '../database/bookshelf/classification';
+import {imagePreparationRouter} from './imagePreparation';
+import {ImagePreparationError} from '../database/imagePreparation';
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
@@ -425,6 +429,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(authorMaterialsRouter());
   router.use("/professional-resources",professionalResourcesRouter());
   router.use('/public-characters',publicCharactersRouter());
+  router.use('/image-preparation',imagePreparationRouter());
+  router.use('/saved-recovery',savedRecoveryRouter());
   router.use(bookCompositionRouter());
   router.use(productionDirectorRouter());
   router.use(chapterProductionRouter());
@@ -1004,7 +1010,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof PublicCharacterError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof PublicCharacterError||error instanceof ImagePreparationError||error instanceof ClassificationWriteError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

@@ -14,7 +14,7 @@ export const visualCommandSchema=z.discriminatedUnion("operation",[
  z.object({...ref,operation:z.literal("description"),versionId:uuid,title:text.min(1),description:z.string().max(4000)}).strict(),
  z.object({...ref,operation:z.literal("adopt"),versionId:uuid,previewId:uuid}).strict(),
  z.object({...ref,operation:z.literal("archive"),previewId:uuid,reason:z.string().trim().min(1).max(2000)}).strict(),
- z.object({...ref,operation:z.literal("mount"),versionId:uuid,ownerKind:z.enum(["book","card_version","chapter_body_version"]),ownerStableId:uuid,ownerVersionId:uuid,label:text}).strict(),
+ z.object({...ref,operation:z.literal("mount"),versionId:uuid,ownerKind:z.enum(["book","card_version","chapter_body_version"]),ownerStableId:uuid,ownerVersionId:uuid,label:text,primary:z.literal(true).optional(),expectedPrimaryMountId:uuid.nullable().optional()}).strict().refine(value=>value.primary?value.ownerKind==="book"&&value.ownerStableId===value.bookId&&value.ownerVersionId===value.bookId&&value.expectedPrimaryMountId!==undefined:value.expectedPrimaryMountId===undefined,"主封面须明确本书及原主图引用。"),
 ]);
 export type VisualUploadInput=z.infer<typeof visualUploadSchema>;
 export type VisualCommand=z.infer<typeof visualCommandSchema>;

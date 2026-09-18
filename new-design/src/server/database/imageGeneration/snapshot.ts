@@ -1,3 +1,4 @@
+import {assertImagePreparationSelection} from '../imagePreparation';
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
 import {IMAGE_CONTRACT,IMAGE_CAPABILITIES,type ImageGenerationInput,type PublicImageProtocolInput,type ImageConnectionVersion} from "../../../common/imageGeneration";
@@ -5,6 +6,7 @@ import {stableHash} from "../aiContracts";
 import {prepareImageContract} from "../../ai/imageGeneration/contract";
 export async function freezeImageRequest(client:PoolClient,id:string,input:ImageGenerationInput|PublicImageProtocolInput,connection:ImageConnectionVersion){
  const publicSource='portraitSource' in input?input.portraitSource:null,bookId='bookId' in input?input.bookId:null;
+ await assertImagePreparationSelection(client,publicSource?{kind:'public_character',resourceId:publicSource.id,resourceVersionId:publicSource.versionId}:{kind:'book',bookId:bookId!},input.prompt,input.preparation);
  const recipeId=randomUUID(),recipeVersionId=randomUUID(),contractId=randomUUID(),contractVersionId=randomUUID(),snapshotId=randomUUID(),manifestId=randomUUID(),key=`image_generation_${id}`,contract=prepareImageContract(input);
  const variables={type:"object",const:input,"x-image-generation":{requestId:id,assetId:contract.assetId,assetVersion:contract.assetVersion,protocol:contract.protocol,connectionVersionId:connection.id},...(publicSource?{"x-public-character":{contract:"public_character_trial_v1",resourceId:publicSource.id}}:{})},inputSchema={type:"object",const:input};
  await client.query("INSERT INTO new_design.prompt_recipes(id,recipe_key,name,description) VALUES($1,$2,'单图生成要求','本次明确填写的画面要求；不读取全书资料')",[recipeId,key]);

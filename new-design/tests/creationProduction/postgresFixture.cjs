@@ -10,7 +10,7 @@ exports.creationFixture=async function(t){
  const db=new Proxy(client,{get(target,key){if(key==='release')return()=>{};if(key==='query')return async(sql,values)=>{try{return await target.query(typeof sql==='string'?rewrite(sql):{...sql,text:rewrite(sql.text)},values);}catch(error){failures.push({code:error.code,message:error.message,routine:error.routine});throw error;}};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});
  const scopedPool={query:db.query,connect:async()=>db};
  const authorRoutes=(await pool.query("SELECT id,current_version_id,published_version_id,revision,status FROM new_design.model_route_configs WHERE scope='system_default' ORDER BY id")).rows;
- t.after(async()=>{try{await client.query('ROLLBACK');await client.query(`UPDATE ${schema}.books SET status='archived' WHERE status='active'`);}finally{client.release();await pool.end();}});
+ t.after(async()=>{if(failures.length)t.diagnostic?.(JSON.stringify({isolatedFixtureFailures:failures}));try{await client.query('ROLLBACK');await client.query(`UPDATE ${schema}.books SET status='archived' WHERE status='active'`);}finally{client.release();await pool.end();}});
  await client.query(`CREATE SCHEMA ${schema}`);await client.query(`SET search_path TO ${schema},public`);
  const tables=(await client.query("SELECT tablename FROM pg_tables WHERE schemaname='new_design' ORDER BY tablename")).rows;
  for(const {tablename} of tables)await client.query(`CREATE TABLE ${schema}.${tablename}(LIKE new_design.${tablename} INCLUDING ALL)`);

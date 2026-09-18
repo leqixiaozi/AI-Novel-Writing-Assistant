@@ -1,3 +1,6 @@
+import type {SavedRecoveryApi} from '../../common/savedRecovery';
+import type {ClassificationWorkspace,ClassificationWrite} from '../../common/bookClassification';
+import type {ImagePreparationApi} from '../../common/imagePreparation';
 import type {CreativeExtractionApi} from "../../common/creativeExtraction";
 import type {ImageGenerationApi} from "../../common/imageGeneration";
 import type {WorldConsistencyInput,WorldConsistencyWorkspace,WorldConsistencyReceipt,WorldConsistencyRepairDraft} from "../../common/worldConsistency";
@@ -13,6 +16,7 @@ const post=(input:unknown={}):RequestInit=>({method:"POST",body:JSON.stringify(i
 
 /** Shares the central transport, envelope validation and safe recovery handling. */
 export function createFeatureApi(request:Request){
+ const savedRecovery:SavedRecoveryApi={workspace:bookId=>request(`/saved-recovery${bookId?`?bookId=${encoded(bookId)}`:''}`),inspect:target=>request(`/saved-recovery/inspect?kind=${encoded(target.kind)}&id=${encoded(target.id)}${target.bookId?`&bookId=${encoded(target.bookId)}`:''}`),recover:input=>request('/saved-recovery/complete-saved',post(input))};
  const dialogueBase=(book:string)=>`/books/${encoded(book)}/character-dialogue`;
  const sessionBase=(book:string,session:string)=>`${dialogueBase(book)}/sessions/${encoded(session)}`;
  const characterDialogue:DialogueApi={
@@ -43,6 +47,7 @@ export function createFeatureApi(request:Request){
   command:(id,input)=>request(`/creative-extraction/${encoded(id)}/commands`,post(input)),
   receipt:key=>request(`/creative-extraction/commands/by-key/${encoded(key)}`),
  };
+ const imagePreparation:ImagePreparationApi={materials:scope=>request(`/image-preparation/materials?${new URLSearchParams(Object.entries(scope))}`),run:input=>request('/image-preparation/requests',post(input)),byKey:key=>request(`/image-preparation/by-key/${encoded(key)}`),complete:id=>request(`/image-preparation/${encoded(id)}/complete`,post()),endExpired:id=>request(`/image-preparation/${encoded(id)}/end-expired`,post())};
  const imageGeneration:ImageGenerationApi={
   catalog:book=>request(`/books/${encoded(book)}/image-generation/catalog`),
   generate:input=>request(`/books/${encoded(input.bookId)}/image-generation/requests`,post(input)),
@@ -55,8 +60,10 @@ export function createFeatureApi(request:Request){
   connectionReceipt:key=>request(`/models/image-generation/connections/by-request/${encoded(key)}`),
  };
  const base=(book:string)=>`/books/${encoded(book)}/world-consistency`;
- return {
-  creativeExtraction,imageGeneration,directorFollowup,characterDialogue,
+ return {savedRecovery,
+ previewChapterGenerationSources:(id:string,input:{operationKind:Exclude<import('../../common/contracts').ChapterWritingOperation,'manual_draft'|'copy'>;baseBodyVersionId?:string|null;selectionStart?:number|null;selectionEnd?:number|null;instruction?:string;expectedRevision:number;idempotencyKey:string;knowledgeSources?:import('../../common/productionDirector').ChapterKnowledgeSelection[];excludedMaterialIds?:string[]})=>request<{bookId:string;documentId:string;sourceHash:string;decisions:Array<{cardId:string;versionId:string;title:string;required:boolean;included:boolean}>;input:{materials:Array<{cardId:string;[key:string]:unknown}>;[key:string]:unknown}}>(`/chapter-documents/${encoded(id)}/generation-source-preview`,post(input)),
+  getBookClassification:(book:string)=>request<ClassificationWorkspace>(`/books/${encoded(book)}/classification`),saveBookClassification:(book:string,input:ClassificationWrite)=>request<AuthorMaterialWriteReceipt>(`/books/${encoded(book)}/classification`,post(input)),
+  creativeExtraction,imageGeneration,imagePreparation,directorFollowup,characterDialogue,
   getProfessionalViewsWorkspace:(book:string)=>request<ProfessionalViewsWorkspace>(`/books/${encoded(book)}/professional-views/workspace`),
   getWorldConsistencyWorkspace:(book:string)=>request<WorldConsistencyWorkspace>(`${base(book)}/workspace`),
   runWorldConsistency:(book:string,input:WorldConsistencyInput)=>request<WorldConsistencyReceipt>(`${base(book)}/runs`,post(input)),

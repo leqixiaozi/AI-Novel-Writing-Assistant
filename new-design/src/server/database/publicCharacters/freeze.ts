@@ -17,7 +17,7 @@ export async function freezeTrial(client:PoolClient,id:string,input:PublicCharac
  if(input.kind==='portrait'){
   const connection=await readManagedImageConnectionVersion(input.connectionVersionId,{client});if(!connection.sizes.includes(input.size))throw new NewDesignError('所选专属图片连接没有声明此尺寸。',422);
   const variable=await getManagedCredentialEnvironment(connection.credentialId,connection.provider,{client});if(variable&&!process.env[variable])throw new NewDesignError('专属图片连接凭据未就绪，请核对模型设置。',422);
-  const promptInput:PublicImageProtocolInput={requestKey:input.requestKey,connectionVersionId:input.connectionVersionId,kind:'illustration',title:input.title,description:input.description,prompt:input.prompt,size:input.size,portraitSource:source};
+  const promptInput:PublicImageProtocolInput={requestKey:input.requestKey,connectionVersionId:input.connectionVersionId,kind:'illustration',title:input.title,description:input.description,prompt:input.prompt,size:input.size,portraitSource:source,...(input.preparation?{preparation:input.preparation}:{})};
   const frozen=await freezeImageRequest(client,id,promptInput,connection);
   plan={input,source,promptInput,connection,contractVersionId:frozen.contractVersionId,recipeVersionId:frozen.recipeVersionId,manifestId:frozen.manifestId,snapshotId:frozen.snapshotId,snapshotHash:frozen.snapshotHash,inputHash:stableHash(promptInput),outputSchemaVersion:stableHash(frozen.contract.outputSchema),timeoutMs:connection.timeoutMs};
  }else{

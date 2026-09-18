@@ -1,3 +1,4 @@
+import {imagePreparationSelectionSchema} from './imagePreparation';
 import {z} from "zod";
 import type {ManagedCredentialChoice} from "./modelRouting";
 import type {AiRuntimeRecovery} from "./aiRuntime";
@@ -14,7 +15,7 @@ export type SaveImageConnectionInput=z.infer<typeof imageConnectionInputSchema>;
 export interface ImageConnectionVersion extends Omit<SaveImageConnectionInput,"expectedConfigId"|"expectedRevision"|"idempotencyKey"> {id:string;configId:string;configRevision:number;version:number;label:string;connectionHash:string}
 export interface ImageConnectionCatalog {connections:ImageConnectionVersion[];credentials:ManagedCredentialChoice[];configurationIssue:string|null}
 export interface ImageConnectionSaveResult {connection:ImageConnectionVersion;configRevision:number;savedVersionId:string;repeated:boolean}
-export const imageGenerationInputSchema=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid(),connectionVersionId:z.string().uuid(),kind:z.enum(["cover","illustration"]),title:z.string().trim().min(1).max(240),description:z.string().max(4000),prompt:z.string().trim().min(1).max(4000),size:z.enum(IMAGE_SIZES)}).strict();
+export const imageGenerationInputSchema=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid(),connectionVersionId:z.string().uuid(),kind:z.enum(["cover","illustration"]),title:z.string().trim().min(1).max(240),description:z.string().max(4000),prompt:z.string().trim().min(1).max(4000),size:z.enum(IMAGE_SIZES),preparation:imagePreparationSelectionSchema.optional()}).strict();
 export type ImageGenerationInput=z.infer<typeof imageGenerationInputSchema>;
 export interface PublicImageProtocolInput extends Omit<ImageGenerationInput,'bookId'> {portraitSource:PublicCharacterSource;}
 export const imageReplySchema=z.object({base64:z.string().min(4).max(13981016).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),mimeType:z.enum(["image/png","image/jpeg","image/webp"]),checksum:z.string().regex(/^[a-f0-9]{64}$/),byteSize:z.number().int().positive().max(10485760),inputTokens:z.number().int().nonnegative().nullable(),outputTokens:z.number().int().nonnegative().nullable(),durationMs:z.number().int().nonnegative()}).strict();

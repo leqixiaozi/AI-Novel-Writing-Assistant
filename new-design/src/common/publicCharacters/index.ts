@@ -1,3 +1,4 @@
+import {imagePreparationSelectionSchema} from '../imagePreparation';
 import {z} from 'zod';
 import type {FieldDefinition} from '../contracts';
 import {IMAGE_SIZES,type ImageConnectionVersion} from '../imageGeneration';
@@ -6,7 +7,7 @@ const uuid=z.string().uuid(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 const source={requestKey:uuid,resourceId:uuid,resourceVersionId:uuid,sourceHash:hash};
 export const publicCharacterTrialSchema=z.discriminatedUnion('kind',[
  z.object({...source,kind:z.literal('dialogue'),message:z.string().trim().min(1).max(2000),historyKeys:z.array(uuid).max(30).refine(keys=>new Set(keys).size===keys.length)}).strict(),
- z.object({...source,kind:z.literal('portrait'),connectionVersionId:uuid,title:z.string().trim().min(1).max(240),prompt:z.string().trim().min(1).max(4000),description:z.string().max(4000),size:z.enum(IMAGE_SIZES)}).strict(),
+ z.object({...source,kind:z.literal('portrait'),connectionVersionId:uuid,title:z.string().trim().min(1).max(240),prompt:z.string().trim().min(1).max(4000),description:z.string().max(4000),size:z.enum(IMAGE_SIZES),preparation:imagePreparationSelectionSchema.optional()}).strict(),
 ]);
 export type PublicCharacterTrialInput=z.infer<typeof publicCharacterTrialSchema>;
 export interface PublicCharacterSource {id:string;versionId:string;revision:number;typeVersionId:string;title:string;values:Record<string,unknown>;fields:FieldDefinition[];localFields:Array<{definitionId:string;versionId:string;field:FieldDefinition;value:unknown}>;hash:string;}

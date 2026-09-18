@@ -17,7 +17,7 @@ test('public character samples use original cards, exact published specification
  await assert.rejects(resources.executeProfessionalCommand({...input,requestKey:key(),expectedTypeVersionId:key()}),error=>error.status===409);
  const {expectedTypeVersionId:_omitted,...missingVersion}=input;await assert.rejects(resources.executeProfessionalCommand({...missingVersion,requestKey:key()}),error=>error.status===422);assert.equal(await count(),initialCount);
  const created=await resources.executeProfessionalCommand(input),again=await resources.executeProfessionalCommand(input),id=created.resourceIds[0],originalVersionId=created.versionIds[0];
- assert.equal(again.repeated,true);assert.equal(again.resourceIds[0],id);assert.equal(await count(),initialCount+1);assert.equal((await store.getCard(id)).spaceId,contracts.PUBLIC_CHARACTER_SPACE_ID);
+ assert.equal(again.repeated,true);assert.equal(again.resourceIds[0],id);assert.equal(await count(),initialCount+1);assert.equal((await pool.query('SELECT space_id FROM new_design.cards WHERE id=$1',[id])).rows[0].space_id,contracts.PUBLIC_CHARACTER_SPACE_ID);
  // Fixtures are inserted only into this new empty test database. The editor
  // must preserve local snapshots even after their definitions are archived.
  const definitionId=key(),definitionVersionId=key();

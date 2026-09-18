@@ -5,17 +5,18 @@ const {seedCreationTemplate}=require('../creationProduction/postgresFixture.cjs'
 
 /** Real empty schema, real cloned application, exclusive fresh file root. No cleanup. */
 exports.knowledgePipelineFixture=async function(t){
- assert.ok(require.cache[require.resolve('./bootstrap.cjs')],'Knowledge fixture requires the preloaded checked 55583/tmpfs bootstrap before filesystem or pool access');
+ const workBuild=process.env.ND_REFERENCE_TEST_BUILD?path.resolve(process.env.ND_REFERENCE_TEST_BUILD):null;
+ if(workBuild){assert.equal(process.env.ND_ISOLATED_LEGACY_FIXTURE,'1');assert.ok(workBuild.replaceAll('\\','/').includes('/work/'),'Approved isolated work build required');}else assert.ok(require.cache[require.resolve('./bootstrap.cjs')],'Knowledge fixture requires the preloaded checked 55583/tmpfs bootstrap before filesystem or pool access');
  assert.equal(process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME,'1');
- const packageRoot=path.resolve(__dirname,'../..'),dataRoot=path.join(packageRoot,'.data'),parent=path.join(dataRoot,'unified-validation');
+ const packageRoot=workBuild?path.dirname(workBuild):path.resolve(__dirname,'../..'),compiledRoot=workBuild??path.join(packageRoot,'dist'),dataRoot=path.join(packageRoot,'.data'),parent=path.join(dataRoot,'unified-validation');
  const requireRealDirectory=async directory=>{const stat=await fs.lstat(directory);assert.ok(stat.isDirectory()&&!stat.isSymbolicLink(),'Fixture directory must be a controlled ordinary directory');assert.equal((await fs.realpath(directory)).toLowerCase(),directory.toLowerCase(),'Fixture directory must not traverse a symlink/junction');};
  await requireRealDirectory(packageRoot);
  for(const directory of [dataRoot,parent]){try{await fs.mkdir(directory);}catch(error){if(error.code!=='EEXIST')throw error;}await requireRealDirectory(directory);}
  const appRoot=await fs.mkdtemp(path.join(parent,'knowledge-pipeline-'));await requireRealDirectory(appRoot);
- assert.equal(path.dirname(appRoot),parent);await fs.cp(path.join(packageRoot,'dist'),path.join(appRoot,'dist'),{recursive:true,errorOnExist:true,force:false});
+ assert.equal(path.dirname(appRoot),parent);await fs.cp(compiledRoot,path.join(appRoot,'dist'),{recursive:true,errorOnExist:true,force:false});
  const sourceFiles=['server/application/knowledgeReference/files.js','server/ai/knowledgeEmbedding/receipts.js'];
- const digest=async base=>Promise.all(sourceFiles.map(async file=>createHash('sha256').update(await fs.readFile(path.join(base,'dist',file))).digest('hex')));
- assert.deepEqual(await digest(appRoot),await digest(packageRoot),'Compiled source is copied byte-for-byte, not path-patched');
+ const digest=async base=>Promise.all(sourceFiles.map(async file=>createHash('sha256').update(await fs.readFile(path.join(base,file))).digest('hex')));
+ assert.deepEqual(await digest(path.join(appRoot,'dist')),await digest(compiledRoot),'Compiled source is copied byte-for-byte, not path-patched');
  // Outer --require bootstrap owns the only connection identity check (55583/tmpfs).
  const basePool=await runtime.getNewDesignPool(),schema=`knowledge_pipeline_test_${randomUUID().replaceAll('-','')}`;
  const assetIds=listPromptAssets().map(asset=>asset.assetId),rewrite=sql=>{
@@ -45,7 +46,7 @@ exports.knowledgePipelineFixture=async function(t){
   const triggers=(await setup.query("SELECT pg_get_triggerdef(t.oid) definition FROM pg_trigger t JOIN pg_class r ON r.oid=t.tgrelid JOIN pg_namespace n ON n.oid=r.relnamespace WHERE n.nspname='new_design' AND NOT t.tgisinternal ORDER BY r.relname,t.tgname")).rows;
   for(const row of triggers)await setup.query(rewrite(row.definition));
   // Original infrastructure catalogue only, no application facts or author data.
-  const migration=await fs.readFile(path.join(packageRoot,'migrations','030_postgres_outbox_job_runtime.sql'),'utf8');
+  const migration=await fs.readFile(path.join(__dirname,'../../migrations','030_postgres_outbox_job_runtime.sql'),'utf8');
   for(const table of ['outbox_event_topics','background_job_handlers','outbox_consumers']){const statement=migration.match(new RegExp(`INSERT INTO ${table}\\([^;]+;`));assert.ok(statement);await setup.query(rewrite(statement[0]));}
  }finally{setup.release();}
  const fault={predicate:null,count:0},sqlFailures=[];
@@ -63,6 +64,6 @@ exports.knowledgePipelineFixture=async function(t){
  const load=relative=>require(path.join(appRoot,'dist',relative)),config=await seedCreationTemplate(pool);
  const template=load('server/database/templateStore'),book=await template.createBook({key:`knowledge_pipeline_${randomUUID()}`,name:'知识流水线隔离书',description:'仅测试夹具',templateVersionId:config.version},{includeTemplateSeed:false});
  const otherBook=await template.createBook({key:`knowledge_other_${randomUUID()}`,name:'跨书边界隔离书',description:'仅测试夹具',templateVersionId:config.version},{includeTemplateSeed:false});
- t.after(async()=>{await pool.query("UPDATE new_design.books SET status='archived' WHERE id=ANY($1::uuid[])",[[book.id,otherBook.id]]);assert.deepEqual(await digest(appRoot),await digest(packageRoot));await basePool.end();});
+ t.after(async()=>{await pool.query("UPDATE new_design.books SET status='archived' WHERE id=ANY($1::uuid[])",[[book.id,otherBook.id]]);assert.deepEqual(await digest(path.join(appRoot,'dist')),await digest(compiledRoot));await basePool.end();});
  return{appRoot,schema,pool,book,otherBook,fault,sqlFailures,load};
 };

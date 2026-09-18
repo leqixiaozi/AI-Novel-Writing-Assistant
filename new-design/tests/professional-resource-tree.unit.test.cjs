@@ -14,7 +14,7 @@ test('professional tree uses original resources underneath each Chinese category
  assert.equal(parent.count,1);assert.equal(parent.children[0].id,'resource:original-resource');assert.equal(parent.children[0].resource,original);assert.match(parent.children[0].description,/修订 3/);
 });
 test('name search crosses categories, keeps ancestors and preserves source identity',()=>{
- const original=resource({kind:'writing_config',title:'仙侠慢热对白'}),tree=buildProfessionalResourceTree([resource(),original],filters({search:'慢热'}));
+ const original=resource({kind:'writing_config',title:'仙侠慢热对白'}),tree=buildProfessionalResourceTree([resource({id:'other-resource'}),original],filters({search:'慢热'}));
  assert.equal(tree.length,1);assert.equal(tree[0].id,'kind:writing_config');assert.equal(tree[0].children[0].resource,original);
  assert.deepEqual(navigationAncestors(tree,new Set(['resource:original-resource'])),['kind:writing_config']);
  assert.equal(filterNavigation(tree,'慢热')[0].children[0].resource,original);

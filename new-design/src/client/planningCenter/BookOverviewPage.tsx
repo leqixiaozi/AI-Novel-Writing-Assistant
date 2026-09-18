@@ -1,3 +1,4 @@
+import BookClassificationPanel from '../bookClassification';
 import { useEffect, useState } from "react";
 import type { BookOverview, BookSummary, TaskContract } from "../../common/contracts";
 import { runtimeLabel } from "../../common/presentation";
@@ -8,6 +9,8 @@ const metricValue=(value:number|null,unit:string)=>value===null?"暂无":`${valu
 
 export default function BookOverviewPage({bookId}:{bookId:string}){
   const [book,setBook]=useState<BookSummary|null>(null),[overview,setOverview]=useState<BookOverview|null>(null),[message,setMessage]=useState("");
+  const [classificationGuard,setClassificationGuard]=useState({blocked:false,dirty:false});
+  useEffect(()=>{const leave=(event:MouseEvent)=>{const target=event.target instanceof Element?event.target.closest('a[href]'):null;if(!target||!(classificationGuard.blocked||classificationGuard.dirty))return;if(classificationGuard.blocked||!confirm('作品分类草稿已保留，离开后仍需核对并明确保存。是否离开？')){event.preventDefault();event.stopPropagation();}};document.addEventListener('click',leave,true);return()=>document.removeEventListener('click',leave,true);},[classificationGuard]);
   const [contracts,setContracts]=useState<TaskContract[]>([]);
   useEffect(()=>{let active=true;void newDesignApi.listPublishedTaskContracts().then(items=>{if(active)setContracts(items);}).catch(()=>{});return()=>{active=false;};},[]);
   useEffect(()=>{void Promise.all([newDesignApi.getBook(bookId),newDesignApi.getBookOverview(bookId)]).then(([nextBook,nextOverview])=>{setBook(nextBook);setOverview(nextOverview);}).catch(error=>setMessage(error instanceof Error?error.message:"创作概览加载失败。"));},[bookId]);
@@ -20,7 +23,7 @@ export default function BookOverviewPage({bookId}:{bookId:string}){
     </section>
 
     <section aria-label="本书创作专项"><h2>写法与标题</h2><div className="nd-row-actions"><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=writing_resource`}>提炼写法资源</a><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=style_cleaning`}>仿写与清洗正文</a><a className="nd-button" href={`/new-design/resources/extraction?bookId=${bookId}&mode=title_groups`}>生成与比较标题</a></div><p>参考、目标章节和人工填写分别确认；候选需明确保存或采用。</p></section>
-    <section aria-labelledby="progress-title"><div className="nd-section-heading"><div><p className="nd-kicker">创作进展</p><h2 id="progress-title">下一步从缺口开始</h2></div><small>汇总时间 {new Date(overview.updatedAt).toLocaleString()}</small></div>
+    <BookClassificationPanel key={bookId} bookId={bookId} onGuardChange={setClassificationGuard}/><section aria-labelledby="progress-title"><div className="nd-section-heading"><div><p className="nd-kicker">创作进展</p><h2 id="progress-title">下一步从缺口开始</h2></div><small>汇总时间 {new Date(overview.updatedAt).toLocaleString()}</small></div>
       <div className="nd-overview-metrics">{overview.metrics.map(item=><a className={`nd-overview-metric is-${item.state}`} href={item.sourceRoute} key={item.key}><span>{item.label}</span><strong>{metricValue(item.value,item.unit)}</strong><p>{item.detail}</p><small>{item.sourceLabel} · {item.updatedAt?new Date(item.updatedAt).toLocaleString():"暂无更新时间"}</small></a>)}</div>
     </section>
 

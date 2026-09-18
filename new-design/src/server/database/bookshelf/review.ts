@@ -1,0 +1,9 @@
+import type {PoolClient} from 'pg';
+import type {ReadingReview} from '../../../common/bookshelf';
+export async function readReadingReview(client:PoolClient,bookId:string,documentId:string,bodyVersionId:string):Promise<ReadingReview>{
+ const installed=(await client.query("SELECT to_regclass('new_design.chapter_quality_requests') IS NOT NULL present")).rows[0].present;
+ if(installed&&(await client.query("SELECT id FROM new_design.chapter_quality_requests WHERE book_id=$1 AND input_payload->>'chapterDocumentId'=$2 AND input_payload->>'bodyVersionId'=$3 AND status='running' LIMIT 1",[bookId,documentId,bodyVersionId])).rowCount)return{status:'reviewing',reportId:null,issueCount:null,summary:'此原正文版本的审校结果待核对。'};
+ const report=(await client.query("SELECT report.id,report.summary,report.stale_at,report.policy_decision,report.execution_effect,(SELECT count(*) FROM new_design.quality_issues issue WHERE issue.report_id=report.id AND issue.current_status IN ('open','acknowledged','deferred','fix_proposed')) issue_count FROM new_design.quality_report_body_versions binding JOIN new_design.quality_audit_reports report ON report.id=binding.report_id WHERE report.book_id=$1 AND binding.chapter_document_id=$2 AND binding.body_version_id=$3 ORDER BY report.created_at DESC,report.id DESC LIMIT 1",[bookId,documentId,bodyVersionId])).rows[0];
+ if(!report)return{status:'unreviewed',reportId:null,issueCount:null,summary:'此原正文版本尚无已保存审校报告。'};
+ return{status:report.stale_at?'stale':report.policy_decision==='replan_required'?'replan_required':report.execution_effect==='global_stop'||report.execution_effect==='pause_for_manual'?'attention':Number(report.issue_count)>0||report.execution_effect==='quality_debt'?'quality_debt':'reviewed',reportId:report.id,issueCount:Number(report.issue_count),summary:String(report.summary)};
+}
