@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {readStoryFormat} from '../../../common/storyFormat';
 import type {PoolClient} from "pg";
 import type {CreationPreparationOutput,CreationPreparationReceipt,CreationReviewAiInput,CreationPreparationTarget} from "../../../common/creationReviewAi";
 import {CREATION_DIRECTOR_STAGES,creationDirectorState,type CreationDirectorStage} from "../../../common/creationDirector";
@@ -54,7 +55,7 @@ export async function claimCreationPreparation(sessionId:string,input:CreationRe
   const selected=context.session.directionCandidates.find(item=>item.id===context.session.selectedDirectionId)??earlier.flatMap(saved=>saved.output_payload.directions??[])[0]??null;
   if(stage&&stage!=="direction"&&!selected)throw new NewDesignError("请先准备并选择创作方向。",422);
   const specificationHash=stableHash({templateVersionId:context.session.templateVersionId,templateSnapshot:context.templateSnapshot,catalog:context.catalog,reviewCards:context.session.reviewCards});
-  const promptInput=creationPreparationPromptInputSchema.parse({contract:"creation_preparation_v1",sessionId,sessionRevision:context.session.revision,specificationHash,stage,mode:input.mode,method:context.session.method,bookName:context.session.bookName,sourceReference:context.session.sourceReference,sourceText:context.sourceText,direction:selected,schemaTypes,targets,contextCards,catalog:context.catalog});
+  const promptInput=creationPreparationPromptInputSchema.parse({contract:"creation_preparation_v1",sessionId,sessionRevision:context.session.revision,specificationHash,stage,mode:input.mode,method:context.session.method,storyFormat:readStoryFormat(context.session.inputPayload.storyFormat),bookName:context.session.bookName,sourceReference:context.session.sourceReference,sourceText:context.sourceText,direction:selected,schemaTypes,targets,contextCards,catalog:context.catalog});
   const taskType=stage==="direction"?"directions":input.reviewCardId?"form_assist":"initial_content",prompt=preparePrompt(taskType,promptInput),route=await resolveManagedTaskRoute(taskType,{client:db});validateExecutionPolicy(route);
   await configurationForConnection(route.primary,route.policy,{credentialResolver:(id,provider)=>getManagedCredentialEnvironment(id,provider,{client:db})});
   const snapshot=await captureManagedModelSnapshot(taskType,route,{client:db}),batchId=randomUUID();

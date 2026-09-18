@@ -1,0 +1,78 @@
+/* Shared legacy control metrics. This boundary only surrounds new-design;
+   the legacy application and all data/command contracts remain untouched. */
+.nd-legacy-surface{min-width:0;color:var(--nd-ink)}
+.nd-legacy-surface .nd-shell{padding:20px 24px}
+.nd-legacy-surface .nd-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.nd-legacy-surface .nd-page-header h1{font-size:28px;line-height:1.3;margin:4px 0 8px}
+.nd-legacy-surface :is(.nd-page-header,.nd-section-heading,.nd-panel-title) p{font-size:13px;line-height:1.6}
+.nd-legacy-surface :is(.nd-control,.nd-form-grid>label){min-width:0;gap:8px}
+.nd-legacy-surface .nd-control>span{font-size:13px;line-height:1.5}
+.nd-legacy-surface .nd-control>small{font-size:12px;line-height:1.6}
+.nd-legacy-surface .nd-control :is(input:not([type=checkbox]):not([type=radio]),select,textarea){box-sizing:border-box;max-width:100%;min-height:40px;font-size:14px;line-height:1.6;border-radius:6px;padding:8px 12px}
+.nd-legacy-surface .nd-button{min-height:36px;padding:8px 12px;font-size:13px;line-height:1.5;border-radius:6px}
+.nd-legacy-surface .nd-row-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.nd-legacy-surface .nd-message{padding:12px 16px;font-size:13px;line-height:1.6;border-radius:6px}
+.nd-legacy-surface :is(.nd-section-heading,.nd-panel-title) h2{font-size:18px;line-height:1.5}
+.nd-legacy-surface :is(.nd-section-heading,.nd-panel-title) h3{font-size:16px;line-height:1.5}
+.nd-legacy-surface :is(.nd-empty,.nd-empty-state){font-size:13px;line-height:1.7}
+.nd-legacy-surface :is(.nd-empty,.nd-empty-state)>strong{font-size:15px}
+.nd-legacy-surface table{border-collapse:collapse;font-size:13px;line-height:1.6}
+.nd-legacy-surface :is(th,td){padding:10px 12px;vertical-align:top;border-bottom:1px solid var(--nd-line)}
+.nd-legacy-surface th{text-align:left;color:var(--nd-muted);font-weight:500}
+.nd-legacy-surface :is(.nd-dialog,.nd-add-info-dialog,.nd-association-dialog){padding:20px;gap:16px;border-radius:10px}
+.nd-legacy-surface .nd-book-shell{padding:0}
+.nd-legacy-plan-section{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:16px;margin:16px 0;border:1px solid var(--nd-line);border-radius:8px;background:var(--nd-paper)}
+.nd-legacy-plan-section legend{font-size:14px;font-weight:600;padding:0 6px}.nd-legacy-plan-section label{display:block;min-width:0;font-size:13px;line-height:1.6}.nd-legacy-plan-section textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;min-height:96px;font-size:14px;padding:8px 12px;border:1px solid var(--nd-line);border-radius:6px;color:var(--nd-ink);background:var(--nd-canvas,var(--nd-paper));resize:vertical}
+@container nd-book-content (max-width:650px){.nd-legacy-plan-section{grid-template-columns:minmax(0,1fr)}}
+.nd-legacy-surface .nd-subnav{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:0 0 20px;padding:0 0 4px;border-bottom:1px solid var(--nd-line)}
+.nd-legacy-surface .nd-subnav a{min-height:40px;box-sizing:border-box;padding:10px 12px;background:transparent;border-radius:0;font-size:13px;line-height:1.5;color:var(--nd-muted)}
+.nd-legacy-surface .nd-subnav a.active{color:var(--nd-ink);box-shadow:inset 0 -2px var(--nd-accent)}
+.nd-legacy-surface .nd-home{max-width:none;padding:24px}
+.nd-legacy-surface .nd-home-hero{gap:20px;padding:20px;border-radius:8px}
+.nd-legacy-surface .nd-home-starter-aside{padding-left:16px;gap:10px}
+.nd-legacy-surface .nd-home-starter-aside ol{gap:12px;margin-top:12px}
+.nd-legacy-surface :is(.nd-home-loading,.nd-home-unavailable){padding:24px;border-radius:8px}
+.nd-legacy-surface .nd-bookshelf .nd-page-header{margin-bottom:16px}
+.nd-legacy-surface .nd-bookshelf .nd-shelf-switch{padding:4px;gap:4px}
+.nd-legacy-surface .nd-resource-browser-workspace{gap:16px}
+.nd-legacy-surface .nd-resource-browser-detail{padding:16px;border-radius:8px}
+.nd-legacy-surface .nd-resource-browser-toolbar{gap:12px;margin-bottom:16px;font-size:13px}
+.nd-legacy-surface .nd-research-record-layout{gap:16px}
+.nd-legacy-surface .nd-record-inspector{padding:16px;min-width:0;border-radius:8px}
+.nd-legacy-surface .nd-record-run{padding:12px;border:1px solid var(--nd-line);border-radius:6px;font-size:13px;line-height:1.7}
+.nd-legacy-surface .nd-record-run pre{font-size:13px;line-height:1.8;max-height:480px;overflow:auto}
+.nd-legacy-surface .nd-book-views{display:grid;gap:16px;min-width:0}
+.nd-legacy-surface .nd-quality-repair{padding:12px 0;border-top:1px solid var(--nd-line);min-width:0}
+.nd-legacy-surface .nd-quality-repair header{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.nd-legacy-surface .nd-quality-repair h3{font-size:14px;margin:0}
+.nd-legacy-surface .nd-quality-repair ul{list-style:none;padding:0;margin:12px 0;display:grid;gap:12px}
+.nd-legacy-surface .nd-quality-repair li{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--nd-line);border-radius:6px}
+.nd-legacy-surface .nd-quality-repair :is(p,small){font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.nd-legacy-surface .nd-stage-overview{display:grid;gap:12px;padding:16px 0;border-block:1px solid var(--nd-line);min-width:0}
+.nd-legacy-surface .nd-stage-overview header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.nd-legacy-surface .nd-stage-overview h3{font-size:14px;margin:0}
+.nd-legacy-surface .nd-stage-overview :is(header span,small){font-size:12px;color:var(--nd-muted);line-height:1.6}
+.nd-legacy-surface .nd-stage-overview-scroll{overflow:auto;max-height:280px}
+.nd-legacy-surface .nd-stage-overview table{width:100%;border-collapse:collapse;font-size:12px}
+.nd-legacy-surface .nd-stage-overview :is(th,td){padding:8px 12px;text-align:left;border-bottom:1px solid var(--nd-line);white-space:nowrap}
+.nd-legacy-surface .nd-stage-overview th small{display:block}
+.nd-legacy-surface .nd-stage-overview td span{display:block;color:var(--nd-muted);padding:4px 8px;border:1px dashed var(--nd-line);border-radius:4px}
+.nd-legacy-surface .nd-stage-overview td .is-filled{color:var(--nd-ink);border-style:solid;background:var(--nd-paper)}
+.nd-legacy-surface .nd-stage-overview tr.is-selected{background:var(--nd-paper)}
+.nd-legacy-surface .nd-view-tabs{display:flex;gap:4px;flex-wrap:wrap;padding:0 0 4px;border-bottom:1px solid var(--nd-line)}
+.nd-legacy-surface .nd-view-tabs a{padding:10px 12px;font-size:13px;line-height:1.5;min-height:40px;box-sizing:border-box;background:transparent;border-radius:0;color:var(--nd-muted)}
+.nd-legacy-surface .nd-view-tabs a.active{color:var(--nd-ink);box-shadow:inset 0 -2px var(--nd-accent)}
+.nd-legacy-surface .nd-readiness-strip{gap:8px}.nd-legacy-surface .nd-readiness-strip>div{padding:12px;border:1px solid var(--nd-line);border-radius:6px}
+.nd-legacy-surface .nd-readiness-strip span{font-size:12px}.nd-legacy-surface .nd-readiness-strip strong{font-size:14px}
+.nd-legacy-surface :is(.nd-view-summary,.nd-view-operation,.nd-insight-list,.nd-insight-detail,.nd-quality-list,.nd-quality-detail){padding:16px;border-radius:8px;gap:12px}
+.nd-legacy-surface :is(.nd-view-summary,.nd-view-operation) p{font-size:13px;line-height:1.6;margin:4px 0}
+.nd-legacy-surface :is(.nd-view-summary,.nd-view-operation) h2{font-size:18px;margin:0}.nd-legacy-surface .nd-view-operation h3{font-size:16px;margin:0}
+.nd-legacy-surface :is(.nd-insight-list,.nd-quality-list)>button{padding:10px 12px;gap:4px;min-height:52px}
+.nd-legacy-surface :is(.nd-insight-list,.nd-quality-list) button strong{font-size:13px}.nd-legacy-surface :is(.nd-insight-list,.nd-quality-list) button :is(span,small){font-size:12px}
+.nd-legacy-surface :is(.nd-quality-meta,.nd-change-values) dt{font-size:12px}.nd-legacy-surface :is(.nd-quality-meta,.nd-change-values) dd{font-size:13px;margin-top:6px}
+.nd-legacy-surface :is(.nd-quality-detail,.nd-insight-detail) blockquote{padding:12px;font-size:13px;line-height:1.7}
+.nd-legacy-surface :is(.nd-quality-actions,.nd-quality-filters) button{min-height:36px;padding:6px 10px;font-size:12px}
+.nd-legacy-surface :is(.nd-quality-detail>p,.nd-muted-copy,.nd-evidence-line){font-size:12px;line-height:1.7}
+.nd-legacy-surface .nd-book-views .nd-multiview-detail{gap:16px;grid-template-columns:minmax(0,1fr)}
+@container nd-book-content (min-width:900px){.nd-legacy-surface .nd-book-views .nd-multiview-detail{grid-template-columns:minmax(0,1fr) minmax(320px,.9fr)}}
+@media(max-width:700px){.nd-legacy-surface .nd-shell{padding:16px}.nd-legacy-surface .nd-book-shell{padding:0}.nd-legacy-surface .nd-page-header h1{font-size:24px}}

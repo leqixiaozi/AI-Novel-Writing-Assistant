@@ -4,7 +4,7 @@ import {assertFound} from "../../domain/errors";
 import {getNewDesignPool} from "../runtime";
 
 type Row=Record<string,unknown>;
-const objectiveCategories=new Set(["continuity","fact","knowledge","character_state","relationship","prop","event","timeline","foreshadow","world_rule","planning","structure"]);
+const objectiveCategories=new Set(["continuity","plan_obligation","fact","knowledge","character_state","relationship","prop","event","timeline","foreshadow","world_rule","planning","structure"]);
 const date=(value:unknown)=>value instanceof Date?value.toISOString():new Date(String(value)).toISOString();
 const nullable=(value:unknown)=>value===null||value===undefined?null:String(value);
 const numberOrNull=(value:unknown)=>value===null||value===undefined?null:Number(value);

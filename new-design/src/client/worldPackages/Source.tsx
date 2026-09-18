@@ -1,0 +1,4 @@
+export type WorldSourceMode='generate'|'import'|'manual';
+export default function WorldSource({mode,disabled,onMode,onCreate,onGenerate}:{mode:WorldSourceMode;disabled:boolean;onMode:(mode:WorldSourceMode)=>void;onCreate?:()=>void;onGenerate?:()=>void}){
+ return <section className="nd-world-source"><h3>来源与世界库</h3><p>选择本书世界来源，再展开对应操作。</p><div className="nd-world-source-modes" role="group" aria-label="本书世界来源">{([['generate','根据本书生成'],['import','从样本库导入'],['manual','自定义空白手册']] as const).map(([key,label])=><button className="nd-button" key={key} disabled={disabled} aria-pressed={mode===key} onClick={()=>onMode(key)}>{label}</button>)}</div>{mode==='generate'&&<><p>根据本书资料准备世界候选，核对内容后保存本书档案。</p>{onGenerate&&<button className="nd-button" disabled={disabled} onClick={onGenerate}>根据本书生成世界候选</button>}</>}{mode==='manual'&&<><p>填写世界名称和本书实际字段，再补充规则、势力与地点。</p>{onCreate&&<button className="nd-button" disabled={disabled} onClick={onCreate}>创建自定义本书世界</button>}</>}</section>;
+}

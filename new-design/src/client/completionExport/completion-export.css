@@ -8,3 +8,4 @@
 .nd-export-source-inspector h3{font-size:1rem;font-weight:500}
 .nd-export-source-inspector dl{font-size:.85rem}.nd-export-source-inspector dt{color:var(--nd-muted);margin-top:.6rem}.nd-export-source-inspector dd{margin:.15rem 0}
 .nd-export-source-inspector ol{max-height:20rem;overflow:auto}.nd-export-source-inspector li{margin:.4rem 0}.nd-export-source-inspector li span,.nd-export-source-inspector li small{display:block}
+.nd-finish-workspace{display:grid;gap:20px;min-width:0;padding:0;margin:0;border:0}

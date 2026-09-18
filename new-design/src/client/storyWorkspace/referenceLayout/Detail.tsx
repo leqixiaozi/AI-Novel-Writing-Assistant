@@ -1,6 +1,7 @@
 import CharacterExperiences from './CharacterExperiences';
 import CharacterResources from "./CharacterResources";
 import ReferenceForms from "../../referenceParity/Forms";
+import WorldPackages from '../../worldPackages';
 import type {WorkspaceEditor} from "../useGuard";
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {AssociationWorkspace,BookSummary,BookViewCard,BookViewWorkspace,FieldDefinition} from '../../../common/contracts';
@@ -10,7 +11,7 @@ import {newDesignApi} from '../../api';
 import {settingHref} from '../model';
 import Help from '../Help';
 
-export default function ReferenceDetail({book,card,workspace,detail,onEdit,onState,onRequest,experienceBatch,resourceFocus,recentExperienceBatch}:{book:BookSummary;card:BookViewCard;workspace:BookViewWorkspace;detail:string;onEdit:(card:BookViewCard)=>void;onState?:(state:WorkspaceEditor)=>void;onRequest?:(action:()=>void)=>boolean|void;experienceBatch?:string|null;resourceFocus?:string|null;recentExperienceBatch?:string|null}) {
+export default function ReferenceDetail({book,card,workspace,detail,onEdit,onState,onRequest,onCreateWorld,onGenerateWorld,experienceBatch,resourceFocus,recentExperienceBatch}:{book:BookSummary;card:BookViewCard;workspace:BookViewWorkspace;detail:string;onEdit:(card:BookViewCard)=>void;onCreateWorld?:()=>void;onGenerateWorld?:()=>void;onState?:(state:WorkspaceEditor)=>void;onRequest?:(action:()=>void)=>boolean|void;experienceBatch?:string|null;resourceFocus?:string|null;recentExperienceBatch?:string|null}) {
  const [data,setData]=useState<WorldCharacterMaintenanceWorkspace|null>(null),[associations,setAssociations]=useState<AssociationWorkspace|null>(null),[error,setError]=useState(''),[associationError,setAssociationError]=useState(''),[refresh,setRefresh]=useState(0);
  const character=card.typeKey==='character';
  const formLock=useRef(false),resourceEditor=useRef<WorkspaceEditor>({dirty:false,locked:false});
@@ -39,6 +40,7 @@ export default function ReferenceDetail({book,card,workspace,detail,onEdit,onSta
  {detail==='dynamics'&&<><h3>当前状态与关系变化</h3>{states.map(item=><article key={item.id}><h4>{item.subjectLabel} · {item.fieldLabel}</h4><p>{item.display}</p>{!item.available&&<p role="alert">{item.reason}</p>}{source(item.action)}</article>)}{data&&!states.length&&<p>尚无此人物的已确认状态记录。档案填写不会自动建立状态。</p>}<a className="nd-button" href={graph('growth')}>打开人物成长视图</a></>}
  {detail==='intelligence'&&<><h3>人物所知与信息差</h3>{knowledge.map(item=><article key={item.id}><h4>{item.holderLabel} · {item.predicateLabel}</h4><p>{item.stanceLabel}：{item.display}</p><p>{item.truthLabel}</p>{!item.available&&<p role="alert">{item.reason}</p>}{source(item.action)}</article>)}{data&&!knowledge.length&&<p>尚无此人物的已确认认知记录。</p>}<a className="nd-button" href={`/new-design/books/${book.id}/character-dialogue?participant=${encodeURIComponent(card.id)}`}>以{card.title}进入人物模拟</a></>}
  {(detail==='rules'||detail==='guidance')&&<><h3>{detail==='rules'?'规则与张力':'生成约束'}</h3>{(detail==='rules'?workspace.cards.filter(item=>item.status==='active'&&['world_rule','time_rule','power_system'].includes(item.typeKey)):[card]).map(item=><article key={item.id}><h4>{item.title}</h4>{groupedFields(item.typeFields,item.values)}<button className="nd-button" onClick={()=>onEdit(item)}>编辑{item.title}</button></article>)}{detail==='rules'&&!workspace.cards.some(item=>item.status==='active'&&['world_rule','time_rule','power_system'].includes(item.typeKey))&&<p>尚无独立的世界规则或能力规则，请选择已发布类型后新增。</p>}{detail==='guidance'&&<Help label="生成约束使用">此处展示所选世界档案；哪些资料进入生成由本书上下文配置决定，不把所有字段默认当成已生效的硬约束。</Help>}</>}
- {detail==='sync'&&<><h3>同步与资产</h3><p>公共世界来源的双向同步尚无可用操作。书内资料及引用版本保留，不自动更新公共模板或其他作品。</p><details><summary>核对本书字段来源</summary>{object?.fields.map(item=><p key={item.field.key}>{item.field.name} · {item.origin==='type'?'已安装规格':item.origin==='book'?'本书扩展':'当前资料补充'} · {item.versionId}</p>)}</details><nav className="nd-row-actions"><button className="nd-button" onClick={()=>onEdit(card)}>编辑当前档案</button><a className="nd-button" href={`/new-design/books/${book.id}/story-setting?tab=places`}>地点与势力</a><a className="nd-button" href={`/new-design/books/${book.id}/story-setting?tab=props`}>道具档案</a></nav></>}
+ {detail==='sync'&&<><WorldPackages key={`${book.id}:${card.id}`} book={book} rootCardId={card.id} onCreate={onCreateWorld} onGenerate={onGenerateWorld} onState={receiveResources}/><details><summary>核对本书字段来源</summary>{object?.fields.map(item=><p key={item.field.key}>{item.field.name} · {item.origin==='type'?'已安装规格':item.origin==='book'?'本书扩展':'当前资料补充'} · {item.versionId}</p>)}</details><nav className="nd-row-actions"><button className="nd-button" onClick={()=>onEdit(card)}>编辑当前档案</button><a className="nd-button" href={`/new-design/books/${book.id}/story-setting?tab=places`}>地点与势力</a><a className="nd-button" href={`/new-design/books/${book.id}/story-setting?tab=props`}>道具档案</a></nav></>}
  </section>;
 }
+

@@ -38,17 +38,26 @@ import ProfessionalViewsPage from "./professionalViews";
 import {BookRouteShell} from "./bookNavigation";
 import type {VisualAssetsApi} from "../common/visualAssets";
 import "./new-design.css";
+import "./legacySurface.css";
 import type { BookViewKey } from "../common/contracts";
 import {SettingWorkspace,PlanningWorkspace} from './storyWorkspace';
+import PlanningCenterPage from './planningCenter/PlanningCenterPage';
+import SimpleCreationPage from './simpleCreation';
 
 interface NewDesignPageProps { pathname?:string; }
 const visualApi:VisualAssetsApi={workspace:newDesignApi.getVisualWorkspace,upload:newDesignApi.uploadVisualAsset,command:newDesignApi.executeVisualCommand,preview:newDesignApi.previewVisualChange,receipt:newDesignApi.getVisualReceipt,previewByKey:newDesignApi.getVisualPreviewByKey,imageUrl:newDesignApi.visualImageUrl};
 
-export default function NewDesignPage({pathname}:NewDesignPageProps) {
+export default function NewDesignPage(props:NewDesignPageProps) {
+  return <div className="nd-legacy-surface"><NewDesignRoute {...props}/></div>;
+}
+
+function NewDesignRoute({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
+  const simpleMatch=path.match(/^\/new-design\/books\/([^/]+)\/(simple|short-story)$/);
+  if(simpleMatch)return <SimpleCreationPage key={`${simpleMatch[1]}:${simpleMatch[2]}`} bookId={decodeURIComponent(simpleMatch[1])} short={simpleMatch[2]==='short-story'}/>;
   const readingMatch=path.match(/^\/new-design\/books\/([^/]+)\/reading$/);
   if(readingMatch)return <ReadingPage key={readingMatch[1]} bookId={decodeURIComponent(readingMatch[1])}/>;
   if(path==="/new-design/knowledge")return <KnowledgeReferencePage/>;
@@ -93,7 +102,7 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   const storySettingMatch=path.match(/^\/new-design\/books\/([^/]+)\/story-setting$/);
   if(storySettingMatch)return <SettingWorkspace key={storySettingMatch[1]} bookId={decodeURIComponent(storySettingMatch[1])}/>;
   const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
-  if(planningMatch)return <PlanningWorkspace key={planningMatch[1]} bookId={decodeURIComponent(planningMatch[1])}/>;
+  if(planningMatch){const stage=new URLSearchParams(location.search).get('stage');return stage==='story_macro'||stage==='outline'||stage==='structured'?<PlanningCenterPage key={`${planningMatch[1]}:${stage}`} bookId={decodeURIComponent(planningMatch[1])} presentation={stage}/>:<PlanningWorkspace key={planningMatch[1]} bookId={decodeURIComponent(planningMatch[1])}/>;}
   const writingMatch=path.match(/^\/new-design\/books\/([^/]+)\/(?:writing|chapters\/([^/]+)\/write)$/);
   if(writingMatch)return <ChapterWritingPage bookId={decodeURIComponent(writingMatch[1])} initialChapterCardId={writingMatch[2]?decodeURIComponent(writingMatch[2]):undefined}/>;
   const completionMatch=path.match(/^\/new-design\/books\/([^/]+)\/completion$/);

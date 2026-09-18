@@ -1,5 +1,6 @@
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
+import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
 import {characterResourcesRouter} from "./characterResources";
 import {resourceSupplementsRouter} from './resourceSupplements';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
@@ -30,6 +31,7 @@ import {visualAssetsRouter} from "./visualAssets";
 import {VisualSourceError} from "../database/visualAssets";
 import {knowledgeIndexRouter} from "./knowledgeIndex";
 import {worldConsistencyRouter} from "./worldConsistency";
+import {chapterQualityRouter} from './chapterQuality';
 import {characterDialogueRouter} from "./characterDialogue";
 import {creativeExtractionRouter} from "./creativeExtraction";
 import {imageGenerationRouter,ImageHttpError} from "./imageGeneration";
@@ -116,7 +118,7 @@ import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddi
 import { cancelBackgroundJobForBook, getBackgroundBookPause, getBackgroundJob, getBackgroundRuntimeHealth, listBackgroundJobs, listOutboxConsumers, listOutboxEvents, replayBackgroundJobForBook, retryBackgroundJobForBook, setBackgroundBookPause, setOutboxConsumerState } from "../database/outbox";
 import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
-import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
+import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, readPublicationExportReceipt, PublicationExportWriteError, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
 import { resolvePublicationExportDownload } from "../publicationExport";
 import { getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
 import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
@@ -402,6 +404,7 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
   router.use(characterImportReadRouter());
+  router.use(worldPackageReadRouter());
   router.use(bookshelfMutationFence());
   router.use(bookshelfWritableGuard());
   // Visiting a source or home page must never resume research work.
@@ -427,8 +430,10 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(resourceSupplementsRouter());
   router.use(characterExperiencesRouter(dependencies.ai));
   router.use(characterImportWriteRouter());
+  router.use(worldPackageWriteRouter());
   router.use(visualAssetsRouter());
   router.use(worldConsistencyRouter());
+  router.use(chapterQualityRouter());
   router.use(characterDialogueRouter());
   router.use("/creative-extraction",creativeExtractionRouter());
   router.use(imageGenerationRouter());
@@ -901,6 +906,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/publication-exports/manifests/:id/submit",asyncRoute(async(req,res)=>success(res,await submitPublicationExport(String(req.params.id),body(publicationExportSubmitSchema,req)),202)));
   router.get("/books/:id/publication-exports",asyncRoute(async(req,res)=>success(res,await listPublicationExports(String(req.params.id)))));
   router.get("/publication-exports/requests/:id",asyncRoute(async(req,res)=>success(res,await getPublicationExportRecord(String(req.params.id)))));
+  router.get("/publication-exports/manifests/:id/receipt",asyncRoute(async(req,res)=>success(res,await readPublicationExportReceipt(z.string().uuid().parse(req.params.id),publicationExportSubmitSchema.parse(req.query)))));
   router.get("/publication-exports/artifacts/:id/download",(req,res,next)=>{void resolvePublicationExportDownload(String(req.params.id)).then(file=>{res.type(file.mediaType);res.download(file.path,file.displayFilename,error=>{if(error)next(error);});},next);});
   router.get("/release-gates",asyncRoute(async(_req,res)=>success(res,await listReleaseGateItems())));
   router.post("/release-gates/:key/assessments",asyncRoute(async(req,res)=>success(res,await recordReleaseGateAssessment({gateKey:String(req.params.key),...body(releaseGateAssessmentSchema,req)}),201)));
@@ -995,7 +1001,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

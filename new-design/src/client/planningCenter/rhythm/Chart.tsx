@@ -1,0 +1,22 @@
+import {useRef,type PointerEvent} from 'react';
+import type {PlanningObject} from '../../../common/contracts';
+import {plannedTension,type PlannedTension,type ObservedChapterTension} from '../../../common/planningRhythm';
+export default function RhythmChart({chapters,orderOffset,observed,reference,selectedId,draft,onSelect,onChange,editing,disabled,zoom}:{chapters:PlanningObject[];orderOffset:number;observed:ObservedChapterTension[];reference:number[];selectedId:string;draft:PlannedTension|null;onSelect:(object:PlanningObject)=>void;onChange:(value:PlannedTension)=>void;editing:boolean;disabled:boolean;zoom:number}){
+ const svg=useRef<SVGSVGElement>(null),drag=useRef<string|null>(null),width=Math.max(720,chapters.length*80+100),height=280,left=45,top=20,bottom=220;
+ const x=(index:number)=>left+(chapters.length<2?0:index/(chapters.length-1)*(width-left-35)),y=(value:number)=>bottom-value/100*(bottom-top);
+ const planned=chapters.map(object=>plannedTension(object.adoptedVersion?.content.tensionCurve)?.value??null),actual=chapters.map(object=>observed.find(item=>item.chapterCardId===object.cardId)?.value??null);
+ const path=(values:Array<number|null>)=>{let open=false;return values.map((value,index)=>{if(value===null){open=false;return'';}const result=`${open?'L':'M'} ${x(index)} ${y(value)}`;open=true;return result;}).join(' ');};
+ const update=(event:PointerEvent<SVGSVGElement>)=>{if(!drag.current||!editing||disabled)return;const bounds=svg.current?.getBoundingClientRect();if(!bounds)return;const position=(event.clientY-bounds.top)/bounds.height*height,value=Math.round(Math.max(0,Math.min(100,(bottom-position)/(bottom-top)*100)));onChange({value,source:'user',locked:draft?.locked??true,beatKey:draft?.beatKey??''});};
+ return <div className="nd-rhythm-scroll"><svg ref={svg} viewBox={`0 0 ${width} ${height}`} style={{width:width*zoom,minWidth:'100%',height:height*zoom}} aria-label="按叙述顺序显示计划与实际正文冲突强度，缺少值的位置留空" onPointerMove={update} onPointerUp={event=>{if(drag.current){drag.current=null;event.currentTarget.releasePointerCapture(event.pointerId);}}} onPointerCancel={()=>{drag.current=null;}}>
+  <title>章节节奏曲线，计划点只读取采用版本，实际点只读取当前采用正文的有效诊断</title>
+  {[0,25,50,75,100].map(value=><g key={value}><line x1={left} x2={width-20} y1={y(value)} y2={y(value)} className="nd-rhythm-grid"/><text x={8} y={y(value)+4}>{value}</text></g>)}
+  {reference.length>0&&<path d={path(reference)} className="nd-rhythm-reference"/>}<path d={path(planned)} className="nd-rhythm-plan"/><path d={path(actual)} className="nd-rhythm-actual"/>
+  {chapters.map((object,index)=>{const point=plannedTension(object.adoptedVersion?.content.tensionCurve),observation=observed.find(item=>item.chapterCardId===object.cardId),selected=object.id===selectedId,shown=editing&&selected?draft?.value??null:point?.value??null;return <g key={object.id} className={selected?'is-selected':''}>
+   <line x1={x(index)} x2={x(index)} y1={top} y2={bottom} className="nd-rhythm-guide"/><text x={x(index)} y={245} textAnchor="middle">第 {index+1+orderOffset} 章</text>{point?.beatKey&&<text x={x(index)} y={265} textAnchor="middle">{point.beatKey}</text>}
+   {actual[index]!==null&&<circle cx={x(index)} cy={y(actual[index]!)} r={4} className="nd-rhythm-actual-point"><title>{object.title} · 正文评估 {actual[index]}：{observation?.reason}</title></circle>}
+   <circle cx={x(index)} cy={shown===null?bottom:y(shown)} r={selected?8:6} tabIndex={disabled?-1:0} role="button" className={`nd-rhythm-point ${shown===null?'is-empty':''} ${point?.locked?'is-fixed':''} ${editing&&selected?'is-draft':''}`} aria-label={`${object.title}，${shown===null?'未填写计划强度':`强度 ${shown}`}，${point?.locked?'人工固定':'可由 AI 建议'}`} onClick={()=>{if(!disabled)onSelect(object);}} onKeyDown={event=>{if(disabled)return;if(['Enter',' '].includes(event.key)){event.preventDefault();onSelect(object);}if(editing&&selected&&['ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();onChange({value:Math.max(0,Math.min(100,(shown??50)+(event.key==='ArrowUp'?1:-1))),source:'user',locked:draft?.locked??true,beatKey:draft?.beatKey??''});}}} onPointerDown={event=>{if(!editing||disabled||!selected)return;event.preventDefault();drag.current=object.id;svg.current?.setPointerCapture(event.pointerId);}}>
+    <title>{object.title} · {shown===null?'尚未填写':`${editing&&selected?'本地节奏填写':'采用计划'} ${shown}`} · {point?.locked?'人工固定':'AI 可建议'}</title>
+   </circle>
+  </g>;})}
+ </svg></div>;
+}

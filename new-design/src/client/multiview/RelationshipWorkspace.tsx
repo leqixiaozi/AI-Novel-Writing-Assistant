@@ -1,0 +1,25 @@
+import {useMemo,useState} from 'react';
+import type {BookViewWorkspace} from '../../common/contracts';
+import GraphCanvas from '../professionalViews/GraphCanvas';
+import '../professionalViews/professional-views.css';
+import './relationships.css';
+
+export default function RelationshipWorkspace({workspace,selectedId,disabled,onSelect,selectedRelationId,onRelationSelect}:{selectedRelationId:string|null;onRelationSelect:(id:string)=>boolean;workspace:BookViewWorkspace;selectedId:string|null;disabled:boolean;onSelect:(id:string)=>boolean}){
+ const [display,setDisplay]=useState<'graph'|'table'>('graph'),[scope,setScope]=useState<'all'|'current'>('all'),[search,setSearch]=useState(''),[zoom,setZoom]=useState(1),[layout,setLayout]=useState<Record<string,{x:number;y:number}>>({});
+ const characters=workspace.cards.filter(card=>card.typeKey==='character'&&card.status==='active');
+ const names=new Map(characters.map(card=>[card.id,card.title]));
+ const relations=workspace.characterRelations.filter(row=>names.has(row.sourceCardId)&&names.has(row.targetCardId));
+ const focused=relations.filter(row=>scope==='all'||row.sourceCardId===selectedId||row.targetCardId===selectedId);
+ const connected=new Set(focused.flatMap(row=>[row.sourceCardId,row.targetCardId]));
+ const visible=characters.filter(card=>(scope==='all'||card.id===selectedId||connected.has(card.id))&&card.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+ const ids=new Set(visible.map(card=>card.id)),edges=focused.filter(row=>ids.has(row.sourceCardId)&&ids.has(row.targetCardId));
+ const defaultPoints=useMemo(()=>visible.map((card,index)=>({id:card.id,x:40+(index%3)*260,y:40+Math.floor(index/3)*160})),[visible.map(card=>card.id).join(':')]);
+ const points=defaultPoints.map(point=>({...point,...layout[point.id]})),selectedRelation=relations.find(row=>row.id===selectedRelationId);
+ return <section className="nd-relationship-workspace" aria-label="人物关系工作区">
+  <header><div><h2>人物关系图</h2><p>{visible.length} 个人物 · {edges.length} 条关系</p></div><div className="nd-row-actions"><button type="button" className="nd-button" aria-pressed={display==='graph'} onClick={()=>setDisplay('graph')}>关系图</button><button type="button" className="nd-button" aria-pressed={display==='table'} onClick={()=>setDisplay('table')}>关系表</button></div></header>
+  <div className="nd-relationship-toolbar"><label>查看范围<select value={scope} onChange={event=>setScope(event.target.value as 'all'|'current')}><option value="all">全部关系</option><option value="current" disabled={!selectedId}>当前人物</option></select></label><label>搜索人物<input value={search} onChange={event=>setSearch(event.target.value)} placeholder="按人物名称搜索"/></label>{display==='graph'&&<><button type="button" className="nd-button" disabled={zoom<=.5} onClick={()=>setZoom(value=>Math.max(.5,value-.25))}>缩小</button><span>{Math.round(zoom*100)}%</span><button type="button" className="nd-button" disabled={zoom>=2} onClick={()=>setZoom(value=>Math.min(2,value+.25))}>放大</button><button type="button" className="nd-button" onClick={()=>{setZoom(1);setLayout({});}}>重置视图</button></>}</div>
+  {!visible.length?<p className="nd-empty" role="status">当前范围没有匹配的人物，请调整搜索或范围。</p>:display==='graph'?<GraphCanvas onMove={disabled?undefined:point=>setLayout(current=>({...current,[point.id]:{x:point.x,y:point.y}}))} zoom={zoom} objects={visible.map(card=>({id:card.id,title:card.title,typeLabel:card.cardTypeName}))} points={points} edges={edges.map(row=>({id:row.id,sourceId:row.sourceCardId,targetId:row.targetCardId,label:`${row.sourceLabel} / ${row.inverseLabel}`,directed:false,available:true}))} selected={selectedId??''} onSelect={id=>{if(!disabled)onSelect(id);}} onEdge={id=>{if(!disabled)onRelationSelect(id);}}/>:<div className="nd-relationship-table-scroll"><table className="nd-story-table"><thead><tr><th>人物</th><th>对方</th><th>正向称谓</th><th>反向称谓</th><th>关系说明</th><th>详情</th></tr></thead><tbody>{edges.map(row=><tr key={row.id}><td><button type="button" disabled={disabled} onClick={()=>onSelect(row.sourceCardId)}>{names.get(row.sourceCardId)}</button></td><td><button type="button" disabled={disabled} onClick={()=>onSelect(row.targetCardId)}>{names.get(row.targetCardId)}</button></td><td>{row.sourceLabel}</td><td>{row.inverseLabel}</td><td>{row.note||'未填写'}</td><td><button type="button" disabled={disabled} onClick={()=>onRelationSelect(row.id)} aria-pressed={row.id===selectedRelationId}>查看关系</button></td></tr>)}</tbody></table>{!edges.length&&<p role="status">当前人物尚无已保存关系。</p>}</div>}
+  {selectedRelation&&<aside className="nd-relationship-inspector" aria-label="选中关系详情"><h3>{names.get(selectedRelation.sourceCardId)} · {names.get(selectedRelation.targetCardId)}</h3><dl><div><dt>正向称谓</dt><dd>{selectedRelation.sourceLabel}</dd></div><div><dt>反向称谓</dt><dd>{selectedRelation.inverseLabel}</dd></div><div><dt>关系说明</dt><dd>{selectedRelation.note||"未填写"}</dd></div></dl><p>下方表单已定位这条关系的两个人物，修改后预览影响并确认应用。</p></aside>}
+  <p className="nd-relationship-caption">选择人物后在下方维护双向称谓和人物档案。图表与表格读取同一份已保存关联。</p>
+ </section>;
+}

@@ -4,7 +4,7 @@ import type { AiRunPreview, AiRunPromptSection, AiRunStableReadContract } from "
 import { NewDesignError, assertFound } from "../../domain/errors";
 import { createModelRouteSnapshot, getModelRouteSnapshot } from "../aiContracts";
 import { stableHash } from "../aiContracts/integrity";
-import { createAiTask } from "../aiTasks";
+import { createAiTaskInTransaction } from "../aiTasks";
 import { createContextAssemblyPreview, finalizeContextManifest, getContextAssemblyPreview } from "../contextManagement";
 import { getNewDesignPool } from "../runtime";
 import {runInputRecord,validateRunInput} from '../../../common/contextRunInput';
@@ -96,9 +96,19 @@ export async function submitAiRunPreview(id:string,input:{expectedRevision:numbe
  const currentContext=await getContextAssemblyPreview(preview.contextPreviewId,preview.bookId);if(currentContext.status!=="complete")throw new NewDesignError("上下文来源已变化，请重新生成运行预览。",409);
  const currentRoute=await getModelRouteSnapshot(preview.modelRouteSnapshotId);if(currentRoute.snapshotHash!==String((preview.routePlan as Row).snapshotHash))throw new NewDesignError("模型路由快照校验失败，请重新生成运行预览。",409);
  const blockers=await f5Blockers(preview.bookId,preview.safeCheckpoint);if(blockers.length)throw new NewDesignError("旧章换稿状态发生变化，请重新生成运行预览。",409,{blockers:blockers.join("\n")});
- const task=await createAiTask({spaceId:preview.spaceId,bookId:preview.bookId,taskKey:preview.taskKey,taskContractVersionId:preview.taskContractVersionId,sourceRoute:preview.sourceRoute,sourceKind:preview.sourceKind,sourceId:preview.sourceId??preview.id,requestIdempotencyKey:`run:${input.idempotencyKey}`,createdBy:input.submittedBy??"user",steps:[{stepKey:preview.taskNodeKey,sortOrder:0,maxAttempts:5}]});
- const result=await pool.query(`WITH changed AS(UPDATE new_design.ai_run_previews SET status='submitted',revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND status='ready' RETURNING *) INSERT INTO new_design.ai_run_submissions(id,preview_id,ai_task_id,submitted_revision,idempotency_key,submitted_by) SELECT $3,id,$4,$2,$5,$6 FROM changed ON CONFLICT(preview_id) DO NOTHING RETURNING preview_id`,[id,input.expectedRevision,randomUUID(),task.id,input.idempotencyKey,input.submittedBy??"user"]);
- if(!result.rowCount)throw new NewDesignError("运行预览已由其他操作提交，请刷新。",409);return getAiRunPreview(id);
+ const client=await pool.connect();try{
+  await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`ai-run-submission:${input.idempotencyKey}`]);
+  const prior=(await client.query('SELECT preview_id FROM new_design.ai_run_submissions WHERE idempotency_key=$1',[input.idempotencyKey])).rows[0];
+  if(prior){if(String(prior.preview_id)!==id)throw new NewDesignError('原提交键对应另一份预览。',409);await client.query('COMMIT');return getAiRunPreview(id);}
+  const head=assertFound((await client.query('SELECT status,revision FROM new_design.ai_run_previews WHERE id=$1 FOR UPDATE',[id])).rows[0],'原预览不存在。');
+  if(head.status!=='ready'||Number(head.revision)!==input.expectedRevision)throw new NewDesignError('原预览已变化或提交，未创建第二个运行任务。',409);
+  if(typeof preview.safeCheckpoint.chapterDocumentId==='string')await client.query('SELECT id FROM new_design.chapter_documents WHERE id=$1 AND book_id=$2 FOR UPDATE',[preview.safeCheckpoint.chapterDocumentId,preview.bookId]);
+  await verifySafeCheckpoint(preview.bookId,preview.safeCheckpoint);
+  const task=await createAiTaskInTransaction(client,{spaceId:preview.spaceId,bookId:preview.bookId,taskKey:preview.taskKey,taskContractVersionId:preview.taskContractVersionId,sourceRoute:preview.sourceRoute,sourceKind:preview.sourceKind,sourceId:preview.sourceId??preview.id,requestIdempotencyKey:`run:${input.idempotencyKey}`,createdBy:input.submittedBy??'user',steps:[{stepKey:preview.taskNodeKey,sortOrder:0,maxAttempts:5}]});
+  await client.query("UPDATE new_design.ai_run_previews SET status='submitted',revision=revision+1,updated_at=now() WHERE id=$1",[id]);
+  await client.query('INSERT INTO new_design.ai_run_submissions(id,preview_id,ai_task_id,submitted_revision,idempotency_key,submitted_by) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),id,task.id,input.expectedRevision,input.idempotencyKey,input.submittedBy??'user']);
+  await client.query('COMMIT');return getAiRunPreview(id);
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 
 export async function getAiRunStableReadContract(bookId:string):Promise<AiRunStableReadContract>{return{bookId,connectedEntryPoints:[{key:"unified_preview",label:"高级设置中的统一运行预览",sourceRoute:"/new-design/structure/context"},{key:"chapter_writing",label:"章节创作快捷操作",sourceRoute:`/new-design/books/${bookId}/writing`},{key:"chapter_extract_changes",label:"章节采用后的变化提取",sourceRoute:`/new-design/books/${bookId}/writing`}],unconnectedEntryPoints:[{key:"book_creation_assist",label:"开书会话与表单辅助",reason:"使用开书会话自己的候选协议，尚未迁入统一运行冻结单。"},{key:"market_analysis",label:"市场分析与拆书运行",reason:"研究运行保持独立；只有采用到书内时进入可编辑候选预览。"}],recentRuns:await listAiRunPreviews(bookId,50),generatedAt:new Date().toISOString()};}

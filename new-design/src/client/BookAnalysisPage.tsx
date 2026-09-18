@@ -85,7 +85,6 @@ export default function BookAnalysisPage() {
       .then(([docs, nextBooks, nextRecords]) => {
         setDocuments(docs);
         setBooks(nextBooks);
-        setBookId(nextBooks[0]?.id ?? "");
         if (docs[0]) {
           setDocumentId(docs[0].id);
           setDocumentVersionId(docs[0].currentVersion.id);
@@ -586,6 +585,7 @@ export default function BookAnalysisPage() {
                           onChange={(event) => setBookId(event.target.value)}
                         >
                           <option value="">选择书籍</option>
+                          {bookId&&!books.some(item=>item.id===bookId)&&<option value={bookId} disabled>原书籍未读取，请核对目标</option>}
                           {books.map((item) => (
                             <option value={item.id} key={item.id}>
                               {item.name}

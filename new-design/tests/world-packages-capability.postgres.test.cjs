@@ -1,0 +1,6 @@
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+test('ordinary migrations and capability reads never install or activate world-package persistence',async t=>{
+ const {pool}=await isolatedDatabase(t),worlds=compiled('server/database/worldPackages');assert.deepEqual(await worlds.getWorldPackageCapability(),{installed:false,operational:false});assert.equal(compiled('server/database/migrations').migrations.some(migration=>migration.id.startsWith('084')),false);assert.equal((await pool.query("SELECT to_regclass('new_design.world_package_versions') relation")).rows[0].relation,null);
+ const express=require('express'),app=express();app.use(compiled('server/http/worldPackages').worldPackageReadRouter());const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));const response=await fetch(`http://127.0.0.1:${http.address().port}/world-packages/capability`);assert.equal(response.status,200);assert.deepEqual((await response.json()).data,{installed:false,operational:false});assert.equal((await pool.query("SELECT to_regclass('new_design.world_package_versions') relation")).rows[0].relation,null);
+});

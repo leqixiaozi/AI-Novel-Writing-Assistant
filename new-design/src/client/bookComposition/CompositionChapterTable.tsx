@@ -1,0 +1,16 @@
+import {useState} from 'react';
+import type {BookCompositionWorkspace} from '../../common/bookComposition';
+import type {PlanningObject} from '../../common/contracts';
+import {plannedTension} from '../../common/planningRhythm';
+import Help from '../storyWorkspace/Help';
+
+export default function CompositionChapterTable({workspace,selectedId,onSelect,disabled}:{workspace:BookCompositionWorkspace;selectedId:string;onSelect:(object:PlanningObject)=>void;disabled:boolean}) {
+ const [volume,setVolume]=useState('all'),[query,setQuery]=useState(''),[state,setState]=useState('all');
+ const rows=workspace.writing.chapters.map(chapter=>({chapter,plan:workspace.planning.objects.find(object=>object.id===chapter.planningObjectId&&object.status==='active'&&object.bookId===workspace.bookId)}));
+ const visible=rows.filter(({chapter,plan})=>(volume==='all'||plan?.parentObjectId===volume)&&(!query||`${chapter.title} ${chapter.volumeTitle}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))&&(state==='all'||state==='plan'&&!chapter.planningVersionId||state==='body'&&!chapter.adoptedBodyVersionId||state==='adopted'&&Boolean(chapter.adoptedBodyVersionId)));
+ return <section className="nd-composition-chapters" aria-label="全书卷章表">
+  <header><h3>全书卷章表 <Help label="全书卷章表">计划、正文和稳定结算是不同步骤。表格读取当前书的原规划和正文目录；点选打开原编辑区，沿用未保存稿件保护。计划强度只读取采用版本，不代表正文质量。</Help></h3><p>全书 {rows.length} 章 · 已采用计划 {rows.filter(row=>row.chapter.planningVersionId).length} 章 · 已采用正文 {rows.filter(row=>row.chapter.adoptedBodyVersionId).length} 章</p></header>
+  <div className="nd-row-actions"><label>卷范围<select value={volume} onChange={event=>setVolume(event.target.value)}><option value="all">全书</option>{workspace.planning.objects.filter(object=>object.level==='volume'&&object.status==='active').sort((a,b)=>a.sortOrder-b.sortOrder).map(object=><option key={object.id} value={object.id}>{object.title}</option>)}</select></label><label>查找章节<input value={query} onChange={event=>setQuery(event.target.value)}/></label><label>创作状态<select value={state} onChange={event=>setState(event.target.value)}><option value="all">全部</option><option value="plan">计划待采用</option><option value="body">正文待采用</option><option value="adopted">已有采用正文</option></select></label></div>
+  <div className="nd-table-scroll"><table><caption>显示 {visible.length} / {rows.length} 章，按原叙述顺序</caption><thead><tr><th scope="col">顺序</th><th scope="col">卷／章节</th><th scope="col">采用计划</th><th scope="col">计划强度</th><th scope="col">正文状态</th><th scope="col">操作</th></tr></thead><tbody>{visible.map(({chapter,plan})=><tr key={chapter.chapterCardId} aria-selected={selectedId===plan?.id}><td>{rows.findIndex(row=>row.chapter.chapterCardId===chapter.chapterCardId)+1}</td><th scope="row"><small>{chapter.volumeTitle}</small><br/>{chapter.title}</th><td>{plan?.adoptedVersion?`v${plan.adoptedVersion.version}`:'待采用'}</td><td>{plannedTension(plan?.adoptedVersion?.content.tensionCurve)?.value??'未填写'}</td><td>{chapter.adoptedBodyVersionId?'已有采用正文':chapter.documentId?'已有正文档案，待采用':'尚未起稿'}</td><td><button type="button" className="nd-button nd-button-secondary" disabled={disabled||!plan} onClick={()=>{if(plan)onSelect(plan);}}>打开原章节</button></td></tr>)}</tbody></table></div>{!visible.length&&<p>此范围没有匹配章节；请调整筛选或先建立章节计划。</p>}
+ </section>;
+}

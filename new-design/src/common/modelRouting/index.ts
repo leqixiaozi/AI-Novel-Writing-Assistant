@@ -6,6 +6,7 @@ export const MODEL_TASKS=[
   {key:"book_analysis",label:"拆书与稿件诊断"},{key:"planning_candidate",label:"故事规划建议"},
   {key:"chapter_settlement",label:"整理章节变化"},
   {key:"chapter_generation",label:"生成章节正文"},
+  {key:"quality_audit",label:"章节诊断与复检"},
   {key:"world_consistency",label:"检查世界设定一致性"},
   {key:"creative_extraction",label:"提炼写法与生成标题"},
   {key:"character_dialogue",label:"人物对话模拟"},

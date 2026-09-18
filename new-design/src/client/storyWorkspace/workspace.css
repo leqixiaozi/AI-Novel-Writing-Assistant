@@ -7,3 +7,19 @@
 @container nd-book-content (max-width:550px){.nd-story-setting-layout,.nd-story-planning-layout,.nd-story-planning-layout.is-detail-closed{grid-template-columns:1fr}.nd-story-plan-detail{grid-column:auto}}
 
 .nd-story-batch{display:grid;gap:1rem;padding-block:1rem;border-bottom:1px solid var(--nd-line)}.nd-story-batch[hidden]{display:none}.nd-story-batch>label{display:grid;gap:.4rem}.nd-story-batch-item{padding-block:1rem;border-top:1px solid var(--nd-line)}.nd-story-batch-field{display:flex;align-items:flex-start;gap:.7rem;margin-block:.8rem}.nd-story-batch-field>input{flex:0 0 auto;min-height:24px}.nd-story-batch-field>span{min-width:0;overflow-wrap:anywhere}.nd-story-batch-field small{display:block;color:var(--nd-muted)}.nd-story-batch-field p{white-space:pre-wrap;margin-block:.35rem}
+
+/* The planning work surface follows the legacy density: one compact toolbar,
+   a narrow object index, and a contained detail pane. */
+.nd-story-workspace{gap:.75rem}
+.nd-story-heading,.nd-story-toolbar{gap:.65rem}
+.nd-story-heading{padding-bottom:.65rem;border-bottom:1px solid var(--nd-line)}
+.nd-story-heading h2{font-size:1.1rem}
+.nd-story-toolbar{padding-block:.45rem}
+.nd-story-toolbar label{display:flex;align-items:center;gap:.35rem}
+.nd-story-toolbar input,.nd-story-toolbar select,.nd-story-detail input,.nd-story-detail select{min-height:34px}
+.nd-story-tabs{gap:.1rem}
+.nd-story-tabs button{min-height:36px;padding:.5rem .75rem}
+.nd-story-planning-layout{grid-template-columns:136px minmax(220px,1fr) minmax(300px,380px);gap:.75rem}
+.nd-story-planning-layout.is-detail-closed{grid-template-columns:136px minmax(0,1fr)}
+.nd-story-table th,.nd-story-table td{padding:.55rem .45rem}
+@container nd-book-content (min-width:551px) and (max-width:850px){.nd-story-planning-layout{grid-template-columns:136px minmax(0,1fr)}}

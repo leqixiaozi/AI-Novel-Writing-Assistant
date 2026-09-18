@@ -13,6 +13,13 @@ import {assertFound,NewDesignError} from "../../domain/errors";
 
 const workers=new Map<string,Promise<void>>();
 const chapterWorkers=new Map<string,Promise<ChapterGenerationOutput>>();
+export async function startPreparedControlledChapterWritingRequest(requestId:string){
+  const receipt=await getChapterWritingRequest(requestId);
+  if(receipt.controlled&&receipt.status==='queued'&&!chapterWorkers.has(requestId)){
+    const work=produceChapter(receipt.bookId,requestId).finally(()=>chapterWorkers.delete(requestId));chapterWorkers.set(requestId,work);void work.catch(()=>{});
+  }
+  return receipt;
+}
 /** Manual and whole-book modes share the same original request/candidate execution. */
 export async function createControlledChapterWritingRequest(documentId:string,input:SelectedChapterProductionInput){
   const prepared=await prepareSelectedChapterProduction(documentId,input);

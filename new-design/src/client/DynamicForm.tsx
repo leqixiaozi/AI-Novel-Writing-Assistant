@@ -6,6 +6,7 @@ import { FormAiPanel, type FormAiContext } from "./businessForms/aiAssist";
 import { selectableTreeNodeIds } from "../common/treePolicy";
 import Help from './storyWorkspace/Help';
 import {fieldInCharacterSection,type CharacterFieldSection} from '../common/formPresentation';
+import './businessForms/legacy-form.css';
 
 interface DynamicFormProps {
   fields: FieldDefinition[];
@@ -61,6 +62,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
   const groups = new Map<string, FieldDefinition[]>();
   for (const field of [...fields].filter((item)=>!item.hidden).sort((a, b) => a.order - b.order)) {
     if (!isVisible(field, values)) continue;
+    if (fieldSection && !fieldInCharacterSection(field, fieldSection) && !issues[field.key]) continue;
     const group = field.group.trim() || "基本信息";
     groups.set(group, [...(groups.get(group) ?? []), field]);
   }
@@ -82,7 +84,7 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
             const errorId = issues[field.key] ? `nd-${formId}-${field.key}-error` : undefined;
             const describedBy = [helpId, errorId].filter(Boolean).join(" ") || undefined;
             return (
-              <div className={`nd-control${issues[field.key] ? " has-error" : ""}`} key={field.key}>
+              <div className={`nd-control${issues[field.key] ? " has-error" : ""}`} data-field-type={field.type} data-field-key={field.key} key={field.key}>
                 <span id={labelId}>{field.name}{field.required && <b aria-label="必填"> *</b>}{scopeLabelByKey[field.key] && <i className="nd-field-capability is-scope">{scopeLabelByKey[field.key]}</i>}{field.aiSuggestible && <i className="nd-field-capability">可由 AI 建议</i>}{field.stateSettlement === "tracked" && <i className="nd-field-capability">跟踪变化</i>}{field.stateSettlement === "lifecycle" && <i className="nd-field-capability">生命周期</i>}</span>
                 {field.description && (compactHelp?<span id={helpId}><Help label={field.name}>{field.description}</Help></span>:<small id={helpId}>{field.description}</small>)}
                 {field.optionSource?.kind === "dictionary_tree" ? (

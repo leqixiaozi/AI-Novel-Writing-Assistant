@@ -1,33 +1,22 @@
-import {useId,useMemo,useState} from "react";
-import type {BookTaskNavKey} from "../navigation";
-import type {BookSummary} from "../../common/contracts";
-import {bookNavigationPage} from "../navigation";
-import BookFlowNavigation from "./BookFlowNavigation";
-import {buildBookFunctionTree} from "./catalog";
-import "./navigation.css";
-export {default as BookRouteShell} from "./BookRouteShell";
-
-interface Props {book:BookSummary;active:BookTaskNavKey;}
-
-export default function BookNavigation({book,active}:Props){
- const {id:bookId,name:bookName}=book;
- const bodyId=useId(),preferenceKey=`new-design:book-navigation:${bookId}:collapsed`;
- const [collapsed,setCollapsed]=useState(()=>{try{return sessionStorage.getItem(preferenceKey)==="true";}catch{return false;}});
- const nodes=useMemo(()=>buildBookFunctionTree(bookId),[bookId]);
- const toggle=()=>{const next=!collapsed;setCollapsed(next);try{sessionStorage.setItem(preferenceKey,String(next));}catch{/* Navigation remains usable without browser storage. */}};
- return <aside className={`nd-book-navigation${collapsed?" is-collapsed":""}`} aria-label={`${bookName}功能目录`}>
-  <div className="nd-book-navigation-context" hidden={collapsed}>
-   <p><a href="/new-design/books">新设计／我的书籍</a></p>
-   <div><strong>{bookName}</strong><a href={`/new-design/books/${bookId}/fields`} aria-current={active === "settings" ? "page" : undefined}>本书设置</a></div>
-  </div>
-  <div className="nd-book-navigation-heading">
-   <span hidden={collapsed}>本书目录</span>
-   <button type="button" className="nd-book-navigation-collapse" aria-label={collapsed?"展开本书目录":"向左收起本书目录"} title={collapsed?"展开本书目录":"向左收起本书目录"} aria-controls={bodyId} aria-expanded={!collapsed} onClick={toggle}>
-    <svg viewBox="0 0 20 20" aria-hidden="true"><path d={collapsed?"m7 5 5 5-5 5":"m12 5-5 5 5 5"}/></svg>
-   </button>
-  </div>
-  <div id={bodyId} className="nd-book-navigation-body" hidden={collapsed}>
-   <BookFlowNavigation label={`${bookName}工作区`} nodes={nodes} selectedId={`page:${bookNavigationPage(active)}`}/>
+import {useId,useState} from 'react';
+import type {BookTaskNavKey} from '../navigation';
+import type {BookSummary} from '../../common/contracts';
+import {BOOK_WORKFLOW_STEPS,currentBookWorkflowStep} from './workflow';
+import './navigation.css';
+import './workbench.css';
+export {default as BookRouteShell} from './BookRouteShell';
+export default function BookNavigation({book,active}:{book:BookSummary;active:BookTaskNavKey}){
+ const bodyId=useId(),preferenceKey=`new-design:book-navigation:${book.id}:collapsed`;
+ const [collapsed,setCollapsed]=useState(()=>{try{return sessionStorage.getItem(preferenceKey)==='true';}catch{return false;}});
+ const current=currentBookWorkflowStep(active,new URLSearchParams(location.search),location.pathname);
+ const toggle=()=>{const next=!collapsed;setCollapsed(next);try{sessionStorage.setItem(preferenceKey,String(next));}catch{}};
+ const base=`/new-design/books/${book.id}`;
+ return <aside className={`nd-book-navigation${collapsed?' is-collapsed':''}`} aria-label={`${book.name}创作工作台`}>
+  <div className="nd-book-navigation-heading"><span hidden={collapsed}>创作工作台</span><button type="button" className="nd-book-navigation-collapse" aria-label={collapsed?'展开创作导航':'收起创作导航'} aria-controls={bodyId} aria-expanded={!collapsed} onClick={toggle}><svg viewBox="0 0 20 20" aria-hidden="true"><path d={collapsed?'m7 5 5 5-5 5':'m12 5-5 5 5 5'}/></svg></button></div>
+  <div id={bodyId} hidden={collapsed}>
+   <div className="nd-book-navigation-context"><strong title={book.name}>{book.name}</strong><p><a href="/new-design/books">返回我的书籍</a></p><p>流程：{current>=0?BOOK_WORKFLOW_STEPS[current].label:'项目工具'}</p></div>
+   <nav className="nd-production-steps nd-book-navigation-body" aria-label="小说创作流程">{BOOK_WORKFLOW_STEPS.map((step,index)=><a key={step.label} href={`${base}/${step.path}`} aria-current={index===current?'page':undefined}><span className="nd-production-step-number">{index+1}</span><strong>{step.label}</strong>{index===current&&<small>查看中</small>}</a>)}</nav>
+   <nav className="nd-production-tools" aria-label="本书辅助工具"><a href={`${base}/overview`}>创作概览</a><a href={`${base}/composition`}>全书编排</a><a href={`${base}/planning`}>多维故事规划</a><a href={`${base}/director`}>AI 驾驶舱</a><a href={`${base}/views/chapters`}>查看与分析</a><a href={`${base}/completion`}>完本与导出</a><a href={`${base}/fields`}>本书设置</a></nav>
   </div>
  </aside>;
 }

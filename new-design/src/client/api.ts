@@ -5,8 +5,10 @@ import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../co
 import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
 import {createResourceSupplementApi} from './resourceSupplements/api';
+import {createChapterQualityApi} from './chapterQuality/api';
 import {createResourceFocusApi} from './characterResources/focus/api';
 import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
+import {createWorldPackagesApi} from './worldPackages/api';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -400,6 +402,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  ...createChapterQualityApi(request),
+ worldPackages:createWorldPackagesApi(request),
  recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
  getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),
@@ -1035,6 +1039,7 @@ export const newDesignApi = {
   submitPublicationExport:(manifestId:string,input:{expectedSourceHash:string;requestedBy:string;idempotencyKey:string})=>request<PublicationExportRecord>(`/publication-exports/manifests/${manifestId}/submit`,{method:"POST",body:JSON.stringify(input)}),
   listPublicationExports:(bookId:string)=>request<PublicationExportRecord[]>(`/books/${bookId}/publication-exports`),
   getPublicationExport:(requestId:string)=>request<PublicationExportRecord>(`/publication-exports/requests/${requestId}`),
+  readPublicationExportReceipt:(manifestId:string,input:{expectedSourceHash:string;requestedBy:string;idempotencyKey:string})=>request<PublicationExportRecord|null>(`/publication-exports/manifests/${manifestId}/receipt?${new URLSearchParams(input)}`),
   getPublicationExportDownloadUrl:(artifactId:string)=>`${API_ROOT}/publication-exports/artifacts/${encodeURIComponent(artifactId)}/download`,
   listReleaseGates:()=>request<ReleaseGateItem[]>("/release-gates"),
   recordReleaseGateAssessment:(gateKey:string,input:{outcome:ReleaseGateAssessment["outcome"];evidence:string;evidenceRef?:string;assessedBy:string})=>request<ReleaseGateAssessment>(`/release-gates/${encodeURIComponent(gateKey)}/assessments`,{method:"POST",body:JSON.stringify(input)}),

@@ -6,6 +6,7 @@ import type {FieldDefinition} from "../../../common/contracts";
 import {formAiFieldVisible} from "../../../common/formAssist";
 import {isBlankCreationReviewValue} from "../../../common/creationReviewAi";
 import {selectableTreeNodeIds,validateTreeSelection} from "../../../common/treePolicy";
+import {storyFormatSchema,shortStoryShapeIssues} from '../../../common/storyFormat';
 
 const targetSchema=z.object({reviewCardId:z.uuid(),typeKey:z.string().min(1),isNew:z.boolean(),title:z.string().max(160),values:z.record(z.string(),z.unknown()),allowTitle:z.boolean(),fieldKeys:z.array(z.string()).max(300)}).strict();
 const relationSpec=z.object({sourceId:z.uuid(),key:z.string(),label:z.string(),description:z.string(),direction:z.enum(["directed","undirected"]),sourceTypeKeys:z.array(z.string()),targetTypeKeys:z.array(z.string()),sourceMax:z.number().nullable(),targetMax:z.number().nullable(),fields:z.array(fieldInput),editable:z.boolean(),unavailableReason:z.string().nullable(),specificationHash:z.string()}).strict();
@@ -13,6 +14,7 @@ export const creationPreparationPromptInputSchema=z.object({
  contract:z.literal("creation_preparation_v1"),sessionId:z.uuid(),sessionRevision:z.number().int().positive(),
  specificationHash:z.string().regex(/^[a-f0-9]{64}$/),stage:z.enum(["direction","project","world","characters","skeleton"]).nullable(),
  mode:z.enum(["required","remaining","all"]),method:z.enum(BOOK_CREATION_METHODS),
+ storyFormat:storyFormatSchema.nullable().optional(),
  bookName:z.string().max(300),sourceReference:z.string().max(30000),sourceText:z.string().max(400000),
  direction:directionSchema.nullable(),schemaTypes:z.array(typeInput).max(100),targets:z.array(targetSchema).max(300),
  contextCards:z.array(z.object({id:z.uuid(),typeKey:z.string(),title:z.string(),values:z.record(z.string(),z.unknown())}).strict()).max(300),
@@ -61,7 +63,8 @@ export function prepareCreationPreparationPrompt(value:unknown){
  });
  const planSchemas=input.catalog.planningLevels.map(level=>{
   const ids=[...cards].filter(([,card])=>card.typeKey===level.cardTypeKey).map(([id])=>id);
-  return z.object({id:uuid,parentDraftId:level.parentLevel?uuid:z.null(),reviewCardId:level.cardTypeKey?(ids.length?z.enum(ids as [string,...string[]]):z.never()):z.null(),level:z.literal(level.key),title:z.string().trim().min(1).max(160),sortOrder:z.number().int().min(0).max(1000000),content:planningContent,executionMode:z.enum(["manual","ai_assisted","automatic"]),references:z.array(unionOrEmpty(referenceSchemas)).max(200),decision:z.literal("pending")}).strict();
+  const content=level.key==='story'&&input.storyFormat?planningContent.extend({storyFormat:z.object({form:z.literal(input.storyFormat.form),targetWordCount:z.literal(input.storyFormat.targetWordCount)}).strict()}):planningContent;
+  return z.object({id:uuid,parentDraftId:level.parentLevel?uuid:z.null(),reviewCardId:level.cardTypeKey?(ids.length?z.enum(ids as [string,...string[]]):z.never()):z.null(),level:z.literal(level.key),title:z.string().trim().min(1).max(160),sortOrder:z.number().int().min(0).max(1000000),content,executionMode:z.enum(["manual","ai_assisted","automatic"]),references:z.array(unionOrEmpty(referenceSchemas)).max(200),decision:z.literal("pending")}).strict();
  });
  const schema=z.object({candidates:z.array(unionOrEmpty(candidateSchemas)).max(300),directions:z.array(directionSchema).max(5),relations:z.array(unionOrEmpty(relationSchemas)).max(300),plans:z.array(unionOrEmpty(planSchemas)).max(300),notes:z.array(z.string().max(2000)).max(30)}).strict().superRefine((output,ctx)=>{
   const candidates=output.candidates as Array<{reviewCardId:string}>;
@@ -70,6 +73,7 @@ export function prepareCreationPreparationPrompt(value:unknown){
   if(input.stage==="direction"&&!output.directions.length)ctx.addIssue({code:"custom",path:["directions"],message:"请准备可选择的创作方向。"});
   if(input.stage!=="direction"&&output.directions.length)ctx.addIssue({code:"custom",path:["directions"],message:"当前阶段不能替换创作方向。"});
  const plans=output.plans as Array<{id:string;parentDraftId:string|null;level:string}>,byId=new Map(plans.map(plan=>[plan.id,plan]));
+  if(input.stage==='skeleton')for(const message of shortStoryShapeIssues((output.plans as Array<{level:string;content:{storyFormat?:import('../../../common/storyFormat').StoryFormat}}>).map(plan=>({...plan,decision:'adopt'})),input.storyFormat??null,true))ctx.addIssue({code:'custom',path:['plans'],message});
   if(byId.size!==plans.length)ctx.addIssue({code:"custom",path:["plans"],message:"规划标识不能重复。"});
   for(const plan of plans){const parentLevel=input.catalog.planningLevels.find(level=>level.key===plan.level)?.parentLevel;if(parentLevel&&byId.get(plan.parentDraftId??"")?.level!==parentLevel)ctx.addIssue({code:"custom",path:["plans"],message:"规划必须使用同一候选结果中的合法父层级。"});}
   if(input.stage!=="skeleton"&&plans.length)ctx.addIssue({code:"custom",path:["plans"],message:"正式规划草稿只在骨架准备阶段产生。"});

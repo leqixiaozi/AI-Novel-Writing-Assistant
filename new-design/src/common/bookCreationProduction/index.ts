@@ -5,6 +5,7 @@ export interface ProductionRelationDraft {
  properties:Record<string,unknown>;decision:"pending"|"include"|"exclude";
 }
 export interface ProductionPlanningContent {
+ storyFormat?:import('../storyFormat').StoryFormat;
  goal:string;storyTime:string;mustHappen:string[];mustPreserve:string[];forbiddenBoundaries:string[];
  expectedChanges:string[];characterArc:string;notes:string;
 }

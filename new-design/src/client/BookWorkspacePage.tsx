@@ -22,7 +22,7 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   if(view!=="fields") {
     const scope:BusinessFormScope=view==="forms"?"overview":"all";
     const active=view==="forms"?"direction":"materials";
-    return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope}/></BookShell>;
+    return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope} compact initialTypeId={view==="forms"?types.find(type=>type.key==="project_rule")?.id:undefined}/></BookShell>;
   }
   const selected=types.find((type)=>type.id===selectedId)??null;
   const saved=(next:CardTypeSummary)=>{setTypes((current)=>current.map((item)=>item.id===next.id?next:item));setSelectedId(next.id);};
