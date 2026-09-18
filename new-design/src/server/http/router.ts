@@ -1,6 +1,7 @@
 import {savedRecoveryRouter} from './savedRecovery';
 import {ClassificationWriteError} from '../database/bookshelf/classification';
 import {imagePreparationRouter} from './imagePreparation';
+import {characterAuthorRouter} from './characterAuthor';
 import {ImagePreparationError} from '../database/imagePreparation';
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
@@ -430,6 +431,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use("/professional-resources",professionalResourcesRouter());
   router.use('/public-characters',publicCharactersRouter());
   router.use('/image-preparation',imagePreparationRouter());
+  router.use('/character-author',characterAuthorRouter());
   router.use('/saved-recovery',savedRecoveryRouter());
   router.use(bookCompositionRouter());
   router.use(productionDirectorRouter());

@@ -1,4 +1,5 @@
 import {createPublicCharactersApi} from './publicCharacters/api';
+import {createCharacterAuthorApi} from './characterAuthor/api';
 import type {AssociationWriteCommand} from "../common/referenceParity";
 import type {ReferenceFormsWorkspace,ReferenceFormPreviewInput,ReferenceFormPreview,ReferenceFormInstallInput,ReferenceFormReceipt,ReferenceFormSelectionInput,ReferenceInstanceUpgradeInput,ReferencePrimaryType,ReferenceAssociationPublicationInput,ReferenceAssociationPublicationPreview} from "../common/referenceParity";
 import type {FieldWriteReceipt,ReferenceSpecificationPreview,ReferenceSpecificationPublishInput} from "../common/referenceParity";
@@ -477,6 +478,7 @@ export const newDesignApi = {
   getVisualPreviewByKey:(bookId:string,key:string)=>request<VisualImpactPreview|null>(`/books/${encodeURIComponent(bookId)}/visual-assets/previews/by-key/${encodeURIComponent(key)}`),
   visualImageUrl:(bookId:string,assetId:string,versionId:string)=>`${API_ROOT}/books/${encodeURIComponent(bookId)}/visual-assets/${encodeURIComponent(assetId)}/versions/${encodeURIComponent(versionId)}/content`,
   publicCharacters:createPublicCharactersApi(request),
+  characterAuthor:createCharacterAuthorApi(request),
   getProfessionalCatalog:()=>request<ProfessionalCatalog>("/professional-resources/catalog"),
   executeProfessionalCommand:(input:ProfessionalCommand)=>request<ProfessionalReceipt>("/professional-resources/commands",{method:"POST",body:JSON.stringify(input)}),
   getProfessionalReceipt:(key:string)=>request<ProfessionalReceipt|null>(`/professional-resources/commands/by-key/${encodeURIComponent(key)}`),
