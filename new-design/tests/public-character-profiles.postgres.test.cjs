@@ -1,0 +1,47 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs'),key=()=>randomUUID();
+test('public character samples use original cards, exact published specifications, immutable receipts and the normal mapped importer',async t=>{
+ const {pool}=await isolatedDatabase(t),resources=compiled('server/database/professionalResources'),store=compiled('server/database/store'),imports=compiled('server/database/characterImport'),templates=compiled('server/database/templateStore'),contracts=compiled('common/characterImport'),extensions=compiled('server/database/fieldExtensions');
+ const type=(await store.listCardTypes()).find(item=>item.key==='character');
+ const input={operation:'create',requestKey:key(),typeId:type.id,expectedTypeVersionId:type.currentVersionId,title:'公共样本原稿',values:{name:'原名字',story_role:'supporting',age:0,personality:'谨慎'}};
+ const count=async()=>Number((await pool.query('SELECT count(*)::integer n FROM new_design.card_versions')).rows[0].n);
+ const initialCount=await count();
+ assert.deepEqual((await resources.getProfessionalCatalog()).publicCharactersCapability,{installed:false,operational:false});
+ await assert.rejects(resources.executeProfessionalCommand(input),error=>error.status===503&&error.recovery.mutationOutcome==='not_written');assert.equal(await count(),initialCount);
+ const guardBefore=(await pool.query("SELECT oid FROM pg_proc WHERE oid='new_design.guard_professional_resource_receipt()'::regprocedure")).rows[0].oid;
+ await pool.query(fs.readFileSync(path.join(__dirname,'../migrations/096_public_character_profiles.sql'),'utf8'));
+ assert.equal((await pool.query("SELECT oid FROM pg_proc WHERE oid='new_design.guard_professional_resource_receipt()'::regprocedure")).rows[0].oid,guardBefore);
+ assert.deepEqual((await resources.getProfessionalCatalog()).publicCharactersCapability,{installed:true,operational:false});
+ await assert.rejects(resources.executeProfessionalCommand(input),error=>error.status===503);assert.equal(await count(),initialCount);
+ await pool.query("UPDATE new_design.public_character_profile_capability SET operational=true WHERE contract='public_character_profile_v1'");
+ await assert.rejects(resources.executeProfessionalCommand({...input,requestKey:key(),expectedTypeVersionId:key()}),error=>error.status===409);
+ const {expectedTypeVersionId:_omitted,...missingVersion}=input;await assert.rejects(resources.executeProfessionalCommand({...missingVersion,requestKey:key()}),error=>error.status===422);assert.equal(await count(),initialCount);
+ const created=await resources.executeProfessionalCommand(input),again=await resources.executeProfessionalCommand(input),id=created.resourceIds[0],originalVersionId=created.versionIds[0];
+ assert.equal(again.repeated,true);assert.equal(again.resourceIds[0],id);assert.equal(await count(),initialCount+1);assert.equal((await store.getCard(id)).spaceId,contracts.PUBLIC_CHARACTER_SPACE_ID);
+ // Fixtures are inserted only into this new empty test database. The editor
+ // must preserve local snapshots even after their definitions are archived.
+ const definitionId=key(),definitionVersionId=key();
+ await pool.query("INSERT INTO new_design.field_definitions(id,space_id,card_type_id,card_id,field_key,origin,scope,created_by) VALUES($1,$2,$3,$4,'local_zero','local_supplement','card','test')",[definitionId,contracts.PUBLIC_CHARACTER_SPACE_ID,type.id,id]);
+ await pool.query("INSERT INTO new_design.field_definition_versions(id,field_definition_id,version,field_schema,created_by) VALUES($1,$2,1,$3::jsonb,'test')",[definitionVersionId,definitionId,JSON.stringify({key:'local_zero',name:'原补充数值',type:'number',required:false,options:[]})]);
+ await pool.query("UPDATE new_design.field_definitions SET current_version_id=$2,status='archived' WHERE id=$1",[definitionId,definitionVersionId]);
+ await pool.query("INSERT INTO new_design.card_version_local_values(card_version_id,field_definition_id,field_definition_version_id,value) VALUES($1,$2,$3,'0'::jsonb)",[originalVersionId,definitionId,definitionVersionId]);
+ const localSnapshot=async versionId=>(await pool.query('SELECT field_definition_id,field_definition_version_id,value FROM new_design.card_version_local_values WHERE card_version_id=$1 ORDER BY field_definition_id',[versionId])).rows;
+ const originalLocal=await localSnapshot(originalVersionId);
+ const edit={operation:'edit',requestKey:key(),resourceId:id,expectedRevision:1,versionId:originalVersionId,title:'公共样本修订',values:{...input.values,name:'修订名字',age:1}};
+ const edited=await resources.executeProfessionalCommand(edit);assert.equal(edited.resourceIds[0],id);assert.notEqual(edited.versionIds[0],originalVersionId);
+ assert.deepEqual(await localSnapshot(edited.versionIds[0]),originalLocal);assert.equal((await store.listCardVersions(id)).find(item=>item.id===edited.versionIds[0]).localValues.local_zero,0);
+ assert.equal((await store.listCardVersions(id)).find(item=>item.id===originalVersionId).values.age,0);
+ let template=await templates.saveTemplate({key:`pc_${key().replaceAll('-','')}`,name:'公共样本隔离模板',description:'',draftConfig:{},requestKey:key()});template=await templates.publishTemplate(template.id,template.revision,key());
+ const book=await templates.createBook({key:`pc_${key().replaceAll('-','')}`,name:'明确导入书籍',description:'',templateVersionId:template.currentVersionId});
+ const targetType=(await store.listCardTypes(book.spaceId)).find(item=>item.key==='character'),extension=await extensions.createBookFieldExtension(book.id,{cardTypeId:targetType.id,expectedTypeRevision:targetType.revision,field:{name:'书内补充数值',description:'',type:'number',required:false,defaultValue:null,options:[],group:'档案',aiSuggestible:true,stateSettlement:'none'},backfillStrategy:'none',idempotencyKey:key(),createdBy:'isolated_test'});
+ const formal=async()=>Object.fromEntries(await Promise.all(['canonical_facts','entity_initial_states','state_changes','knowledge_state_proposals','chapter_body_versions','chapter_settlements','ai_tasks'].map(async table=>[table,(await pool.query(`SELECT coalesce(jsonb_agg(to_jsonb(row) ORDER BY to_jsonb(row)::text),'[]'::jsonb) data FROM new_design.${table} row`)).rows[0].data]))),before=await formal();
+ const source=await imports.getCharacterImportWorkspace(book.id,id,originalVersionId);assert.equal(source.source.values.name,'原名字');assert.equal(source.source.values.age,0);
+ assert.equal(source.source.values.local_zero,0);
+ const importInput={requestKey:key(),resourceId:id,resourceVersionId:originalVersionId,title:'书内独立人物',mapping:Object.entries(source.source.values).filter(([,value])=>contracts.importValuePresent(value)).map(([sourceKey,value])=>({sourceKey,targetKey:sourceKey==='local_zero'?extension.fieldKey:sourceKey,value})),additionalValues:{}};
+ await assert.rejects(imports.previewCharacterImport(book.id,{...importInput,mapping:importInput.mapping.filter(item=>item.sourceKey!=='local_zero')}),error=>error.status===422);
+ const preview=await imports.previewCharacterImport(book.id,importInput),imported=await imports.importPublicCharacter(book.id,{...importInput,previewHash:preview.previewHash});assert.notEqual(imported.receipt.card.id,id);assert.equal(imported.receipt.card.values.name,'原名字');assert.equal(imported.receipt.card.values[extension.fieldKey],0);assert.equal((await store.getCard(id)).values.name,'修订名字');assert.deepEqual(await formal(),before);
+ await assert.rejects(resources.executeProfessionalCommand({operation:'install',requestKey:key(),bookId:book.id,expectedBookRevision:book.revision,resources:[{resourceId:id,versionId:edited.versionIds[0],expectedRevision:2}]}),error=>error.status===422);assert.deepEqual(await formal(),before);
+ const archived=await resources.executeProfessionalCommand({operation:'archive',requestKey:key(),resourceId:id,versionId:edited.versionIds[0],expectedRevision:2});assert.deepEqual(await localSnapshot(archived.versionIds[0]),originalLocal);assert.deepEqual(await localSnapshot(originalVersionId),originalLocal);assert.equal((await imports.getCharacterImportCatalog()).items.some(item=>item.id===id),false);assert.equal((await resources.getProfessionalCatalog()).resources.find(item=>item.id===id).status,'archived');
+ await pool.query("UPDATE new_design.public_character_profile_capability SET operational=false WHERE contract='public_character_profile_v1'");assert.equal((await resources.readProfessionalReceipt(input.requestKey)).resourceIds[0],id);assert.equal((await resources.executeProfessionalCommand(input)).repeated,true);
+ await pool.query('ALTER TABLE new_design.professional_resource_receipts DISABLE TRIGGER professional_resource_receipt_guard');assert.deepEqual((await resources.getProfessionalCatalog()).publicCharactersCapability,{installed:false,operational:false});await assert.rejects(resources.executeProfessionalCommand({...input,requestKey:key()}),error=>error.status===503);
+});

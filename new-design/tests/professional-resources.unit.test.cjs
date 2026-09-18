@@ -1,5 +1,6 @@
 const test=require("node:test"),assert=require("node:assert/strict"),fs=require("node:fs"),path=require("node:path");
-const {professionalCommandSchema,RESOURCE_KINDS}=require("../dist/common/professionalResources");
+const {compiled}=require('./support/isolatedDatabase.cjs');
+const {professionalCommandSchema,RESOURCE_KINDS}=compiled('common/professionalResources');
 const id="65000000-0000-4000-8000-000000000011",versionId="65000000-0000-4000-8000-000000000012",bookId="65000000-0000-4000-8000-000000000013";
 const ref=()=>({resourceId:id,versionId,expectedRevision:1}),read=file=>fs.readFileSync(path.join(__dirname,"../",file),"utf8");
 test("professional commands retain exact resource and book provenance, rejecting overrides",()=>{
@@ -31,10 +32,10 @@ test("static trial invokes once and unknown result reads original source only",(
  const code=read("src/client/professionalResources/Trial.tsx"),start=code.indexOf("const check=async"),end=code.indexOf("return <section",start),check=code.slice(start,end);assert.match(code,/attempted\.current\.add\(preview\.id\)/);assert.match(check,/api\.previewByKey/);assert.match(check,/api\.result\(id\)/);assert.doesNotMatch(check,/api\.run/);assert.match(code,/data\.length>30000/);assert.match(code,/frozenResource\.current\?\.versionId===resource\?\.versionId/);assert.doesNotMatch(code,/adoptBody|updateCard|savePlanning/);
 });
 test("pure database resource write distinguishes acknowledged rollback from unknown COMMIT",async()=>{
- const {withProfessionalResourcesPool,executeProfessionalCommand}=require("../dist/server/database/professionalResources");
+ const {withProfessionalResourcesPool,executeProfessionalCommand}=compiled('server/database/professionalResources');
  const field={key:"promise",name:"读者承诺",description:"",type:"long_text",required:true,defaultValue:null,options:[],group:"标题比较",order:0};
  for(const failure of ["prepare-ack","prepare-lost","commit"]){
-  const calls=[],connection={async query(sql){calls.push(sql);if(sql==="ROLLBACK"&&failure==="prepare-lost")throw Error("private rollback detail");if(sql.includes("SELECT * FROM new_design.professional_resource_receipts")){if(failure!=="commit")throw Error("private SQL detail");return{rows:[]};}if(sql.includes("SELECT t.id,v.id version_id,v.fields"))return{rows:[{id,version_id:versionId,fields:[structuredClone(field)]}]};if(sql==="COMMIT"&&failure==="commit")throw Error("private commit detail");return{rows:[],rowCount:1};},release(){calls.push("RELEASE");}},pool={async connect(){return connection;}};
+  const calls=[],connection={async query(sql){calls.push(sql);if(sql==="ROLLBACK"&&failure==="prepare-lost")throw Error("private rollback detail");if(sql.includes("SELECT * FROM new_design.professional_resource_receipts")){if(failure!=="commit")throw Error("private SQL detail");return{rows:[]};}if(sql.includes("SELECT t.id,t.type_key,v.id version_id,v.fields"))return{rows:[{id,type_key:"title_candidate",version_id:versionId,fields:[structuredClone(field)]}]};if(sql==="COMMIT"&&failure==="commit")throw Error("private commit detail");return{rows:[],rowCount:1};},release(){calls.push("RELEASE");}},pool={async connect(){return connection;}};
   await assert.rejects(withProfessionalResourcesPool(pool,()=>executeProfessionalCommand({operation:"create",requestKey:"frozen-pure-db-key",typeId:id,title:"原书名候选",values:{promise:"真实可编辑承诺"}})),error=>{assert.equal(error.recovery.mutationOutcome,failure==="prepare-ack"?"not_written":"unknown");assert.equal(error.recovery.requestKey,"frozen-pure-db-key");assert.doesNotMatch(error.message,/private|SQL detail|commit detail/);assert.match(error.recovery.savedResult,/保留/);return true;});
   assert.equal(calls.at(-1),"RELEASE");if(failure!=="commit")assert.ok(!calls.includes("COMMIT"));
  }

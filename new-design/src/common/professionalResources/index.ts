@@ -3,17 +3,18 @@ import type {FieldDefinition,BookSummary} from "../contracts";
 import type {CompositionCatalog,DebugPreviewInput,CompositionDebugPreview,CompositionDebugResult} from "../promptComposition";
 export const PROFESSIONAL_ROUTE="/new-design/resources/professional";
 export const RESOURCE_KINDS=["title_candidate","writing_config","quality_rule","genre_strategy","progression_mode"] as const;
-export type ProfessionalResourceKind=(typeof RESOURCE_KINDS)[number];
-export const RESOURCE_LABELS:Record<ProfessionalResourceKind,string>={title_candidate:"标题候选",writing_config:"写法资源",quality_rule:"质量规则",genre_strategy:"题材策略",progression_mode:"推进模式"};
+export const PUBLIC_RESOURCE_KINDS=[...RESOURCE_KINDS,"character"] as const;
+export type ProfessionalResourceKind=(typeof PUBLIC_RESOURCE_KINDS)[number];
+export const RESOURCE_LABELS:Record<ProfessionalResourceKind,string>={title_candidate:"标题候选",writing_config:"写法资源",quality_rule:"质量规则",genre_strategy:"题材策略",progression_mode:"推进模式",character:"公共角色样本"};
 export interface ProfessionalResource {id:string;versionId:string;typeId:string;typeVersionId:string;kind:ProfessionalResourceKind;title:string;revision:number;values:Record<string,unknown>;fields:FieldDefinition[];favorite:boolean;status:"active"|"archived";}
 export interface ProfessionalReceipt {requestKey:string;operation:ProfessionalCommand["operation"];resourceIds:string[];bookId:string|null;versionIds:string[];adoptionIds:string[];targetCardIds:string[];retainedResult:string;createdAt:string;repeated:boolean;}
 export interface ProfessionalFeedback {resourceId:string;resourceVersionId:string;previewId:string|null;issueId:string|null;effect:"helpful"|"neutral"|"harmful";note:string;createdAt:string;}
-export interface ProfessionalCatalog {resources:ProfessionalResource[];types:Array<{id:string;kind:ProfessionalResourceKind;fields:FieldDefinition[]}>;books:BookSummary[];feedback:ProfessionalFeedback[];}
+export interface ProfessionalCatalog {resources:ProfessionalResource[];types:Array<{id:string;typeVersionId:string;kind:ProfessionalResourceKind;fields:FieldDefinition[]}>;books:BookSummary[];feedback:ProfessionalFeedback[];publicCharactersCapability?:{installed:boolean;operational:boolean};}
 const uuid=z.string().uuid(),key=z.string().trim().min(8).max(160),revision=z.number().int().positive();
 const valueMap=z.record(z.string().min(1).max(100),z.unknown()).refine(value=>Object.keys(value).length<=100&&JSON.stringify(value).length<=100000,"填写内容超过允许范围。");
 const resource=z.object({resourceId:uuid,expectedRevision:revision,versionId:uuid});
 export const professionalCommandSchema=z.discriminatedUnion("operation",[
- z.object({operation:z.literal("create"),requestKey:key,typeId:uuid,title:z.string().trim().min(1).max(240),values:valueMap}).strict(),
+ z.object({operation:z.literal("create"),requestKey:key,typeId:uuid,expectedTypeVersionId:uuid.optional(),title:z.string().trim().min(1).max(240),values:valueMap}).strict(),
  resource.extend({operation:z.literal("edit"),requestKey:key,title:z.string().trim().min(1).max(240),values:valueMap}).strict(),
  resource.extend({operation:z.literal("archive"),requestKey:key}).strict(),
  resource.extend({operation:z.literal("favorite"),requestKey:key,favorite:z.boolean()}).strict(),
