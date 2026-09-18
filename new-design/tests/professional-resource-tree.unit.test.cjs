@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
 const read=file=>fs.readFileSync(path.join(__dirname,'../',file),'utf8');
-function load(file,dependencies={}){const exports={};const compiled=ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;new Function('require','exports',compiled)(name=>{if(!(name in dependencies))throw Error(`Unexpected dependency ${name}`);return dependencies[name];},exports);return exports;}
+function load(file,dependencies={}){const exports={};const compiled=ts.transpileModule(read(file),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('require','exports',compiled)(name=>{if(!(name in dependencies))throw Error(`Unexpected dependency ${name}`);return dependencies[name];},exports);return exports;}
 const kinds=['title_candidate','writing_config','quality_rule','genre_strategy','progression_mode'];
 const labels={title_candidate:'标题候选',writing_config:'写法资源',quality_rule:'质量规则',genre_strategy:'题材策略',progression_mode:'推进模式'};
 const {buildProfessionalResourceTree}=load('src/client/professionalResources/catalog.ts',{'../../common/professionalResources':{RESOURCE_KINDS:kinds,RESOURCE_LABELS:labels}});

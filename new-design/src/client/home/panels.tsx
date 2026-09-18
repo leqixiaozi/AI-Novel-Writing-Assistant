@@ -30,8 +30,8 @@ function HomeStarter({ draft }: { draft: HomeCreationDraft | null }) {
       {action && <a className="nd-button nd-button-primary" href={action.href}>{action.label} →</a>}
       <a className={`nd-button ${action ? "" : "nd-button-primary"}`} href="/new-design/books/new">准备长篇小说 →</a>
       <p>在开书表单中选择 AI 自动准备或逐步审阅。</p>
-      <div className="nd-home-short-story" aria-label="短篇创作尚无对应流程"><strong>创作一篇短篇</strong><p>尚无独立短篇流程，暂不可从这里开始。</p></div>
-      <a className="nd-home-secondary-link" href="/new-design/books/new">手动创建小说</a>
+      <a className="nd-home-short-story" href="/new-design/books/new?method=idea&mode=automatic&form=short_story"><strong>创作一篇短篇</strong><p>准备整篇故事和正文候选。</p></a>
+      <a className="nd-home-secondary-link" href="/new-design/books/new?method=blank&mode=manual">手动创建小说</a>
     </aside>
   </section>;
 }

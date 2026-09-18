@@ -66,6 +66,6 @@ export function homeStages(book: HomeBookFact) {
     { label: "世界与角色", detail: `${book.worldCount} 份世界设定 · ${book.characterCount} 位人物`, evidenced: book.worldCount > 0 && book.characterCount > 0, href: path(book, "world") },
     { label: "卷与章节", detail: `${book.volumePlanCount} 卷 · ${book.adoptedChapterPlanCount} 章计划已采用`, evidenced: book.volumePlanCount > 0 && book.adoptedChapterPlanCount > 0, href: path(book, "planning") },
     { label: "正文创作", detail: `${book.writtenChapterCount} 章正文已采用`, evidenced: book.writtenChapterCount > 0, href: path(book, "writing") },
-    { label: "质量完善", detail: `${book.stableChapterCount} 章已稳定 · ${book.openQualityIssues} 项待处理`, evidenced: book.stableChapterCount > 0, href: path(book, "planning?panel=issues") },
+    { label: "质量完善", detail: `${book.stableChapterCount} 章已稳定 · ${book.openQualityIssues} 项待处理`, evidenced: book.stableChapterCount > 0, href: path(book, "views/quality") },
   ];
 }

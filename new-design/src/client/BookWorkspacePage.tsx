@@ -14,7 +14,7 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   const [categories,setCategories]=useState<CardTypeCategory[]>([]);
   const [selectedId,setSelectedId]=useState<string|null>(null);
   const [message,setMessage]=useState("");
-  const load=async()=>{const nextBook=await newDesignApi.getBook(bookId);const [nextTypes,nextCategories]=await Promise.all([newDesignApi.listCardTypes(nextBook.spaceId),newDesignApi.listCardTypeCategories()]);setBook(nextBook);setTypes(nextTypes);setCategories(nextCategories);setSelectedId((current)=>current??nextTypes[0]?.id??null);};
+  const load=async()=>{const nextBook=await newDesignApi.getBook(bookId);const [nextTypes,nextCategories]=await Promise.all([newDesignApi.listCardTypes(nextBook.spaceId),newDesignApi.listCardTypeCategories()]);const requestedType=new URLSearchParams(location.search).get("typeKey");if(view==="cards"&&requestedType&&!nextTypes.some(type=>type.key===requestedType))throw Error("指定的本书资料类型不存在，不改选其他类型。");setBook(nextBook);setTypes(nextTypes);setCategories(nextCategories);setSelectedId((current)=>current??nextTypes[0]?.id??null);};
   useEffect(()=>{void load().catch((error)=>setMessage(error instanceof Error?error.message:"书籍工作区加载失败。"));},[bookId]);
   if(message)return <div className="nd-shell nd-fatal"><h1>无法打开书籍</h1><p>{message}</p><a className="nd-button nd-button-primary" href="/new-design/books">返回我的书籍</a></div>;
   if(!book)return <div className="nd-shell nd-loading-screen"><div className="nd-loader"/><strong>正在打开书籍空间</strong></div>;
@@ -22,7 +22,7 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   if(view!=="fields") {
     const scope:BusinessFormScope=view==="forms"?"overview":"all";
     const active=view==="forms"?"direction":"materials";
-    return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope} compact initialTypeId={view==="forms"?types.find(type=>type.key==="project_rule")?.id:undefined}/></BookShell>;
+    return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope} compact initialTypeId={view==="forms"?types.find(type=>type.key==="project_rule")?.id:types.find(type=>type.key===new URLSearchParams(location.search).get("typeKey"))?.id}/></BookShell>;
   }
   const selected=types.find((type)=>type.id===selectedId)??null;
   const saved=(next:CardTypeSummary)=>{setTypes((current)=>current.map((item)=>item.id===next.id?next:item));setSelectedId(next.id);};
