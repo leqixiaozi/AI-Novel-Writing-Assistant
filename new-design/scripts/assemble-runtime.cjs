@@ -56,8 +56,11 @@ function validateSourceManifest(value){
     if(!spec.requiredPrefixes.some(prefix=>entry.targetPath.startsWith(prefix)))throw new Error(`目标路径不在白名单：${entry.targetPath}`);
   }
   for(const required of spec.requiredFiles)if(!seen.has(required.toLowerCase()))throw new Error(`缺少必需文件：${required}`);
-  const migrations=value.files.filter(item=>item.targetPath.startsWith("app/migrations/")&&/^app\/migrations\/\d{3}_.+\.sql$/.test(item.targetPath)).map(item=>Number(item.targetPath.slice(15,18))).sort((a,b)=>a-b);
-  if(migrations.length!==spec.migrationRange.count||migrations.some((number,index)=>number!==index+1))throw new Error(`迁移必须从 001 连续到 ${String(spec.migrationRange.count).padStart(3,"0")}，不得缺号或重复。`);
+  const registered=[...fs.readFileSync(path.join(root,'src/server/database/migrations.ts'),'utf8').matchAll(/fileName:\s*"([^"\n]+)"/g)].map(match=>match[1]);
+  if(stable(spec.defaultMigrationFiles)!==stable(registered)||spec.migrationRange.first!==registered[0]||spec.migrationRange.last!==registered.at(-1)||spec.migrationRange.count!==registered.length)throw new Error("\u8fd0\u884c\u5305\u9ed8\u8ba4\u8fc1\u79fb\u6e05\u5355\u4e0e\u5b9e\u9645\u6ce8\u518c\u4e0d\u4e00\u81f4\u3002");
+  const migrationFiles=value.files.filter(item=>item.targetPath.startsWith('app/migrations/')).map(item=>item.targetPath).sort();
+  const expected=[...registered.map(name=>'app/migrations/'+name),...spec.manualMigrationFiles.map(name=>'app/migrations/manual/'+name)].sort();
+  if(stable(migrationFiles)!==stable(expected))throw new Error("\u8fc1\u79fb\u6587\u4ef6\u5fc5\u987b\u4e0e\u6b63\u5f0f\u6ce8\u518c\u548c\u624b\u52a8\u6e05\u5355\u9010\u9879\u4e00\u81f4\u3002");
 }
 
 function safeRelative(value){return typeof value==="string"&&value.length<=480&&/^[A-Za-z0-9._/-]+$/.test(value)&&!value.startsWith("/")&&!value.includes("//")&&!value.split("/").some(part=>!part||part==="."||part===".."||/[ .]$/.test(part)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(part));}

@@ -8,6 +8,7 @@ import {validateCardValues,fieldDefinitionSchema} from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 import { snapshotDictionaryTreeValues, validateDictionaryTreeValues } from "./treeResources";
 import {structureWriteHash,executeStructureWrite} from "./structureWrites";
+import {initializeProjectRuleInTransaction} from './bookshelf/initialize';
 
 interface PayloadType { sourceId:string;sourceVersionId:string;key:string;name:string;description:string;categoryKey?:string;capabilities:string[];fields:FieldDefinition[];sortOrder:number; }
 interface PayloadDictionary { sourceId:string;key:string;name:string;description:string;items:Array<{sourceId:string;parentSourceId:string|null;key:string;label:string;description:string;value:Record<string,unknown>;sortOrder:number}>; }
@@ -238,6 +239,7 @@ export async function createBookInTransaction(client:PoolClient,input:{key:strin
  await client.query("INSERT INTO new_design.card_spaces(id,space_key,name) VALUES($1,$2,$3)",[spaceId,`book_${input.key}`,input.name]);
  await client.query("INSERT INTO new_design.books(id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[id,spaceId,input.key,input.name,input.description,template.id,version.id,JSON.stringify(payload)]);
  const installed=await installPayload(client,id,spaceId,payload,options);
+ await initializeProjectRuleInTransaction(client,id,randomUUID());
  for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
  if(options.origin)await client.query("INSERT INTO new_design.book_content_sources(id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES($1,$2,$3,$4,$5,$6::jsonb,'confirmed')",[randomUUID(),id,options.origin.sessionId??null,options.origin.method,options.origin.sourceReference,JSON.stringify(options.origin.sourcePayload)]);
  return{book:await getBookInTransaction(client,id),installed,payload};
@@ -259,6 +261,7 @@ export async function createBook(
     await client.query("INSERT INTO new_design.card_spaces (id,space_key,name) VALUES ($1,$2,$3)", [spaceId, `book_${input.key}`, input.name]);
     await client.query(`INSERT INTO new_design.books (id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [id, spaceId, input.key, input.name, input.description, template.id, version.id, JSON.stringify(payload)]);
     await installPayload(client, id, spaceId, payload, options);
+    await initializeProjectRuleInTransaction(client,id,randomUUID());
     for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
     if (options.origin) {
       await client.query(`INSERT INTO new_design.book_content_sources (id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'confirmed')`, [randomUUID(), id, options.origin.sessionId ?? null, options.origin.method, options.origin.sourceReference, JSON.stringify(options.origin.sourcePayload)]);

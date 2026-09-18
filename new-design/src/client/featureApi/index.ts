@@ -62,6 +62,7 @@ export function createFeatureApi(request:Request){
  const base=(book:string)=>`/books/${encoded(book)}/world-consistency`;
  return {savedRecovery,
  previewChapterGenerationSources:(id:string,input:{operationKind:Exclude<import('../../common/contracts').ChapterWritingOperation,'manual_draft'|'copy'>;baseBodyVersionId?:string|null;selectionStart?:number|null;selectionEnd?:number|null;instruction?:string;expectedRevision:number;idempotencyKey:string;knowledgeSources?:import('../../common/productionDirector').ChapterKnowledgeSelection[];excludedMaterialIds?:string[]})=>request<{bookId:string;documentId:string;sourceHash:string;decisions:Array<{cardId:string;versionId:string;title:string;required:boolean;included:boolean}>;input:{materials:Array<{cardId:string;[key:string]:unknown}>;[key:string]:unknown}}>(`/chapter-documents/${encoded(id)}/generation-source-preview`,post(input)),
+  initializeProjectRule:(book:string,input:{requestKey:string})=>request<{bookId:string;cardId:string}>(`/books/${encoded(book)}/project-rule-initialization`,post(input)),
   getBookClassification:(book:string)=>request<ClassificationWorkspace>(`/books/${encoded(book)}/classification`),saveBookClassification:(book:string,input:ClassificationWrite)=>request<AuthorMaterialWriteReceipt>(`/books/${encoded(book)}/classification`,post(input)),
   creativeExtraction,imageGeneration,imagePreparation,directorFollowup,characterDialogue,
   getProfessionalViewsWorkspace:(book:string)=>request<ProfessionalViewsWorkspace>(`/books/${encoded(book)}/professional-views/workspace`),

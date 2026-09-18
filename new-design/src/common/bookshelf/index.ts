@@ -4,7 +4,7 @@ import type {HomeBookFact,HomeCreationDraft} from '../home';
 import type {AuthorTaskPage} from '../authorTasks';
 import type {AiUsageSummary,BackgroundRuntimeHealth} from '../contracts';
 export interface ShelfCover {assetId:string;versionId:string;title:string;integrity:string;}
-export interface ShelfBook extends HomeBookFact {storyFormat?:StoryFormat|null;classification?:BookClassification;classificationIssue?:string|null;revision:number;cover:ShelfCover|null;wordCount:number;candidateCount:number;firstChapterId:string|null;lastChapterCardId:string|null;}
+export interface ShelfBook extends HomeBookFact {storyFormat?:StoryFormat|null;creationStoryFormat?:{sourceId:string;format:StoryFormat}|null;classification?:BookClassification;classificationIssue?:string|null;revision:number;cover:ShelfCover|null;wordCount:number;candidateCount:number;firstChapterId:string|null;lastChapterCardId:string|null;}
 export interface RecycledBook {id:string;name:string;description:string;revision:number;updatedAt:string;}
 export interface BookLifecycle {bookId:string;status:'active'|'archived';revision:number;}
 export interface BookLifecycleInput {action:'archive'|'restore';expectedRevision:number;}

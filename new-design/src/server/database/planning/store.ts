@@ -1,3 +1,4 @@
+import {readStoryFormat} from "../../../common/storyFormat";
 import {AiExecutionError} from "../../ai/runtime/errors";
 import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -43,6 +44,11 @@ async function validateBodySource(client:PoolClient,object:Record<string,unknown
 }
 
 async function insertVersion(client:PoolClient,object:Record<string,unknown>,number:number,input:VersionInput,action:"create"|"edit",allowDraftParent=false):Promise<PlanningVersion>{
+  if(input.content.storyFormat!==undefined&&(object.level!=='story'||!readStoryFormat(input.content.storyFormat)))throw new NewDesignError("\u4f5c\u54c1\u5f62\u5f0f\u53ea\u80fd\u4fdd\u5b58\u5728\u6545\u4e8b\u603b\u7eb2\uff0c\u8bf7\u6838\u5bf9\u957f\u77ed\u7bc7\u4e0e\u76ee\u6807\u5b57\u6570\u3002",422);
+  if(input.content.storyFormatSourceId!==undefined){
+   const source=(await client.query("SELECT source_payload->'storyFormat' format FROM new_design.book_content_sources WHERE id::text=$1 AND book_id=$2 AND confirmation_status='confirmed'",[String(input.content.storyFormatSourceId),object.book_id])).rows[0];
+   if(object.level!=='story'||!source||JSON.stringify(readStoryFormat(source.format))!==JSON.stringify(readStoryFormat(input.content.storyFormat))||!readStoryFormat(input.content.storyFormat))throw new NewDesignError("\u5e26\u5165\u7684\u5f00\u4e66\u5f62\u5f0f\u4e0e\u539f\u786e\u8ba4\u6765\u6e90\u4e0d\u4e00\u81f4\uff1b\u4eba\u5de5\u4fee\u6539\u540e\u9700\u4f5c\u4e3a\u65b0\u5019\u9009\u6838\u5bf9\u3002",409);
+  }
   const basis=await validateParentBasis(client,object,input.basedOnParentVersionId,allowDraftParent);
   const bodyVersion=await validateBodySource(client,object,input.source,input.sourceBodyVersionId);
   let base:string|null=input.baseVersionId??(object.current_version_id?String(object.current_version_id):null);

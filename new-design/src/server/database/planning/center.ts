@@ -1,3 +1,4 @@
+import {readStoryFormat} from "../../../common/storyFormat";
 import type { AdoptedChapterPlanContract, BookMaterialReadiness, BookOverview, BookOverviewMetric, PlanningCenterWorkspace, PlanningObject } from "../../../common/contracts";
 import { NewDesignError, assertFound } from "../../domain/errors";
 import { getNewDesignPool } from "../runtime";
@@ -43,8 +44,10 @@ export async function getPlanningCenterWorkspace(bookId:string):Promise<Planning
       (SELECT count(*) FROM new_design.chapter_revision_review_flags flag WHERE flag.book_id=$1 AND flag.status IN ('pending_review','in_review')) downstream_review
       FROM new_design.chapter_adoption_sessions session WHERE session.book_id=$1`,[bookId]),
   ]);
+  const creationSources=(await pool.query("SELECT id,source_payload->'storyFormat' format FROM new_design.book_content_sources WHERE book_id=$1 AND confirmation_status='confirmed' ORDER BY id",[bookId])).rows;
+  const creationFormat=creationSources.length===1?readStoryFormat(creationSources[0].format):null;
   const objects:PlanningObject[]=await Promise.all(objectRows.rows.map(row=>getPlanningObject(String(row.id))));
-  const settlement=settlements.rows[0];return{bookId,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review),revisionRunning:Number(settlement.revision_running),revisionFailed:Number(settlement.revision_failed),downstreamReview:Number(settlement.downstream_review)},aiCapability:{configured:true,taskKey:"planning.candidate.generate",taskContractVersionId:null,message:"AI 会读取本书资料和已采用规划，生成一份可比较、可修改的候选，不会自动采用。"},updatedAt:new Date().toISOString()};
+  const settlement=settlements.rows[0];return{bookId,creationStoryFormat:creationFormat?{sourceId:String(creationSources[0].id),format:creationFormat}:null,objects,materials:materials.rows.map(row=>({cardId:String(row.card_id),cardVersionId:String(row.card_version_id),typeKey:String(row.type_key),typeName:String(row.type_name),title:String(row.title),updatedAt:asDate(row.updated_at)!})),settlementSummary:{stable:Number(settlement.stable),pending:Number(settlement.pending),failed:Number(settlement.failed),impactReview:Number(settlement.impact_review),revisionRunning:Number(settlement.revision_running),revisionFailed:Number(settlement.revision_failed),downstreamReview:Number(settlement.downstream_review)},aiCapability:{configured:true,taskKey:"planning.candidate.generate",taskContractVersionId:null,message:"AI 会读取本书资料和已采用规划，生成一份可比较、可修改的候选，不会自动采用。"},updatedAt:new Date().toISOString()};
 }
 
 export async function getBookOverview(bookId:string):Promise<BookOverview>{

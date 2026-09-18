@@ -5,4 +5,4 @@ export type BookClassification=z.infer<typeof classificationSchema>;
 export const EMPTY_CLASSIFICATION:BookClassification={publicationStatus:null,writingMode:null,platform:null,creationExperience:null};
 export const classificationWriteSchema=z.object({requestKey:z.string().uuid(),cardId:z.string().uuid(),expectedRevision:z.number().int().positive(),classification:classificationSchema}).strict();
 export type ClassificationWrite=z.infer<typeof classificationWriteSchema>;
-export interface ClassificationWorkspace {bookId:string;cardId:string|null;revision:number|null;classification:BookClassification;issue:string|null;}
+export interface ClassificationWorkspace {bookId:string;canInitialize?:boolean;cardId:string|null;revision:number|null;classification:BookClassification;issue:string|null;}
