@@ -19,6 +19,7 @@ import { worldConsistencyAsset } from "./worldConsistency";
 import {chapterQualityAsset} from './chapterQuality';
 import { creativeExtractionAsset } from "./creativeExtraction";
 import { characterDialogueAsset } from "./characterDialogue";
+import {publicCharacterDialogueAsset} from './publicCharacterDialogue';
 import { PROMPT_TASK_TYPES, type PreparedPrompt, type PromptAsset, type PromptAssetMetadata, type PromptTaskType } from "./contracts";
 import { AiExecutionError } from "../runtime/errors";
 
@@ -28,7 +29,7 @@ export type {CreationPreparationPromptInput} from "./creationPreparation";
 export {creationPreparationPromptInputSchema} from "./creationPreparation";
 export type {ChapterGenerationInput} from "./chapterGeneration";
 
-const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, chapterQualityAsset, worldConsistencyAsset, creativeExtractionAsset, characterDialogueAsset, storyWorkspaceAsset,...referenceCandidateAssets,characterResourceBackfillAsset,characterExperiencesAsset,recentBodyExperiencesAsset,characterResourceFocusAsset,characterResourceHistoryFocusAsset,stableResourceSupplementAsset,resourceSupplementCorrectionAsset];
+const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, chapterQualityAsset, worldConsistencyAsset, creativeExtractionAsset, characterDialogueAsset, publicCharacterDialogueAsset, storyWorkspaceAsset,...referenceCandidateAssets,characterResourceBackfillAsset,characterExperiencesAsset,recentBodyExperiencesAsset,characterResourceFocusAsset,characterResourceHistoryFocusAsset,stableResourceSupplementAsset,resourceSupplementCorrectionAsset];
 const registry = new Map<PromptTaskType, PromptAsset>();
 const identity = new Set<string>();
 for (const asset of assets) {

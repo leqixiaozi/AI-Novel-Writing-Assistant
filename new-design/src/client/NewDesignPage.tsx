@@ -1,3 +1,4 @@
+import PublicCharacterWorkshop from './publicCharacters';
 import BookWorkspacePage from "./BookWorkspacePage";
 import BooksPage from "./BooksPage";
 import ReadingPage from './bookshelf/ReadingPage';
@@ -68,6 +69,7 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
   if(path==="/new-design/resources/characters")return <CharacterImportPage/>;
   if(path==="/new-design/resources/characters/library")return <PublicCharacterLibrary/>;
+  if(path==="/new-design/resources/characters/workshop")return <PublicCharacterWorkshop/>;
   if(path==="/new-design/resources/extraction"){
     const query=new URLSearchParams(window.location.search),bookId=query.get("bookId"),mode=query.get("mode");
     if(!bookId||query.getAll("bookId").length!==1||! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(bookId))return <div className="nd-shell"><p role="alert">请先从我的书籍选择一本书，再打开写法与标题提炼。</p><a href="/new-design/books">选择书籍</a></div>;

@@ -23,6 +23,8 @@ import {multiviewAuthorRouter} from "./multiviewAuthor";
 import {authorTasksRouter} from "./authorTasks";
 import {authorMaterialsRouter} from "./authorMaterials";
 import {professionalResourcesRouter} from "./professionalResources";
+import {publicCharactersRouter} from './publicCharacters';
+import {PublicCharacterError} from '../database/publicCharacters';
 import {ProfessionalResourceError} from "../database/professionalResources";
 import {bookCompositionRouter} from "./bookComposition";
 import {productionDirectorRouter} from "./productionDirector";
@@ -422,6 +424,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(authorTasksRouter());
   router.use(authorMaterialsRouter());
   router.use("/professional-resources",professionalResourcesRouter());
+  router.use('/public-characters',publicCharactersRouter());
   router.use(bookCompositionRouter());
   router.use(productionDirectorRouter());
   router.use(chapterProductionRouter());
@@ -1001,7 +1004,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof PublicCharacterError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

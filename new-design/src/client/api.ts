@@ -1,3 +1,4 @@
+import {createPublicCharactersApi} from './publicCharacters/api';
 import type {AssociationWriteCommand} from "../common/referenceParity";
 import type {ReferenceFormsWorkspace,ReferenceFormPreviewInput,ReferenceFormPreview,ReferenceFormInstallInput,ReferenceFormReceipt,ReferenceFormSelectionInput,ReferenceInstanceUpgradeInput,ReferencePrimaryType,ReferenceAssociationPublicationInput,ReferenceAssociationPublicationPreview} from "../common/referenceParity";
 import type {FieldWriteReceipt,ReferenceSpecificationPreview,ReferenceSpecificationPublishInput} from "../common/referenceParity";
@@ -334,6 +335,7 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const records=value.sourceRoute==="/new-design/operations/records"&&value.actionLabel==="打开运行记录";
   const materialParts=/^\/new-design\/books\/([^/?#]+)\/cards$/.exec(value.sourceRoute);
   const materials=materialParts&&uuid.test(materialParts[1])&&value.actionLabel==="返回本书资料";
+  const publicCharacters=value.sourceRoute==="/new-design/resources/characters/workshop"&&value.actionLabel==="返回公共角色试用";
   const professional=value.sourceRoute===PROFESSIONAL_ROUTE&&value.actionLabel==="返回专业创作资源";
   const bookCompositionParts=/^\/new-design\/books\/([^/?#]+)\/composition$/.exec(value.sourceRoute);
   const bookComposition=bookCompositionParts&&uuid.test(bookCompositionParts[1])&&value.actionLabel==="返回全书编排";
@@ -358,7 +360,7 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const fieldRoute=/^\/new-design\/books\/([0-9a-f-]+)\/story-setting$/.exec(String(value.sourceRoute));
   const fieldRecovery=fieldRoute&&uuid.test(fieldRoute[1])&&value.actionLabel==="返回资料填写";
   const structure=(value.sourceRoute==="/new-design/structure/forms"&&value.actionLabel==="返回创作表单")||(value.sourceRoute==="/new-design/structure/templates"&&value.actionLabel==="返回开书模板");
-  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
+  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || publicCharacters || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
   return allowed||professionalGraph||dialogue||fieldRecovery ? value as unknown as AiRuntimeRecovery : null;
 }
 
@@ -474,6 +476,7 @@ export const newDesignApi = {
   getVisualReceipt:(bookId:string,key:string)=>request<VisualReceipt|null>(`/books/${encodeURIComponent(bookId)}/visual-assets/receipts/by-key/${encodeURIComponent(key)}`),
   getVisualPreviewByKey:(bookId:string,key:string)=>request<VisualImpactPreview|null>(`/books/${encodeURIComponent(bookId)}/visual-assets/previews/by-key/${encodeURIComponent(key)}`),
   visualImageUrl:(bookId:string,assetId:string,versionId:string)=>`${API_ROOT}/books/${encodeURIComponent(bookId)}/visual-assets/${encodeURIComponent(assetId)}/versions/${encodeURIComponent(versionId)}/content`,
+  publicCharacters:createPublicCharactersApi(request),
   getProfessionalCatalog:()=>request<ProfessionalCatalog>("/professional-resources/catalog"),
   executeProfessionalCommand:(input:ProfessionalCommand)=>request<ProfessionalReceipt>("/professional-resources/commands",{method:"POST",body:JSON.stringify(input)}),
   getProfessionalReceipt:(key:string)=>request<ProfessionalReceipt|null>(`/professional-resources/commands/by-key/${encodeURIComponent(key)}`),

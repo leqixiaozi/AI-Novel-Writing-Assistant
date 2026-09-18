@@ -2,6 +2,7 @@ import {z} from "zod";
 import type {ManagedCredentialChoice} from "./modelRouting";
 import type {AiRuntimeRecovery} from "./aiRuntime";
 import type {VisualReceipt} from "./visualAssets";
+import type {PublicCharacterSource} from './publicCharacters';
 
 export const IMAGE_PROTOCOL="openai_images_b64_v1" as const;
 export const IMAGE_CAPABILITIES=["image_generation","image_base64"] as const;
@@ -15,6 +16,7 @@ export interface ImageConnectionCatalog {connections:ImageConnectionVersion[];cr
 export interface ImageConnectionSaveResult {connection:ImageConnectionVersion;configRevision:number;savedVersionId:string;repeated:boolean}
 export const imageGenerationInputSchema=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid(),connectionVersionId:z.string().uuid(),kind:z.enum(["cover","illustration"]),title:z.string().trim().min(1).max(240),description:z.string().max(4000),prompt:z.string().trim().min(1).max(4000),size:z.enum(IMAGE_SIZES)}).strict();
 export type ImageGenerationInput=z.infer<typeof imageGenerationInputSchema>;
+export interface PublicImageProtocolInput extends Omit<ImageGenerationInput,'bookId'> {portraitSource:PublicCharacterSource;}
 export const imageReplySchema=z.object({base64:z.string().min(4).max(13981016).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),mimeType:z.enum(["image/png","image/jpeg","image/webp"]),checksum:z.string().regex(/^[a-f0-9]{64}$/),byteSize:z.number().int().positive().max(10485760),inputTokens:z.number().int().nonnegative().nullable(),outputTokens:z.number().int().nonnegative().nullable(),durationMs:z.number().int().nonnegative()}).strict();
 export type ImageGenerationReply=z.infer<typeof imageReplySchema>;
 export interface ImageGenerationResult {requestId:string;bookId:string;requestKey:string;inputHash:string;input:ImageGenerationInput;status:"running"|"succeeded"|"cancelled";title:string;model:string;replySaved:boolean;replySource:"database"|"local_receipt"|null;canCompleteSaved:boolean;canEndExpired:boolean;asset:VisualReceipt|null;retainedResult:string;recovery:AiRuntimeRecovery|null}

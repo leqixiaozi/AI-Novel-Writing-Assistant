@@ -1,10 +1,10 @@
 import {createHash} from "node:crypto";
-import {imageReplySchema,type ImageConnectionVersion,type ImageGenerationInput,type ImageGenerationReply} from "../../../common/imageGeneration";
+import {imageReplySchema,type ImageConnectionVersion,type ImageGenerationInput,type PublicImageProtocolInput,type ImageGenerationReply} from "../../../common/imageGeneration";
 import {validateVisualBytes} from "../../database/visualAssets/files";
 import {NewDesignError} from "../../domain/errors";
 import {prepareImageContract} from "./contract";
 /** One explicit protocol request; no URL downloads, alternate models or automatic retries. */
-export async function executeImageProtocol(input:ImageGenerationInput,connection:ImageConnectionVersion,credential:string|null):Promise<ImageGenerationReply>{
+export async function executeImageProtocol(input:ImageGenerationInput|PublicImageProtocolInput,connection:ImageConnectionVersion,credential:string|null):Promise<ImageGenerationReply>{
  const start=Date.now(),controller=new AbortController(),timer=setTimeout(()=>controller.abort(),connection.timeoutMs);
  try{
   const endpoint=new URL(connection.endpoint);endpoint.pathname=`${endpoint.pathname.replace(/\/$/,"")}/images/generations`;
