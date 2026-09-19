@@ -6,7 +6,7 @@
 
 - 比较入口 `5273` 已按路径隔离前端：`/new-design/*` 使用新版 Vite，其他页面使用旧版 Vite，新版 API 仍走 `5301`。实际浏览器已打开新版书架和第四章工作台；无需旧版 API 才能显示新版页面。书架卡片继续按钮已恢复正常横排。
 - 新版模型设置区分 OpenAI 兼容、Anthropic Messages 兼容和本机 Ollama；OpenRouter 沿用 OpenAI 兼容接口。协议回复先转为统一内容和用量对象，再走同一创作校验。
-- 连接检查只确认模型目录和名称；MiniMax 的 OpenAI 兼容路线已在新版系统生成真实整章候选并记录用量。Anthropic 兼容路线已完成独立的极小结构化调用，统一内容和 token 用量回执正确；尚未经过正式任务账本。候选仍有连续性问题，尚未采用；OpenRouter 在线任务、整书完成和导出仍待验证。
+- 连接检查只确认模型目录和名称。《我卡世界的Bug》的章节专用路线现用 MiniMax 的 Anthropic 兼容地址 `https://api.minimax.cn/anthropic` 与现有专用凭据；模型目录探测和三次正式任务生成已成功入账，另一次重新生成因结构化回复无效而失败，原请求保留且未自动重试。候选仍有连续性问题，尚未采用；Anthropic 官方服务、OpenRouter 在线任务、整书完成和导出仍待验证。
 
 完整历史见[阶段记录](docs/releases.md)，全部批次实际通过、失败及后续范围见[统一施工记录](docs/legacy-page-replication-progress.md)。作者环境启用、真实模型质量、完整私有运行包和升级仍分别待验。
 
