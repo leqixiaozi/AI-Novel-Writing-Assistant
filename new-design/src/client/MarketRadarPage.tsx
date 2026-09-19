@@ -314,13 +314,12 @@ export default function MarketRadarPage() {
     finally{setBusy(false);}
   };
   return (
-    <ResearchShell active="radar">
-      <div className="nd-radar-page-head">
+    <ResearchShell active="radar" headerActions={
         <div className="nd-radar-platforms" aria-label="下次扫描的平台">
           {Object.entries(grouped).map(([platform,items])=><button key={platform} className={selectedPlatforms.has(items[0].platform)?"is-selected":""} aria-pressed={selectedPlatforms.has(items[0].platform)} type="button" disabled={busy||pending!==null||recoveryBlocked} onClick={()=>togglePlatform(items[0].platform)}>{platform}</button>)}
           <button className="nd-button nd-button-secondary" disabled={busy||pending!==null||recoveryBlocked||!sourceKeys.length||Boolean(scanRunning)} onClick={()=>void beginScan()} type="button">{scanRunning?`正在获取榜单 ${scan?.version.progress??0}%`:"重新扫榜"}</button>
         </div>
-      </div>
+      }>
       <nav className="nd-radar-tabs" aria-label="市场雷达内容">
         <button type="button" className={viewTab==="rankings"?"is-active":""} onClick={()=>setViewTab("rankings")}>当前榜单</button>
         <button type="button" className={viewTab==="analysis"?"is-active":""} disabled={!analysis} onClick={()=>setViewTab("analysis")}>AI 分析结果</button>
@@ -328,7 +327,7 @@ export default function MarketRadarPage() {
       </nav>
       <main className="nd-market-radar">
         {(pending||recoveryBlocked)&&<div className="nd-message" role="alert"><p>原分析请求需要核对，填写、旧报告与原凭证保留；不能新建或重跑分析。</p>{pending&&<button className="nd-button nd-button-secondary" type="button" disabled={busy} onClick={()=>void checkAnalysis()}>只读核对原分析请求</button>}<a href="/new-design/research/records">打开原研究记录核对来源</a></div>}
-        {viewTab==="rankings"&&<details className="nd-radar-source-panel">
+        {viewTab==="rankings"&&<div className="nd-radar-tools"><details className="nd-radar-source-panel">
           <summary>调整下次扫描的公开榜单 · 已选 {sourceKeys.length} 个</summary>
           <div className="nd-section-heading">
             <div>
@@ -381,8 +380,8 @@ export default function MarketRadarPage() {
               </fieldset>
             ))}
           </div>
-        </details>}
-        {viewTab==="rankings"&&<details className="nd-radar-history">
+        </details>
+        <details className="nd-radar-history">
           <summary>扫描历史 · {records.length} 次</summary>
           <div className="nd-section-heading">
             <div>
@@ -411,11 +410,8 @@ export default function MarketRadarPage() {
               </button>
             ))}
           </div>
-        </details>}
-        {viewTab==="rankings"&&!scan&&<section className="nd-radar-empty"><h3>还没有可展示的榜单数据</h3><p>选择平台后开始扫描公开榜单，再勾选作品进行 AI 分析。</p><button className="nd-button nd-button-primary" type="button" disabled={busy||pending!==null||recoveryBlocked||!sourceKeys.length} onClick={()=>void beginScan()}>开始扫描</button></section>}
-        {viewTab==="rankings"&&scan && (
-          <section className="nd-radar-results">
-            <div className="nd-radar-run-head">
+        </details>
+        {scan&&<div className={`nd-radar-run-head${scan.version.runStatus==="completed"?" is-complete":""}`}>
               <div>
                 <p className="nd-kicker">
                   扫描 v{scan.version.version}
@@ -428,11 +424,7 @@ export default function MarketRadarPage() {
                   )}{" "}
                   条
                 </h2>
-                <p>
-                  {scan.version.report ||
-                    scan.version.lastError ||
-                    "正在逐个读取所选公开榜单。"}
-                </p>
+                {scan.version.runStatus==="completed"?<details className="nd-radar-scan-details"><summary>扫描详情</summary><p>{scan.version.report||"本次扫描已完成。"}</p></details>:<p>{scan.version.report||scan.version.lastError||"正在逐个读取所选公开榜单。"}</p>}
               </div>
               <div>
                 {scanRunning && (
@@ -456,8 +448,12 @@ export default function MarketRadarPage() {
                   </button>
                 )}
               </div>
-            </div>
-            <progress max="100" value={scan.version.progress} />
+            </div>}
+        </div>}
+        {viewTab==="rankings"&&!scan&&<section className="nd-radar-empty"><h3>还没有可展示的榜单数据</h3><p>选择平台后开始扫描公开榜单，再勾选作品进行 AI 分析。</p><button className="nd-button nd-button-primary" type="button" disabled={busy||pending!==null||recoveryBlocked||!sourceKeys.length} onClick={()=>void beginScan()}>开始扫描</button></section>}
+        {viewTab==="rankings"&&scan && (
+          <section className="nd-radar-results">
+            {scan.version.runStatus!=="completed"&&<progress max="100" value={scan.version.progress} />}
             {scan.version.lastError&&scan.version.runStatus!=="failed"&&<p className="nd-message is-error">{scan.version.lastError}</p>}
             {scan.snapshots.some(snapshot=>snapshot.status==="failed")&&<p className="nd-message is-error">部分榜单无法读取，仍可使用成功采集的作品：{scan.snapshots.filter(snapshot=>snapshot.status==="failed").map(snapshot=>`${sources.find(source=>source.platform===snapshot.platform)?.platformLabel??snapshot.platform} · ${snapshot.listLabel}：${snapshot.error||"读取失败"}`).join("；")}</p>}
             {rankingSnapshots.length>0&&<div className="nd-radar-selection-bar"><p>{sameAnalysisInput?"本次报告使用当前勾选作品；调整选择后可新建分析。":`已选 ${selectedItems.length} 本作品，可在各榜单全选或逐本调整。`}</p><button className="nd-button nd-button-primary" disabled={busy||pending!==null||recoveryBlocked||Boolean(scanRunning)||Boolean(analysisRunning)||!selectedItems.length} onClick={()=>sameAnalysisInput?setViewTab("analysis"):void beginAnalysis(false)} type="button">{analysisRunning?`AI 分析中 ${analysis?.currentVersion.progress??0}%`:sameAnalysisInput?"查看 AI 分析":analysis?`按当前选择新建 AI 分析（${selectedItems.length} 本）`:`开始 AI 分析（${selectedItems.length} 本）`}</button></div>}
@@ -509,7 +505,7 @@ export default function MarketRadarPage() {
               </div>
               {analysis && (
                 <div className="nd-analysis-output">
-                  <div className="nd-radar-run-head">
+                  <div className={`nd-radar-run-head${analysis.currentVersion.runStatus==="completed"?" is-complete":""}`}>
                     <div>
                       <h3>{analysis.currentVersion.runStatus==="running"?"分析中":statusLabel[analysis.currentVersion.runStatus]}</h3>
                       <p>
@@ -528,10 +524,7 @@ export default function MarketRadarPage() {
                       </button>
                     )}
                   </div>
-                  <progress
-                    max="100"
-                    value={analysis.currentVersion.progress}
-                  />
+                  {analysis.currentVersion.runStatus!=="completed"&&<progress max="100" value={analysis.currentVersion.progress} />}
                   {analysis.currentVersion.runStatus === "completed" && (
                     <>
                       <div className="nd-radar-summary"><p>{(result?.differentiationOpportunities??[]).slice(0,2).join("；")||(result?.genre??[]).slice(0,4).join("、")||"本次分析没有形成稳定判断，请核对来源和模型输出。"}</p><small>分析使用 {Array.isArray(analysis.currentVersion.sourceScope.itemIds)?analysis.currentVersion.sourceScope.itemIds.length:0} 本已选作品；市场信号可分别选择、收藏与用于开书。</small></div>
