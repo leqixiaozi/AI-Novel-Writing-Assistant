@@ -64,6 +64,7 @@
 .nd-radar-results,.nd-radar-analysis,.nd-radar-saved { min-width: 0; background: var(--nd-paper); }
 .nd-radar-results { padding: 0; }
 .nd-radar-analysis,.nd-radar-saved { padding: .3rem 0 1rem; }
+.nd-radar-analysis { padding: .85rem 1rem 1.25rem; }
 .nd-radar-sources { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .7rem; }
 .nd-radar-sources::before { content: "新书榜和新晋作者榜作为主要证据，其他榜单用于辅助验证。"; grid-column: 1 / -1; color: var(--nd-muted); font-size: .76rem; }
 .nd-radar-sources fieldset { min-width: 0; border: 1px solid var(--nd-line); border-radius: calc(var(--radius) - .2rem); padding: .7rem; }
@@ -141,7 +142,7 @@
 .nd-signal-source { margin-top: .65rem; padding-top: .55rem; border-top: 1px solid var(--nd-line); }
 .nd-signal-source summary { color: var(--nd-accent); cursor: pointer; font-size: .75rem; }
 .nd-signal-source p { max-height: 12rem; overflow: auto; overflow-wrap: anywhere; color: var(--nd-muted); font-size: .72rem; line-height: 1.55; }
-.nd-radar-create-bar { position: sticky; bottom: .75rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 1.2rem; padding: .8rem 1rem; border: 1px solid var(--nd-line); border-radius: .7rem; background: var(--nd-paper); box-shadow: 0 6px 22px hsl(var(--foreground) / .1); }
+.nd-radar-create-bar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 1.2rem; padding: .8rem 1rem; border: 1px solid var(--nd-line); border-radius: .7rem; background: var(--nd-soft); }
 .nd-radar-create-bar p { margin: .15rem 0 0; color: var(--nd-muted); font-size: .72rem; }
 .nd-radar-create-bar>div:last-child { display: flex; gap: .55rem; }
 .nd-radar-create-bar select { min-height: 2.3rem; padding: .3rem .5rem; border: 1px solid var(--nd-line); border-radius: .45rem; background: var(--nd-paper); }
