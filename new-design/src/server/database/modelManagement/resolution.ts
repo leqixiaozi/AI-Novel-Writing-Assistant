@@ -16,7 +16,8 @@ export async function resolveManagedTaskRoute(taskType: ModelTaskKey, context?: 
     const sourceLayers: ManagedTaskRoute["sourceLayers"] = [];
     for (const layer of layers) {
       const rows = await readFallbacks(client, layer.id);
-      if (unsupportedIssue(layer, rows)) throw new NewDesignError("生效模型版本包含不支持的供应商或高级参数。请打开模型设置核对并明确确认替换后重试。", 422);
+      const issue=unsupportedIssue(layer,rows);
+      if (issue) throw new NewDesignError(`生效模型配置不可用：${issue}请到模型设置核对并明确确认保存启用后重试。`, 422);
       if (layer.provider) primary.provider = layer.provider;
       if (layer.model) primary.model = layer.model;
       if (layer.parameters?.baseUrl !== undefined) primary.endpoint = String(layer.parameters.baseUrl);

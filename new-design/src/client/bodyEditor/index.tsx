@@ -1,6 +1,7 @@
 import {forwardRef,useEffect,useImperativeHandle,useRef,useState} from 'react';
-import {EditorContent,useEditor} from '@tiptap/react';
-import {BubbleMenu} from '@tiptap/react/menus';
+import {createPortal} from 'react-dom';
+import {Editor} from '@tiptap/core';
+import {BubbleMenuPlugin} from '@tiptap/extension-bubble-menu';
 import StarterKit from '@tiptap/starter-kit';
 import {Fragment,Slice} from '@tiptap/pm/model';
 import {bodyDocument,bodyText,bodySelection,selectionStillValid,type BodyNode,type BodySelectionSnapshot} from './model';
@@ -12,15 +13,31 @@ interface Props {value:string;onChange:(value:string)=>void;disabled?:boolean;ac
 const BodyEditor=forwardRef<BodyEditorHandle,Props>(function BodyEditor({value,onChange,disabled=false,actions=[]},ref){
   const revision=useRef(0),lastSelection=useRef<{from:number;to:number;revision:number}|null>(null),onChangeRef=useRef(onChange);onChangeRef.current=onChange;
   const [dialog,setDialog]=useState<BodySelectionSnapshot|null>(null),[replacement,setReplacement]=useState(''),[failure,setFailure]=useState(''),[,render]=useState(0);const textarea=useRef<HTMLTextAreaElement>(null);
-  const editor=useEditor({
-    extensions:[StarterKit.configure({bold:false,italic:false,strike:false,underline:false,code:false,codeBlock:false,heading:false,blockquote:false,bulletList:false,orderedList:false,listItem:false,listKeymap:false,horizontalRule:false,link:false,trailingNode:false})],
-    content:bodyDocument(value),editable:!disabled,immediatelyRender:false,shouldRerenderOnTransaction:false,
-    editorProps:{attributes:{role:'textbox','aria-label':'章节正文','aria-multiline':'true',spellcheck:'false'}},
-    onUpdate:({editor:current})=>{revision.current++;lastSelection.current=null;try{onChangeRef.current(bodyText(current.getJSON() as BodyNode));setFailure('');}catch(error){setFailure(error instanceof Error?error.message:'正文内容无法转换，未保存。');}render(version=>version+1);},
-    // Dragging over a long chapter stores positions only; freeze the document on action.
-    onSelectionUpdate:({editor:current})=>{if(current.view.composing)return;const {from,to}=current.state.selection;lastSelection.current=from<to?{from,to,revision:revision.current}:null;},
-  });
-  useEffect(()=>{if(!editor)return;editor.setEditable(!disabled);},[editor,disabled]);
+  const host=useRef<HTMLDivElement>(null),dialogRef=useRef(dialog),disabledRef=useRef(disabled);
+  dialogRef.current=dialog;disabledRef.current=disabled;
+  const [bubbleElement]=useState(()=>document.createElement('div'));
+  const [editor,setEditor]=useState<Editor|null>(null);
+  useEffect(()=>{
+    if(!host.current)return;
+    const current=new Editor({
+      element:host.current,
+      extensions:[StarterKit.configure({bold:false,italic:false,strike:false,underline:false,code:false,codeBlock:false,heading:false,blockquote:false,bulletList:false,orderedList:false,listItem:false,listKeymap:false,horizontalRule:false,link:false,trailingNode:false})],
+      content:bodyDocument(value),editable:!disabledRef.current,
+      editorProps:{attributes:{role:'textbox','aria-label':'章节正文','aria-multiline':'true',spellcheck:'false'}},
+      onUpdate:({editor:updated})=>{revision.current++;lastSelection.current=null;try{onChangeRef.current(bodyText(updated.getJSON() as BodyNode));setFailure('');}catch(error){setFailure(error instanceof Error?error.message:'正文内容无法转换，未保存。');}render(version=>version+1);},
+      // Dragging over a long chapter stores positions only; freeze the document on action.
+      onSelectionUpdate:({editor:updated})=>{if(updated.view.composing)return;const {from,to}=updated.state.selection;lastSelection.current=from<to?{from,to,revision:revision.current}:null;},
+    });
+    bubbleElement.style.visibility='hidden';
+    bubbleElement.className='nd-body-bubble';
+    bubbleElement.setAttribute('role','toolbar');
+    bubbleElement.setAttribute('aria-label','选中文字');
+    current.registerPlugin(BubbleMenuPlugin({pluginKey:'bodyBubbleMenu',editor:current,element:bubbleElement,shouldShow:({editor:active,from,to})=>!disabledRef.current&&!dialogRef.current&&!active.view.composing&&from<to,options:{placement:'top',offset:8}}));
+    setEditor(current);
+    return()=>{current.destroy();bubbleElement.remove();};
+  },[]);
+  useEffect(()=>{if(!editor)return;editor.setEditable(!disabled,false);},[editor,disabled]);
+  useEffect(()=>{if(editor&&(disabled||dialog))editor.view.dispatch(editor.state.tr.setMeta('bodyBubbleMenu','hide'));},[editor,disabled,dialog]);
   useEffect(()=>{if(!editor||bodyText(editor.getJSON() as BodyNode)===value)return;
     revision.current++;lastSelection.current=null;editor.commands.setContent(bodyDocument(value),{emitUpdate:false});
     if(dialog)setFailure('正文来源已变化。保留修改输入；请关闭对话框，重新选择要修改的范围。');
@@ -42,8 +59,8 @@ const BodyEditor=forwardRef<BodyEditorHandle,Props>(function BodyEditor({value,o
   }
   return <div className='nd-body-editor'>
     <div className='nd-body-toolbar' role='toolbar' aria-label='正文编辑'><button type='button' disabled={!editor||disabled||!editor.can().undo()} onClick={()=>editor?.chain().focus().undo().run()}>撤销</button><button type='button' disabled={!editor||disabled||!editor.can().redo()} onClick={()=>editor?.chain().focus().redo().run()}>重做</button><button type='button' disabled={!editor||disabled} onClick={()=>editor?.chain().focus().selectAll().run()}>选择全文</button><button type='button' disabled={!editor||disabled} onMouseDown={event=>event.preventDefault()} onClick={open}>修改所选文字</button></div>
-    <EditorContent editor={editor}/>
-    {editor&&!disabled&&<BubbleMenu editor={editor} shouldShow={({editor:current,from,to})=>!dialog&&!current.view.composing&&from<to} options={{placement:'top',offset:8}}><div className='nd-body-bubble' role='toolbar' aria-label='选中文字'><button type='button' onMouseDown={event=>event.preventDefault()} onClick={open}>修改选区</button>{actions.map(action=><button type='button' key={action.id} onMouseDown={event=>event.preventDefault()} onClick={()=>{const selected=snapshot();if(selected)action.onRun(selected);}}>{action.label}</button>)}</div></BubbleMenu>}
+    <div ref={host}/>
+    {createPortal(<><button type='button' onMouseDown={event=>event.preventDefault()} onClick={open}>修改选区</button>{actions.map(action=><button type='button' key={action.id} onMouseDown={event=>event.preventDefault()} onClick={()=>{const selected=snapshot();if(selected)action.onRun(selected);}}>{action.label}</button>)}</>,bubbleElement)}
     {failure&&!dialog&&<p role='alert' className='nd-message is-error'>{failure}</p>}
     {dialog&&<div className='nd-body-modal' role='dialog' aria-modal='true' aria-labelledby='body-selection-title' onKeyDown={event=>{
       if(event.key==='Escape'){event.preventDefault();close();}

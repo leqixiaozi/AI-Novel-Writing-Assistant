@@ -25,7 +25,7 @@ export async function readFallbacks(client: PoolClient, versionId: string): Prom
 export async function readSummary(client: PoolClient, config: DbRow): Promise<ManagedRouteSummary> {
   const current = assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.current_version_id, config.id])).rows[0], "路由当前版本不存在。"), currentFallbacks = await readFallbacks(client, current.id);
   const published = config.published_version_id ? assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.published_version_id, config.id])).rows[0], "路由生效版本不存在。") : null;
-  const issue = unsupportedIssue(current, currentFallbacks);
+  const issue = unsupportedIssue({...current,scope:config.scope}, currentFallbacks);
   return { id: config.id, scope: config.scope, taskType: config.scope === "task" ? config.task_key : null, name: config.name, revision: Number(config.revision), current: versionFromRows(current, currentFallbacks), published: published ? versionFromRows(published, await readFallbacks(client, published.id)) : null, editable: !issue, configurationIssue: issue };
 }
 const credentialVariable = (row: DbRow): string | null => row.status === "active" && providerSchema.safeParse(row.provider).success && /^env:\/\/NEW_DESIGN_AI_[A-Z0-9_]+$/.test(String(row.secret_locator)) ? String(row.secret_locator).slice(6) : null;

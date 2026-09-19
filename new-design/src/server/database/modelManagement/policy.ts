@@ -27,10 +27,19 @@ export const saveSchema = settingsSchema.safeExtend({
 export type DbRow = Record<string, any>;
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 export function unsupportedIssue(version: DbRow, fallbacks: DbRow[]): string | null {
+  const parameters=record(version.parameters),endpoint=parameters.baseUrl;
+  if ((version.scope === "system_default" || version.provider && endpoint !== undefined) && !String(endpoint ?? "").trim()) {
+    const other=[] as string[];
+    if (version.provider && !["ollama","openai-compatible"].includes(version.provider)) other.push("供应商");
+    if (Object.hasOwn(parameters,"temperature")) other.push("温度参数");
+    if (Object.keys(parameters).some(key=>!["baseUrl","temperature"].includes(key))) other.push("其他高级参数");
+    if ((version.required_capabilities?.length ?? 0)>0) other.push("能力要求");
+    return `此版本未填写服务地址${other.length?`，且包含暂不支持的${other.join('、')}`:''}；补全并核对前不能使用，原版本将保留。`;
+  }
   if (version.provider && !["ollama", "openai-compatible"].includes(version.provider)) return "此版本使用未支持的供应商，替换前请明确确认，旧版本将保留。";
   if (Object.keys(record(version.parameters)).some(key => key !== "baseUrl") || Object.keys(record(version.budget_policy)).some(key => !["maxTokens", "maxOutputTokens"].includes(key)) || Object.keys(record(version.retry_policy)).some(key => !["maxRetries", "retryDelayMs"].includes(key)) || (version.required_capabilities?.length ?? 0) > 0) return "此版本包含高级参数，替换前请明确确认，旧版本将保留。";
   if (fallbacks.some(item => !["ollama", "openai-compatible"].includes(item.provider) || Object.keys(record(item.parameters)).some(key => key !== "baseUrl"))) return "备用模型包含未支持的供应商或高级参数，替换前请明确确认。";
-  const parameters=record(version.parameters),budget=record(version.budget_policy),retry=record(version.retry_policy),policy=settingsSchema.shape.policy.shape;
+  const budget=record(version.budget_policy),retry=record(version.retry_policy),policy=settingsSchema.shape.policy.shape;
   if (parameters.baseUrl!==undefined&&!endpointSchema.safeParse(parameters.baseUrl).success || version.model!==null&&version.model!==undefined&&!connectionSchema.shape.model.safeParse(version.model).success || version.timeout_ms!==null&&version.timeout_ms!==undefined&&!policy.timeoutMs.safeParse(Number(version.timeout_ms)).success || budget.maxOutputTokens!==undefined&&!policy.maxOutputTokens.safeParse(budget.maxOutputTokens).success || budget.maxTokens!==undefined&&!policy.maxTotalTokens.safeParse(budget.maxTokens).success || retry.maxRetries!==undefined&&!policy.maxRetries.safeParse(retry.maxRetries).success || retry.retryDelayMs!==undefined&&!policy.retryDelayMs.safeParse(retry.retryDelayMs).success || budget.maxOutputTokens!==undefined&&budget.maxTokens!==undefined&&Number(budget.maxOutputTokens)>Number(budget.maxTokens) || fallbacks.length>4 || fallbacks.some(item=>!connectionSchema.safeParse(connectionFromRow(item)).success)) return "此版本的服务地址、预算或重试范围不受支持，请明确确认替换，旧版本将保留。";
   return null;
 }

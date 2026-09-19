@@ -6,7 +6,9 @@
 
 用户动作：选择章节的任意词句／单段／跨段文字，通过自定义对话框仅修改目标范围，再保存并重开同一正文。必要缺口是现有正文编辑缺少可扩展浮动工具栏与稳定选区快照。
 
-按用户确认方向采用 Tiptap 开源核心与 BubbleMenu。2026-09-16 已只读核对 npm 官方元信息：`@tiptap/core/react/pm/starter-kit` 同版 3.31.3、MIT、React 19 在 peer 范围内。官方 [Simple Editor](https://tiptap.dev/docs/ui-components/templates/simple-editor) 页面声明模板及所含组件为 MIT；[BubbleMenu](https://tiptap.dev/docs/editor/extensions/functionality/bubble-menu) 提供 React `@tiptap/react/menus` 入口。实现不复制官方模板／样式、不执行 CLI 生成器、不引入商业包；保持现有主题和储存合同。源码见 `src/client/bodyEditor`，依赖锁定与执行验收分开记录。
+按用户确认方向采用 Tiptap 开源核心与 BubbleMenu。2026-09-16 已只读核对 npm 官方元信息：`@tiptap/core/pm/starter-kit/extension-bubble-menu` 同版 3.31.3、MIT。官方 [Simple Editor](https://tiptap.dev/docs/ui-components/templates/simple-editor) 页面声明模板及所含组件为 MIT；[BubbleMenu](https://tiptap.dev/docs/editor/extensions/functionality/bubble-menu) 提供独立扩展。实现不复制官方模板／样式、不执行 CLI 生成器、不引入商业包；保持现有主题和储存合同。源码见 `src/client/bodyEditor`。
+
+同源对比工作台把新版页面挂进旧版 React 外壳时，两套依赖安装中的 React 小版本可能不同。正文编辑器因此直接用 `@tiptap/core` 挂载到新版容器，以宿主 React 渲染浮动按钮；不从第二份 React 调用 Hook。卸载时销毁编辑器及浮动菜单插件；切换可编辑状态不触发正文更新，外部换稿只按明确的 `value` 同步。正文仍保存为原纯文本候选，不另建 HTML 或 JSON 正本。
 
 依赖新设计独立前端入口、独立包依赖和既有正文草稿保存／修订合同。排 P2 基础之后、P3 全书编排之前，不打断当前提示词管理。不采购商业 AI／修订／协作、云服务，不扩大 P4 高级版本或 P5 权限。
 
