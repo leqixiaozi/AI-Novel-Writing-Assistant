@@ -105,7 +105,7 @@ import { archiveMaterialGroup, bulkChangeGroupMemberships, bulkChangeTagMembersh
 import { addContextBindingVersion, adoptContextBindingVersion, archiveContextBinding, createContextAssemblyPreview, createContextBinding, finalizeContextManifest, getContextAssemblyPreview, getContextBinding, getContextImpacts, getFinalizedContextManifest, listContextAssemblyPreviews, listContextBindings, listContextSnapshots, listContextSnapshotSources, resolveContextBindings } from "../database/contextManagement";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
-import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
+import { adoptMarketSignal, getMarketScan, listSavedMarketSignals, requestMarketScanCancellation } from "../database/marketStore";
 import { applyCandidateDecisions, updateResearchCandidate } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, listChapterDocuments } from "../database/chapterBodyStore";
@@ -642,6 +642,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/research/runs/:id/cancel",asyncRoute(async(req,res)=>{await requestMarketScanCancellation(String(req.params.id));success(res,{cancelRequested:true});}));
   router.post("/research/market/analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await startMarketAnalysis(dependencies.ai,body(marketAnalysisInputSchema,req)),202);}));
   router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);const input=body(z.object({requestKey:z.string().uuid().optional(),expectedVersionId:z.string().uuid().optional()}).strict(),req);success(res,await retryMarketAnalysis(dependencies.ai,z.string().uuid().parse(req.params.id),input),202);}));
+  router.get("/research/market/signals/saved",asyncRoute(async(_req,res)=>success(res,await listSavedMarketSignals())));
   router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
   router.get("/research/book-analysis/plan",asyncRoute(async(req,res)=>success(res,(await buildBookAnalysisPlan(bookAnalysisPurposeSchema.parse(req.query.purpose),bookAnalysisPresetSchema.parse(req.query.preset))).plan)));
   router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));

@@ -833,6 +833,7 @@ export interface MarketRankingItem {id:string;snapshotId:string;platform:MarketP
 export interface MarketSourceSnapshot {id:string;researchVersionId:string;platform:MarketPlatform;listKey:string;listLabel:string;sourceUrl:string;status:"succeeded"|"failed"|"stale";error:string;capturedAt:string;items:MarketRankingItem[];}
 export interface MarketScanDetail {record:ResearchRecordDetail;version:ResearchRecordVersion;isCurrent:boolean;snapshots:MarketSourceSnapshot[];}
 export interface MarketSignalDraft {title:string;signalType:"genre"|"protagonist"|"advantage"|"opening"|"relationship"|"title"|"payoff"|"crowding"|"differentiation";summary:string;heat:"low"|"medium"|"high";crowding:"low"|"medium"|"high";trend:"rising"|"stable"|"falling"|"uncertain";platforms:MarketPlatform[];audience:string;differentiation:string;sourceRefs:string;observedAt:string;effectiveUntil:string;}
+export interface MarketSavedSignal {candidateId:string;researchRecordId:string;researchVersionId:string;cardId:string;cardRevision:number;cardStatus:"active"|"archived";title:string;values:Record<string,unknown>;savedAt:string;}
 export interface MarketAnalysisResult {genre:string[];protagonistIdentities:string[];coreAdvantages:string[];openingPatterns:string[];relationshipHooks:string[];titlePatterns:string[];readerPayoffs:string[];crowdedTropes:string[];differentiationOpportunities:string[];evidenceBoundary:string;signals:MarketSignalDraft[];}
 export const RESEARCH_RESOURCE_SPACE_ID="70000000-0000-4000-8000-000000000001";
 
