@@ -36,6 +36,8 @@
 .nd-shelf-book progress::-moz-progress-bar{background:var(--nd-accent)}
 .nd-shelf-actions{display:flex;align-items:center;gap:4px;padding-top:12px;margin-top:auto}
 .nd-shelf-actions .nd-shelf-continue{flex:1;padding-inline:8px;min-width:0;overflow-wrap:anywhere;white-space:normal;text-align:center}
+.nd-shelf-book.is-shelf .nd-shelf-actions{flex-wrap:wrap;justify-content:flex-end}
+.nd-shelf-book.is-shelf .nd-shelf-continue{flex:1 0 100%;white-space:nowrap}
 .nd-shelf-actions .nd-shelf-icon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:32px;height:32px;padding:0;color:var(--nd-muted);background:transparent;border:0;border-radius:6px;cursor:pointer}
 .nd-shelf-icon:hover:not(:disabled){color:var(--nd-accent);background:var(--nd-soft)}
 .nd-shelf-icon:disabled{opacity:.45;cursor:not-allowed}

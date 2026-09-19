@@ -2,6 +2,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { upstream } from "./routing.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const legacyRoot = path.resolve(packageRoot, "../client");
@@ -11,14 +12,6 @@ const ipv6Gateway = http.createServer();
 const sockets = new Set();
 for (const event of ["connection", "request", "upgrade"]) {
   ipv6Gateway.on(event, (...args) => gateway.emit(event, ...args));
-}
-
-function upstream(rawUrl) {
-  const pathname = new URL(rawUrl, "http://localhost").pathname;
-  const under = prefix => pathname === prefix || pathname.startsWith(`${prefix}/`);
-  if (under("/api/new-design")) return 5301;
-  if (under("/api")) return 3000;
-  return 5275;
 }
 
 gateway.on("connection", socket => {
@@ -71,6 +64,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void st
 try {
   for (const [root, kind] of [
     [legacyRoot, "legacy"],
+    [packageRoot, "new-design"],
   ]) {
     const frontend = spawn(process.execPath, [path.join(packageRoot, "scripts/comparison/frontend.mjs"), kind], {
       cwd: root, windowsHide: true, stdio: ["ignore", "inherit", "inherit", "ipc"],
@@ -92,7 +86,7 @@ try {
     ipv6Gateway.once("error", reject);
     ipv6Gateway.listen({ port: 5273, host: "::1", ipv6Only: true }, resolve);
   });
-  console.log("Integrated menu entry ready: http://localhost:5273 (existing shell, legacy and new-design menus)");
+  console.log("Comparison entry ready: http://localhost:5273 (separate legacy and new-design frontends)");
 } catch (error) {
   console.error("Comparison entry failed:", error.message);
   await stop();
