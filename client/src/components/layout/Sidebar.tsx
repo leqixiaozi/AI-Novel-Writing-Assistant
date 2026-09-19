@@ -345,7 +345,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         isActive
                           ? "bg-accent/90 font-semibold text-accent-foreground"
                           : "text-foreground hover:bg-accent hover:text-accent-foreground",
-                        isNovelEntry && !collapsed && (isActive ? "ring-1 ring-primary/20" : "bg-primary/5 hover:bg-primary/10"),
+                        isNovelEntry && isActive && !collapsed && "ring-1 ring-primary/20",
                       )}
                     >
                       <span
@@ -360,12 +360,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         className={cn(
                           "h-[18px] w-[18px] shrink-0",
                           collapsed ? "mx-auto" : "mr-3",
-                          isNovelEntry && "text-primary",
+                          isNovelEntry && isActive && "text-primary",
                         )}
                       />
 
                       {!collapsed ? (
-                        <span className={cn("truncate", isNovelEntry && "font-semibold")}>
+                        <span className={cn("truncate", isNovelEntry && isActive && "font-semibold")}>
                           {item.label}
                         </span>
                       ) : null}
