@@ -60,6 +60,7 @@ a { color: hsl(var(--primary)); }
 .nd-independent-sidebar a, .nd-independent-section { min-height: 44px; display: flex; align-items: center; padding: .6rem .8rem; border-radius: var(--radius); text-decoration: none; font-size: .85rem; color: hsl(var(--foreground)); }
 .nd-independent-sidebar a:hover { background: hsl(var(--muted)); }
 .nd-independent-sidebar a[aria-current="page"] { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
+.nd-independent-sidebar a.nd-independent-version { margin-top: .75rem; color: hsl(var(--muted-foreground)); }
 .nd-independent-section { width: 100%; justify-content: space-between; border: 0; background: transparent; text-align: left; color: hsl(var(--muted-foreground)); }
 .nd-independent-advanced { padding-left: .75rem; }
 .nd-independent-content { padding: 1rem; min-width: 0; }

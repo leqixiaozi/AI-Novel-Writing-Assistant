@@ -20,6 +20,7 @@ import LiveExecutionDialog from "@/components/liveExecution/LiveExecutionDialog"
 import { Button } from "@/components/ui/button";
 import { VisualAssetLibraryDialog } from "@/components/visualAssets";
 import { cn } from "@/lib/utils";
+import { APP_RUNTIME } from "@/lib/constants";
 import {
   getMobileMoreNavGroups,
   getMobileNavGroupForPath,
@@ -137,7 +138,7 @@ export default function MobileSiteShell({ children }: MobileSiteShellProps) {
               </Button>
             </div>
             <div className="space-y-4">
-              {moreNavGroups.map((group) => {
+              {moreNavGroups.filter((group) => APP_RUNTIME === "desktop" || !group.key.startsWith("new-design")).map((group) => {
                 const expanded = !group.collapsible || Boolean(expandedMoreGroups[group.key]);
                 return <section key={group.key} className="space-y-2">
                   {group.collapsible ? <button type="button" aria-expanded={expanded} aria-controls={`mobile-nav-${group.key}`} className={cn("flex w-full items-center justify-between rounded-xl px-1 py-1 text-xs uppercase tracking-wide text-muted-foreground", advancedRouteActive && "text-primary")} onClick={() => setExpandedMoreGroups((current) => ({ ...current, [group.key]: !expanded }))}><span>{group.title}</span><ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")}/></button> : <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</div>}
@@ -159,6 +160,7 @@ export default function MobileSiteShell({ children }: MobileSiteShellProps) {
                   </div> : null}
                 </section>
               })}
+              {APP_RUNTIME !== "desktop" ? <a href="/new-design/books" className="flex min-h-11 items-center justify-between rounded-2xl border bg-muted/20 px-3 py-3 text-sm">切换到新版<ChevronRight className="h-4 w-4 text-muted-foreground" /></a> : null}
             </div>
           </div>
         </div>
