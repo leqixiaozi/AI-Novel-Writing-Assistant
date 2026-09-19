@@ -33,6 +33,7 @@ desktop/build/
 desktop/runtime-migration-smoke/
 server/prisma-diff-migrations-to-schema.sql
 new-design/.data/
+new-design/data/
 new-design/.logs/
 
 # AI tool artifacts
