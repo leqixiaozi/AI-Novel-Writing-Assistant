@@ -5,7 +5,7 @@ import type { TechnicalFallbackCategory } from "../../../common/contracts";
 import { NewDesignError } from "../../domain/errors";
 
 export const taskSchema = z.enum(MODEL_TASKS.map(item => item.key) as [ModelTaskKey, ...ModelTaskKey[]]);
-export const providerSchema = z.enum(["ollama", "openai-compatible"]);
+export const providerSchema = z.enum(["ollama", "openai-compatible", "anthropic-compatible"]);
 const endpointSchema = z.string().trim().min(1).max(1000).superRefine((value, ctx) => {
   try { const url = new URL(value); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) throw new Error(); }
   catch { ctx.addIssue({ code: "custom", message: "服务地址仅支持无凭据、查询参数或片段的 HTTP/HTTPS 地址。" }); }
@@ -30,15 +30,15 @@ export function unsupportedIssue(version: DbRow, fallbacks: DbRow[]): string | n
   const parameters=record(version.parameters),endpoint=parameters.baseUrl;
   if ((version.scope === "system_default" || version.provider && endpoint !== undefined) && !String(endpoint ?? "").trim()) {
     const other=[] as string[];
-    if (version.provider && !["ollama","openai-compatible"].includes(version.provider)) other.push("供应商");
+    if (version.provider && !providerSchema.safeParse(version.provider).success) other.push("供应商");
     if (Object.hasOwn(parameters,"temperature")) other.push("温度参数");
     if (Object.keys(parameters).some(key=>!["baseUrl","temperature"].includes(key))) other.push("其他高级参数");
     if ((version.required_capabilities?.length ?? 0)>0) other.push("能力要求");
     return `此版本未填写服务地址${other.length?`，且包含暂不支持的${other.join('、')}`:''}；补全并核对前不能使用，原版本将保留。`;
   }
-  if (version.provider && !["ollama", "openai-compatible"].includes(version.provider)) return "此版本使用未支持的供应商，替换前请明确确认，旧版本将保留。";
+  if (version.provider && !providerSchema.safeParse(version.provider).success) return "此版本使用未支持的供应商，替换前请明确确认，旧版本将保留。";
   if (Object.keys(record(version.parameters)).some(key => key !== "baseUrl") || Object.keys(record(version.budget_policy)).some(key => !["maxTokens", "maxOutputTokens"].includes(key)) || Object.keys(record(version.retry_policy)).some(key => !["maxRetries", "retryDelayMs"].includes(key)) || (version.required_capabilities?.length ?? 0) > 0) return "此版本包含高级参数，替换前请明确确认，旧版本将保留。";
-  if (fallbacks.some(item => !["ollama", "openai-compatible"].includes(item.provider) || Object.keys(record(item.parameters)).some(key => key !== "baseUrl"))) return "备用模型包含未支持的供应商或高级参数，替换前请明确确认。";
+  if (fallbacks.some(item => !providerSchema.safeParse(item.provider).success || Object.keys(record(item.parameters)).some(key => key !== "baseUrl"))) return "备用模型包含未支持的供应商或高级参数，替换前请明确确认。";
   const budget=record(version.budget_policy),retry=record(version.retry_policy),policy=settingsSchema.shape.policy.shape;
   if (parameters.baseUrl!==undefined&&!endpointSchema.safeParse(parameters.baseUrl).success || version.model!==null&&version.model!==undefined&&!connectionSchema.shape.model.safeParse(version.model).success || version.timeout_ms!==null&&version.timeout_ms!==undefined&&!policy.timeoutMs.safeParse(Number(version.timeout_ms)).success || budget.maxOutputTokens!==undefined&&!policy.maxOutputTokens.safeParse(budget.maxOutputTokens).success || budget.maxTokens!==undefined&&!policy.maxTotalTokens.safeParse(budget.maxTokens).success || retry.maxRetries!==undefined&&!policy.maxRetries.safeParse(retry.maxRetries).success || retry.retryDelayMs!==undefined&&!policy.retryDelayMs.safeParse(retry.retryDelayMs).success || budget.maxOutputTokens!==undefined&&budget.maxTokens!==undefined&&Number(budget.maxOutputTokens)>Number(budget.maxTokens) || fallbacks.length>4 || fallbacks.some(item=>!connectionSchema.safeParse(connectionFromRow(item)).success)) return "此版本的服务地址、预算或重试范围不受支持，请明确确认替换，旧版本将保留。";
   return null;

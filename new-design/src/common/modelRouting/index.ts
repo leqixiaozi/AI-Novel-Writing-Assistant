@@ -12,12 +12,12 @@ export const MODEL_TASKS=[
   {key:"character_dialogue",label:"人物对话模拟"},
 ] as const;
 export type ModelTaskKey=(typeof MODEL_TASKS)[number]["key"];
-export type ManagedProvider="ollama"|"openai-compatible";
+export type ManagedProvider="ollama"|"openai-compatible"|"anthropic-compatible";
 export interface ManagedModelConnection {provider:ManagedProvider;endpoint:string;model:string;credentialId:string|null;}
 /** Dedicated embedding versions are original model-route versions, never a text default route. */
-export interface ManagedEmbeddingConnectionVersion extends ManagedModelConnection {id:string;connectionVersionId:string;configId:string;configRevision:number;version:number;label:string;connectionHash:string;timeoutMs:number;maxRetries:number;retryDelayMs:number;}
+export interface ManagedEmbeddingConnectionVersion extends Omit<ManagedModelConnection,"provider"> {provider:"ollama"|"openai-compatible";id:string;connectionVersionId:string;configId:string;configRevision:number;version:number;label:string;connectionHash:string;timeoutMs:number;maxRetries:number;retryDelayMs:number;}
 export interface ManagedEmbeddingCatalog {connections:ManagedEmbeddingConnectionVersion[];credentials:ManagedCredentialChoice[];environmentReferences:Array<{name:string;available:boolean}>;configurationIssue:string|null;}
-export interface SaveManagedEmbeddingConnectionInput extends ManagedModelConnection {timeoutMs:number;maxRetries:number;retryDelayMs:number;expectedConfigId:string|null;expectedRevision:number|null;idempotencyKey:string;}
+export interface SaveManagedEmbeddingConnectionInput extends Omit<ManagedModelConnection,"provider"> {provider:"ollama"|"openai-compatible";timeoutMs:number;maxRetries:number;retryDelayMs:number;expectedConfigId:string|null;expectedRevision:number|null;idempotencyKey:string;}
 export interface ManagedEmbeddingSaveResult {connection:ManagedEmbeddingConnectionVersion;configRevision:number;savedVersionId:string;savedVersion:number;active:boolean;repeated:boolean;}
 export interface ManagedModelFallback extends ManagedModelConnection {failureCategories:TechnicalFallbackCategory[];}
 export interface ManagedModelPolicy {maxOutputTokens:number;maxTotalTokens:number;timeoutMs:number;maxRetries:number;retryDelayMs:number;}

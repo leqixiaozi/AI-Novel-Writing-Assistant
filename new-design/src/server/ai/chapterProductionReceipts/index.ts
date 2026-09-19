@@ -9,7 +9,7 @@ import {NewDesignError} from "../../domain/errors";
 
 const digest=z.string().regex(/^[a-f0-9]{64}$/),uuid=z.string().uuid().transform(value=>value.toLowerCase());
 const counter=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const provider=z.enum(["ollama","openai-compatible"]);
+const provider=z.enum(["ollama","openai-compatible","anthropic-compatible"]);
 const model=z.string().min(1).max(300).refine(value=>!/[\u0000-\u001f\u007f]/.test(value)&&!value.includes("://"));
 const outputSchema=z.object({content:z.string().min(1).max(2000000).refine(value=>Boolean(value.trim())),decision:z.enum(["continue","continue_with_warning","pause_for_manual","stop_for_replan"]),warnings:z.array(z.string().min(1).max(2000)).max(100),reason:z.string().max(4000)}).strict();
 const attemptSchema=z.object({provider,model,kind:z.enum(["primary","fallback"]),status:z.enum(["succeeded","failed"]),category:z.enum(["timeout","rate_limit","authentication","provider_unavailable","transport","context_limit","structure_parse","content_unsatisfactory","cancelled","safety","data_integrity","unknown"]).nullable(),reservedTokens:counter,usedTokens:counter.nullable(),durationMs:counter,requestSent:z.boolean(),responseReceived:z.boolean()}).strict();

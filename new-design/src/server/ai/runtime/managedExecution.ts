@@ -19,7 +19,7 @@ export interface ExecutionDependencies {
 interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;requestSent:boolean;responseReceived:boolean;}
 
 export async function configurationForConnection(connection:ManagedModelConnection,policy=DEFAULT_MODEL_POLICY,dependencies:ExecutionDependencies={},allowEmptyModel=false):Promise<ModelConfiguration> {
-  if(!connection||typeof connection.endpoint!=="string"||typeof connection.model!=="string"||!["ollama","openai-compatible"].includes(connection.provider)||!(connection.credentialId===null||typeof connection.credentialId==="string"))throw new AiExecutionError("检查模型连接设置","请选择服务类型并填写地址；指定创作模型后才能生成。",422);
+  if(!connection||typeof connection.endpoint!=="string"||typeof connection.model!=="string"||!["ollama","openai-compatible","anthropic-compatible"].includes(connection.provider)||!(connection.credentialId===null||typeof connection.credentialId==="string"))throw new AiExecutionError("检查模型连接设置","请选择服务类型并填写地址；指定创作模型后才能生成。",422);
   let apiKey="";
   if(connection.credentialId){
     let variable:string|null;

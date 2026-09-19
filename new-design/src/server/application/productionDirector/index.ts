@@ -5,15 +5,22 @@ import {prepareChapterProduction,prepareSelectedChapterProduction,readChapterPro
 import {getChapterDocument,createChapterDocument} from "../../database/chapterBodyStore";
 import {getChapterWritingWorkspace,getChapterWritingRequest,ingestChapterWritingResult} from "../../database/chapterWriting";
 import {getAiTask,startAiTaskAttempt} from "../../database/aiTasks";
-import {preparePrompt} from "../../ai/prompts";
+import {preparePrompt,type PreparedPrompt} from "../../ai/prompts";
 import {executeManagedPrompt,AiExecutionError} from "../../ai";
 import {writeChapterProductionReplyReceipt,readChapterProductionReplyReceipt} from '../../ai/chapterProductionReceipts';
 import {stableHash} from "../../database/aiContracts";
 import {assertFound,NewDesignError} from "../../domain/errors";
 import type {ExecutionDependencies} from '../../ai/runtime/managedExecution';
+import type {ControlledChapterSnapshot} from '../../database/controlledTaskSnapshot';
 
 const workers=new Map<string,Promise<void>>();
 const chapterWorkers=new Map<string,Promise<ChapterGenerationOutput>>();
+export function restoreFrozenChapterPrompt(prompt:PreparedPrompt,frozen:Pick<ControlledChapterSnapshot,'messages'|'assetId'|'assetVersion'|'outputSchema'>):PreparedPrompt{
+  const taskData=(content:string):unknown=>{try{const parsed:unknown=JSON.parse(content);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed)&&Object.keys(parsed).length===1&&Object.hasOwn(parsed,'taskData'))return (parsed as {taskData:unknown}).taskData;}catch{}throw new NewDesignError('冻结章节输入、提示词或输出合同不一致，请保留原记录并回规划核对。',409);};
+  const valid=frozen.messages.length===2&&frozen.messages[0].role==='system'&&frozen.messages[1].role==='user'&&prompt.messages.length===2&&prompt.messages[0].content===frozen.messages[0].content&&prompt.assetId===frozen.assetId&&prompt.version===frozen.assetVersion&&stableHash(prompt.outputSchema)===stableHash(frozen.outputSchema);
+  if(!valid||stableHash(taskData(prompt.messages[1].content))!==stableHash(taskData(frozen.messages[1].content)))throw new NewDesignError('冻结章节输入、提示词或输出合同不一致，请保留原记录并回规划核对。',409);
+  return {...prompt,messages:frozen.messages};
+}
 export async function startPreparedControlledChapterWritingRequest(requestId:string,dependencies:ExecutionDependencies={}){
   const receipt=await getChapterWritingRequest(requestId);
   if(receipt.controlled&&receipt.status==='queued'&&!chapterWorkers.has(requestId)){
@@ -52,8 +59,7 @@ async function produceChapter(bookId:string,requestId:string,dependencies:Execut
   if(!saved.output){
     const task=await getAiTask(assertFound(saved.request.aiTaskId,"原章节任务不可用。")),step=assertFound(task.steps.find(item=>item.stepKey==='generate_candidate'),"原章节生成步骤不可用。");
     if(saved.request.status!=='queued'||step.currentAttemptId)throw new NewDesignError("本章已领取而模型结果未确认，请只读核对原请求，禁止重新调用模型。",409);
-    const prompt=preparePrompt("chapter_generation",saved.snapshot.input,saved.snapshot.assetVersion);
-    if(stableHash(prompt.messages)!==stableHash(saved.snapshot.messages)||stableHash(prompt.outputSchema)!==stableHash(saved.snapshot.outputSchema)||prompt.assetId!==saved.snapshot.assetId||prompt.version!==saved.snapshot.assetVersion)throw new NewDesignError("冻结章节输入、提示词或输出合同不一致，请保留原记录并回规划核对。",409);
+    const prompt=restoreFrozenChapterPrompt(preparePrompt("chapter_generation",saved.snapshot.input,saved.snapshot.assetVersion),saved.snapshot);
     const policy=saved.snapshot.route.policy,leaseMs=Math.min(3600000,policy.timeoutMs*(policy.maxRetries+1)*(saved.snapshot.route.fallbacks.length+1)+120000);
     const lease=await startAiTaskAttempt({taskId:task.id,stepId:step.id,expectedStepRevision:step.revision,triggerKind:'initial',owner:'production_director',actorKind:'user',leaseMs,taskContractVersionId:saved.request.taskContractVersionId,promptRecipeVersionId:saved.request.promptRecipeVersionId,contextManifestId:saved.request.contextManifestId,modelRouteSnapshotId:saved.request.modelRouteSnapshotId,inputHash:stableHash(saved.snapshot.input),outputSchemaVersion:stableHash(prompt.outputSchema),checkpointKey:'generate_candidate'});
     await markChapterProductionRunning(bookId,requestId);

@@ -9,7 +9,7 @@ export interface AiRuntimeRecovery {
 }
 export interface IndependentModelStatus {
   configured:boolean;
-  provider:"ollama"|"openai-compatible";
+  provider:"ollama"|"openai-compatible"|"anthropic-compatible";
   model:string;
   endpoint:string;
   hasCredential:boolean;
