@@ -50,20 +50,20 @@
 .nd-radar-sources small { color: var(--nd-muted); margin-top: .15rem; }
 .nd-radar-sources label span strong::after { content: "辅助验证"; display: inline-block; margin-left: .45rem; padding: .08rem .35rem; border: 1px solid var(--nd-line); border-radius: 999px; color: var(--nd-muted); font-size: .62rem; font-style: normal; font-weight: 500; vertical-align: .08rem; }
 .nd-radar-sources fieldset:nth-of-type(1) label:nth-of-type(2) span strong::after,.nd-radar-sources fieldset:nth-of-type(2) label:nth-of-type(3) span strong::after,.nd-radar-sources fieldset:nth-of-type(3) label:nth-of-type(3) span strong::after { content: "主要证据"; border-color: color-mix(in srgb,var(--nd-accent) 45%,var(--nd-line)); color: var(--nd-accent); background: color-mix(in srgb,var(--nd-accent) 10%,transparent); }
-.nd-radar-history { grid-column: 2; grid-row: 1 / span 3; position: sticky; top: 1rem; }
+.nd-radar-history { grid-column: 2; grid-row: 1; }
 .nd-radar-history>div:last-child { display: grid; gap: .35rem; max-height: 36rem; overflow: auto; }
 .nd-radar-history button { display: flex; justify-content: space-between; gap: .5rem; width: 100%; padding: .7rem; text-align: left; border: 1px solid transparent; border-radius: .55rem; color: var(--nd-ink); background: transparent; }
 .nd-radar-history button:hover,.nd-radar-history button.is-selected { border-color: var(--nd-line-strong); background: var(--nd-soft); }
 .nd-radar-history button span,.nd-radar-history button small { display: block; }
 .nd-radar-history button small { margin-top: .2rem; color: var(--nd-muted); }
-.nd-radar-results,.nd-radar-analysis { grid-column: 1; }
+.nd-radar-results,.nd-radar-analysis { grid-column: 1 / -1; }
 .nd-radar-run-head { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .nd-market-radar progress { width: 100%; height: .45rem; margin: .8rem 0; accent-color: var(--nd-accent); }
-.nd-radar-snapshots { display: grid; gap: .55rem; }
-.nd-radar-snapshots details { border: 1px solid var(--nd-line); border-radius: .6rem; overflow: hidden; }
+.nd-radar-snapshots { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .7rem; align-items: start; }
+.nd-radar-snapshots details { min-width: 0; border: 1px solid var(--nd-line); border-radius: .6rem; overflow: hidden; }
 .nd-radar-snapshots summary { display: flex; justify-content: space-between; padding: .7rem .8rem; cursor: pointer; background: var(--nd-soft); }
-.nd-radar-snapshots details>div { display: grid; }
-.nd-radar-snapshots label { display: grid; grid-template-columns: auto 2rem minmax(0,1fr) auto; gap: .55rem; align-items: center; padding: .6rem .8rem; border-top: 1px solid var(--nd-line); }
+.nd-radar-snapshots details>div { display: grid; max-height: 21rem; overflow-y: auto; overscroll-behavior: contain; }
+.nd-radar-snapshots label { display: grid; grid-template-columns: auto 2rem minmax(0,1fr) auto; gap: .55rem; align-items: center; padding: .5rem .7rem; border-top: 1px solid var(--nd-line); }
 .nd-radar-snapshots label span,.nd-radar-snapshots label strong,.nd-radar-snapshots label small { display: block; }
 .nd-radar-snapshots label small { color: var(--nd-muted); margin-top: .12rem; }
 .nd-radar-snapshots a { color: var(--nd-accent); font-size: .74rem; }
@@ -82,8 +82,8 @@
 .nd-signal-candidates h4 { margin: .15rem 0; font-size: .9rem; }
 .nd-signal-candidates p { margin: .25rem 0; }
 .nd-signal-candidates em { display: block; color: var(--nd-muted); font-style: normal; font-size: .7rem; }
-@media (max-width: 1000px) { .nd-market-radar { grid-template-columns: 1fr; } .nd-radar-history { grid-column: 1; grid-row: auto; position: static; } .nd-radar-sources,.nd-analysis-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 680px) { .nd-radar-sources,.nd-analysis-grid,.nd-radar-analysis-controls { grid-template-columns: 1fr; } .nd-signal-candidates article { align-items: stretch; flex-direction: column; } }
+@media (max-width: 1000px) { .nd-market-radar,.nd-radar-snapshots { grid-template-columns: 1fr; } .nd-radar-history { grid-column: 1; grid-row: auto; } .nd-radar-sources,.nd-analysis-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 680px) { .nd-radar-sources,.nd-analysis-grid,.nd-radar-analysis-controls,.nd-radar-snapshots { grid-template-columns: 1fr; } .nd-signal-candidates article { align-items: stretch; flex-direction: column; } }
 .nd-eyebrow, .nd-kicker { margin: 0; color: var(--nd-accent); font-size: .68rem; font-weight: 650; letter-spacing: .11em; text-transform: uppercase; }
 .nd-header-facts { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }
 .nd-header-facts span { padding: .28rem .55rem; color: var(--nd-muted); background: var(--nd-soft); border-radius: 999px; font-size: .7rem; }
