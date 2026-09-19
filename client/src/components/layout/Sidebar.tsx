@@ -99,6 +99,7 @@ const navGroups: NavGroup[] = [
         home: Layers3,
         books: BookOpenText,
         resources: Database,
+        titles: SquarePen,
         professional: WandSparkles,
         research: ScanSearch,
         knowledge: Database,
