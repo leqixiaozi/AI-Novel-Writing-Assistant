@@ -267,7 +267,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain pr-1">
-        {navGroups.filter((group) => APP_RUNTIME === "desktop" || group.title !== "新设计").map((group) => {
+        {navGroups.map((group) => {
           const expanded = expandedGroups[group.title] ?? true;
           return (
             <div key={group.title} className="space-y-1">
@@ -334,7 +334,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   key={item.to}
                   to={item.to}
                   end={item.end}
-                  reloadDocument={APP_RUNTIME !== "desktop"}
+                  reloadDocument={APP_RUNTIME !== "desktop" && !item.to.startsWith("/new-design")}
                   title={collapsed ? item.label : undefined}
                 >
                   {({ isActive }) => (
@@ -407,7 +407,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           );
         })}
       </nav>
-      {APP_RUNTIME !== "desktop" ? <a href="/new-design/books" className={cn("mt-3 flex items-center rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent", collapsed && "justify-center px-2")} title="切换到新版" aria-label="切换到新版"><Layers3 className={cn("h-[18px] w-[18px] shrink-0", !collapsed && "mr-3")}/>{!collapsed ? "切换到新版" : null}</a> : null}
       <VisualAssetLibraryDialog open={visualAssetLibraryOpen} onOpenChange={setVisualAssetLibraryOpen} />
     </aside>
   );

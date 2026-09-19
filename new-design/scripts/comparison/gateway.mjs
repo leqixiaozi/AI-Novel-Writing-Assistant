@@ -86,7 +86,7 @@ try {
     ipv6Gateway.once("error", reject);
     ipv6Gateway.listen({ port: 5273, host: "::1", ipv6Only: true }, resolve);
   });
-  console.log("Comparison entry ready: http://localhost:5273 (separate legacy and new-design frontends)");
+  console.log("Comparison entry ready: http://localhost:5273 (shared legacy shell, separate APIs)");
 } catch (error) {
   console.error("Comparison entry failed:", error.message);
   await stop();
