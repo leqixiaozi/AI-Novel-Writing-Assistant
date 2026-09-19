@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   MarketAnalysisResult,
+  MarketSignalDraft,
   MarketScanDetail,
   MarketSourceDefinition,
   ResearchRecordDetail,
@@ -23,6 +24,21 @@ const statusLabel = {
   failed: "失败",
   cancelled: "已取消",
 } as const;
+const signalTypeLabels: Record<MarketSignalDraft["signalType"], string> = {
+  genre: "热门题材",
+  protagonist: "主角身份",
+  advantage: "金手指",
+  opening: "开局爆点",
+  relationship: "关系卖点",
+  title: "标题句式",
+  payoff: "读者回报",
+  crowding: "拥挤套路",
+  differentiation: "差异化机会",
+};
+const levelLabels: Record<MarketSignalDraft["heat"], string> = { low: "低", medium: "中", high: "高" };
+const trendLabels: Record<MarketSignalDraft["trend"], string> = { rising: "正在升温", stable: "相对稳定", falling: "正在降温", uncertain: "证据不足" };
+const labelFor = (labels: Record<string, string>, value: unknown, fallback: string) =>
+  typeof value === "string" ? labels[value] ?? fallback : fallback;
 const analysisSections: [
   keyof Omit<MarketAnalysisResult, "evidenceBoundary" | "signals">,
   string,
@@ -519,15 +535,11 @@ export default function MarketRadarPage() {
                         {analysis.candidates.filter(candidate=>candidate.researchVersionId===analysis.currentVersion.id).map((candidate) => (
                           <article key={candidate.id}>
                             <div>
-                              <small>
-                                {String(candidate.values.signal_type)}
-                              </small>
+                              <small className="nd-signal-type">{labelFor(signalTypeLabels,candidate.values.signal_type,"市场信号")}</small>
                               <h4>{candidate.title}</h4>
                               <p>{String(candidate.values.summary ?? "")}</p>
-                              <em>
-                                来源：
-                                {String(candidate.values.source_refs ?? "")}
-                              </em>
+                              <div className="nd-signal-meta"><span>热度 {labelFor(levelLabels,candidate.values.heat,"未标注")}</span><span>拥挤度 {labelFor(levelLabels,candidate.values.crowding,"未标注")}</span><span>{labelFor(trendLabels,candidate.values.trend,"趋势未标注")}</span></div>
+                              <details className="nd-signal-source"><summary>查看来源证据</summary><p>{String(candidate.values.source_refs ?? "未提供来源")}</p></details>
                             </div>
                             <button
                               className="nd-button nd-button-secondary"
