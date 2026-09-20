@@ -10,6 +10,10 @@
 
 数据与状态的依赖方向是：作者操作／AI 候选 → 专业命令校验 → PostgreSQL 正本及不可变版本／采用记录 → 可重建投影与检索。查询投影不能反向改写正本；后台任务记录执行过程，不复制另一套小说事实。数据库隔离、迁移分层和数据保全见[数据库架构](database.md)，具体表关系与字段以[数据模型](../../new-design/docs/data-model.md)及 SQL 为准。
 
+![新版底座组件图](diagrams/new-design-components.svg)
+
+[PlantUML 源码](diagrams/new-design-components.puml)按 `new-design/src/` 的主要职责画出逻辑依赖，箭头不等于逐文件调用图；图中仅包含新版组件。
+
 ## 关键边界
 
 | 边界 | 设计理由与保持项 | 专题依据 |

@@ -1,0 +1,60 @@
+@startuml
+title 新版 PostgreSQL：书籍规划与章节正文
+left to right direction
+skinparam shadowing false
+hide circle
+
+entity "books" as books {
+  * id : uuid <<PK>>
+}
+entity "planning_objects" as plan_objects {
+  * id : uuid <<PK>>
+  --
+  # book_id : uuid <<FK>>
+  parent_object_id : uuid
+  adopted_version_id : uuid
+}
+entity "planning_versions" as plan_versions {
+  * id : uuid <<PK>>
+  --
+  # object_id : uuid <<FK>>
+  version : integer
+}
+entity "planning_adoptions" as plan_adoptions {
+  * id : uuid <<PK>>
+  --
+  # object_id : uuid <<FK>>
+  # to_version_id : uuid <<FK>>
+}
+entity "chapter_documents" as chapters {
+  * id : uuid <<PK>>
+  --
+  # book_id : uuid <<FK>>
+  # chapter_card_id : uuid <<FK>>
+  adopted_version_id : uuid
+}
+entity "chapter_body_versions" as bodies {
+  * id : uuid <<PK>>
+  --
+  # chapter_document_id : uuid <<FK>>
+  version : integer
+}
+entity "chapter_body_adoptions" as body_adoptions {
+  * id : uuid <<PK>>
+  --
+  # chapter_document_id : uuid <<FK>>
+  # to_version_id : uuid <<FK>>
+}
+
+books ||--o{ plan_objects
+plan_objects ||--o{ plan_versions
+plan_objects ||--o{ plan_adoptions
+plan_versions ||--o{ plan_adoptions
+plan_objects ..> plan_versions
+
+books ||--o{ chapters
+chapters ||--o{ bodies
+chapters ||--o{ body_adoptions
+bodies ||--o{ body_adoptions
+chapters ..> bodies
+@enduml

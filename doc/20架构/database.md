@@ -14,6 +14,16 @@
 
 候选入库不等于正式采用；任务成功也不代替领域正本提交。查询投影和后台作业不能反向修改小说事实。具体约束及例外在[数据字典](../../new-design/docs/data-model.md)和相应[专题文档](../../new-design/docs/README.md)中维护。
 
+## 核心关系图
+
+![新版卡片内核实体关系图](diagrams/card-kernel.svg)
+
+[PlantUML 源码](diagrams/card-kernel.puml)对应 `001_card_kernel.sql` 与 `006_template_books.sql`：类型和资料都有空间归属；一本书拥有独立空间，卡片修订只追加版本。
+
+![新版书籍规划与章节正文实体关系图](diagrams/book-production.svg)
+
+[PlantUML 源码](diagrams/book-production.puml)对应 `016_chapter_body_versions.sql` 与 `022_planning_versions.sql`：规划和正文分别保留版本、采用事件及当前采用指针。实线表示主要外键关系，虚线表示当前采用指针；图只展示新版核心对象，完整字段、复合外键与其他领域记录仍以迁移 SQL 和数据字典为准。
+
 ## 迁移分层
 
 普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`，与源码清单和能力状态分别核对。

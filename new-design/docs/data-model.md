@@ -20,6 +20,8 @@
 
 ## 关系概览
 
+卡片内核及书籍规划／章节正文的可视化关系见[数据库架构的核心关系图](../../doc/20架构/database.md#核心关系图)。下列文本继续覆盖更多领域对象；图不代替本字典与迁移 SQL。
+
 ```text
 card_spaces 1 ── n card_types 1 ── n card_type_versions
      │                 │                    │

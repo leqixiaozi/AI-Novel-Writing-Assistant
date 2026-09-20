@@ -1,0 +1,23 @@
+@startuml
+title 新版底座组件边界
+left to right direction
+skinparam shadowing false
+
+package "new-design/" {
+  component "创作页面\nsrc/client" as client
+  component "HTTP 接口\nsrc/server/http" as http
+  component "业务应用与领域\nsrc/server/application + domain" as business
+  component "AI 执行\nsrc/server/ai" as ai
+  component "后台任务\nsrc/server/app + aiTasks" as workers
+  component "持久化模块\nsrc/server/database" as persistence
+  database "PostgreSQL\nnew_design" as postgres
+}
+
+client --> http : /api/new-design
+http --> business
+business --> ai
+business --> persistence
+workers --> business
+workers --> persistence
+persistence --> postgres
+@enduml

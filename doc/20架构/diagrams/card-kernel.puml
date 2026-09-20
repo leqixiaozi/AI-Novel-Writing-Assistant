@@ -1,0 +1,53 @@
+@startuml
+title 新版 PostgreSQL：卡片内核关系
+left to right direction
+skinparam shadowing false
+hide circle
+
+entity "card_spaces" as spaces {
+  * id : uuid <<PK>>
+  --
+  space_key : text
+}
+entity "card_types" as types {
+  * id : uuid <<PK>>
+  --
+  # space_id : uuid <<FK>>
+  type_key : text
+}
+entity "card_type_versions" as type_versions {
+  * id : uuid <<PK>>
+  --
+  # card_type_id : uuid <<FK>>
+  version : integer
+}
+entity "cards" as cards {
+  * id : uuid <<PK>>
+  --
+  # space_id : uuid <<FK>>
+  # card_type_id : uuid <<FK>>
+  # type_version_id : uuid <<FK>>
+  current_version_id : uuid
+}
+entity "card_versions" as card_versions {
+  * id : uuid <<PK>>
+  --
+  # card_id : uuid <<FK>>
+  # type_version_id : uuid <<FK>>
+  revision : integer
+}
+entity "books" as books {
+  * id : uuid <<PK>>
+  --
+  # space_id : uuid <<FK, unique>>
+}
+
+spaces ||--o{ types
+spaces ||--o{ cards
+spaces ||--o| books
+types ||--o{ type_versions
+types ||--o{ cards
+type_versions ||--o{ cards
+cards ||--o{ card_versions
+type_versions ||--o{ card_versions
+@enduml
