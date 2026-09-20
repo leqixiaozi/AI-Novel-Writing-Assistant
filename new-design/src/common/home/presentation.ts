@@ -1,4 +1,5 @@
 import type { HomeBookFact, HomeCreationDraft, HomeSnapshot } from "./index";
+import type { VisualWorkspace } from "../visualAssets";
 
 export interface HomeAction { title: string; reason: string; label: string; href: string; tone: "normal" | "attention" | "running"; }
 const path = (book: HomeBookFact, page: string) => `/new-design/books/${encodeURIComponent(book.id)}/${page}`;
@@ -19,6 +20,17 @@ export function homeBookPriority(book: HomeBookFact): number {
 
 export function selectHomeBook(books: HomeBookFact[]): HomeBookFact | null {
   return [...books].sort((a, b) => homeBookPriority(a) - homeBookPriority(b) || Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id))[0] ?? null;
+}
+
+/** Only an active, readable version explicitly mounted as this book's cover may appear on home. */
+export function homePrimaryCover(workspace: VisualWorkspace): { assetId: string; versionId: string } | null {
+  for (const mount of workspace.mounts) {
+    if (mount.status !== "active" || mount.ownerKind !== "book" || mount.ownerStableId !== workspace.bookId) continue;
+    const asset = workspace.assets.find(item => item.id === mount.assetId && item.kind === "cover" && item.status === "active");
+    const version = asset?.versions.find(item => item.id === mount.versionId && item.readable);
+    if (asset && version) return { assetId: asset.id, versionId: version.id };
+  }
+  return null;
 }
 
 export function homeBookAction(book: HomeBookFact): HomeAction {

@@ -527,6 +527,7 @@ export const newDesignApi = {
   getManagedEmbeddingSaveReceipt:(key:string)=>request<ManagedEmbeddingSaveResult|null>(`/models/embedding/connections/by-request/${encodeURIComponent(key)}`),
   inheritManagedModelRoute:(id:string,expectedRevision:number)=>request<unknown>(`/models/routes/${encodeURIComponent(id)}/inherit`,{method:"POST",body:JSON.stringify({expectedRevision})}),
   createManagedModelCredential:(input:{name:string;provider:string;environmentVariable:string})=>request<ManagedCredentialChoice>("/models/credentials",{method:"POST",body:JSON.stringify(input)}),
+  saveManagedModelCredentialSecret:(input:{name:string;provider:string;apiKey:string;credentialId:string|null})=>request<ManagedCredentialChoice>("/models/credentials/database",{method:"POST",body:JSON.stringify(input)}),
   probeManagedModelConnection:(connection:ManagedModelConnection)=>request<{available:boolean;modelFound:boolean;models:string[]}>("/models/probe",{method:"POST",body:JSON.stringify({connection})}),
   getManagedModelPreview:(taskType:ModelTaskKey)=>request<ManagedTaskRoute>(`/models/preview/${encodeURIComponent(taskType)}`),
   getIndependentModelStatus:()=>request<IndependentModelStatus>("/models/status"),

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { HomeModelStatus, HomeSnapshot } from "../../common/home";
-import { homeTotals, selectHomeBook } from "../../common/home/presentation";
+import { homePrimaryCover, homeTotals, selectHomeBook } from "../../common/home/presentation";
 import { newDesignApi } from "../api";
 import { HomeHero, HomeFirstBook, HomeModelNotice } from "./panels";
 import "./home.css";
@@ -12,6 +12,7 @@ export default function HomePage() {
   const [modelFailure, setModelFailure] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refresh, setRefresh] = useState(0);
+  const [cover, setCover] = useState<{ bookId: string; url: string | null } | null>(null);
   const generation = useRef(0);
   useEffect(() => {
     const request = ++generation.current;
@@ -27,6 +28,15 @@ export default function HomePage() {
     return () => { generation.current++; };
   }, [refresh]);
   const book = snapshot ? selectHomeBook(snapshot.books) : null;
+  useEffect(() => {
+    if (!book) return;
+    let current = true;
+    void newDesignApi.getVisualWorkspace(book.id).then(workspace => {
+      const primary = homePrimaryCover(workspace);
+      if (current) setCover({ bookId: book.id, url: primary ? newDesignApi.visualImageUrl(book.id, primary.assetId, primary.versionId) : null });
+    }).catch(() => { if (current) setCover({ bookId: book.id, url: null }); });
+    return () => { current = false; };
+  }, [book?.id, refresh]);
   const totals = snapshot ? homeTotals(snapshot) : null;
   const retry = () => setRefresh(value => value + 1);
   return <main className="nd-shell nd-home" aria-busy={loading}>
@@ -34,8 +44,8 @@ export default function HomePage() {
     <HomeModelNotice models={models} failed={modelFailure} loading={loading} retry={retry} />
     {failure && <section className="nd-home-alert" role="alert"><div><strong>暂时无法更新创作现场</strong><p>{failure}{snapshot ? "下方保留的是上次读取结果。" : ""}</p></div><button className="nd-button" onClick={retry} disabled={loading}>重新读取</button></section>}
     {!snapshot && loading ? <section className="nd-home-loading" role="status"><span className="nd-loader" /><h2>正在整理你的创作现场</h2><p>读取作品、采用正文和创作进展。</p></section> : snapshot ? <>
-      <HomeFirstBook snapshot={snapshot} models={modelFailure ? null : models} />
-      <HomeHero book={book} draft={snapshot.creationDraft} />
+      <HomeFirstBook snapshot={snapshot} models={modelFailure ? null : models} book={book} />
+      <HomeHero book={book} draft={snapshot.creationDraft} coverUrl={cover && book && cover.bookId === book.id ? cover.url : null} />
     </> : <section className="nd-home-unavailable"><p>读取创作进展后，这里会显示作品与下一步。</p><a className="nd-button" href="/new-design/books">打开我的书籍</a></section>}
       <section className="nd-home-status" aria-label="全部作品创作状态">{[
         { label: "正在创作", value: totals?.running, unit: "部", detail: "有运行或排队任务的作品", href: "/new-design/operations/director" },

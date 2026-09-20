@@ -35,6 +35,6 @@ test("snapshot and policy failures identify stage and send no model request",asy
  const invalid=route();invalid.policy.maxRetries=100;assert.throws(()=>validateExecutionPolicy(invalid),error=>error.recovery.failedStep==="检查调用策略");
 });
 test("authentication is not retried, and explicit credential reference is provider-bound",async()=>{
- const value=route();value.primary.credentialId="fixture-credential";value.policy.maxRetries=3;let calls=0;const deps=dependencies(value,async()=>{calls++;return response();});deps.credentialResolver=async(id,provider)=>{assert.equal(id,"fixture-credential");assert.equal(provider,"ollama");return "NEW_DESIGN_AI_FIXTURE_KEY";};deps.environment={};
+ const value=route();value.primary.credentialId="fixture-credential";value.policy.maxRetries=3;let calls=0;const deps=dependencies(value,async()=>{calls++;return response();});deps.credentialResolver=async(id,provider)=>{assert.equal(id,"fixture-credential");assert.equal(provider,"ollama");return null;};
  await assert.rejects(()=>executeManagedPrompt("form_assist",prompt,deps),error=>error.recovery.failedStep==="读取模型凭据");assert.equal(calls,0);
 });

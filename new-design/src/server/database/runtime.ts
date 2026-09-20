@@ -4,15 +4,17 @@ import { Pool } from "pg";
 import type { PrivateRuntimeDiagnostics, PrivateRuntimeStatus } from "../../common/contracts";
 import { recordRuntimeFailure, recordRuntimeReady, recordRuntimeStopRequested, type RuntimeAuditIdentity } from "../runtime/auditStore";
 import { getPrivateRuntimeManager, type PrivateRuntimeConnection } from "../runtime/manager";
-import { getDevelopmentRuntimeDiagnostics, isDevelopmentDatabaseRuntimeEnabled, startDevelopmentDatabaseRuntime, stopDevelopmentDatabaseRuntime } from "./developmentRuntime";
+import { getDevelopmentDatabaseCredentialKey, getDevelopmentRuntimeDiagnostics, isDevelopmentDatabaseRuntimeEnabled, startDevelopmentDatabaseRuntime, stopDevelopmentDatabaseRuntime } from "./developmentRuntime";
+import { deriveModelCredentialKey } from "./credentialCrypto";
 import { migrations } from "./migrations";
 
 export interface DatabaseRuntimeStatus {mode:"bundled";postgresVersion:string;host:"127.0.0.1";port:number;dataLocator:string;runtimeId:string;manifestSha256:string;}
-let poolPromise:Promise<Pool>|null=null,runtimeStatus:DatabaseRuntimeStatus|null=null,auditIdentity:RuntimeAuditIdentity|null=null,shutdownRegistered=false;
+let poolPromise:Promise<Pool>|null=null,runtimeStatus:DatabaseRuntimeStatus|null=null,auditIdentity:RuntimeAuditIdentity|null=null,shutdownRegistered=false,credentialKey:Buffer|null=null;
 
 async function createPool():Promise<Pool>{
   if(isDevelopmentDatabaseRuntimeEnabled()){
     const development=await startDevelopmentDatabaseRuntime();
+    credentialKey=await getDevelopmentDatabaseCredentialKey();
     runtimeStatus={mode:"bundled",postgresVersion:development.postgresVersion,host:"127.0.0.1",port:development.port,dataLocator:"docker-volume/ai-novel-new-design-pg17-data",runtimeId:"development-age-pgvector",manifestSha256:"development-only"};
     registerShutdown();
     return development.pool;
@@ -23,13 +25,14 @@ async function createPool():Promise<Pool>{
   try{
     await ensureApplicationDatabase(connection);
     pool=new Pool({host:connection.host,port:connection.port,user:connection.user,password:connection.password,database:connection.database,max:8,application_name:"ai_novel_new_design"});
+    credentialKey=deriveModelCredentialKey(connection.password,connection.database);
     await ensureLockedExtensions(pool,connection);await applyMigrations(pool,connection);
-    const versions=await pool.query<{server_version:string}>("SHOW server_version"),migrationCount=Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations")).rows[0]?.value??0);
+    const versions=await pool.query<{server_version:string}>("SHOW server_version"),migrationCount=Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])",[migrations.map(item=>item.id)])).rows[0]?.value??0);
     if(migrationCount!==migrations.length)throw new Error(`迁移登记数量不完整：预期 ${migrations.length}，实际 ${migrationCount}。`);
     await manager.markReady(migrationCount);
     auditIdentity={installationId:connection.installationId,dataGeneration:connection.dataGeneration,manifest:connection.manifest};await recordRuntimeReady(pool,auditIdentity);
     runtimeStatus={mode:"bundled",postgresVersion:versions.rows[0]?.server_version??"unknown",host:"127.0.0.1",port:connection.port,dataLocator:`database/generations/${path.basename(connection.dataDirectory)}`,runtimeId:connection.manifest.runtimeId,manifestSha256:connection.manifest.manifestSha256};registerShutdown();return pool;
-  }catch(error){if(pool&&auditIdentity)await recordRuntimeFailure(pool,auditIdentity,error).catch(()=>undefined);if(pool)await pool.end().catch(()=>undefined);await manager.stopInfrastructure().catch(()=>undefined);auditIdentity=null;throw error;}
+  }catch(error){credentialKey=null;if(pool&&auditIdentity)await recordRuntimeFailure(pool,auditIdentity,error).catch(()=>undefined);if(pool)await pool.end().catch(()=>undefined);await manager.stopInfrastructure().catch(()=>undefined);auditIdentity=null;throw error;}
 }
 
 async function ensureApplicationDatabase(connection:PrivateRuntimeConnection):Promise<void>{
@@ -52,6 +55,7 @@ async function applyMigrations(pool:Pool,connection:PrivateRuntimeConnection):Pr
 }
 
 export async function getNewDesignPool():Promise<Pool>{poolPromise??=createPool().catch(error=>{poolPromise=null;throw error;});return poolPromise;}
+export async function getNewDesignCredentialKey():Promise<Buffer>{await getNewDesignPool();if(!credentialKey)throw new Error("新版数据库凭据解密材料不可用。");return credentialKey;}
 /** Dashboard reads must not initialize infrastructure or apply migrations. */
 export async function getInitializedNewDesignPool():Promise<Pool>{
   if(!poolPromise||!runtimeStatus)throw new Error("创作数据服务尚未就绪，请稍后重新读取。");
@@ -62,10 +66,10 @@ export async function getDatabaseRuntimeStatus():Promise<DatabaseRuntimeStatus>{
 export async function getPrivateRuntimeDiagnostics():Promise<PrivateRuntimeDiagnostics>{
   if(isDevelopmentDatabaseRuntimeEnabled())return getDevelopmentRuntimeDiagnostics();
   const manager=getPrivateRuntimeManager(),diagnostics=await manager.doctor(),pool=poolPromise?await poolPromise.catch(()=>null):null;if(!pool)return diagnostics;
-  const [extensions,migrationsResult,queue,backup]=await Promise.all([pool.query<{extname:string;extversion:string}>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])",[["age","vector","pg_trgm"]]),pool.query("SELECT count(*) value FROM new_design.schema_migrations"),pool.query("SELECT count(*) FILTER(WHERE status IN ('queued','leased','running','retry_scheduled','cancel_requested')) active,count(*) FILTER(WHERE status='dead_letter') dead FROM new_design.background_jobs"),pool.query("SELECT max(completed_at) latest FROM new_design.transfer_operations WHERE operation_kind='full_backup' AND status IN ('ready','archived')")]);
+  const [extensions,migrationsResult,queue,backup]=await Promise.all([pool.query<{extname:string;extversion:string}>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])",[["age","vector","pg_trgm"]]),pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])",[migrations.map(item=>item.id)]),pool.query("SELECT count(*) FILTER(WHERE status IN ('queued','leased','running','retry_scheduled','cancel_requested')) active,count(*) FILTER(WHERE status='dead_letter') dead FROM new_design.background_jobs"),pool.query("SELECT max(completed_at) latest FROM new_design.transfer_operations WHERE operation_kind='full_backup' AND status IN ('ready','archived')")]);
   const replace=(key:string,status:"passed"|"warning"|"failed"|"unavailable",summary:string,action:string)=>{const index=diagnostics.checks.findIndex(item=>item.key===key),value={key,status,summary,action};if(index>=0)diagnostics.checks[index]=value;else diagnostics.checks.push(value);};
   replace("runtime.extensions",extensions.rowCount===3?"passed":"failed",extensions.rowCount===3?extensions.rows.map(row=>`${row.extname} ${row.extversion}`).join("，"):"扩展数量不完整。","重新校验运行包版本组合后停止可写启动。");
-  const applied=Number(migrationsResult.rows[0]?.value??0);replace("runtime.migrations",applied===migrations.length?"passed":"failed",`已登记 ${applied}/${migrations.length} 个迁移。`,"按顺序完成全部迁移，不允许跳号。");
+  const applied=Number(migrationsResult.rows[0]?.value??0);replace("runtime.migrations",applied===migrations.length?"passed":"failed",`已登记默认迁移 ${applied}/${migrations.length} 项；手动迁移另行登记。`,"按顺序完成全部迁移，不允许跳号。");
   const queueRow=queue.rows[0];replace("runtime.queue",Number(queueRow?.dead??0)>0?"warning":"passed",`活动作业 ${Number(queueRow?.active??0)}，死信 ${Number(queueRow?.dead??0)}。`,`使用 030 运行记录处理积压与死信。`);
   replace("runtime.backup",backup.rows[0]?.latest?"passed":"warning",backup.rows[0]?.latest?`最近完整备份：${new Date(String(backup.rows[0].latest)).toISOString()}`:"尚无可验证完整备份。","升级或恢复前先完成 031 完整备份和兼容预检。");return diagnostics;
 }
@@ -76,7 +80,7 @@ export async function getPrivateRuntimeStatus():Promise<PrivateRuntimeStatus>{
 }
 
 export async function stopNewDesignDatabase():Promise<void>{
-  if(isDevelopmentDatabaseRuntimeEnabled()){poolPromise=null;await stopDevelopmentDatabaseRuntime();runtimeStatus=null;auditIdentity=null;return;}
-  const manager=getPrivateRuntimeManager(),pool=poolPromise?await poolPromise.catch(()=>null):null;poolPromise=null;await manager.setWorkerRuntime("draining").catch(()=>undefined);if(pool&&auditIdentity)await recordRuntimeStopRequested(pool,auditIdentity).catch(()=>undefined);if(pool)await pool.end();await manager.stopInfrastructure();runtimeStatus=null;auditIdentity=null;
+  if(isDevelopmentDatabaseRuntimeEnabled()){poolPromise=null;credentialKey=null;await stopDevelopmentDatabaseRuntime();runtimeStatus=null;auditIdentity=null;return;}
+  const manager=getPrivateRuntimeManager(),pool=poolPromise?await poolPromise.catch(()=>null):null;poolPromise=null;credentialKey=null;await manager.setWorkerRuntime("draining").catch(()=>undefined);if(pool&&auditIdentity)await recordRuntimeStopRequested(pool,auditIdentity).catch(()=>undefined);if(pool)await pool.end();await manager.stopInfrastructure();runtimeStatus=null;auditIdentity=null;
 }
 function registerShutdown():void{if(shutdownRegistered)return;shutdownRegistered=true;const shutdown=()=>{void stopNewDesignDatabase().finally(()=>process.exit(0));};process.once("SIGINT",shutdown);process.once("SIGTERM",shutdown);}

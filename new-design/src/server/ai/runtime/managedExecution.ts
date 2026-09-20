@@ -1,7 +1,7 @@
 import type {TechnicalFallbackCategory} from "../../../common/contracts";
 import type {ManagedModelConnection,ManagedModelSnapshot,ManagedTaskRoute,ModelTaskKey} from "../../../common/modelRouting";
 import {DEFAULT_MODEL_POLICY} from "../../../common/modelRouting";
-import {captureManagedModelSnapshot,getManagedCredentialEnvironment,resolveManagedTaskRoute} from "../../database/modelManagement";
+import {captureManagedModelSnapshot,getManagedCredentialSecret,resolveManagedTaskRoute} from "../../database/modelManagement";
 import type {PreparedPrompt} from "../prompts";
 import {readModelConfiguration,type ModelConfiguration} from "./configuration";
 import {AiExecutionError} from "./errors";
@@ -22,12 +22,9 @@ export async function configurationForConnection(connection:ManagedModelConnecti
   if(!connection||typeof connection.endpoint!=="string"||typeof connection.model!=="string"||!["ollama","openai-compatible","anthropic-compatible"].includes(connection.provider)||!(connection.credentialId===null||typeof connection.credentialId==="string"))throw new AiExecutionError("检查模型连接设置","请选择服务类型并填写地址；指定创作模型后才能生成。",422);
   let apiKey="";
   if(connection.credentialId){
-    let variable:string|null;
-    try {variable=await(dependencies.credentialResolver??getManagedCredentialEnvironment)(connection.credentialId,connection.provider);}
-    catch {throw new AiExecutionError("读取模型凭据","凭据引用无法读取、未配置或与服务不匹配，请在模型设置核对引用与专用环境变量。",422,"authentication");}
-    if(!variable||!/^NEW_DESIGN_AI_[A-Z0-9_]+$/.test(variable))throw new AiExecutionError("读取模型凭据","此凭据引用不能由新设计使用，请在模型设置选择专用服务器凭据。",422,"authentication");
-    apiKey=(dependencies.environment??process.env)[variable]??"";
-    if(!apiKey)throw new AiExecutionError("读取模型凭据","配置已保存，但服务器未加载该凭据。请展开模型设置的凭据说明，配置后重启新设计服务。",422,"authentication");
+    try {apiKey=await(dependencies.credentialResolver??getManagedCredentialSecret)(connection.credentialId,connection.provider)??"";}
+    catch {throw new AiExecutionError("读取模型凭据","凭据无法读取、解密或与服务不匹配，请在模型设置重新录入密钥。",422,"authentication");}
+    if(!apiKey)throw new AiExecutionError("读取模型凭据","模型凭据尚未保存到新版数据库，请在模型设置录入密钥。",422,"authentication");
   }
   const config=readModelConfiguration({NEW_DESIGN_AI_PROVIDER:connection.provider,NEW_DESIGN_AI_BASE_URL:connection.endpoint,NEW_DESIGN_AI_MODEL:allowEmptyModel&&!connection.model?"__list_models_only__":connection.model,NEW_DESIGN_AI_API_KEY:apiKey,NEW_DESIGN_AI_TIMEOUT_MS:String(policy.timeoutMs),NEW_DESIGN_AI_MAX_TOKENS:String(policy.maxOutputTokens)});
   return allowEmptyModel&&!connection.model?{...config,model:""}:config;

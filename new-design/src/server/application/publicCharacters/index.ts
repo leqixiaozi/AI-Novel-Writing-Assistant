@@ -18,8 +18,8 @@ export async function runPublicCharacterTrial(input:PublicCharacterTrialInput,de
    const result=await executeManagedPrompt<PublicDialogueOutput>('character_dialogue',prompt,{...dependencies.text,stopOnUnknownResponse:true,routeResolver:async()=>route,snapshotWriter:async()=>({id:plan.snapshotId,snapshotHash:plan.snapshotHash,taskType:'character_dialogue',route}),credentialResolver:dependencies.text?.credentialResolver??((id,provider)=>transaction(undefined,client=>getManagedCredentialEnvironment(id,provider,{client})))});
    reply=result.output;execution={...result.modelSnapshot,durationMs:Date.now()-started};
   }else{
-   const connection=plan.connection!,variable=await transaction(undefined,client=>getManagedCredentialEnvironment(connection.credentialId,connection.provider,{client}));
-   const result=await(dependencies.image??executeImageProtocol)(plan.promptInput as PublicImageProtocolInput,connection,variable?process.env[variable]??null:null);
+   const connection=plan.connection!,credential=await transaction(undefined,client=>getManagedCredentialEnvironment(connection.credentialId,connection.provider,{client}));
+   const result=await(dependencies.image??executeImageProtocol)(plan.promptInput as PublicImageProtocolInput,connection,credential);
    reply=result;execution={provider:connection.provider,model:connection.model,routeSnapshotId:plan.snapshotId,routeSnapshotHash:plan.snapshotHash,inputTokens:result.inputTokens,outputTokens:result.outputTokens,durationMs:result.durationMs,attempts:[{status:'succeeded',requestSent:true,responseReceived:true}]};
   }
  }catch(error){const trace=error instanceof AiExecutionError?error.executionSnapshot??null:null,attempts=trace&&Array.isArray(trace.attempts)?trace.attempts:[],received=attempts.some(attempt=>attempt?.responseReceived===true),sent=attempts.some(attempt=>attempt?.requestSent===true);return recordPublicCharacterFailure(claimed.trial.id,trace?{...trace,durationMs:Date.now()-started}:null,received,trace!==null&&!sent);}

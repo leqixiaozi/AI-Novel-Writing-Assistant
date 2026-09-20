@@ -3,11 +3,11 @@ import { z } from "zod";
 import type { ModelTaskKey, ManagedModelConnection } from "../../../common/modelRouting";
 import { getIndependentModelStatus, probeManagedModelConnection, AiExecutionError } from "../../ai";
 import { NewDesignError } from "../../domain/errors";
-import { getModelRouteCenterCatalog, saveManagedModelRoute, inheritManagedModelRoute, createManagedCredential, resolveManagedTaskRoute, probeConnectionSchema,getManagedEmbeddingCatalog,saveManagedEmbeddingConnection,readManagedEmbeddingSaveReceipt,readManagedEmbeddingConnectionVersion,embeddingConnectionInputSchema,ManagedEmbeddingConfigurationError } from "../../database/modelManagement";
+import { getModelRouteCenterCatalog, saveManagedModelRoute, inheritManagedModelRoute, createManagedCredential, saveManagedCredentialSecret, resolveManagedTaskRoute, probeConnectionSchema,getManagedEmbeddingCatalog,saveManagedEmbeddingConnection,readManagedEmbeddingSaveReceipt,readManagedEmbeddingConnectionVersion,embeddingConnectionInputSchema,ManagedEmbeddingConfigurationError } from "../../database/modelManagement";
 
 function recoveryError(step:string,error:unknown,savedResult:string):AiExecutionError {
   if(error instanceof AiExecutionError)return error;
-  const fieldLabels:Record<string,string>={provider:"供应商",endpoint:"服务地址",model:"模型名称",credentialId:"凭据引用",maxOutputTokens:"输出预算",maxTotalTokens:"总预算",timeoutMs:"等待时间",maxRetries:"重试次数",retryDelayMs:"重试间隔",failureCategories:"备用模型触发条件",scope:"配置范围",taskType:"任务",expectedRevision:"服务器修订",name:"凭据名称",environmentVariable:"专用环境变量"};
+  const fieldLabels:Record<string,string>={provider:"供应商",endpoint:"服务地址",model:"模型名称",credentialId:"凭据引用",apiKey:"服务密钥",maxOutputTokens:"输出预算",maxTotalTokens:"总预算",timeoutMs:"等待时间",maxRetries:"重试次数",retryDelayMs:"重试间隔",failureCategories:"备用模型触发条件",scope:"配置范围",taskType:"任务",expectedRevision:"服务器修订",name:"凭据名称",environmentVariable:"专用环境变量"};
   const issues=error instanceof z.ZodError?Object.fromEntries(error.issues.map(item=>{const last=String(item.path[item.path.length-1]??"form"),label=fieldLabels[last]??"模型设置";return [item.path.join(".")||"form",/[\u4e00-\u9fff]/.test(item.message)?`${label}：${item.message}`:`${label}：请核对填写格式、数量和允许范围。`];})):error instanceof NewDesignError?error.issues:undefined;
   const failure=new AiExecutionError(step,error instanceof NewDesignError?error.message:error instanceof z.ZodError?"模型设置填写不完整或超出允许范围，请核对标示字段。":`${step}未确认成功。请恢复连接并核对服务器结果，避免重复写入。`,error instanceof NewDesignError?error.status:error instanceof z.ZodError?422:503,null,issues);
   failure.recovery.savedResult=savedResult;
@@ -30,6 +30,9 @@ export function modelSettingsRouter():Router {
   });
   router.post("/credentials",(request,response,next)=>{
     try { const input=z.object({name:z.string().trim().min(1).max(120),provider:z.enum(["ollama","openai-compatible","anthropic-compatible"]),environmentVariable:z.string().regex(/^NEW_DESIGN_AI_[A-Z0-9_]+$/)}).strict().parse(request.body); void createManagedCredential(input).then(data=>response.json({success:true,data})).catch(error=>next(recoveryError("创建凭据引用",error,"旧凭据引用不会覆盖。请点击重新读取目录核对凭据名称；同名冲突请更换名称，再点击创建凭据引用。"))); } catch(error) { next(recoveryError("核对模型凭据输入",error,"未修改凭据。请填写名称、供应商和专用环境变量名，再点击创建凭据引用。")); }
+  });
+  router.post("/credentials/database",(request,response,next)=>{
+    try { const input=z.object({name:z.string().trim().min(1).max(120),provider:z.enum(["ollama","openai-compatible","anthropic-compatible"]),apiKey:z.string().min(1).max(8192),credentialId:z.string().uuid().nullable()}).strict().parse(request.body); void saveManagedCredentialSecret(input).then(data=>response.json({success:true,data})).catch(error=>next(recoveryError("保存数据库模型凭据",error,"原凭据和模型路线保留。读取凭据目录核对结果，再决定是否重新录入；不会调用模型。"))); } catch(error) { next(recoveryError("核对数据库模型凭据",error,"密钥未保存到数据库；原凭据和模型路线保留。")); }
   });
   router.post("/probe",(request,response,next)=>{
     try { const input=z.object({connection:probeConnectionSchema}).strict().parse(request.body); void probeManagedModelConnection(input.connection as ManagedModelConnection).then(data=>response.json({success:true,data})).catch(error=>next(recoveryError("检查连接与模型列表",error,"连接测试未确认可用；已保存模型设置和小说草稿保留。请核对服务地址、凭据和模型，再点击检查连接与模型列表。"))); } catch(error) { next(recoveryError("核对连接测试输入",error,"连接测试尚未执行；所有已保存结果均保留。请核对服务地址与凭据后点击检查连接与模型列表。")); }

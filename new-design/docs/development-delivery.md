@@ -1,5 +1,13 @@
 # 开发交付、跨机器数据与恢复
 
+## 2026-09-20 本机实际演练
+
+本机新版 API 使用独立 PostgreSQL。已先停止新版写入者，在 `.codex-backups/new-design-live-20260920-001` 生成并校验完整开发快照（数据库和 8 份 AI 原回复凭证；本次无 `data/assets` 文件）。另起隔离 Compose 项目，用 `template0` 新建空数据库 `restore_full`，完整 `pg_restore` 成功；原 81 个默认迁移、42 部书及 12 份正文版本均可读。随后在隔离恢复库中一次事务验证 20 个默认关闭的手动迁移，成功后才在已备份、已停止新版 API 的作者新版库中安装：现有默认 81 项、手动 20 项，共 101 项。旧版库和旧版服务未操作。
+
+八项经过隔离功能验证的能力开关已在新版作者库明确启用：世界包、公共人物资料／工作台、图片准备、人物创作倾向、公共标题和书内历史。资源补充下游闭合仍为关闭，数据库合同禁止直接开启。隔离验证 63 项通过，真实模型调用 0；新版 API 已重启，维护页按默认迁移口径显示 81/81，六个新增只读业务入口返回 200。后台还有 89 个活动 Outbox 作业等待未接通的处理器，不能据此称整套后台流程已通过；历史 AI 作业不得直接重调模型。开发快照是外部工具生成，不能代替应用内传输备份、正式升级执行器或跨机器应用验收。
+
+随后针对模型凭据另存并校验 `.codex-backups/new-design-pre-model-credentials-20260920-001`，在隔离恢复库安装手动迁移 `105_database_model_credentials` 成功，再于新版作者库手动安装。当前默认 81 项、手动 21 项，共 102 项。原两份 MiniMax 凭据在新版数据库中保存 AES-256-GCM 密文，引用 ID 与已发布任务模型版本不变；无模型环境变量的新版 API 重启后，2/2 凭据、12/12 任务仍可用，目录接口不返回密钥。加密材料由私有数据库运行配置推导，不写入数据库或 Git；跨机器恢复还需保留匹配的私有运行配置，否则在模型设置重新录入密钥。数据库逻辑备份含凭据密文，仍应按密钥材料保护。未调用模型，也未验证跨机器解密。
+
 ## 实际交付边界
 
 源码应用由本包 Node/Vite/Express 启动，数据库由现有 AGE＋pgvector Dockerfile 重建。没有完整应用容器、无需私有运行包 manifest；也不会连接旧桌面服务、旧模型配置或系统数据库。原 `scripts/start.ps1 / backup.ps1` 是发布运行包包装，**不能拿它们启动源码checkout**。
@@ -23,7 +31,7 @@ node scripts/initialize-development.cjs --initialize-new
 ./scripts/develop.ps1 -Start   # 明确启动，会检查／应用已登记迁移
 ```
 
-页面5273，API5301；旧5173／3000不作为独立入口。开发数据库原默认55432。`.data/runtime.json` 仅本机保留，初始化只用独占创建、密码不输出，不读取／替换已有配置。发现原容器或原卷则拒绝初始化；原配置遗失时先恢复原配置，不生成新密码冒充空白机器。Windows应限制`.data`访问权限。环境变量只引用原模型凭据，不能把密钥放进页面、Git或快照。
+页面5273，API5301；旧5173／3000不作为独立入口。开发数据库原默认55432。`.data/runtime.json` 仅本机保留，初始化只用独占创建、密码不输出，不读取／替换已有配置。发现原容器或原卷则拒绝初始化；原配置遗失时先恢复原配置，不生成新密码冒充空白机器。Windows应限制`.data`访问权限。新版模型凭据在数据库中加密保存，页面只在录入时发送密钥且不回显；不能把明文放进 Git、文档或诊断输出。
 
 镜像重建只构建固定标签，不启动容器／挂卷。`npm run dev` 与显式`-Start`不是只读动作：服务可能初始化扩展与迁移，因此先备份已有数据。配置没有“完整App镜像”宣称，网络失败不删除卷。
 
@@ -56,11 +64,12 @@ verify仅读本地文件、逐条hash和清单；不连接数据库、不调用�
 docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 up -d --wait
 docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 cp C:/Backups/new-design-20260917-01/database.dump postgres:/tmp/restore.dump
 docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres pg_restore --list /tmp/restore.dump
-docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres pg_restore --exit-on-error --no-owner --no-privileges --username restore_drill --dbname restore_drill /tmp/restore.dump
-docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres psql -X --set ON_ERROR_STOP=1 --username restore_drill --dbname restore_drill --command "SELECT id FROM new_design.schema_migrations ORDER BY id"
+docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres createdb --username restore_drill --template template0 restore_full
+docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres pg_restore --exit-on-error --no-owner --no-privileges --username restore_drill --dbname restore_full /tmp/restore.dump
+docker compose -f docker/compose.restore-drill.yml -p new-design-restore-drill-20260917 exec -T postgres psql -X --set ON_ERROR_STOP=1 --username restore_drill --dbname restore_full --command "SELECT id FROM new_design.schema_migrations ORDER BY id"
 ```
 
-这里恢复**全新演练DB**，没有`--clean`、`DROP`、`TRUNCATE`或原卷移除。若项目已使用过、数据库已非空，先停止操作另选全新演练项目；不能反复恢复覆盖。tmpfs只为恢复演练，不承诺持久，不以它作为正式数据同步目标。
+这里恢复**从 `template0` 创建的全新演练DB**，没有`--clean`、`DROP`、`TRUNCATE`或原卷移除。演练镜像自带 AGE 的 `ag_catalog`，直接恢复到预创建的 `restore_drill` 库会因重复 schema 失败。若项目已使用过、目标数据库已非空，先停止操作另选全新演练项目；不能反复恢复覆盖。tmpfs只为恢复演练，不承诺持久，不以它作为正式数据同步目标。
 
 核对实际PostgreSQL主版本、AGE/vector扩展、迁移ID集合、书籍／正式资料／正文／采用／结算与来源完整性。附件在新普通暂存目录逐条核对SHA后，由操作者正式选择目标源码checkout；**不能覆盖已有附件或原回复**。正式换机须先保存目标备份，明确选择全新目标，再设计受控切换；本工具未提供破坏式恢复或031原子切换按钮。
 
@@ -80,4 +89,4 @@ Dockerfile、Compose、SQL、源码和本说明进入Git；镜像无需提交。
 | 恢复演练失败 | 原开发库未接触，演练部分数据保留 | 停止继续恢复，核对版本／清单，使用新的隔离项目 |
 | 原请求结果未确认 | 原key、输出凭证和草稿保留 | 原来源页只读核对；运行维护只导航，不重发模型 |
 
-运行维护真实入口`/new-design/structure/maintenance`；模型配置`/new-design/structure/models`。本批仅编码与静态审阅，未生成真实备份、重建镜像、启动或恢复数据库。统一验证仍需演练上述受控流程，不能写“备份已验收”。
+运行维护真实入口`/new-design/structure/maintenance`；模型配置`/new-design/structure/models`。本机开发快照、完整隔离恢复和手动迁移演练证据见文首；应用内正式备份、跨机器恢复与整套发布包仍待验。

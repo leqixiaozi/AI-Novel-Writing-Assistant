@@ -46,10 +46,11 @@ test("difference explanation covers fallback ordering, credentials and policy in
   assert.deepEqual(editing.settingsDifferences(a,b),["凭据引用","备用模型及顺序","重试次数"]);
   assert.deepEqual(editing.settingsDifferences(settings,{...settings,primary:{...settings.primary,endpoint:settings.primary.endpoint+"/"}}),[]);
 });
-test("model page retains Chinese recovery controls, no credential secret input or local storage", () => {
+test("model page retains Chinese recovery controls and submits database credentials without browser storage", () => {
   const page=fs.readFileSync(path.join(__dirname,"../src/client/modelSettings/index.tsx"),"utf8");
   assert.match(page,/保留我的设置，按最新修订继续/);assert.match(page,/保存成功后的目录刷新/);assert.match(page,/replaceUnsupported/);
-  assert.doesNotMatch(page,/localStorage|type="password"|apiKey|secretLocator/);
+  assert.match(page,/数据库模型凭据/);assert.match(page,/type="password"/);assert.match(page,/saveManagedModelCredentialSecret/);
+  assert.doesNotMatch(page,/localStorage|sessionStorage|secretLocator/);
   const connection=fs.readFileSync(path.join(__dirname,"../src/client/modelSettings/ConnectionEditor.tsx"),"utf8");
   assert.match(connection,/不会自动选择/);assert.doesNotMatch(connection,/models\[0\]/);
 });

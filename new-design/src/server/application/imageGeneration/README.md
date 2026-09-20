@@ -8,7 +8,7 @@
 
 ## 原事实与执行顺序
 
-专属连接复用 `model_route_configs/versions/ai_contract_publications/model_credential_refs`，范围为任务组 `image_generation`，能力必须为 `image_generation + image_base64`；单图预算，零自动重试、无备用。凭据只是原新设计环境变量引用，HTTP 不接受密钥正文。
+专属连接复用 `model_route_configs/versions/ai_contract_publications/model_credential_refs`，范围为任务组 `image_generation`，能力必须为 `image_generation + image_base64`；单图预算，零自动重试、无备用。连接只保存原凭据 ID，密钥在新版数据库加密保存；图片连接 HTTP 不接受密钥正文，录入密钥使用模型设置页。
 
 每个请求在同一物理事务冻结正式系统图像配方、任务合同、空显式上下文和精确原模型快照，登记原 `ai_tasks/steps/attempts`，发送领取证据也先提交。只有首次正向提交且返回 `dispatch` 的调用才执行一次图像协议；原键重复、回执未知或只读 GET 永不调用模型。原键绑定完整输入哈希，包括本书、连接版本、用途、标题、说明、画面要求及尺寸，不按内容相近猜测成功。
 
