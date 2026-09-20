@@ -16,6 +16,7 @@ import PromptCompositionPage from "./promptComposition";
 import ResourceCenterPage from "./ResourceCenterPage";
 import WorldCatalogPage from "./worldCatalog/WorldCatalogPage";
 import ComicProjectsPage from './comicProjects/ComicProjectsPage';
+import ComicProjectDetail from './comicProjects/ComicProjectDetail';
 import VisualCatalogPage from "./visualCatalog/VisualCatalogPage";
 import CharacterImportPage,{PublicCharacterLibrary} from './characterImport';
 import ResourceTreesPage from "./ResourceTreesPage";
@@ -66,7 +67,7 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(path==="/new-design/books/new")return <CreateBookPage/>;
   if(path==="/new-design/comic")return <ComicProjectsPage/>;
   const comicMatch=path.match(/^\/new-design\/comic\/projects\/([^/]+)$/);
-  if(comicMatch)return <ComicProjectsPage key={comicMatch[1]} projectId={decodeURIComponent(comicMatch[1])}/>;
+  if(comicMatch)return <ComicProjectDetail key={comicMatch[1]} projectId={decodeURIComponent(comicMatch[1])}/>;
   const simpleMatch=path.match(/^\/new-design\/books\/([^/]+)\/(simple|short-story)$/);
   if(simpleMatch)return <SimpleCreationPage key={`${simpleMatch[1]}:${simpleMatch[2]}`} bookId={decodeURIComponent(simpleMatch[1])} short={simpleMatch[2]==='short-story'}/>;
   const readingMatch=path.match(/^\/new-design\/books\/([^/]+)\/reading$/);
