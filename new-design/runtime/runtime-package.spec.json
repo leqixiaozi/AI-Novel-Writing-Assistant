@@ -176,7 +176,8 @@
     "app/migrations/manual/108_world_package_archive.sql",
     "app/migrations/manual/109_comic_projects.sql",
     "app/migrations/manual/110_comic_episodes.sql",
-    "app/migrations/manual/111_comic_panels.sql"
+    "app/migrations/manual/111_comic_panels.sql",
+    "app/migrations/manual/112_comic_bibles.sql"
   ],
   "requiredPrefixes": [
     "bin/",

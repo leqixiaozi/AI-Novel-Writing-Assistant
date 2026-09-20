@@ -6,9 +6,9 @@
 
 复刻旧版页面和功能时，以用户可见的布局、操作和结果为对标依据；新设计的数据继续由本模型中的卡片及其业务记录承载，不复制旧版表结构，也不把旧版数据表当作新版的运行依赖。
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`，普通启动注册清单以 `../src/server/database/migrations.ts` 为准：当前从 `001_card_kernel.sql` 到 `083_character_dialogue.sql`，共 81 个文件，编号并不连续。`084_world_packages.sql` 至 `111_comic_panels.sql` 中的 27 个文件属于独立安装的手动迁移，清单见 `../src/server/runtime/manifest.ts`；它们不进入普通启动。运行时执行迁移目录中的 SQL，不在代码中维护第二份 SQL 副本。文件存在、代码已接线、实际数据库已安装、能力已启用和页面已验收是不同状态；本文描述结构与业务约束，不以文件存在推定作者数据库的当前状态。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`，普通启动注册清单以 `../src/server/database/migrations.ts` 为准：当前从 `001_card_kernel.sql` 到 `083_character_dialogue.sql`，共 81 个文件，编号并不连续。`084_world_packages.sql` 至 `112_comic_bibles.sql` 中的 28 个文件属于独立安装的手动迁移，清单见 `../src/server/runtime/manifest.ts`；它们不进入普通启动。运行时执行迁移目录中的 SQL，不在代码中维护第二份 SQL 副本。文件存在、代码已接线、实际数据库已安装、能力已启用和页面已验收是不同状态；本文描述结构与业务约束，不以文件存在推定作者数据库的当前状态。
 
-`001`—`045` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046`—`048` 补齐统一字典树、多维标签树、历史路径快照及开书前统一审阅。`049`—`083` 扩展表单 AI、模型路由、章节结算、导演、知识索引、世界一致性、图像与人物对话等来源和回执。`084`—`111` 的手动合同另有安装、能力开关和数据保护边界。详细规则见 `unified-tree-resources.md`、`unified-book-creation-form.md` 及下文“后续迁移与页面数据边界”。
+`001`—`045` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046`—`048` 补齐统一字典树、多维标签树、历史路径快照及开书前统一审阅。`049`—`083` 扩展表单 AI、模型路由、章节结算、导演、知识索引、世界一致性、图像与人物对话等来源和回执。`084`—`112` 的手动合同另有安装、能力开关和数据保护边界。详细规则见 `unified-tree-resources.md`、`unified-book-creation-form.md` 及下文“后续迁移与页面数据边界”。
 
 ## 跨机器同步原则
 
@@ -787,6 +787,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `109` | `comic_projects`、`comic_source_versions` | 漫画项目独立于小说业务表。创建时将小说已采用正文或作者输入冻结为来源版本，原创建请求键可找回；来源快照不可更新或删除。未安装或快照保护停用时禁止新建，已创建项目仍可读取。手动迁移不随启动安装。 |
 | `110` | `comic_episodes`、`comic_episode_versions`、`comic_episode_adoptions` | 分集大纲按序号保存人工候选并由作者明确采用。候选与采用回执不可改写；新候选不覆盖已采用版本。AI 大纲生成尚未接入，迁移仍须手动安装。 |
 | `111` | `comic_panel_sets`、`comic_panels`、`comic_panel_set_adoptions` | 分格以整话脚本版本保存候选，逐格动作、对白、人物、场景与画面提示词有同一版本来源；作者明确采用后才成为正式脚本。旧大纲的脚本会标记为不就绪，不能继续采用；旧脚本仍可读取。图片与导出尚未接入。 |
+| `112` | `comic_bible_entities`、`comic_bible_versions`、`comic_bible_adoptions` | 角色与场景设定各自保存文字候选和明确采用；外形锚点、人物性格、场景色彩／材质／布局保留历史。快照保护失效时停写保读。图像资产与 AI 来源整理尚未接入。 |
 | `087`—`094` | `chapter_resource_supplements`、影响复核、完整性日志／冲突／解除证明、修正来源与正式提交回执 | 补充引用原稳定检查点、采用正文和结算，不重开原会话或覆盖原状态；下游冲突与投影来源必须经实际证明解除。各迁移按合同顺序独立启用，不能因部分表已存在就宣称闭环可用。 |
 | `095` | `chapter_quality_requests` | 冻结待审正文版本、AI 任务／步骤／尝试和原回复；质量报告仍归 `quality_audit_reports`，请求成功不自动采用修复。 |
 | `096`—`097` | 公共人物能力、`public_character_trials`、`public_character_portrait_events` 及公共人物上下文范围 | 人物档案仍用公共 `cards/card_versions`；试聊和肖像事件是候选／回执，不写书内人物正本。 |
