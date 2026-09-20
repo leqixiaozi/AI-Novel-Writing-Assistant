@@ -12,6 +12,7 @@ export const CUSTOMER_TERMS = Object.freeze({
 export const NEW_DESIGN_PRIMARY_NAV = [
   { key: "home", label: "创作首页", href: "/new-design", end: true },
   { key: "books", label: "我的书籍", href: "/new-design/books" },
+  { key: "comic", label: "漫画工作台 Beta", href: "/new-design/comic" },
   { key: "resources", label: "创作资源", href: "/new-design/resources" },
   { key: "titles", label: "开书前标题", href: "/new-design/resources/titles" },
   { key: "professional", label: "资源工作台", href: "/new-design/resources/professional" },

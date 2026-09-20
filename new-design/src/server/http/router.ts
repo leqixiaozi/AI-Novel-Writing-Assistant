@@ -8,6 +8,7 @@ import {ImagePreparationError} from '../database/imagePreparation';
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
+import {comicProjectsRouter} from './comicProjects';
 import {worldUsageRouter} from './worldUsage';
 import {payoffLedgerRouter} from './payoffLedger';
 import {characterResourcesRouter} from "./characterResources";
@@ -421,6 +422,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   // Visiting a source or home page must never resume research work.
   router.use("/home", homeRouter());
   router.use(bookshelfRouter());
+  router.use(comicProjectsRouter());
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
   router.use(chapterSettlementEditingRouter());

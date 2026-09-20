@@ -173,7 +173,8 @@
     "app/migrations/manual/105_database_model_credentials.sql",
     "app/migrations/manual/106_world_usage_scope.sql",
     "app/migrations/manual/107_payoff_ledger_windows.sql",
-    "app/migrations/manual/108_world_package_archive.sql"
+    "app/migrations/manual/108_world_package_archive.sql",
+    "app/migrations/manual/109_comic_projects.sql"
   ],
   "requiredPrefixes": [
     "bin/",

@@ -13,6 +13,7 @@ import {createChapterQualityApi} from './chapterQuality/api';
 import {createResourceFocusApi} from './characterResources/focus/api';
 import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
 import {createWorldPackagesApi} from './worldPackages/api';
+import {createComicProjectsApi} from './comicProjects/api';
 import {createWorldUsageApi} from './worldUsage/api';
 import type {PayoffLedgerWorkspace,PayoffWindowReceipt,SavePayoffWindowInput} from '../common/payoffLedger';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
@@ -420,6 +421,7 @@ export const newDesignApi = {
   savePayoffWindow:(bookId:string,cardId:string,input:SavePayoffWindowInput)=>request<PayoffWindowReceipt>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/${encodeURIComponent(cardId)}/window`,{method:'PUT',body:JSON.stringify(input)}),
   getPayoffWindowRequest:(bookId:string,idempotencyKey:string)=>request<PayoffWindowReceipt|null>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/window-requests/${encodeURIComponent(idempotencyKey)}`),
  worldPackages:createWorldPackagesApi(request),
+ comicProjects:createComicProjectsApi(request),
  recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
  getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),
