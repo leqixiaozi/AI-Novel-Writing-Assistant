@@ -1,7 +1,7 @@
 import type {BookViewCard,ChapterWritingChapter,PlanningObject} from '../../common/contracts';
 import {LEGACY_PLANNING_FIELDS,type LegacyPlanningPresentation} from '../../common/planningRhythm/stageFields';
 
-export interface WorkflowProgress {adopted:string;ready:boolean;detail:string;}
+export interface WorkflowProgress {adopted:string;ready:boolean|null;detail:string;}
 const filled=(value:unknown)=>typeof value==='string'?value.trim().length>0:typeof value==='number'?Number.isFinite(value)&&value>0:Array.isArray(value)?value.length>0:false;
 function planningProgress(objects:PlanningObject[],presentation:LegacyPlanningPresentation):WorkflowProgress {
  const level=presentation==='story_macro'?'story':presentation==='outline'?'volume':'chapter';
@@ -26,6 +26,6 @@ export function workflowProgress(objects:PlanningObject[],cards:BookViewCard[],c
   planningProgress(objects,'outline'),
   planningProgress(objects,'structured'),
   {adopted:`已采用正文 ${adoptedBody}/${chapters.length} 章`,ready:chapters.length>0&&adoptedBody===chapters.length,detail:chapters.length===0?'先完成章节计划':adoptedBody===chapters.length?'本步就绪':'正文待采用'},
-  {adopted:'检查记录按章节查看',ready:false,detail:'未检查不代表通过；选择章节查看'},
+  {adopted:'检查记录按章节查看',ready:null,detail:'按所选章节读取检查状态'},
  ];
 }

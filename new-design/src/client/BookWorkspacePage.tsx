@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { BookSummary, BookViewKey, CardTypeCategory, CardTypeSummary } from "../common/contracts";
 import { newDesignApi } from "./api";
 import BookShell from "./BookShell";
-import BookViewsPage from "./BookViewsPage";
+import BookViewsPage,{bookViewTitle} from "./BookViewsPage";
 import TypeDesigner from "./TypeDesigner";
 import { BusinessFormWorkspace, type BusinessFormScope } from "./businessForms";
 import InitializeProjectRule from './bookClassification/InitializeProjectRule';
@@ -21,7 +21,7 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   useEffect(()=>{void load().catch((error)=>setMessage(error instanceof Error?error.message:"书籍工作区加载失败。"));},[bookId]);
   if(message)return <div className="nd-shell nd-fatal"><h1>无法打开书籍</h1><p>{message}</p><a className="nd-button nd-button-primary" href="/new-design/books">返回我的书籍</a></div>;
   if(!book)return <div className="nd-shell nd-loading-screen"><div className="nd-loader"/><strong>正在打开书籍空间</strong></div>;
-  if(view==="views")return <BookShell book={book} active="views"><BookViewsPage book={book} initialView={viewKey}/></BookShell>;
+  if(view==="views")return <BookShell book={book} active="views" title={bookViewTitle(viewKey)}><BookViewsPage book={book} initialView={viewKey}/></BookShell>;
   if(view!=="fields") {
     const scope:BusinessFormScope=view==="forms"?"overview":"all";
     const active=view==="forms"?"direction":"materials";

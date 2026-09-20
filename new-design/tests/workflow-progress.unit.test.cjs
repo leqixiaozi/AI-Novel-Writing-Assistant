@@ -23,6 +23,6 @@ test('formal project card, dedicated plan and adopted body have distinct readine
  assert.equal(states[0].ready,true);
  assert.equal(states[1].ready,true);
  assert.equal(states[6].ready,true);
- assert.equal(states[7].ready,false);
- assert.match(states[7].detail,/未检查不代表通过/);
+ assert.equal(states[7].ready,null);
+ assert.match(states[7].detail,/按所选章节/);
 });
