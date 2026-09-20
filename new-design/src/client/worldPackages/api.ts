@@ -1,7 +1,9 @@
-import type {WorldInstallInput,WorldInstallCommit,WorldInstallPreview,WorldInstallReceipt,WorldSyncInput,WorldSyncCommit,WorldSyncPreview,WorldSyncReceipt,WorldSyncWorkspace,PublishedWorldPackage} from '../../common/worldPackages';
+import type {WorldInstallInput,WorldInstallCommit,WorldInstallPreview,WorldInstallReceipt,WorldSyncInput,WorldSyncCommit,WorldSyncPreview,WorldSyncReceipt,WorldSyncWorkspace,WorldCatalogActionInput,WorldCatalogActionReceipt,WorldPackageCatalog} from '../../common/worldPackages';
 type Request=<T>(path:string,init?:RequestInit)=>Promise<T>;
 export function createWorldPackagesApi(request:Request){const e=encodeURIComponent,base=(book:string)=>`/books/${e(book)}`,post=(body:unknown)=>({method:'POST',body:JSON.stringify(body)});return{
- catalog:()=>request<{capability:{installed:boolean;operational:boolean};items:PublishedWorldPackage[]}>('/world-packages/catalog'),
+ catalog:(includeArchived=false)=>request<WorldPackageCatalog>(`/world-packages/catalog${includeArchived?'?includeArchived=true':''}`),
+ availability:(root:string,input:WorldCatalogActionInput)=>request<WorldCatalogActionReceipt>(`/world-packages/catalog/${e(root)}/availability`,post(input)),
+ availabilityOriginal:(root:string,input:WorldCatalogActionInput)=>request<WorldCatalogActionReceipt|null>(`/world-packages/catalog/${e(root)}/original-receipt`,post(input)),
  installFields:(book:string,type:string)=>request<{bookId:string;typeId:string;fields:import('../../common/contracts').FieldDefinition[]}>(`${base(book)}/world-packages/fields/${e(type)}`),
  libraryWorkspace:(book:string,root:string)=>request<import('../../common/worldPackages').WorldLibraryWorkspace>(`${base(book)}/world-library/workspace?rootCardId=${e(root)}`),
  libraryPreview:(book:string,input:import('../../common/worldPackages').WorldLibraryInput)=>request<import('../../common/worldPackages').WorldLibraryPreview>(`${base(book)}/world-library/preview`,post(input)),

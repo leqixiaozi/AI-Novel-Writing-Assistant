@@ -6,6 +6,7 @@ import {readWorldOriginal,writeWorldOriginal} from './receipts';
 import {worldPackageCapability} from './capability';
 import {publishWorldPackageInTransaction} from './publication';
 export {getWorldPackageCatalog,getBookWorldSyncWorkspace,getWorldInstallationFields,getWorldSyncHistory} from './workspace';
+export {changeWorldPackageAvailability,readWorldCatalogActionOriginal} from './availability';
 export {previewWorldSync,saveWorldSync,readWorldSyncOriginal} from './synchronization';
 export {getWorldLibraryWorkspace,previewWorldLibrary,prepareWorldLibrary,previewWorldLibraryPublish,publishWorldLibrary,readWorldLibraryOriginal} from './library';
 export {WorldPackageWriteError} from './receipts';

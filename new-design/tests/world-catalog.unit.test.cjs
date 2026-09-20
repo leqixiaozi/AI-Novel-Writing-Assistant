@@ -96,9 +96,20 @@ function catalogPage(){
  new Function('require','exports',source)(load,exports);
  return exports;
 }
-function renderCatalog(items,requested){
- return renderToStaticMarkup(React.createElement(catalogPage().WorldCatalogContent,{entries:model().buildWorldCatalog(items),requested,operational:true}));
+function renderCatalog(items,requested,options={}){
+ return renderToStaticMarkup(React.createElement(catalogPage().WorldCatalogContent,{entries:model().buildWorldCatalog(items),requested,operational:true,...options}));
 }
+
+test('world sample management clearly separates archive and restore from book import',()=>{
+ const item=packageVersion('first-v1','first',1,'紫霞界','2026-09-20T00:00:00Z');
+ const active=renderCatalog([item],null,{archiveAvailable:true,states:{first:{status:'active',revision:0}},showArchived:false,onAction:()=>{}});
+ assert.match(active,/归档样本/);
+ assert.match(active,/导入为本书独立世界/);
+ const archived=renderCatalog([item],null,{archiveAvailable:true,states:{first:{status:'archived',revision:1}},showArchived:true,onAction:()=>{}});
+ assert.match(archived,/已归档/);
+ assert.match(archived,/恢复样本/);
+ assert.doesNotMatch(archived,/导入为本书独立世界/);
+});
 
 test('public world page exposes published sections and exact version history',()=>{
  const item=packageVersion('first-v2','first',2,'紫霞界','2026-09-20T00:00:00Z');
@@ -116,6 +127,13 @@ test('public world page does not replace an invalid version deep link with the n
  const html=renderCatalog([packageVersion('first-v1','first',1,'紫霞界','2026-09-20T00:00:00Z')],'not-found');
  assert.match(html,/role="alert"/);
  assert.doesNotMatch(html,/aria-label="世界样本详情"/);
+});
+
+test('a hidden archived deep link is not mistaken for an empty public world catalog',()=>{
+ const html=renderCatalog([],'first-v1',{archiveAvailable:true});
+ assert.match(html,/指定的世界版本/);
+ assert.match(html,/查看归档样本/);
+ assert.doesNotMatch(html,/还没有公开世界样本/);
 });
 
 test('public world handoff requires an explicit book and root before starting the existing import flow',()=>{

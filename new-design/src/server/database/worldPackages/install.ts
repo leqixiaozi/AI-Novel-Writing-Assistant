@@ -13,11 +13,14 @@ import {requireWorldPackageCapability} from './capability';
 import {readWorldOriginal,writeWorldOriginal} from './receipts';
 import {previewPackageRelation,createPackageRelation} from './relations';
 import {prepareWorldCard} from './mapping';
+import {requireWorldCatalogActive} from './availability';
 
 async function installationPreview(db:PoolClient,bookId:string,input:WorldInstallInput,lock=false):Promise<WorldInstallPreview>{
  await requireWorldPackageCapability(db);
  const book=assertFound((await db.query("SELECT * FROM new_design.books WHERE id=$1 AND status='active'"+(lock?' FOR SHARE':''),[bookId])).rows[0],'书籍不存在或已归档。');
  const row=assertFound((await db.query('SELECT receipt FROM new_design.world_package_versions WHERE id=$1'+(lock?' FOR SHARE':''),[input.packageId])).rows[0],'所选公共世界包版本不存在。'),published=row.receipt.package as PublishedWorldPackage;
+ if(lock)await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`world-package-root:${published.rootCardId}`]);
+ await requireWorldCatalogActive(db,published.rootCardId);
  const expected=published.frame.cards.map(card=>card.cardId);
  if(input.cards.length!==expected.length||expected.some(id=>!input.cards.some(card=>card.sourceCardId===id)))throw new NewDesignError('请明确映射完整世界包中的每一份资料，未按重名合并或丢弃对象。',422);
  if(input.relations.length!==published.frame.relations.length||published.frame.relations.some(source=>!input.relations.some(item=>item.sourceRelationId===source.relationId)))throw new NewDesignError('请明确映射完整公共关系网络，没有执行部分安装。',422);

@@ -19,6 +19,11 @@ export interface WorldPackageFrame {contract:typeof WORLD_PACKAGE_CONTRACT;rootC
 export interface WorldPackagePreview {input:WorldPackageInput;frame:WorldPackageFrame;previewHash:string;}
 export interface PublishedWorldPackage {id:string;rootCardId:string;rootVersionId:string;version:number;frame:WorldPackageFrame;frameHash:string;createdAt:string;}
 export interface WorldPackageReceipt {requestKey:string;inputHash:string;input:WorldPackageCommit;package:PublishedWorldPackage;repeated:boolean;}
+export const worldCatalogActionSchema=z.object({action:z.enum(['archive','restore']),requestKey:uuid,expectedRevision:z.number().int().nonnegative()}).strict();
+export type WorldCatalogActionInput=z.infer<typeof worldCatalogActionSchema>;
+export interface WorldCatalogActionReceipt {rootCardId:string;status:'active'|'archived';revision:number;requestKey:string;inputHash:string;input:WorldCatalogActionInput&{rootCardId:string};repeated:boolean;}
+export interface WorldCatalogState {status:'active'|'archived';revision:number;}
+export interface WorldPackageCatalog {capability:{installed:boolean;operational:boolean};archiveAvailable:boolean;items:PublishedWorldPackage[];states:Record<string,WorldCatalogState>;}
 
 const values=z.record(fieldKey,z.unknown()).refine(value=>Object.keys(value).length<=500);
 const mapping=z.array(z.object({sourceKey:fieldKey,targetKey:fieldKey,value:z.unknown().refine((value):boolean=>value!==undefined)}).strict().refine(item=>Object.hasOwn(item,'value'))).max(500);
