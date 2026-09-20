@@ -24,12 +24,22 @@ test('a current succeeded report with an open issue enters existing repair flow'
  assert.equal(status.chapterQualityStatus(chapter,[{...receipts[0],status:'stale'},receipts[0]],[]).action,'diagnose');
 });
 
+test('a formally fixed issue remains pending recheck after adopting a new body',()=>{
+ const chapter={chapterDocumentId:'doc',adoptedBodyVersionId:'fixed-body'};
+ const receipts=[{status:'succeeded',input:{bodyVersionId:'original-body'},reportId:'old-report'}];
+ const issues=[{issueId:'fixed-issue',chapterDocumentId:'doc',bodyVersionId:'original-body',status:'fixed',reportStale:true}];
+ const result=status.chapterQualityStatus(chapter,receipts,issues);
+ assert.equal(result.action,'recheck');assert.equal(result.issueId,'fixed-issue');
+ assert.match(result.label,/待复检/);
+});
+
 test('quality page keeps an exact chapter entry and existing repair source',()=>{
  const page=fs.readFileSync(path.join(__dirname,'../src/client/BookViewsPage.tsx'),'utf8');
  const writing=fs.readFileSync(path.join(__dirname,'../src/client/chapterWriting/ChapterWritingPage.tsx'),'utf8');
  assert.match(page,/listChapterQuality\(bookId,chapter\.chapterDocumentId\)/);
  assert.match(page,/selectedCard\.id}\/write\?diagnose=1/);
  assert.match(page,/qualityIssue=\$\{encodeURIComponent\(status\.issueId/);
+ assert.match(page,/status\.action==='recheck'\?<a[^>]+diagnose=1[^>]+>复检本章修复正文/);
  assert.match(page,/views\/quality\?selected=\$\{encodeURIComponent\(selected\.id\)\}/);
  assert.match(writing,/chapter-quality-diagnosis/);
  assert.match(writing,/chapter-quality-repair/);
