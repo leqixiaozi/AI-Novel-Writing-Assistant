@@ -187,8 +187,8 @@ These areas have the highest priority for wiki accumulation:
 
 ## 个人流程与代码域入口
 
-- 开发、分析、复刻及文档任务先按当前会话提供的 `personal-dev-workflow` Skill 判断范围、授权和检查节点；专项 Skill 只在相应场景读取。如另有 Superpowers 规则，二者同时适用；与个人流程或用户当前指令冲突时按后者处理。Skill 路径由当前运行环境提供，不把本机绝对路径写进共享规则。
-- 如有同目录 `AGENTS.local.md`，先按其映射核对本机路径和环境；缺失时只做定向调查，不自动生成配置。项目设计和共享要求不能仅记录在 local。
+- 每项开发、分析、复刻及文档任务开始时，先查同目录 `AGENTS.local.md`，按映射读取 `personal-dev-workflow` Skill，再据此判断范围、授权和检查节点；同一会话已读且未变可复用，无需用户再次点名。专项 Skill 仅在对应场景读取。如另有 Superpowers 规则，二者同时适用；与个人流程或用户当前指令冲突时按后者处理。本机绝对路径只写入 local。
+- `AGENTS.local.md` 缺失或映射失效时，先定向核实已有入口；本任务已授权写文档且位置可写时，核实 Git 忽略和未跟踪后建立本机入口。无写入授权时继续可独立进行的只读工作并说明缺口；项目设计和共享要求不能仅记录在 local。
 - `client/`、`server/`、`shared/` 是旧版业务实现；`new-design/` 是独立新版，按 [新版入口](new-design/AGENTS.md) 处理。`desktop/`、`infra/`、`scripts/` 分别承载桌面壳、基础设施和仓库脚本；文档按任务定向读取 `docs/` 或 `new-design/docs/`。
 - 新版对标任务仅只读参考旧版业务源码和数据；必要的共用页面入口隔离须列出影响范围。两套系统各自使用业务 API、数据库和 AI 执行链，不建立互调。
 - 文档写入按 `project-docs-governance` Skill 原位维护并提交本任务内容；保护已有未提交改动，不把他人的文件纳入提交。讨论、只读审计和规格不自动授权编码或启动服务。

@@ -1,6 +1,6 @@
 # 新设计开发入口
 
-本文件仅适用于 `new-design/`。先遵守仓库根目录 `AGENTS.md`；开发、复刻及文档任务按当前会话提供的 `personal-dev-workflow` Skill 执行，专项按需读取。同目录 `AGENTS.local.md` 如存在，仅用于本机映射，不放宽授权。
+本文件仅适用于 `new-design/`。先遵守仓库根目录 `AGENTS.md`，通过根目录 `AGENTS.local.md` 的映射读取 `personal-dev-workflow` Skill；同一会话已读且未变可复用。再按需读取专项 Skill。同目录 `AGENTS.local.md` 记录新版的本机环境入口，不放宽授权；缺失时按根目录规则处理。
 
 ## 对标与系统边界
 
