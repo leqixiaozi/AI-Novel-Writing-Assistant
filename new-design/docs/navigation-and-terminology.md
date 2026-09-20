@@ -29,43 +29,58 @@
 - 创作首页：`/new-design`
 - 我的书籍：`/new-design/books`
 - 创作资源：`/new-design/resources`
+- 开书前标题：`/new-design/resources/titles`
+- 资源工作台：`/new-design/resources/professional`
 - 研究与分析：`/new-design/research`
+- 知识与参考：`/new-design/knowledge`
+- 运行记录：`/new-design/operations/records`
+- 导演总控台：`/new-design/operations/director`
 - 高级设置：默认收起；当前地址位于 `/new-design/structure/*` 时自动展开
   - 内容类型：`/new-design/structure/card-types`
   - 选项与关联：`/new-design/structure/dictionaries-relations`
   - 创作表单：`/new-design/structure/forms`
   - 开书模板：`/new-design/structure/templates`
   - 上下文管理：`/new-design/structure/context`
+  - 模型设置：`/new-design/structure/models`
   - 运行维护：`/new-design/structure/maintenance`
 
-桌面和移动导航都遵循以上顺序。高级设置开关必须是可聚焦按钮，并通过 `aria-expanded` 暴露展开状态。
+以上是 `src/client/navigation.ts` 的主菜单和高级设置入口；子页面与书内深链仍须按实际路由核对。高级设置开关必须是可聚焦按钮，并通过 `aria-expanded` 暴露展开状态。
 
 ## 书籍任务导航
 
 | 客户入口 | 路由 |
 | --- | --- |
-| 创作概览 | `/new-design/books/:bookId/forms` |
-| 人物 | `/new-design/books/:bookId/views/characters` |
-| 世界设定 | `/new-design/books/:bookId/views/world` |
-| 剧情与事件 | `/new-design/books/:bookId/views/events` |
-| 章节 | `/new-design/books/:bookId/views/chapters` |
-| 线索与伏笔 | `/new-design/books/:bookId/views/clues` |
+| 创作概览 | `/new-design/books/:bookId/overview` |
+| 创作方向 | `/new-design/books/:bookId/setting` |
+| 故事设定 | `/new-design/books/:bookId/story-setting` |
+| 故事规划 | `/new-design/books/:bookId/planning` |
+| 全书编排 | `/new-design/books/:bookId/composition` |
+| 全书导演 | `/new-design/books/:bookId/director` |
+| 世界设定 | `/new-design/books/:bookId/world` |
+| 人物维护 | `/new-design/books/:bookId/characters` |
+| 人物对话模拟 | `/new-design/books/:bookId/character-dialogue` |
+| 视觉资产 | `/new-design/books/:bookId/visual-assets` |
+| 章节创作 | `/new-design/books/:bookId/writing` |
+| 多维视图 | `/new-design/books/:bookId/views/chapters` |
+| 专业图形 | `/new-design/books/:bookId/professional-views` |
 | 本书资料 | `/new-design/books/:bookId/cards` |
+| 知识与参考 | `/new-design/books/:bookId/knowledge` |
 | 本书设置 | `/new-design/books/:bookId/fields` |
+| 整书历史 | `/new-design/books/:bookId/history` |
 | 完本与导出 | `/new-design/books/:bookId/completion` |
 
-`/new-design/books/:bookId/forms` 继续作为开书后的默认入口。原有 `/cards`、`/fields`、`/views/*` 深链保持不变，因此旧书签和刷新不会失效。除本书设置外，上述入口共用同一套业务表单外壳，仅默认资料范围不同；解析与保存合同见 `business-form-shell.md`。
+书内八步工作流由 `src/client/bookNavigation/workflow.ts` 按页面和查询参数定位，辅助入口不应被误算成八步中的新阶段。`/new-design/books/:bookId/forms` 仍保留兼容路由；直接打开书籍根路径进入概览。`/cards`、`/fields`、`/views/*` 等深链按实际路由保留。资料表单的解析与保存合同见 [业务表单外壳](business-form-shell.md)；页面外观与操作是否复刻旧版，按 [逐页施工记录](legacy-page-replication-progress.md) 核对，不能由导航表判定完成。
 
 ## 资源边界
 
-“创作资源”只保存可跨书复用的题材策略、推进方式、写法、质量规则和 AI 指令。人物、世界、剧情、章节、线索等正式小说内容必须进入某本书的“本书资料”。公共资源加入书籍后形成独立快照，不会随公共版本变化静默覆盖作品。
+“创作资源”保存可跨书复用的策略、写法、质量规则、AI 指令、标题候选、公共人物和公共世界包等来源。一本书正式使用的人物、世界、剧情、章节与线索有本书独立身份；从公共来源安装或采用时锁定确切版本和来源映射，不会随公共版本变化静默覆盖作品。资料、规划、正文、事实与状态各按 [数据模型](data-model.md) 的正本归属保存，页面统一用作者熟悉的业务名称呈现。
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/001_card_kernel.sql` 至 `migrations/045_planning_ai_candidates.sql`，数据说明见 `docs/data-model.md`。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/`；普通启动的注册清单到 `083_character_dialogue.sql`，后续独立安装的手动迁移到 `105_database_model_credentials.sql`。数据归属、手动启用边界及权威清单见 [新设计数据模型](data-model.md)。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 
-## 当前未开放
+## 页面与数据验收边界
 
-添加信息、关联资料编辑器与智能视图均使用真实 PostgreSQL 数据；三章生产闭环仍不属于本批实现，不能以占位菜单伪装为可用功能。普通创作页使用已发布规格生成统一动态表单，内容规格设计仍只在高级设置中完成。
+主菜单、八步工作流、辅助入口及其子页面要分别核对可见状态和操作。入口可打开、路由存在或 PostgreSQL 表已建，不等于保存、采用、恢复、错误处理及旧版外观已验收。逐页状态与尚未验证的动作以 [逐页施工记录](legacy-page-replication-progress.md) 和实际页面证据为准；普通创作页继续按已发布规格显示类型化表单，内容规格设计在高级设置中完成。
