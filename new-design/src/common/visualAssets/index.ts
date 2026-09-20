@@ -2,7 +2,12 @@ import {z} from "zod";
 export const VISUAL_MAX_BYTES=10*1024*1024;
 export const VISUAL_MIME_TYPES=["image/png","image/jpeg","image/webp","image/gif"] as const;
 export const visualRoute=(bookId:string)=>`/new-design/books/${bookId}/visual-assets`;
+export const visualCatalogAssetRoute=(bookId:string,assetId:string,versionId:string)=>`${visualRoute(encodeURIComponent(bookId))}?asset=${encodeURIComponent(assetId)}&version=${encodeURIComponent(versionId)}`;
 export interface VisualVersion {id:string;assetId:string;version:number;title:string;description:string;filename:string;checksum:string;byteSize:number;mimeType:string;integrity:"pending"|"verified"|"missing"|"corrupt";readable:boolean;createdAt:string;}
+export const visualCatalogQuerySchema=z.object({query:z.string().trim().max(120).default(''),kind:z.enum(['all','cover','illustration']).default('all'),source:z.enum(['all','upload','ai_generated','other']).default('all'),offset:z.union([z.number().int().nonnegative(),z.string().regex(/^(0|[1-9]\d*)$/).transform(Number)]).default(0),limit:z.union([z.number().int().min(1).max(100),z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().min(1).max(100))]).default(30)}).strict();
+export type VisualCatalogQuery=z.infer<typeof visualCatalogQuerySchema>;
+export interface VisualCatalogItem {assetId:string;bookId:string;bookName:string;title:string;kind:'cover'|'illustration';sourceKind:string;adopted:boolean;versionCount:number;version:VisualVersion;updatedAt:string;}
+export interface VisualCatalogPage {items:VisualCatalogItem[];total:number;nextOffset:number|null;}
 export interface VisualAsset {id:string;title:string;kind:"cover"|"illustration";revision:number;status:"active"|"archived";currentVersionId:string|null;versions:VisualVersion[];}
 export interface VisualOwner {kind:"book"|"card_version"|"chapter_body_version";stableId:string;versionId:string;title:string;}
 export interface VisualMount {id:string;assetId:string;versionId:string;ownerKind:VisualOwner["kind"];ownerStableId:string;ownerVersionId:string;label:string;status:"active"|"ended";}

@@ -14,6 +14,8 @@ import NewDesignLanding from "./NewDesignLanding";
 import PromptComponentsPage from "./PromptComponentsPage";
 import PromptCompositionPage from "./promptComposition";
 import ResourceCenterPage from "./ResourceCenterPage";
+import WorldCatalogPage from "./worldCatalog/WorldCatalogPage";
+import VisualCatalogPage from "./visualCatalog/VisualCatalogPage";
 import CharacterImportPage,{PublicCharacterLibrary} from './characterImport';
 import ResourceTreesPage from "./ResourceTreesPage";
 import ResearchRecordsPage from "./ResearchRecordsPage";
@@ -72,6 +74,8 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   const knowledgeMatch=path.match(/^\/new-design\/books\/([^/]+)\/knowledge$/);
   if(knowledgeMatch)return <KnowledgeReferencePage bookId={decodeURIComponent(knowledgeMatch[1])}/>;
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
+  if(path==="/new-design/resources/worlds")return <WorldCatalogPage/>;
+  if(path==="/new-design/resources/visual-assets")return <VisualCatalogPage/>;
   if(path==="/new-design/resources/characters")return <CharacterImportPage/>;
   if(path==="/new-design/resources/characters/library")return <PublicCharacterLibrary/>;
   if(path==="/new-design/resources/characters/workshop")return <PublicCharacterWorkshop/>;

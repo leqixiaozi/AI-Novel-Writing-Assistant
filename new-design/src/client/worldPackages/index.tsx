@@ -9,6 +9,7 @@ import WorldImport from './Import';
 import WorldLibrary from './Library';
 import SyncChanges,{type AddedCards,type RelationChoices} from './SyncChanges';
 import WorldSource,{type WorldSourceMode} from './Source';
+import {worldPackageDeepLink} from '../worldCatalog/model';
 import {worldSyncDraftSchema,type FieldSelection} from './draft';
 import {useWorldCommand,type WorldResult,type WorldCommand} from './command';
 import './worldPackages.css';
@@ -22,7 +23,8 @@ export default function WorldPackages({book,rootCardId,onState,onCreate,onGenera
  const [libraryRevision,setLibraryRevision]=useState(0),[libraryDirty,setLibraryDirty]=useState(false);
  const [newCards,setNewCards]=useState<AddedCards>([]),[relationChoices,setRelationChoices]=useState<RelationChoices>([]);
  const [olderHistory,setOlderHistory]=useState<WorldSyncReceipt[]>([]),[historyCursor,setHistoryCursor]=useState<number|null>(null);
- const [sourceMode,setSourceMode]=useState<WorldSourceMode>('generate');
+ const deepLink=worldPackageDeepLink(location.search);
+ const [sourceMode,setSourceMode]=useState<WorldSourceMode>(()=>deepLink.kind==='none'?'generate':'import');
  const [draftBlocked,setDraftBlocked]=useState(false);
  const currentScope=useRef(`${book.id}:${rootCardId}`);currentScope.current=`${book.id}:${rootCardId}`;
  const generation=useRef(0),importDiscard=useRef<()=>boolean>(()=>true),libraryDiscard=useRef<()=>boolean>(()=>true),draftKey=`new-design:world-sync-draft:${book.id}:${rootCardId}`;
@@ -92,7 +94,7 @@ export default function WorldPackages({book,rootCardId,onState,onCreate,onGenera
  {workspace.history.length>0&&<details><summary>同步历史</summary>{[...workspace.history,...olderHistory].map(receipt=><details key={receipt.id}><summary>{operations[receipt.operation]} · {new Date(receipt.createdAt).toLocaleString()}</summary><div className="nd-world-history-row"><p>{selectionSummary(receipt.input)}</p>{receipt.publishedPackageId&&<p>已生成公共固定版本，可由其他书籍主动选择并拉取。</p>}{receipt.operation==='toggle'&&<p>{receipt.input.syncEnabled?'已保留手动同步来源。':'已作为独立副本继续使用。'}</p>}<a href={receipt.sourceRoute}>打开来源世界</a><details><summary>核对完整选择</summary><pre>{JSON.stringify(receipt.input,null,2)}</pre></details>{receipt.operation==='push'&&receipt.candidateId&&<button className="nd-button" disabled={disabled} onClick={()=>void review('publish',receipt.candidateId)}>核对此次推送候选</button>}</div></details>)}{historyCursor!==null&&<button className="nd-button" disabled={disabled} onClick={()=>void moreHistory()}>读取更早记录</button>}</details>}
 </section>}
  {preview&&<section className="nd-world-confirm"><h4>确认{operations[preview.input.operation]}</h4>{preview.warnings.map(warning=><p key={warning}>{warning}</p>)}<p>{preview.newTargets.length} 份新增资料 · {preview.selectedRelations.length} 项关系选择</p>{preview.newTargets.map(target=><details key={target.sourceCardId}><summary>新增 · {preview.input.newCards?.find(card=>card.sourceCardId===target.sourceCardId)?.title}</summary><pre>{JSON.stringify(target.values,null,2)}</pre></details>)}{preview.selectedRelations.map(choice=><details key={choice.sourceRelationId}><summary>{choice.decision==='keep'?'保留':choice.decision==='detach'?'移除':'采用'}关系</summary><pre>{JSON.stringify(choice.properties,null,2)}</pre></details>)}{preview.changes.map(change=><details key={change.cardId}><summary>{change.title}</summary><pre>{JSON.stringify(change.values,null,2)}</pre></details>)}<div className="nd-row-actions"><button className="nd-button" disabled={disabled} onClick={()=>setPreview(null)}>取消，保留选择</button><button className="nd-button nd-button-primary" disabled={disabled} onClick={()=>void recovery.perform({kind:'sync',bookId:book.id,input:{...preview.input,previewHash:preview.previewHash}})}>确认{operations[preview.input.operation]}</button></div></section>}
- {operational&&!workspace&&<WorldLibrary bookId={book.id} rootCardId={rootCardId} locked={disabled} restore={recovery.pending?.kind==='libraryPrepare'?recovery.pending.input:undefined} revision={libraryRevision} onState={receiveLibrary} onConfirm={recovery.perform}/>} <WorldSource mode={sourceMode} disabled={disabled} onMode={setSourceMode} onCreate={onCreate} onGenerate={onGenerate}/> <div hidden={sourceMode!=='import'}>{operational&&<WorldImport book={book} rootCardId={rootCardId} restore={recovery.pending?.kind==='install'?recovery.pending.input.input:undefined} packages={packages} locked={disabled} onState={receiveImport} onConfirm={recovery.perform}/>}</div></div>;
+ {operational&&!workspace&&<WorldLibrary bookId={book.id} rootCardId={rootCardId} locked={disabled} restore={recovery.pending?.kind==='libraryPrepare'?recovery.pending.input:undefined} revision={libraryRevision} onState={receiveLibrary} onConfirm={recovery.perform}/>} <WorldSource mode={sourceMode} disabled={disabled} onMode={setSourceMode} onCreate={onCreate} onGenerate={onGenerate}/> <div hidden={sourceMode!=='import'}>{operational&&<WorldImport book={book} rootCardId={rootCardId} restore={recovery.pending?.kind==='install'?recovery.pending.input.input:undefined} initialPackageId={deepLink.kind==='selected'?deepLink.packageId:undefined} invalidLink={deepLink.kind==='invalid'} packages={packages} locked={disabled} onState={receiveImport} onConfirm={recovery.perform}/>}</div></div>;
 }
 
 

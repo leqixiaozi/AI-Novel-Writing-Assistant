@@ -38,7 +38,7 @@ import {PROFESSIONAL_ROUTE,type ProfessionalCatalog,type ProfessionalCommand,typ
 import type {BookCompositionWorkspace,BookCompositionOrderInput,BookCompositionOrderPreview,BookCompositionOrderSaveInput,BookCompositionOrderReceipt,ChapterCompositionWriteReceipt} from "../common/bookComposition";
 import type {DirectorWorkspace,DirectorRun,DirectorCreateInput,DirectorCommand,DirectorReceipt} from "../common/productionDirector";
 import type {WorldCharacterQuery,WorldCharacterMaintenanceWorkspace} from "../common/worldCharacterMaintenance";
-import type {VisualWorkspace,VisualUploadInput,VisualCommand,VisualPreviewInput,VisualImpactPreview,VisualReceipt} from "../common/visualAssets";
+import type {VisualCatalogPage,VisualCatalogQuery,VisualWorkspace,VisualUploadInput,VisualCommand,VisualPreviewInput,VisualImpactPreview,VisualReceipt} from "../common/visualAssets";
 import type {AuthorTimelineWorkspace,AuthorTimelinePreviewInput,AuthorTimelinePreview,AuthorTimelineSaveInput,AuthorTimelineReceipt} from "../common/bookComposition/timeline";
 import type {SavedChapterWritingReply} from '../common/productionDirector';
 import type {
@@ -484,6 +484,7 @@ export const newDesignApi = {
   controlDirectorRun:(bookId:string,id:string,input:DirectorCommand)=>request<DirectorReceipt>(`/books/${encodeURIComponent(bookId)}/director/runs/${encodeURIComponent(id)}/commands`,{method:'POST',body:JSON.stringify(input)}),
   getWorldCharacterMaintenanceWorkspace:(bookId:string,input:WorldCharacterQuery)=>request<WorldCharacterMaintenanceWorkspace>(`/books/${encodeURIComponent(bookId)}/world-character/workspace?${new URLSearchParams({mode:input.mode,...(input.focusCardId?{focusCardId:input.focusCardId}:{})})}`),
   getVisualWorkspace:(bookId:string)=>request<VisualWorkspace>(`/books/${encodeURIComponent(bookId)}/visual-assets`),
+  getVisualCatalog:(input:VisualCatalogQuery)=>request<VisualCatalogPage>(`/visual-assets/catalog?${new URLSearchParams({query:input.query,kind:input.kind,source:input.source,offset:String(input.offset),limit:String(input.limit)})}`),
   uploadVisualAsset:(input:VisualUploadInput)=>request<VisualReceipt>("/visual-assets/uploads",{method:'POST',body:JSON.stringify(input)}),
   executeVisualCommand:(input:VisualCommand)=>request<VisualReceipt>("/visual-assets/commands",{method:'POST',body:JSON.stringify(input)}),
   previewVisualChange:(input:VisualPreviewInput)=>request<VisualImpactPreview>("/visual-assets/previews",{method:'POST',body:JSON.stringify(input)}),

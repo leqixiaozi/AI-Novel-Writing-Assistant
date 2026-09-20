@@ -1,0 +1,25 @@
+.nd-world-catalog{padding:20px 28px;min-width:0}
+.nd-world-catalog-layout{display:grid;grid-template-columns:minmax(220px,270px) minmax(0,1fr);gap:28px;margin-top:20px}
+.nd-world-catalog-index{min-width:0;border-right:1px solid var(--nd-line);padding-right:20px}
+.nd-world-catalog-index h2{font-size:15px;margin:0 0 14px}
+.nd-world-catalog-index article{padding:12px 0;border-top:1px solid var(--nd-line);display:grid;gap:5px}
+.nd-world-catalog-index article strong,.nd-world-catalog-index article small{overflow-wrap:anywhere}
+.nd-world-catalog-index article small{color:var(--nd-muted);font-size:12px}
+.nd-world-catalog-index article div{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.nd-world-catalog-index article a{font-size:12px;padding:5px 8px;border-radius:4px}
+.nd-world-catalog-index article a[aria-current="page"]{background:color-mix(in srgb,var(--nd-accent) 10%,transparent);color:var(--nd-accent)}
+.nd-world-catalog-detail{min-width:0}
+.nd-world-catalog-detail header h2{margin:4px 0}
+.nd-world-catalog-detail>section{padding:16px 0;border-top:1px solid var(--nd-line)}
+.nd-world-catalog-detail h3{font-size:14px;margin:0 0 10px}
+.nd-world-catalog-detail details{padding:8px 0}
+.nd-world-catalog-detail summary{cursor:pointer;font-weight:600}
+.nd-world-catalog-detail dl{display:grid;gap:8px;margin:10px 0}
+.nd-world-catalog-detail dl div{display:grid;grid-template-columns:minmax(90px,160px) minmax(0,1fr);gap:12px}
+.nd-world-catalog-detail dt{color:var(--nd-muted)}
+.nd-world-catalog-detail dd{margin:0;overflow-wrap:anywhere}
+.nd-world-catalog-import{padding:18px 0;border-top:1px solid var(--nd-line)}
+.nd-world-catalog-import label{display:grid;gap:6px;max-width:320px}
+.nd-world-catalog-import select{min-height:38px}
+.nd-world-catalog-targets{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+@media(max-width:760px){.nd-world-catalog{padding:16px}.nd-world-catalog-layout{grid-template-columns:minmax(0,1fr);gap:16px}.nd-world-catalog-index{border-right:0;border-bottom:1px solid var(--nd-line);padding:0 0 16px}}

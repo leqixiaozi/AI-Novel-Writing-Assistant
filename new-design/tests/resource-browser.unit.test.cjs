@@ -32,6 +32,12 @@ test('prompt and research previews cannot use strategy write path',()=>{
  assert.equal(api.findResourceSelection(nodes,'card:prompt').editable,false);
  assert.equal(api.findResourceSelection(nodes,'card:signal').editable,false);
 });
+test('public worlds can be opened from the independent resource catalog',()=>{
+ const nodes=api.buildResourceCatalog(empty());
+ const entry=api.findResourceSelection(nodes,'public-world-library');
+ assert.equal(entry.kind,'category');
+ assert.equal(entry.href,'/new-design/resources/worlds');
+});
 test('resource organization uses the real strategy space and does not merge book data',()=>{
  const input=empty();input.books=[{id:'book-one',name:'守脉者',cardCount:24}];const nodes=api.buildResourceCatalog(input);
  assert.equal(api.findResourceSelection(nodes,'organize:strategy:groups').spaceId,'60000000-0000-4000-8000-000000000001');

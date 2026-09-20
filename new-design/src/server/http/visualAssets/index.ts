@@ -1,7 +1,8 @@
 import {Router,type NextFunction,type Request,type Response} from "express";
 import {z} from "zod";
-import {getVisualWorkspace,saveVisualUpload,executeVisualCommand,previewVisualChange,readVisualReceipt,readVisualPreviewByKey,getVisualImage,VisualSourceError} from "../../database/visualAssets";
+import {getVisualWorkspace,getVisualCatalog,saveVisualUpload,executeVisualCommand,previewVisualChange,readVisualReceipt,readVisualPreviewByKey,getVisualImage,VisualSourceError} from "../../database/visualAssets";
 import {NewDesignError} from "../../domain/errors";
+import {visualCatalogQuerySchema} from "../../../common/visualAssets";
 
 const uuid=z.string().uuid(),key=z.string().trim().min(8).max(160);
 const rawBook=(request:Request)=>typeof request.params.bookId==="string"?request.params.bookId:request.body&&typeof request.body.bookId==="string"?request.body.bookId:"";
@@ -19,6 +20,9 @@ export function visualAssetsRouter():Router{
    next(failure);
   });
  };
+ router.get("/visual-assets/catalog",(req,res,next)=>{
+  void Promise.resolve().then(()=>getVisualCatalog(visualCatalogQuerySchema.parse(req.query))).then(data=>res.json({success:true,data})).catch(error=>next(error instanceof NewDesignError?error:error instanceof z.ZodError?new NewDesignError('视觉资源筛选条件无效，请调整后重试。',422):new NewDesignError('视觉资源目录暂未读取，请稍后重试。',503)));
+ });
  router.get("/books/:bookId/visual-assets",(req,res,next)=>run(req,res,next,"读取本书原图片目录",()=>getVisualWorkspace(uuid.parse(String(req.params.bookId)))));
  router.post("/visual-assets/uploads",(req,res,next)=>run(req,res,next,"保存本地图片候选版本",()=>saveVisualUpload(req.body)));
  router.post("/visual-assets/commands",(req,res,next)=>run(req,res,next,"保存图片说明、明确采用、绑定或归档",()=>executeVisualCommand(req.body)));
