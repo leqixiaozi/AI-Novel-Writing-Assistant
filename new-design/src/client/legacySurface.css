@@ -47,6 +47,7 @@
 .nd-legacy-surface .nd-quality-repair h3{font-size:14px;margin:0}
 .nd-legacy-surface .nd-quality-repair ul{list-style:none;padding:0;margin:12px 0;display:grid;gap:12px}
 .nd-legacy-surface .nd-quality-repair li{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--nd-line);border-radius:6px}
+.nd-legacy-surface .nd-quality-repair li.is-targeted{border-color:var(--nd-accent);background:var(--nd-paper)}
 .nd-legacy-surface .nd-quality-repair :is(p,small){font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .nd-legacy-surface .nd-stage-overview{display:grid;gap:12px;padding:16px 0;border-block:1px solid var(--nd-line);min-width:0}
 .nd-legacy-surface .nd-stage-overview header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
