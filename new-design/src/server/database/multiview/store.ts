@@ -24,7 +24,7 @@ function mapQuality(row:Row):BookInsightQualityItem{
 }
 
 async function readChapters(client:PoolClient,bookId:string):Promise<BookInsightChapter[]>{
-  const rows=await client.query(`SELECT document.id AS chapter_document_id,document.chapter_card_id,document.title,document.logical_order,document.revision AS document_revision,document.adopted_version_id,body.version AS adopted_body_version,document.updated_at,
+  const rows=await client.query(`SELECT document.id AS chapter_document_id,document.chapter_card_id,document.title,document.logical_order,document.revision AS document_revision,document.adopted_version_id AS adopted_body_version_id,body.version AS adopted_body_version,document.updated_at,
     (SELECT count(*) FROM new_design.chapter_body_versions candidate WHERE candidate.chapter_document_id=document.id AND candidate.archived_at IS NULL) AS candidate_count,
     stable.id AS stable_checkpoint_id,stale.id AS stale_checkpoint_id,
     (SELECT count(DISTINCT issue.id) FROM new_design.quality_report_body_versions binding JOIN new_design.quality_audit_reports report ON report.id=binding.report_id AND report.stale_at IS NULL JOIN new_design.quality_issues issue ON issue.report_id=report.id WHERE binding.chapter_document_id=document.id AND issue.current_status IN ('open','acknowledged','deferred','fix_proposed','fixed')) AS open_issue_count,

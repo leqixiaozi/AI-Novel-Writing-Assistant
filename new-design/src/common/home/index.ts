@@ -36,6 +36,7 @@ export interface HomeBookFact {
   pendingChanges: number;
   openQualityIssues: number;
   staleResources: number;
+  pendingDependencyReviews: number;
   runningTasks: number;
   queuedTasks: number;
   waitingTasks: number;

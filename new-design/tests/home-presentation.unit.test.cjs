@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { homeTotals, selectHomeBook, homePrimaryCover, homeBookAction, homeDraftAction, homeStages } = require('../dist/common/home/presentation');
+const { homeTotals, selectHomeBook, homePrimaryCover, homeBookAction, homeDraftAction, homeStages, homeJourneyMetric } = require('../dist/common/home/presentation');
 const { projectHomeBook } = require('../dist/server/database/home');
 const book = (patch = {}) => ({ ...projectHomeBook({ id: 'book-a', name: '守脉者', created_at: '2026-09-01', updated_at: '2026-09-17' }), ...patch });
 const run = (patch = {}) => ({ id: 'run-a', status: 'completed', leaseExpired: false, chapterCount: 6, savedCandidateCount: 6, ...patch });
@@ -41,6 +41,24 @@ test('adopted content and stable content are independent evidence', () => {
   assert.equal(stages[4].evidenced, true);
   assert.equal(stages[5].evidenced, false);
   assert.match(stages[5].detail, /0 章已稳定.*3 项待处理/);
+});
+test('only pending manual source reviews count as author attention', () => {
+  const automatic = book({ staleResources: 15, pendingDependencyReviews: 0, writableChapterPlanCount: 13 });
+  assert.equal(homeTotals({ books: [automatic] }).attention, 0);
+  assert.equal(homeBookAction(automatic).href, '/new-design/books/book-a/writing');
+  const item = book({ staleResources: 15, pendingDependencyReviews: 15, writableChapterPlanCount: 13 });
+  assert.equal(homeTotals({ books: [item] }).attention, 1);
+  assert.equal(selectHomeBook([item]).id, item.id);
+  const action = homeBookAction(item);
+  assert.equal(action.tone, 'attention');
+  assert.equal(action.href, '/new-design/books/book-a/dependency-review');
+  assert.match(action.title, /来源/);
+});
+test('a book with only a few chapters never presents touched stages as full-book completion', () => {
+  const metric = homeJourneyMetric(book({ storyPlanCount: 1, worldCount: 1, characterCount: 2, volumePlanCount: 1, adoptedChapterPlanCount: 4, writtenChapterCount: 3, stableChapterCount: 3 }));
+  assert.equal(metric.value, '6/6');
+  assert.equal(metric.caption, '已开展环节');
+  assert.equal(metric.trackPercent, 100);
 });
 test('draft recovery retains session and selection tie breaks deterministically', () => {
   assert.equal(homeDraftAction({ id: 'draft-a', status: 'waiting_direction' }).href, '/new-design/books/new?session=draft-a');

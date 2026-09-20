@@ -21,7 +21,7 @@ const counts = {
   adoptedChapterPlanCount: "adopted_chapter_plan_count", writableChapterPlanCount: "writable_chapter_plan_count",
   writtenChapterCount: "written_chapter_count", stableChapterCount: "stable_chapter_count",
   pendingFacts: "pending_facts", pendingChanges: "pending_changes", openQualityIssues: "open_quality_issues",
-  staleResources: "stale_resources", runningTasks: "running_tasks", queuedTasks: "queued_tasks", waitingTasks: "waiting_tasks",
+  staleResources: "stale_resources", pendingDependencyReviews: "pending_dependency_reviews", runningTasks: "running_tasks", queuedTasks: "queued_tasks", waitingTasks: "waiting_tasks",
 } as const;
 
 export function projectHomeBook(row: Row): HomeBookFact {

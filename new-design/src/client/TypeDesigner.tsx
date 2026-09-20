@@ -103,16 +103,17 @@ export default function TypeDesigner({ selected, onSaved, spaceId = SYSTEM_SPACE
   const [dictionaries,setDictionaries]=useState<DictionarySummary[]>([]),[semantics,setSemantics]=useState<StandardFieldSemantic[]>([]),[dimensions,setDimensions]=useState<TagDimension[]>([]),[tagBindings,setTagBindings]=useState<CardTypeTagBinding[]>([]),[dimensionId,setDimensionId]=useState("");
 
   useEffect(() => {
-    if (selection.current === selected?.id && selected?.id) return;
-    selection.current = selected?.id;
-    setDraft(selected ?? blankType(spaceId));
-    baseline.current = selected ?? blankType(spaceId);
-    setMessage(null);
-    setFailure(null);
-    setIssueLocations([]);
-    setConfirmedWriteStep(null);
-    setServerComparison(null);
-    pendingWrite.current = null;
+    if (selection.current !== selected?.id || !selected?.id) {
+      selection.current = selected?.id;
+      setDraft(selected ?? blankType(spaceId));
+      baseline.current = selected ?? blankType(spaceId);
+      setMessage(null);
+      setFailure(null);
+      setIssueLocations([]);
+      setConfirmedWriteStep(null);
+      setServerComparison(null);
+      pendingWrite.current = null;
+    }
     if (!selected?.id) {
       setVersions([]);
       setReadErrors(current=>{const next={...current};delete next.versions;delete next.tags;return next;});

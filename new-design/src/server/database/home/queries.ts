@@ -62,6 +62,7 @@ fact_counts AS (SELECT book_id,count(*) pending_facts FROM new_design.canonical_
 change_counts AS (SELECT session.book_id,count(*) pending_changes FROM new_design.chapter_settlement_items item JOIN new_design.chapter_adoption_sessions session ON session.id=item.session_id WHERE item.decision IN ('pending','defer') GROUP BY session.book_id),
 issue_counts AS (SELECT book_id,count(*) open_quality_issues FROM new_design.quality_issues WHERE current_status IN ('open','acknowledged','deferred','fix_proposed') GROUP BY book_id),
 stale_counts AS (SELECT book_id,count(*) stale_resources FROM new_design.dependency_resource_states WHERE state IN ('stale','invalid','needs_review','recompute_pending','recomputing') GROUP BY book_id),
+manual_review_counts AS (SELECT book_id,count(*) pending_dependency_reviews FROM new_design.dependency_recompute_requests WHERE status='pending' AND strategy_key='manual_review' GROUP BY book_id),
 task_counts AS (SELECT book_id,count(*) FILTER(WHERE status='running') running_tasks,count(*) FILTER(WHERE status IN ('queued','retry_scheduled')) queued_tasks,count(*) FILTER(WHERE status IN ('waiting_approval','paused')) waiting_tasks FROM new_design.ai_tasks GROUP BY book_id),
 latest_tasks AS (SELECT DISTINCT ON (book_id) book_id,id,status,source_route,updated_at FROM new_design.ai_tasks ORDER BY book_id,updated_at DESC,id DESC),
 latest_directors AS (SELECT DISTINCT ON (book_id) book_id,id,status,lease_expires_at FROM new_design.production_director_runs ORDER BY book_id,created_at DESC,id DESC),
@@ -70,7 +71,7 @@ director_counts AS (SELECT director.id,count(chapter.chapter_card_id) chapter_co
  LEFT JOIN new_design.chapter_writing_requests request ON request.id=chapter.current_request_id AND request.book_id=director.book_id GROUP BY director.id)
 SELECT book.*,cards.card_count,cards.character_count,cards.world_count,fields.required_field_count,fields.filled_required_field_count,
  plans.story_plan_count,plans.volume_plan_count,plans.chapter_plan_count,plans.adopted_chapter_plan_count,writable.writable_chapter_plan_count,
- bodies.written_chapter_count,bodies.stable_chapter_count,facts.pending_facts,changes.pending_changes,issues.open_quality_issues,stale.stale_resources,
+ bodies.written_chapter_count,bodies.stable_chapter_count,facts.pending_facts,changes.pending_changes,issues.open_quality_issues,stale.stale_resources,manual_reviews.pending_dependency_reviews,
  tasks.running_tasks,tasks.queued_tasks,tasks.waiting_tasks,
  task.id task_id,task.status task_status,task.source_route task_source_route,task.updated_at task_updated_at,
  director.id director_id,director.status director_status,
@@ -81,7 +82,7 @@ LEFT JOIN card_counts cards ON cards.book_id=book.id LEFT JOIN field_counts fiel
 LEFT JOIN plan_counts plans ON plans.book_id=book.id LEFT JOIN writable_counts writable ON writable.book_id=book.id
 LEFT JOIN body_counts bodies ON bodies.book_id=book.id LEFT JOIN fact_counts facts ON facts.book_id=book.id
 LEFT JOIN change_counts changes ON changes.book_id=book.id LEFT JOIN issue_counts issues ON issues.book_id=book.id
-LEFT JOIN stale_counts stale ON stale.book_id=book.id LEFT JOIN task_counts tasks ON tasks.book_id=book.id
+LEFT JOIN stale_counts stale ON stale.book_id=book.id LEFT JOIN manual_review_counts manual_reviews ON manual_reviews.book_id=book.id LEFT JOIN task_counts tasks ON tasks.book_id=book.id
 LEFT JOIN latest_tasks task ON task.book_id=book.id LEFT JOIN latest_directors director ON director.book_id=book.id
 LEFT JOIN director_counts ON director_counts.id=director.id ORDER BY book.updated_at DESC,book.id DESC`;
 

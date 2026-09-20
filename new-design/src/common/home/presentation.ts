@@ -4,7 +4,7 @@ import type { VisualWorkspace } from "../visualAssets";
 export interface HomeAction { title: string; reason: string; label: string; href: string; tone: "normal" | "attention" | "running"; }
 const path = (book: HomeBookFact, page: string) => `/new-design/books/${encodeURIComponent(book.id)}/${page}`;
 export const hasLiveWork = (book: HomeBookFact) => book.runningTasks + book.queuedTasks > 0 || (book.latestDirector?.status === "running" && !book.latestDirector.leaseExpired);
-export const needsConfirmation = (book: HomeBookFact) => book.waitingTasks > 0 || book.pendingFacts + book.pendingChanges > 0 || ["paused", "waiting_recovery"].includes(book.latestDirector?.status ?? "") || Boolean(book.latestDirector?.leaseExpired);
+export const needsConfirmation = (book: HomeBookFact) => book.waitingTasks > 0 || book.pendingFacts + book.pendingChanges + book.pendingDependencyReviews > 0 || ["paused", "waiting_recovery"].includes(book.latestDirector?.status ?? "") || Boolean(book.latestDirector?.leaseExpired);
 const directorRoute = (book: HomeBookFact) => `${path(book, "director")}${book.latestDirector ? `?run=${encodeURIComponent(book.latestDirector.id)}` : ""}`;
 
 /** Deterministic display priority over saved workflow states, not AI intent inference. */
@@ -41,6 +41,7 @@ export function homeBookAction(book: HomeBookFact): HomeAction {
   if (director?.status === "paused") return { title: "确认后继续章节创作", reason: "本次创作已暂停。打开原章节范围，查看停在哪里，再决定下一步。", label: "打开暂停的创作", href: directorRoute(book), tone: "attention" };
   if (book.pendingChanges + book.pendingFacts > 0) return { title: "确认本次创作留下的变化", reason: "正文带来的设定变化仍需确认，确认后的事实才能成为后续创作依据。", label: "审阅章节与变化", href: path(book, "writing"), tone: "attention" };
   if (book.waitingTasks > 0) return { title: "查看等待确认的创作结果", reason: "查看本书运行记录和原来源，再确认候选或阶段结果。", label: "查看本书待办", href: path(book, "overview"), tone: "attention" };
+  if (book.pendingDependencyReviews > 0) return { title: "复核变化的创作来源", reason: `本书有 ${book.pendingDependencyReviews} 项来源等待手动复核；先核对原变化，再决定是否保留旧来源或生成新版本。`, label: "核对来源变化", href: path(book, "dependency-review"), tone: "attention" };
   if (director?.status === "ready") return { title: "章节范围已准备好", reason: "到全书导演核对章节范围、采用计划和写作要求，再明确开始。", label: "核对章节范围", href: directorRoute(book), tone: "normal" };
   if (hasLiveWork(book)) return { title: "查看正在推进的故事", reason: "本书有正在运行或等待执行的任务，可以查看进展与已保存结果。", label: "查看创作进展", href: director?.status === "running" ? directorRoute(book) : path(book, "overview"), tone: "running" };
   if (book.writableChapterPlanCount > 0) return { title: "从采用的章节计划开始写", reason: "已有可进入正文准备的章节计划。生成前仍会核对上下文、前章状态与本次范围。", label: "进入正文创作", href: path(book, "writing"), tone: "normal" };
@@ -80,4 +81,15 @@ export function homeStages(book: HomeBookFact) {
     { label: "正文创作", detail: `${book.writtenChapterCount} 章正文已采用`, evidenced: book.writtenChapterCount > 0, href: path(book, "writing") },
     { label: "质量完善", detail: `${book.stableChapterCount} 章已稳定 · ${book.openQualityIssues} 项待处理`, evidenced: book.stableChapterCount > 0, href: path(book, "views/quality") },
   ];
+}
+
+export function homeJourneyMetric(book: HomeBookFact) {
+  const stages = homeStages(book);
+  const started = stages.filter(stage => stage.evidenced).length;
+  return {
+    stages,
+    value: `${started}/${stages.length}`,
+    caption: "已开展环节",
+    trackPercent: Math.round(started / stages.length * 100),
+  };
 }
