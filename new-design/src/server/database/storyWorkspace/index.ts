@@ -9,6 +9,7 @@ import {getNewDesignPool} from '../runtime';
 import {formHash,freezeFormContext} from '../formAssist';
 import {validateFormCandidate} from '../../domain/formAssist';
 import {freezeStoryBatch} from './snapshot';
+import {assertWorldUsageScopesCurrent} from '../worldUsage';
 
 const base={requestKey:z.string().uuid(),instruction:z.string().trim().max(2000)};
 export const storyBatchRequestSchema=z.discriminatedUnion('mode',[
@@ -26,6 +27,7 @@ export async function readStoryBatch(bookId:string,key:string):Promise<StoryBatc
 export async function validateStoryBatchSlot(db:PoolClient,record:StoryBatchRecord,slotId:string):Promise<StoryBatchDraft>{
  const bookId=record.bookId,key=record.requestKey,slot=record.snapshot.slots.find(item=>item.id===slotId);
  if(!['review','applied'].includes(record.status)||!slot||!record.output?.candidates[slotId])throw new NewDesignError('此原候选尚未准备完成或不属于本书。',409);
+ if(record.snapshot.worldUsage)await assertWorldUsageScopesCurrent(db,bookId,record.snapshot.worldUsage);
   const values=record.output.candidates[slotId];
   if(slot.target){
    const fresh=await freezeFormContext(db,slot.target,slot.values,[]);

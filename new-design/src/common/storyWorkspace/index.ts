@@ -19,6 +19,7 @@ export interface StoryBatchPromptInput {
  bookName:string;bookDescription:string;mode:'setting'|'planning'|'visible_prepare'|'visible_adjust';instruction:string;
  slots:StoryBatchSlot[];materials:Array<{id:string;versionId:string;title:string;typeKey:string;values:Record<string,unknown>}>;
  adoptedPlans:Array<{id:string;versionId:string;title:string;content:Record<string,unknown>}>;
+ worldUsage?:import('../worldUsage').WorldUsageCreativeScope[];
 }
 export interface StoryBatchOutput {candidates:Record<string,Record<string,unknown>>}
 export interface StoryBatchRecord {

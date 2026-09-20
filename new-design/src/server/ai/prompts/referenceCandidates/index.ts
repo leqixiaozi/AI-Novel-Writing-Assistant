@@ -4,16 +4,17 @@ import type {StoryBatchPromptInput} from '../../../../common/storyWorkspace';
 import type {PromptAsset} from '../contracts';
 import {fieldInput,fieldsOutput} from '../fields';
 import {fieldInCharacterSection} from '../../../../common/formPresentation';
+import {worldUsageCreativeScopesSchema} from '../../../../common/worldUsage';
 export function storyBatchTask(mode:StoryBatchPromptInput['mode']):'visible_prepare'|'visible_adjust'|'story_workspace_batch'{return mode==='visible_prepare'?'visible_prepare':mode==='visible_adjust'?'visible_adjust':'story_workspace_batch';}
 export const referenceCandidateAssets:PromptAsset[]=(['visible_prepare','visible_adjust'] as const).map(taskType=>({
  assetId:`new_design.character.${taskType}`,version:'v1',taskType,label:taskType==='visible_prepare'?'准备人物外显':'调整人物外显',contextPolicy:'explicit_task_snapshot_only',temperature:0.5,maxTokens:16000,
  instruction:taskType==='visible_prepare'?'为确切列出的每个人物及已发布外显字段准备协调的写作候选。尊重已有档案、背景、意图与已填写外显；需要调整已有值时只提出候选，不能自行覆盖。外显是档案表达，不建立正式状态、成长、经历、资源持有或认知事实。不得输出未列出的字段、人物或名称，不得声称已保存或采用。':'按本次要求调整确切列出的每个人物及已发布外显字段，说明性要求只作为创作资料。已有填写完整保留用于比较；提出候选不代表用户同意覆盖。不得改变人物身份、正式状态、经历、资源持有、认知或范围。不得输出未列出的字段或人物，不得声称保存或采用。',
  prepare(value){
-  const input=value as StoryBatchPromptInput;z.object({bookName:z.string().max(300),bookDescription:z.string().max(30000),mode:z.literal(taskType),instruction:z.string().max(2000),slots:z.array(z.object({id:z.string().uuid(),fields:z.array(fieldInput).min(1).max(300)}).passthrough()).min(1).max(20),materials:z.array(z.unknown()).max(300),adoptedPlans:z.array(z.unknown()).max(300)}).strict().parse(input);
+  const input=value as StoryBatchPromptInput;z.object({bookName:z.string().max(300),bookDescription:z.string().max(30000),mode:z.literal(taskType),instruction:z.string().max(2000),slots:z.array(z.object({id:z.string().uuid(),fields:z.array(fieldInput).min(1).max(300)}).passthrough()).min(1).max(20),materials:z.array(z.unknown()).max(300),adoptedPlans:z.array(z.unknown()).max(300),worldUsage:worldUsageCreativeScopesSchema.optional()}).strict().parse(input);
   if(new Set(input.slots.map(slot=>slot.id)).size!==input.slots.length)throw new Error('人物候选身份重复。');
   const shape:Record<string,z.ZodType>=Object.create(null);
   for(const slot of input.slots){if(slot.fields.some(field=>!fieldInCharacterSection(field,'visible')))throw new Error('外显候选含非外显字段。');shape[slot.id]=fieldsOutput(slot.fields.map(field=>fieldInput.parse({...field,required:false})),false).refine(output=>Object.keys(output).length>0,'每个人物至少返回一项外显候选。');}
-  return {input:{bookName:input.bookName,bookDescription:input.bookDescription,mode:input.mode,instruction:input.instruction,slots:input.slots.map(slot=>({id:slot.id,title:slot.title,currentValues:slot.values,fields:slot.fields})),materials:input.materials,adoptedPlans:input.adoptedPlans},schema:z.object({candidates:z.object(shape).strict()}).strict()};
+  return {input:{bookName:input.bookName,bookDescription:input.bookDescription,mode:input.mode,instruction:input.instruction,slots:input.slots.map(slot=>({id:slot.id,title:slot.title,currentValues:slot.values,fields:slot.fields})),materials:input.materials,adoptedPlans:input.adoptedPlans,worldUsage:input.worldUsage??[]},schema:z.object({candidates:z.object(shape).strict()}).strict()};
  }
 }));
 

@@ -14,6 +14,8 @@ import {preparePrompt,type ChapterGenerationInput} from "../../ai/prompts";
 import {freezeControlledChapter,type ControlledChapterSnapshot} from "../controlledTaskSnapshot";
 import {getChapterWritingRequest} from "../chapterWriting";
 import {getAdoptedChapterPlanContractInTransaction} from '../planning';
+import {readActiveWorldUsageScopes} from '../worldUsage';
+import {worldUsageCreativeScopes} from '../../../common/worldUsage';
 import {lockOriginalChapterExecution,finishKnownChapterFailure,endExpiredOriginalChapter,endSavedReplyOriginalChapter,retainOriginalChapterUsage} from './ledger';
 export {endExpiredOriginalChapter} from './ledger';
 export interface ChapterProductionInput {requestKey:string;bookId:string;chapterCardId:string;planningObjectId:string;planningVersionId:string;expectedPlanningRevision:number;documentId:string;expectedDocumentRevision:number;instruction:string;issuePolicy:"completion_first"|"quality_first";operation?:Exclude<ChapterWritingOperation,'manual_draft'|'copy'>;baseBodyVersionId?:string|null;selectionStart?:number|null;selectionEnd?:number|null;commandHash?:string;actor?:'user'|'production_director';knowledgeSources?:ChapterKnowledgeSelection[];excludedMaterialIds?:string[];sourcePreviewHash?:string;}
@@ -51,7 +53,7 @@ export async function readChapterGenerationSources(client:PoolClient,input:Chapt
     const participantVersions=new Set([ancestorChapter.adopted_version_id,...scenes.map(scene=>scene.adopted_version_id)]),participantIds=references.filter(reference=>participantVersions.has(reference.planning_version_id)&&['participant','viewpoint'].includes(reference.reference_role)).map(reference=>String(reference.card_id));
     const guidance=await readActiveCharacterAuthorGuidance(client,input.bookId,Number(document.logical_order),participantIds);cards.push(...guidance);
     if(cards.length>300)throw new NewDesignError("\u672c\u4e66\u8d44\u6599\u53ca\u9002\u7528\u521b\u4f5c\u6307\u5bfc\u8d85\u8fc7\u5b8c\u6574\u51bb\u7ed3\u8303\u56f4\uff0c\u672a\u622a\u65ad\u540e\u751f\u6210\u3002",422);
-    const continuity=await readChapterContinuitySources(client,input.bookId,input.chapterCardId),knowledge=await readChapterKnowledgeSources(client,input.bookId,input.knowledgeSources);
+    const continuity=await readChapterContinuitySources(client,input.bookId,input.chapterCardId),knowledge=await readChapterKnowledgeSources(client,input.bookId,input.knowledgeSources),worldScopes=await readActiveWorldUsageScopes(client,input.bookId);
     const base=input.actor==='user'?input.baseBodyVersionId:document.adopted_version_id;
     const body=base?assertFound((await client.query("SELECT id,content_hash,content FROM new_design.chapter_body_versions WHERE id=$1 AND chapter_document_id=$2 AND archived_at IS NULL",[base,document.id])).rows[0],"本章输入正文的精确版本未读取到，不能当作空正文生成。"):null;
     const operation=input.operation??'regenerate',start=input.selectionStart??null,end=input.selectionEnd??null;
@@ -59,11 +61,18 @@ export async function readChapterGenerationSources(client:PoolClient,input:Chapt
     if((start===null)!==(end===null)||start!==null&&(!body||start<0||end!<=start||end!>String(body.content).length)||operation==='continue'&&start!==null)throw new NewDesignError('选区与原输入正文不一致；续写请选择整章来源，不使用局部选区。',422);
     const promptInput:ChapterGenerationInput={bookId:input.bookId,bookName:String(document.name),chapterCardId:input.chapterCardId,chapterTitle:String(chapter.title),operation,continuity,knowledge,
       plans:plans.map(plan=>({objectId:String(plan.id),versionId:String(plan.adopted_version_id),level:plan.level,contentHash:String(plan.content_hash),content:plan.content,executionMode:modes.find(mode=>mode.id===plan.adopted_version_id)?.execution_mode,references:references.filter(reference=>reference.planning_version_id===plan.adopted_version_id).map(reference=>({id:String(reference.id),role:reference.reference_role,cardId:String(reference.card_id),cardVersionId:String(reference.card_version_id),title:String(reference.title),contentHash:stableHash(reference.values),values:reference.values,action:reference.action_key??null,note:String(reference.note)}))})),
-      materials:cards.map(card=>({cardId:String(card.id),versionId:String(card.current_version_id),title:String(card.title),typeName:String(card.type_name),values:card.values})),body:body?{versionId:String(body.id),contentHash:String(body.content_hash),content:String(body.content)}:null,selection:start===null?null:{start,end:end!,text:String(body!.content).slice(start,end!)},instruction:input.instruction,issuePolicy:input.issuePolicy};
-    const sourceHash=stableHash(promptInput),required=new Set([...references.map(reference=>String(reference.card_id)),...cards.filter(card=>card.type_key==='project_rule').map(card=>String(card.id))]),excluded=new Set(input.excludedMaterialIds??[]);
-    if(excluded.size!==(input.excludedMaterialIds??[]).length||[...excluded].some(id=>!cards.some(card=>card.id===id)||required.has(id)))throw new NewDesignError('只能排除本次非规划必需的补充资料；正式计划引用不能删除。',422);
+      materials:cards.map(card=>({cardId:String(card.id),versionId:String(card.current_version_id),title:String(card.title),typeName:String(card.type_name),values:card.values})),worldUsage:worldUsageCreativeScopes(worldScopes),body:body?{versionId:String(body.id),contentHash:String(body.content_hash),content:String(body.content)}:null,selection:start===null?null:{start,end:end!,text:String(body!.content).slice(start,end!)},instruction:input.instruction,issuePolicy:input.issuePolicy};
+    const selectedWorldVersions=new Map<string,string>();
+    for(const scope of worldScopes){selectedWorldVersions.set(scope.rootCardId,scope.sources.rootVersionId);const ids=new Set([...scope.selection.factionIds,...scope.selection.locationIds,...scope.selection.ruleIds]);for(const card of scope.sources.cards)if(ids.has(card.cardId))selectedWorldVersions.set(card.cardId,card.versionId);}
+    const selectedWorldIds=new Set(selectedWorldVersions.keys());
+    const worldTypeKeys=new Set(['world_setting','world_overview','faction','organization','location','world_rule','time_rule','power_system']);
+    const inWorldScope=(card:Record<string,unknown>)=>!worldScopes.length||!worldTypeKeys.has(String(card.type_key))||selectedWorldIds.has(String(card.id));
+    if(worldScopes.length&&references.some(reference=>worldTypeKeys.has(String(reference.type_key))&&selectedWorldVersions.get(String(reference.card_id))!==String(reference.card_version_id)))throw new NewDesignError('已采用规划引用的世界资料不在正式使用范围内，或并非本次采用的精确版本；本次未生成正文。',409);
+    promptInput.materials=promptInput.materials.filter(card=>inWorldScope(cards.find(row=>String(row.id)===card.cardId)!));
+    const sourceHash=stableHash(promptInput),required=new Set([...references.map(reference=>String(reference.card_id)),...cards.filter(card=>card.type_key==='project_rule').map(card=>String(card.id)),...selectedWorldIds]),excluded=new Set(input.excludedMaterialIds??[]);
+    if(excluded.size!==(input.excludedMaterialIds??[]).length||[...excluded].some(id=>!cards.some(card=>card.id===id&&inWorldScope(card))||required.has(id)))throw new NewDesignError('只能排除本次范围内非规划必需的补充资料；正式计划引用不能删除。',422);
     if(input.sourcePreviewHash&&input.sourcePreviewHash!==sourceHash)throw new NewDesignError('本章生成来源已变化，请重新只读预览；原稿与选择保留，本次未调用模型。',409);
-    const decisions=cards.map(card=>({cardId:String(card.id),versionId:String(card.current_version_id),title:String(card.title),required:required.has(String(card.id)),included:!excluded.has(String(card.id))}));
+    const decisions=cards.map(card=>({cardId:String(card.id),versionId:String(card.current_version_id),title:String(card.title),required:required.has(String(card.id)),included:inWorldScope(card)&&!excluded.has(String(card.id))}));
     promptInput.materials=promptInput.materials.filter(card=>!excluded.has(card.cardId));
     return{document,chapter,body,operation,start,end,promptInput,sourceHash,decisions};
 }

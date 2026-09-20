@@ -13,6 +13,8 @@ import {createChapterQualityApi} from './chapterQuality/api';
 import {createResourceFocusApi} from './characterResources/focus/api';
 import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
 import {createWorldPackagesApi} from './worldPackages/api';
+import {createWorldUsageApi} from './worldUsage/api';
+import type {PayoffLedgerWorkspace,PayoffWindowReceipt,SavePayoffWindowInput} from '../common/payoffLedger';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -28,7 +30,7 @@ import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl,CreationDirectorControlReceipt,CreationDirectorCommandReceipt} from "../common/creationDirector";
 import type {CreationReviewAiInput,CreationPreparationReceipt,AdoptCreationPreparationInput,CreationPreparationAdoptionReceipt} from "../common/creationReviewAi";
 import type {BookCreationProductionWorkspace,BookCreationProductionReceipt,SaveBookCreationFormalReviewInput} from "../common/bookCreationProduction";
-import type {KnowledgeWorkspace,KnowledgeSearchResult,KnowledgeUploadInput,KnowledgeWriteInput,KnowledgeBindInput,KnowledgeArchiveInput,KnowledgeArchivePreview,KnowledgeWriteReceipt,KnowledgeContent,KnowledgeReferenceCandidate,KnowledgeReferenceTarget,KnowledgeReferenceInput} from "../common/knowledgeReference";
+import type {KnowledgeWorkspace,KnowledgeReferenceItem,KnowledgeSearchResult,KnowledgeUploadInput,KnowledgeWriteInput,KnowledgeBindInput,KnowledgeArchiveInput,KnowledgeArchivePreview,KnowledgeWriteReceipt,KnowledgeContent,KnowledgeReferenceCandidate,KnowledgeReferenceTarget,KnowledgeReferenceInput} from "../common/knowledgeReference";
 import type {MultiviewAuthorWorkspace} from "../common/multiviewAuthor";
 import type {AuthorTaskFilter,AuthorTaskPage,AuthorTaskKind,AuthorTaskRecord} from "../common/authorTasks";
 import type {AuthorMaterialWriteInput,AuthorMaterialWriteReceipt} from "../common/authorMaterials";
@@ -404,11 +406,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if(recovery&&isGlobalModelRecovery(recovery)&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
     throw new ApiError(recovery?`${recovery.failedStep}失败：${recovery.summary}`:publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail,recovery);
   }
+  if(init?.method&&init.method.toUpperCase()!=="GET"&&typeof window!=="undefined"){
+    const bookId=/^\/books\/([a-f0-9-]{36})(?:\/|$)/i.exec(path)?.[1];
+    if(bookId)window.dispatchEvent(new CustomEvent('new-design:book-workflow-changed',{detail:{bookId}}));
+  }
   return envelope.data;
 }
 
 export const newDesignApi = {
   ...createChapterQualityApi(request),
+  worldUsage:createWorldUsageApi(request),
+  getPayoffLedger:(bookId:string)=>request<PayoffLedgerWorkspace>(`/books/${encodeURIComponent(bookId)}/payoff-ledger`),
+  savePayoffWindow:(bookId:string,cardId:string,input:SavePayoffWindowInput)=>request<PayoffWindowReceipt>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/${encodeURIComponent(cardId)}/window`,{method:'PUT',body:JSON.stringify(input)}),
+  getPayoffWindowRequest:(bookId:string,idempotencyKey:string)=>request<PayoffWindowReceipt|null>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/window-requests/${encodeURIComponent(idempotencyKey)}`),
  worldPackages:createWorldPackagesApi(request),
  recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
@@ -498,7 +508,8 @@ export const newDesignApi = {
   getBookMultiviewAuthorWorkspace:(bookId:string)=>request<MultiviewAuthorWorkspace>(`/books/${encodeURIComponent(bookId)}/multiview-author-workspace`),
   listAuthorTasks:(filter:AuthorTaskFilter={})=>{const query=new URLSearchParams();for(const [key,value] of Object.entries(filter))if(value!==undefined)query.set(key,String(value));return request<AuthorTaskPage>(`/author-tasks?${query}`);},
   getAuthorTask:(kind:AuthorTaskKind,id:string)=>request<AuthorTaskRecord>(`/author-tasks/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
-  getKnowledgeWorkspace:(bookId:string)=>request<KnowledgeWorkspace>(`/books/${encodeURIComponent(bookId)}/knowledge/workspace`),
+  getKnowledgeWorkspace:(bookId:string,before?:string)=>request<KnowledgeWorkspace>(`/books/${encodeURIComponent(bookId)}/knowledge/workspace${before?`?${new URLSearchParams({before})}`:''}`),
+  getKnowledgeReferenceItem:(bookId:string,id:string)=>request<KnowledgeReferenceItem>(`/books/${encodeURIComponent(bookId)}/knowledge/assets/${encodeURIComponent(id)}`),
   getKnowledgeContent:(bookId:string,id:string,parsedVersionId:string,offset=0)=>request<KnowledgeContent>(`/books/${encodeURIComponent(bookId)}/knowledge/assets/${encodeURIComponent(id)}/content?${new URLSearchParams({parsedVersionId,offset:String(offset)})}`),
   getKnowledgeReferenceCandidates:(bookId:string)=>request<{items:KnowledgeReferenceCandidate[];truncated:boolean}>(`/books/${encodeURIComponent(bookId)}/knowledge/reference-candidates`),
   getKnowledgeReferenceTargets:(bookId:string)=>request<{items:KnowledgeReferenceTarget[];truncated:boolean}>(`/books/${encodeURIComponent(bookId)}/knowledge/reference-targets`),
@@ -751,8 +762,9 @@ export const newDesignApi = {
   listSavedMarketSignals:()=>request<MarketSavedSignal[]>("/research/market/signals/saved"),
   adoptMarketSignal:(candidateId:string)=>request<CardSummary>(`/research/market/signals/${candidateId}/adopt`,{method:"POST",body:"{}"}),
   getBookAnalysisPlan:(purpose:BookAnalysisPurpose,preset:BookAnalysisPreset)=>request<BookAnalysisPlan>(`/research/book-analysis/plan?purpose=${purpose}&preset=${preset}`),
-  startBookAnalysis:(input:{documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number})=>request<{recordId:string;versionId:string;version:number}>("/research/book-analyses",{method:"POST",body:JSON.stringify(input)}),
-  retryBookAnalysis:(id:string)=>request<{recordId:string;versionId:string;version:number}>(`/research/book-analyses/${id}/retry`,{method:"POST",body:"{}"}),
+  startBookAnalysis:(input:{documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number;requestKey?:string})=>request<{recordId:string;versionId:string;version:number}>("/research/book-analyses",{method:"POST",body:JSON.stringify(input)}),
+  retryBookAnalysis:(id:string,input:{requestKey?:string;expectedVersionId?:string}={})=>request<{recordId:string;versionId:string;version:number}>(`/research/book-analyses/${id}/retry`,{method:"POST",body:JSON.stringify(input)}),
+  getBookAnalysisByKey:(requestKey:string)=>request<ResearchRecordDetail|null>(`/research/book-analyses/by-key/${encodeURIComponent(requestKey)}`),
   applyResearchCandidates:(id:string,decisions:Array<{candidateId:string;action:"create_card"|"merge_card"|"save_resource"|"reference_only"|"ignore";targetSpaceId?:string;targetCardId?:string;expectedRevision?:number}>)=>request<Array<{candidateId:string;action:string;cardId:string|null}>>(`/research/book-analyses/${id}/candidates/apply`,{method:"POST",body:JSON.stringify({decisions})}),
   updateResearchCandidate:(recordId:string,candidateId:string,input:{title:string;values:Record<string,unknown>;expectedRevision:number;actor?:string;note?:string})=>request<ResearchCandidate>(`/research/book-analyses/${recordId}/candidates/${candidateId}`,{method:"PUT",body:JSON.stringify(input)}),
   listReferencePacks:()=>request<ResearchReferencePack[]>("/research/reference-packs"),

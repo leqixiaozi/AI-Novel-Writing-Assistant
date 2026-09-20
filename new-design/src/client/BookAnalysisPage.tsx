@@ -11,7 +11,7 @@ import type {
   ResearchRecordSummary,
   FieldDefinition,
 } from "../common/contracts";
-import { newDesignApi } from "./api";
+import { ApiError, newDesignApi } from "./api";
 import ResearchShell from "./ResearchShell";
 import { publishedProposalFields } from "../common/presentation";
 import { researchCandidateValueLabel } from "../common/researchInputReview";
@@ -36,9 +36,19 @@ const reusable = new Set([
   "writing_config",
   "quality_rule",
 ]);
+type AnalysisRequest={documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number;requestKey:string};
+type PendingAnalysis={kind:"start";requestKey:string;input:AnalysisRequest;receipt?:{recordId:string;versionId:string};notWritten?:boolean}|{kind:"retry";requestKey:string;recordId:string;expectedVersionId:string;receipt?:{recordId:string;versionId:string};notWritten?:boolean};
+const pendingKey="new-design:book-analysis:original-request",uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function readPending():PendingAnalysis|null{const raw=sessionStorage.getItem(pendingKey);if(!raw)return null;const value:unknown=JSON.parse(raw);if(!value||typeof value!=="object")throw new Error("原拆书请求凭证无法读取，禁止再次提交。");const item=value as Record<string,unknown>,receipt=item.receipt as Record<string,unknown>|undefined;
+ if(typeof item.requestKey!=="string"||!uuid.test(item.requestKey)||receipt&&(!uuid.test(String(receipt.recordId))||!uuid.test(String(receipt.versionId))))throw new Error("原拆书请求凭证不完整，禁止再次提交。");
+ if(item.kind==="retry"&&typeof item.recordId==="string"&&uuid.test(item.recordId)&&typeof item.expectedVersionId==="string"&&uuid.test(item.expectedVersionId))return item as unknown as PendingAnalysis;
+ const input=item.input as Record<string,unknown>|undefined;
+ if(item.kind==="start"&&input&&input.requestKey===item.requestKey&&typeof input.documentVersionId==="string"&&uuid.test(input.documentVersionId)&&["reference_learning","continuation","diagnosis"].includes(String(input.purpose))&&["quick","standard","full"].includes(String(input.preset))&&["full","range"].includes(String(input.rangeMode))&&typeof input.focus==="string"&&typeof input.budgetTokens==="number"&&Number.isInteger(input.budgetTokens)&&input.budgetTokens>=1000&&input.budgetTokens<=12000&&(input.rangeMode==="full"||typeof input.startOffset==="number"&&typeof input.endOffset==="number"&&Number.isInteger(input.startOffset)&&Number.isInteger(input.endOffset)&&input.endOffset>input.startOffset))return item as unknown as PendingAnalysis;
+ throw new Error("原拆书冻结输入不完整，禁止再次提交。");}
 
 export default function BookAnalysisPage() {
   const reportSequence=useRef(0),reportSource=useRef(""),resultRef=useRef<ResearchRecordDetail|null>(null),selectionRef=useRef<string[]>([]),savedSelections=useRef(new Map<string,string[]>());
+  const runFlight=useRef(false),pendingRef=useRef<PendingAnalysis|null>(null),[pending,setPending]=useState<PendingAnalysis|null>(null),[recoveryReady,setRecoveryReady]=useState(false),[storageBlocked,setStorageBlocked]=useState(false);
   const [candidateSpecs,setCandidateSpecs]=useState<Map<string,{name:string;fields:FieldDefinition[]}>>(new Map()),[dictionaryLabels,setDictionaryLabels]=useState<Map<string,string>>(new Map()),[specNotice,setSpecNotice]=useState("");
   const [documents, setDocuments] = useState<ResearchDocument[]>([]),
     [documentId, setDocumentId] = useState(""),
@@ -63,6 +73,9 @@ export default function BookAnalysisPage() {
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   resultRef.current=result;selectionRef.current=selectedCandidates;
+  useEffect(()=>{try{const previous=readPending();pendingRef.current=previous;setPending(previous);if(previous)setMessage("发现原拆书请求待核对；原输入与凭证保留，不能换新请求再次提交。");}catch(error){setStorageBlocked(true);setMessage(error instanceof Error?error.message:"原请求凭证无法读取，禁止再次提交。");}finally{setRecoveryReady(true);}},[]);
+  useEffect(()=>{const guard=(event:BeforeUnloadEvent)=>{if(pending||storageBlocked){event.preventDefault();event.returnValue="";}};window.addEventListener("beforeunload",guard);return()=>window.removeEventListener("beforeunload",guard);},[pending,storageBlocked]);
+  const retainPending=(value:PendingAnalysis|null)=>{try{if(value)sessionStorage.setItem(pendingKey,JSON.stringify(value));else sessionStorage.removeItem(pendingKey);pendingRef.current=value;setPending(value);return true;}catch{setStorageBlocked(true);setMessage("原拆书凭证未能保留或清除；写入锁定，请保留本页并核对原研究记录。");return false;}};
   const acceptReport=(next:ResearchRecordDetail)=>{const previous=resultRef.current;if(previous?.id!==next.id||previous.currentVersion.id!==next.currentVersion.id){if(previous)savedSelections.current.set(`${previous.id}:${previous.currentVersion.id}`,[...selectionRef.current]);setSelectedCandidates([]);}else setSelectedCandidates(current=>current.filter(id=>next.candidates.some(candidate=>candidate.id===id&&candidate.researchVersionId===next.currentVersion.id&&candidate.status==="candidate")));resultRef.current=next;setResult(next);};
   const openReport=async(id:string)=>{if(busy)return;const sequence=++reportSequence.current;reportSource.current=id;setBusy(true);try{const next=await newDesignApi.getResearchRecord(id);if(sequence!==reportSequence.current||reportSource.current!==id)return;if(next.id!==id||!["book_analysis","diagnosis"].includes(next.type))throw new Error("原研究报告范围不匹配，原填写保留，不选择其他报告代替。");acceptReport(next);}catch(error){if(sequence===reportSequence.current)setMessage(error instanceof Error?error.message:"原研究报告读取失败，填写保留。");}finally{if(sequence===reportSequence.current)setBusy(false);}};
   const loadRecords = async () => {
@@ -167,42 +180,55 @@ export default function BookAnalysisPage() {
   const output = result?.currentVersion.structuredResult as
     | Partial<BookAnalysisResult>
     | undefined;
+  const checkOriginal=async()=>{
+    const pending=pendingRef.current;if(!pending||runFlight.current)return;runFlight.current=true;setBusy(true);
+    try{const detail=await newDesignApi.getBookAnalysisByKey(pending.requestKey);
+      if(!detail){setMessage(pending.notWritten?"服务器确认原提交未通过输入校验；可明确结束这份未写入请求，再修正输入。":"尚未读到原请求回执，不代表未执行；原输入保留，禁止换键重发。 ");return;}
+      const version=detail.currentVersion,scope=version.sourceScope,plan=version.inputSnapshot.plan as Partial<BookAnalysisPlan>|undefined;
+      const matched=pending.receipt?pending.receipt.recordId===detail.id&&pending.receipt.versionId===version.id:true;
+      const start=pending.kind==="start"?pending.input:null;
+      if(!matched||scope.requestKey!==pending.requestKey||start&&(scope.documentVersionId!==start.documentVersionId||scope.rangeMode!==start.rangeMode||start.rangeMode==="range"&&(scope.startOffset!==start.startOffset||scope.endOffset!==start.endOffset)||plan?.purpose!==start.purpose||plan?.preset!==start.preset||version.inputSnapshot.focus!==start.focus||version.budgetTokens!==start.budgetTokens)||pending.kind==="retry"&&(detail.id!==pending.recordId||version.parentVersionId!==pending.expectedVersionId))throw new Error("原拆书回执与冻结输入或原版本不一致；凭证保留，不采用其他报告代替。");
+      reportSource.current=detail.id;++reportSequence.current;acceptReport(detail);
+      if(!retainPending(null))return;
+      setMessage("原拆书请求已按原凭证核对；只读取已保存的运行与报告，未再次调用模型。");
+      void loadRecords().catch(()=>setMessage("原拆书请求已核对，研究列表暂未刷新；所选原报告保留。"));
+    }catch(error){setMessage(error instanceof Error?error.message:"原拆书请求未能核对，凭证与输入保留。");}
+    finally{runFlight.current=false;setBusy(false);}
+  };
   const begin = async () => {
-    setBusy(true);
+    if(runFlight.current||pendingRef.current||pending||storageBlocked||!recoveryReady)return;
+    const input:AnalysisRequest={documentVersionId,purpose,preset,rangeMode,...(rangeMode==="range"?{startOffset,endOffset}:{}),focus:focus.trim(),budgetTokens:budget,requestKey:crypto.randomUUID()};
+    const original:PendingAnalysis={kind:"start",requestKey:input.requestKey,input};if(!retainPending(original))return;
+    runFlight.current=true;setBusy(true);let submitted=false;
     setMessage("");
     try {
-      const run = await newDesignApi.startBookAnalysis({
-        documentVersionId,
-        purpose,
-        preset,
-        rangeMode,
-        startOffset: rangeMode === "range" ? startOffset : undefined,
-        endOffset: rangeMode === "range" ? endOffset : undefined,
-        focus,
-        budgetTokens: budget,
-      });
-      reportSource.current=run.recordId;++reportSequence.current;acceptReport(await newDesignApi.getResearchRecord(run.recordId));
-      await loadRecords();
-      setMessage(
-        "分析已开始；报告、证据和候选都会保存，候选不会自动写入书籍。",
-      );
+      const run=await newDesignApi.startBookAnalysis(input);
+      retainPending({...original,receipt:{recordId:run.recordId,versionId:run.versionId}});
+      submitted=true;
+      setMessage("拆书提交已返回原运行标识；请按原凭证核对已保存的报告，不重新提交。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "拆书启动失败。");
+      const notWritten=error instanceof ApiError&&error.status===422;
+      if(notWritten)retainPending({...original,notWritten:true});
+      setMessage(`${notWritten?"拆书输入未通过校验":"拆书提交结果未确认"}；原请求凭证与输入保留，请核对原请求，勿重复提交。${error instanceof Error?` ${error.message}`:""}`);
     } finally {
-      setBusy(false);
+      runFlight.current=false;setBusy(false);if(submitted)void checkOriginal();
     }
   };
   const retry = async () => {
-    if (!result) return;
-    setBusy(true);
+    if(!result||runFlight.current||pendingRef.current||pending||storageBlocked||!recoveryReady)return;
+    const original:PendingAnalysis={kind:"retry",requestKey:crypto.randomUUID(),recordId:result.id,expectedVersionId:result.currentVersion.id};if(!retainPending(original))return;
+    runFlight.current=true;setBusy(true);let submitted=false;
     try {
-      const run = await newDesignApi.retryBookAnalysis(result.id);
-      reportSource.current=run.recordId;++reportSequence.current;acceptReport(await newDesignApi.getResearchRecord(run.recordId));
-      setMessage(`已新增运行 v${run.version}，旧报告保持不变。`);
+      const run=await newDesignApi.retryBookAnalysis(original.recordId,{requestKey:original.requestKey,expectedVersionId:original.expectedVersionId});
+      retainPending({...original,receipt:{recordId:run.recordId,versionId:run.versionId}});
+      submitted=true;
+      setMessage(`原重跑请求返回 v${run.version} 标识；请只读核对原回执，旧报告保持不变。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "拆书重试失败。");
+      const notWritten=error instanceof ApiError&&error.status===422;
+      if(notWritten)retainPending({...original,notWritten:true});
+      setMessage(`拆书重跑结果未确认；原请求与旧报告保留，请核对原凭证，勿重复提交。${error instanceof Error?` ${error.message}`:""}`);
     } finally {
-      setBusy(false);
+      runFlight.current=false;setBusy(false);if(submitted)void checkOriginal();
     }
   };
   const apply = async (
@@ -252,6 +278,8 @@ export default function BookAnalysisPage() {
   return (
     <ResearchShell active="analysis">
       <main className="nd-book-analysis">
+        {storageBlocked&&<section className="nd-message is-error" role="alert"><p>原拆书凭证无法安全保留或读取；分析写入锁定。请保留网站存储，到研究记录核对原报告。</p><a href="/new-design/research/records">查看研究记录</a></section>}
+        {pending&&<section className="nd-message" role="alert"><p>原{pending.kind==="retry"?"重跑":"拆书"}请求结果待核对；原请求 {pending.requestKey}。核对只读，不重新调用模型；未确认前不能换键提交。</p><button className="nd-button" type="button" disabled={busy} onClick={()=>void checkOriginal()}>只读核对原请求</button>{pending.notWritten&&<button className="nd-button" type="button" disabled={busy} onClick={()=>{if(window.confirm("原提交已被服务器拒绝且未写入。确认结束这份原请求，再修改输入？")){retainPending(null);setMessage("未写入的原请求已明确结束；可修正输入后重新发起。");}}}>结束未写入请求</button>}<a href="/new-design/research/records">查看原研究记录</a></section>}
         <section className="nd-analysis-setup">
           <div className="nd-section-heading">
             <div>
@@ -430,7 +458,7 @@ export default function BookAnalysisPage() {
               )}
               <button
                 className="nd-button nd-button-primary"
-                disabled={busy || !documentVersionId || Boolean(running)}
+                disabled={busy || !documentVersionId || Boolean(running) || Boolean(pending) || storageBlocked || !recoveryReady}
                 onClick={() => void begin()}
                 type="button"
               >
@@ -510,6 +538,7 @@ export default function BookAnalysisPage() {
                   <button
                     className="nd-button nd-button-secondary"
                     onClick={() => void retry()}
+                    disabled={busy || Boolean(pending) || storageBlocked || !recoveryReady}
                     type="button"
                   >
                     重跑为新版本

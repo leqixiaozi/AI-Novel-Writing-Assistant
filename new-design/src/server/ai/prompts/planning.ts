@@ -4,6 +4,7 @@ import type { PromptAsset } from "./contracts";
 import { shortText, text, textList, valuesInput } from "./fields";
 import {LEGACY_PLANNING_FIELDS} from '../../../common/planningRhythm/stageFields';
 import {plannedTension,tensionCurveSchema} from '../../../common/planningRhythm';
+import {worldUsageCreativeScopesSchema} from '../../../common/worldUsage';
 
 const levels = ["story", "volume", "chapter", "scene"] as const satisfies readonly PlanningLevel[];
 const level = z.enum(levels);
@@ -16,7 +17,7 @@ export const planningAsset: PromptAsset = {
       bookName: z.string().max(300), bookDescription: text,
       target: z.object({ level, title: z.string().max(300), currentContent: valuesInput.nullable(), parentContent: valuesInput.nullable() }).strict(),
       materials: z.array(z.object({ cardId: z.string().min(1), typeKey: z.string().min(1), typeName: z.string(), title: z.string(), values: valuesInput }).strict()).max(300),
-      adoptedPlans: z.array(z.object({ level, title: z.string(), content: valuesInput }).strict()).max(300), instruction: text,
+      adoptedPlans: z.array(z.object({ level, title: z.string(), content: valuesInput }).strict()).max(300), instruction: text,worldUsage:worldUsageCreativeScopesSchema.optional(),
     }).strict().parse(value);
     const allowed = new Set(input.materials.map(item => item.cardId));
     const presentation=input.target.level==='story'?'story_macro':input.target.level==='volume'?'outline':'structured';

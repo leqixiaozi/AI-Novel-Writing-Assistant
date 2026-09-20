@@ -1,4 +1,4 @@
-export {getKnowledgeReferenceWorkspace,searchKnowledgeReferences,getKnowledgeArchivePreview} from "./catalog";
+export {getKnowledgeReferenceWorkspace,getKnowledgeReferenceItem,searchKnowledgeReferences,getKnowledgeArchivePreview} from "./catalog";
 export {bindKnowledgeReference,archiveKnowledgeReference,saveKnowledgeUpload,saveKnowledgeParse} from "./commands";
 export {readKnowledgeReferenceReceipt,withKnowledgeReferencePool,KnowledgeReferenceError,knowledgePool} from "./repository";
 export {readKnowledgeSource} from "./catalog";

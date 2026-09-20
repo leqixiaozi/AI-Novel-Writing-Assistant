@@ -170,7 +170,9 @@
     "app/migrations/manual/102_character_author_influences.sql",
     "app/migrations/manual/103_public_title_factory.sql",
     "app/migrations/manual/104_book_content_history.sql",
-    "app/migrations/manual/105_database_model_credentials.sql"
+    "app/migrations/manual/105_database_model_credentials.sql",
+    "app/migrations/manual/106_world_usage_scope.sql",
+    "app/migrations/manual/107_payoff_ledger_windows.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -292,6 +294,8 @@
     "102_character_author_influences.sql",
     "103_public_title_factory.sql",
     "104_book_content_history.sql",
-    "105_database_model_credentials.sql"
+    "105_database_model_credentials.sql",
+    "106_world_usage_scope.sql",
+    "107_payoff_ledger_windows.sql"
   ]
 }

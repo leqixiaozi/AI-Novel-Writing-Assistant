@@ -26,3 +26,22 @@ test('formal project card, dedicated plan and adopted body have distinct readine
  assert.equal(states[7].ready,null);
  assert.match(states[7].detail,/按所选章节/);
 });
+
+test('failed sources remain unknown without hiding other formal progress',()=>{
+ const states=progress.workflowProgress(null,[{typeKey:'character',status:'active',values:{identity:'已填写'}}],null);
+ assert.equal(states[0].ready,false);
+ assert.equal(states[1].ready,null);
+ assert.match(states[1].detail,/暂不可用/);
+ assert.equal(states[3].ready,true);
+ assert.equal(states[6].ready,null);
+ assert.equal(states[7].ready,null);
+});
+
+test('book navigation rereads after successful in-book writes and keeps partial sources',()=>{
+ const navigation=fs.readFileSync(path.join(__dirname,'../src/client/bookNavigation/index.tsx'),'utf8');
+ const api=fs.readFileSync(path.join(__dirname,'../src/client/api.ts'),'utf8');
+ assert.match(navigation,/Promise\.allSettled/);
+ assert.match(navigation,/new-design:book-workflow-changed/);
+ assert.match(navigation,/item\.ready===false/);
+ assert.match(api,/dispatchEvent\(new CustomEvent\('new-design:book-workflow-changed'/);
+});

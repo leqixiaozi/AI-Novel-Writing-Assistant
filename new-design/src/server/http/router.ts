@@ -8,6 +8,8 @@ import {ImagePreparationError} from '../database/imagePreparation';
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
+import {worldUsageRouter} from './worldUsage';
+import {payoffLedgerRouter} from './payoffLedger';
 import {characterResourcesRouter} from "./characterResources";
 import {resourceSupplementsRouter} from './resourceSupplements';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
@@ -130,7 +132,7 @@ import { cancelTransferOperation, confirmTransferImport, getTransferAvailability
 import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, readPublicationExportReceipt, PublicationExportWriteError, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
 import { resolvePublicationExportDownload } from "../publicationExport";
 import { getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
-import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
+import { buildBookAnalysisPlan, getBookAnalysisByKey, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
 import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, readAiRunPreviewByRequest, readAiRunSubmissionByRequest, submitAiRunPreview } from "../database/aiRunOrchestration";
 import {
@@ -474,6 +476,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
     success(res,await readAiRunSubmissionByRequest(scope.bookId,scope.requestKey));
   }));
   router.use(storyWorkspaceRouter(dependencies.ai));
+  router.use(worldUsageRouter(dependencies.ai));
+  router.use(payoffLedgerRouter());
   router.use(businessFormAiRouter(dependencies.ai));
 
   router.get("/health", asyncRoute(async (_req, res) => {
@@ -645,8 +649,9 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/research/market/signals/saved",asyncRoute(async(_req,res)=>success(res,await listSavedMarketSignals())));
   router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
   router.get("/research/book-analysis/plan",asyncRoute(async(req,res)=>success(res,(await buildBookAnalysisPlan(bookAnalysisPurposeSchema.parse(req.query.purpose),bookAnalysisPresetSchema.parse(req.query.preset))).plan)));
-  router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
-  router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id)),202);}));
+  router.get("/research/book-analyses/by-key/:requestKey",asyncRoute(async(req,res)=>success(res,await getBookAnalysisByKey(z.string().uuid().parse(req.params.requestKey)))));
+  router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema.and(z.object({requestKey:z.string().uuid().optional()})),req)),202);}));
+  router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id),body(z.object({requestKey:z.string().uuid().optional(),expectedVersionId:z.string().uuid().optional()}).strict(),req)),202);}));
   router.post("/research/book-analyses/:id/candidates/apply",asyncRoute(async(req,res)=>success(res,await applyCandidateDecisions(String(req.params.id),body(candidateDecisionsSchema,req).decisions))));
   router.put("/research/book-analyses/:id/candidates/:candidateId",asyncRoute(async(req,res)=>success(res,await updateResearchCandidate(String(req.params.id),String(req.params.candidateId),body(researchCandidateUpdateSchema,req)))));
   router.get("/research/reference-packs",asyncRoute(async(_req,res)=>success(res,await listReferencePacks())));

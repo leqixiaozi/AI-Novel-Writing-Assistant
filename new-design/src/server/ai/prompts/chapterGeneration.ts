@@ -1,10 +1,12 @@
 import {z} from "zod";
+import {worldUsageCreativeScopesSchema} from '../../../common/worldUsage';
 import type {PromptAsset} from "./contracts";
 export const chapterGenerationInputSchema=z.object({
   bookId:z.string().uuid(),bookName:z.string().max(300),chapterCardId:z.string().uuid(),chapterTitle:z.string().max(300),
   operation:z.enum(["continue","rewrite","expand","shorten","dialogue","conflict","fix","regenerate"]),
   plans:z.array(z.object({objectId:z.string().uuid(),versionId:z.string().uuid(),level:z.enum(["story","volume","chapter","scene"]),contentHash:z.string().regex(/^[a-f0-9]{64}$/),content:z.record(z.string(),z.unknown()),executionMode:z.enum(['manual','ai_assisted','automatic']),references:z.array(z.object({id:z.string().uuid(),role:z.enum(['viewpoint','location','participant','event','foreshadow','item','organization']),cardId:z.string().uuid(),cardVersionId:z.string().uuid(),title:z.string(),contentHash:z.string().regex(/^[a-f0-9]{64}$/),values:z.record(z.string(),z.unknown()),action:z.enum(['plant','reinforce','recover','misdirect','reveal']).nullable(),note:z.string()}).strict()).max(300)}).strict()).min(1).max(300),
   materials:z.array(z.object({cardId:z.string().uuid(),versionId:z.string().uuid(),title:z.string(),typeName:z.string(),values:z.record(z.string(),z.unknown())}).strict()).max(300),
+  worldUsage:worldUsageCreativeScopesSchema.optional(),
   continuity:z.object({sources:z.array(z.object({type:z.enum(['canonical_fact','state_change','knowledge_state_change','card_relation','body_version','entity_initial_state']),stableId:z.string().uuid(),versionId:z.string().uuid(),hash:z.string().regex(/^[a-f0-9]{64}$/),content:z.record(z.string(),z.unknown())}).strict()).max(1500),notes:z.array(z.string().max(2000)).max(100)}).strict(),
   knowledge:z.array(z.object({assetId:z.string().uuid(),sourceVersionId:z.string().uuid(),parsedAssetId:z.string().uuid(),parsedVersionId:z.string().uuid(),checksum:z.string().regex(/^[a-f0-9]{64}$/),title:z.string(),text:z.string().max(2097152)}).strict()).max(20),
   body:z.object({versionId:z.string().uuid(),contentHash:z.string().regex(/^[a-f0-9]{64}$/),content:z.string().max(2000000)}).strict().nullable(),

@@ -64,7 +64,6 @@ export default function DynamicForm({ fields, values, issues = {}, disabled, pre
   const priority=(field:FieldDefinition)=>{const index=preferredFieldKeys?.indexOf(field.key)??-1;return index<0?Number.MAX_SAFE_INTEGER:index;};
   for (const field of [...fields].filter((item)=>!item.hidden).sort((a, b) => priority(a)-priority(b)||a.order-b.order)) {
     if (!isVisible(field, values)) continue;
-    if (fieldSection && !fieldInCharacterSection(field, fieldSection) && !issues[field.key]) continue;
     const group = field.group.trim() || "基本信息";
     groups.set(group, [...(groups.get(group) ?? []), field]);
   }

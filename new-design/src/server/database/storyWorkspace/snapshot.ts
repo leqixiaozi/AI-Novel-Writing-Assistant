@@ -7,6 +7,8 @@ import type {FormAssistTarget} from '../../../common/formAssist';
 import {aiFormFields} from '../../domain/formAssist';
 import {assertFound,NewDesignError} from '../../domain/errors';
 import {freezeFormContext,formHash} from '../formAssist';
+import {readActiveWorldUsageScopes} from '../worldUsage';
+import {worldUsageCreativeScopes} from '../../../common/worldUsage';
 
 export async function freezeStoryBatch(db:PoolClient,bookId:string,request:StoryBatchRequest):Promise<StoryBatchPromptInput>{
  const book=assertFound((await db.query("SELECT id,space_id,name,description FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'书籍不存在或已归档。');
@@ -15,7 +17,7 @@ export async function freezeStoryBatch(db:PoolClient,bookId:string,request:Story
  const plans=(await db.query(`SELECT object.*,version.content,parent.adopted_version_id parent_version_id FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.current_version_id LEFT JOIN new_design.planning_objects parent ON parent.id=object.parent_object_id WHERE object.book_id=$1 AND object.status='active' ORDER BY object.sort_order,object.id`,[bookId])).rows;
  const adoptedPlans=(await db.query(`SELECT object.id,object.title,version.id version_id,version.content FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.adopted_version_id WHERE object.book_id=$1 AND object.status='active' ORDER BY object.id LIMIT 301`,[bookId])).rows;
  if(adoptedPlans.length>300)throw new NewDesignError('本书已采用规划超过单次上下文范围。请先整理规划范围。',422);
- const references=(await db.query("SELECT planning_version_id,reference_role,card_id FROM new_design.planning_version_references WHERE book_id=$1 AND planning_version_id=ANY($2::uuid[])",[bookId,plans.map(plan=>plan.current_version_id)])).rows;
+ const references=(await db.query("SELECT planning_version_id,reference_role,card_id,card_version_id FROM new_design.planning_version_references WHERE book_id=$1 AND planning_version_id=ANY($2::uuid[])",[bookId,plans.map(plan=>plan.current_version_id)])).rows;
  const slots:StoryBatchSlot[]=[];
  if(request.mode==='setting'){
   const types=(await db.query("SELECT id,current_version_id FROM new_design.card_types WHERE space_id=$1 AND status='published' AND current_version_id IS NOT NULL AND id=ANY($2::uuid[])",[book.space_id,request.typeIds])).rows;
@@ -64,7 +66,11 @@ export async function freezeStoryBatch(db:PoolClient,bookId:string,request:Story
   if(!selected.length&&request.scopeId==='book')slots.push({id:randomUUID(),title:'故事总览',values:{},fields:[],target:null,planningId:null,revision:null,baseVersionId:null,parentVersionId:null,level:'story',sourceHash:formHash({bookId,empty:true})});
  }
  if(!slots.length)throw new NewDesignError('此组没有可补充的空白字段，请填写新增数量或选择其他分组。',422);
- const result:StoryBatchPromptInput={bookName:book.name,bookDescription:book.description??'',mode:request.mode,instruction:request.instruction,slots,materials:materials.map(card=>({id:card.id,versionId:card.current_version_id,title:card.title,typeKey:card.type_key,values:card.values})),adoptedPlans:adoptedPlans.map(plan=>({id:plan.id,versionId:plan.version_id,title:plan.title,content:plan.content}))};
+ const scopes=await readActiveWorldUsageScopes(db,bookId),selectedWorldVersions=new Map<string,string>(),worldTypes=new Set(['world_setting','world_overview','faction','organization','location','world_rule','time_rule','power_system']);
+ for(const scope of scopes){selectedWorldVersions.set(scope.rootCardId,scope.sources.rootVersionId);const ids=new Set([...scope.selection.factionIds,...scope.selection.locationIds,...scope.selection.ruleIds]);for(const card of scope.sources.cards)if(ids.has(card.cardId))selectedWorldVersions.set(card.cardId,card.versionId);}
+ const selectedWorldIds=new Set(selectedWorldVersions.keys()),selectedPlanVersions=new Set(slots.filter(slot=>slot.planningId).map(slot=>plans.find(plan=>plan.id===slot.planningId)?.current_version_id));
+ if(scopes.length&&references.some(reference=>{if(!selectedPlanVersions.has(reference.planning_version_id))return false;const source=materials.find(card=>card.id===reference.card_id);return source&&worldTypes.has(String(source.type_key))&&selectedWorldVersions.get(String(source.id))!==String(reference.card_version_id);} ))throw new NewDesignError('规划引用的世界资料不在正式使用范围内，或并非本次采用的精确版本；请先核对来源。',409);
+ const result:StoryBatchPromptInput={bookName:book.name,bookDescription:book.description??'',mode:request.mode,instruction:request.instruction,slots,materials:materials.filter(card=>!scopes.length||!worldTypes.has(String(card.type_key))||selectedWorldIds.has(String(card.id))).map(card=>({id:card.id,versionId:card.current_version_id,title:card.title,typeKey:card.type_key,values:card.values})),adoptedPlans:adoptedPlans.map(plan=>({id:plan.id,versionId:plan.version_id,title:plan.title,content:plan.content})),worldUsage:worldUsageCreativeScopes(scopes)};
  if(JSON.stringify(result).length>180000)throw new NewDesignError('本次参考内容过长，请整理资料并缩小准备范围。',422);
  return result;
 }

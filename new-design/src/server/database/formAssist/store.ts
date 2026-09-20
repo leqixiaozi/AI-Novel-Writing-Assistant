@@ -9,6 +9,8 @@ import { formHash, freezeFormContext } from "./context";
 import type { z } from "zod";
 import { selectableTreeNodeIds } from "../../../common/treePolicy";
 import { validateFieldValue } from "../../domain/validation";
+import {readActiveWorldUsageScopes,assertWorldUsageScopesCurrent} from '../worldUsage';
+import {worldUsageCreativeScopes} from '../../../common/worldUsage';
 export class FormAiPreparationError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:"not_written"|"unknown",issues?:Record<string,string>){super(message,status,issues);}}
 
 function mapRun(row:Record<string,any>):FormAssistRun {
@@ -32,6 +34,8 @@ export async function generateBusinessFormAi(request:FormAssistRequest,gateway?:
     const previous=(await db.query("SELECT * FROM new_design.ai_generation_batches WHERE book_id=$1 AND input_payload->>'contract'='business_form_ai_v1' AND input_payload->>'idempotencyKey'=$2",[request.target.bookId,request.idempotencyKey])).rows[0];
     if(previous){if(previous.input_payload.requestHash!==requestHash)throw new NewDesignError("同一次请求的内容发生变化，请核对原请求，不覆盖已有结果。",409);committing=true;await db.query("COMMIT");return mapRun(previous);}
     snapshot=await freezeFormContext(db,request.target,request.values,request.tagIds,request.referenceCardIds??[],request.referenceKnowledgeSources??[]);
+    const type=(await db.query('SELECT type_key FROM new_design.card_types WHERE id=$1 AND space_id=(SELECT space_id FROM new_design.books WHERE id=$2)',[request.target.cardTypeId,request.target.bookId])).rows[0];
+    if(type?.type_key==='character')snapshot.worldUsage=worldUsageCreativeScopes(await readActiveWorldUsageScopes(db,request.target.bookId));
     const issues=validateFormDraft(snapshot,request.values);if(Object.keys(issues).length)throw new NewDesignError("请先修正表单中格式或范围有误的项目。",422,issues);
     if(request.fieldKeys.some(key=>!snapshot.fields.some(field=>field.key===key&&!field.hidden)))throw new NewDesignError("选择的字段不属于当前表单。",422);
     await db.query(`INSERT INTO new_design.ai_generation_batches(id,book_id,card_id,operation,status,stage,instruction,input_payload,base_revision,prompt_id,prompt_version)
@@ -41,8 +45,9 @@ export async function generateBusinessFormAi(request:FormAssistRequest,gateway?:
   try{
     const fields=aiFormFields(snapshot!,request.action,request.fieldKeys),allowed=new Set(fields.map(field=>field.key)),book=(await pool.query("SELECT name FROM new_design.books WHERE id=$1",[request.target.bookId])).rows[0];
     if(!fields.length)throw new NewDesignError("当前选择中没有允许 AI 修改的项目。",422);
+    if(snapshot!.worldUsage){const check=await pool.connect();try{await check.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');await assertWorldUsageScopesCurrent(check,request.target.bookId,snapshot!.worldUsage);await check.query('COMMIT');}catch(error){await check.query('ROLLBACK');throw error;}finally{check.release();}}
     const outputs=await Promise.all(Array.from({length:request.action==="alternatives"?3:1},()=>gateway.assistForm({bookName:book.name,formName:"本书资料表单",cardTitle:request.target.title,
-      currentValues:{...request.values,__readonly_context:{relations:snapshot!.relations,trees:snapshot!.trees.filter(tree=>tree.rule.aiSuggestible).map(tree=>({...tree,nodes:tree.nodes.filter(node=>selectableTreeNodeIds(tree.nodes,tree.rule).has(node.id))})),...(snapshot!.knowledgeReferences?.length?{knowledgeReferences:snapshot!.knowledgeReferences.map(source=>({...source,kind:"untrusted_knowledge_reference"}))}:{})}},fields,instruction:request.instruction})));
+      currentValues:{...request.values,__readonly_context:{relations:snapshot!.relations,trees:snapshot!.trees.filter(tree=>tree.rule.aiSuggestible).map(tree=>({...tree,nodes:tree.nodes.filter(node=>selectableTreeNodeIds(tree.nodes,tree.rule).has(node.id))})),...(snapshot!.knowledgeReferences?.length?{knowledgeReferences:snapshot!.knowledgeReferences.map(source=>({...source,kind:"untrusted_knowledge_reference"}))}:{}),...(snapshot!.worldUsage?{worldUsage:snapshot!.worldUsage}:{})}},fields,instruction:request.instruction})));
     const candidates:FormAssistCandidate[]=[],observations:FormAssistRun["observations"]=[],newNodes:FormAssistRun["newNodes"]=[];
     for(const [index,output] of outputs.entries()){
       const missing=fields.filter(field=>field.required&&validateFieldValue(field,output?.[field.key]));if(["fill_required","prepare_all"].includes(request.action)&&missing.length)throw new NewDesignError(`AI 未完整准备必填项：${missing.slice(0,5).map(field=>field.key==="__title"?"资料名称":field.name).join("、")}。请在此重试生成建议，原草稿保留。`,422);
@@ -69,6 +74,7 @@ export async function adoptBusinessFormAi(bookId:string,id:string,input:z.infer<
     const previous=(await db.query("SELECT * FROM new_design.form_ai_draft_decisions WHERE batch_id=$1 AND idempotency_key=$2",[id,input.idempotencyKey])).rows[0];
     if(previous){if(previous.request_hash!==hash)throw new NewDesignError("同一次采用请求的内容发生变化。",409);await db.query("COMMIT");return {decisionId:previous.id,...previous.draft_snapshot};}
     if(run.status!=="review"&&run.status!=="applied")throw new NewDesignError("这组建议不可采用，请重新生成。",409);
+    if(run.snapshot.worldUsage)await assertWorldUsageScopesCurrent(db,bookId,run.snapshot.worldUsage);
     const current=await freezeFormContext(db,run.snapshot.target,input.values,input.tagIds,run.snapshot.referenceCardIds??[],run.snapshot.referenceKnowledgeSources??[]);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("规格、关联资料或选项已变化，请复核后重新生成；本地草稿会保留。",409);
     const candidate=assertFound(run.candidates.find(item=>item.id===input.candidateId),"请先选择一个有效方案。");
     if(!input.fieldKeys.length&&!input.treeKeys.length)throw new NewDesignError("请勾选要采用的建议。",422);

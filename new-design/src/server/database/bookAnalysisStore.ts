@@ -3,12 +3,20 @@ import type { BookAnalysisPlan, BookAnalysisResult, CardSummary, FieldDefinition
 import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
-import { createResearchRun, getResearchRecord, setResearchRunState } from "./researchStore";
+import { createResearchRun, getBookAnalysisRequestByKey, getResearchRecord, setResearchRunState } from "./researchStore";
 import { getCard } from "./store";
 
 export async function beginBookAnalysisRun(input:{title:string;type:"book_analysis"|"diagnosis";sourceDocumentVersionId:string;sourceScope:Record<string,unknown>;plan:BookAnalysisPlan;focus:string;budgetTokens:number;recordId?:string;parentVersionId?:string|null}){
   const pool=await getNewDesignPool(),client=await pool.connect();
-  try{await client.query("BEGIN");const run=await createResearchRun(client,{type:input.type,title:input.title,sourceDocumentVersionId:input.sourceDocumentVersionId,sourceScope:input.sourceScope,templateKey:"new_design.research.book_analysis",templateVersion:1,budgetTokens:input.budgetTokens,inputSnapshot:{focus:input.focus,plan:input.plan},recordId:input.recordId,parentVersionId:input.parentVersionId});await setResearchRunState(client,run.versionId,{status:"running",progress:10});await client.query("COMMIT");return run;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+  try{await client.query("BEGIN");const requestKey=input.sourceScope.requestKey,inputHash=input.sourceScope.inputHash;
+    if(typeof requestKey==="string"){
+      if(typeof inputHash!=="string"||!inputHash)throw new NewDesignError("原拆书冻结输入不完整，未创建运行。",422);
+      await client.query("SELECT pg_advisory_xact_lock(471982,hashtext($1))",[requestKey]);
+      const previous=await getBookAnalysisRequestByKey(requestKey,client);
+      if(previous){if(previous.inputHash!==inputHash)throw new NewDesignError("原拆书请求与冻结输入不一致，不能重复执行。",409);await client.query("COMMIT");return{recordId:previous.recordId,versionId:previous.versionId,version:previous.version,created:false};}
+    }
+    if(input.recordId&&input.parentVersionId){const current=(await client.query("SELECT current_version_id FROM new_design.research_records WHERE id=$1 AND status='active' FOR UPDATE",[input.recordId])).rows[0];if(!current||String(current.current_version_id)!==input.parentVersionId)throw new NewDesignError("原拆书版本已变化，不能从旧版本重复创建重跑。",409);}
+    const run=await createResearchRun(client,{type:input.type,title:input.title,sourceDocumentVersionId:input.sourceDocumentVersionId,sourceScope:input.sourceScope,templateKey:"new_design.research.book_analysis",templateVersion:1,budgetTokens:input.budgetTokens,inputSnapshot:{focus:input.focus,plan:input.plan},recordId:input.recordId,parentVersionId:input.parentVersionId});await setResearchRunState(client,run.versionId,{status:"running",progress:10});await client.query("COMMIT");return{...run,created:true};}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 
 export async function completeBookAnalysis(versionId:string,result:BookAnalysisResult,meta:{usedTokens:number;promptSnapshot:Record<string,unknown>;modelSnapshot:Record<string,unknown>}):Promise<void>{

@@ -21,6 +21,13 @@ test('model availability preserves public configuration failures and hides unexp
 });
 const field={key:'age',name:'年龄',description:'',type:'number',required:false,options:[],group:'身份',order:1,defaultValue:null};
 function snapshot(mode='setting'){return {bookName:'测试小说',bookDescription:'',instruction:'',mode,slots:[{id,title:'原人物',values:{name:'作者填写'},fields:mode==='setting'?[field]:[],target:null,planningId:null,revision:null,baseVersionId:null,parentVersionId:null,level:null,sourceHash:'a'.repeat(64)}],materials:[],adoptedPlans:[]};}
+test('character and planning batch prompts consume only the exact adopted world scope snapshot',()=>{
+ const worldUsage=[{rootCardId:book,rootVersionId:book,rootTitle:'本书世界',rootValues:{name:'本书世界'},adoptionId:key,version:1,sourceHash:'a'.repeat(64),primaryLocationId:id,boundary:'限在主舞台',factions:[],locations:[{cardId:id,versionId:id,title:'主舞台',values:{name:'主舞台'}}],rules:[]}];
+ const setting=preparePrompt('story_workspace_batch',{...snapshot(),worldUsage});
+ assert.deepEqual(JSON.parse(setting.messages[1].content).taskData.worldUsage,worldUsage);
+ const planning=preparePrompt('story_workspace_batch',{...snapshot('planning'),worldUsage});
+ assert.deepEqual(JSON.parse(planning.messages[1].content).taskData.worldUsage,worldUsage);
+});
 test('batch prompt preserves exact slots and typed fields, rejecting manual fields and missing targets',()=>{
  const prompt=preparePrompt('story_workspace_batch',snapshot());
  assert.deepEqual(prompt.parseOutput({candidates:{[id]:{age:23}}}),{candidates:{[id]:{age:23}}});
@@ -39,14 +46,14 @@ test('range prompt allows only actual event references and same-book different c
  assert.throws(()=>prompt.parseOutput({candidates:{[id]:{...content,relationshipPlans:[{sourceId:p1,targetId:p1,description:'自关系'}]}}}));
  assert.throws(()=>prompt.parseOutput({candidates:{[id]:{...content,relationshipPlans:[{sourceId:p1,targetId:key,description:'外来人物'}]}}}));
 });
-function batchFixture(gateway){
+function batchFixture(gateway,options={}){
  const rows=new Map(),calls=[];let executing=false;
  const query=async(sql,args=[])=>{calls.push(sql);if(sql.includes('pg_try_advisory_xact_lock'))return {rows:[{locked:!executing}]};if(sql.includes('pg_advisory_lock('))executing=true;if(sql.includes('pg_advisory_unlock('))executing=false;if(sql.startsWith('SELECT * FROM new_design.ai_generation_batches'))return {rows:rows.has(args[0])?[rows.get(args[0])]:[]};
   if(sql.startsWith('INSERT INTO new_design.ai_generation_batches')){rows.set(args[0],{id:args[0],book_id:args[1],status:'running',stage:'generating',instruction:args[2],input_payload:JSON.parse(args[3]),output_payload:{},created_at:new Date(),error_message:''});return {rows:[]};}
   if(sql.startsWith('UPDATE new_design.ai_generation_batches')){const row=rows.get(args[0]);if(sql.includes("status='discarded'")){row.status='discarded';row.stage='ended_unknown';}else if(sql.includes("status='review'")){row.status='review';row.output_payload=JSON.parse(args[1]);}else if(sql.includes("status='failed'")){row.status='failed';row.error_message=args[1];row.output_payload=JSON.parse(args[2]);}else{row.stage=args[1];row.error_message=args[2];}return {rows:[row]};}return {rows:[]};};
- const pool={query,connect:async()=>({query,release(){}})},module=load('src/server/database/storyWorkspace/index.ts',{'zod':require('zod'),'../../ai/runtime/errors':{AiExecutionError},'../../ai/prompts':{preparePrompt,storyBatchTask:mode=>mode==='visible_prepare'?'visible_prepare':mode==='visible_adjust'?'visible_adjust':'story_workspace_batch'},'../../domain/errors':{NewDesignError},'../runtime':{getNewDesignPool:async()=>pool},'../formAssist':{formHash:hash},'../../domain/formAssist':{},'./snapshot':{freezeStoryBatch:async()=>snapshot()},'./adoptions':{},'./visibleBatchWrites':{}});
+ const pool={query,connect:async()=>({query,release(){}})},module=load('src/server/database/storyWorkspace/index.ts',{'zod':require('zod'),'../../ai/runtime/errors':{AiExecutionError},'../../ai/prompts':{preparePrompt,storyBatchTask:mode=>mode==='visible_prepare'?'visible_prepare':mode==='visible_adjust'?'visible_adjust':'story_workspace_batch'},'../../domain/errors':{NewDesignError},'../runtime':{getNewDesignPool:async()=>pool},'../formAssist':{formHash:hash},'../../domain/formAssist':{},'./snapshot':{freezeStoryBatch:async()=>options.snapshotValue??snapshot()},'../worldUsage':{assertWorldUsageScopesCurrent:options.assertWorldUsage??(async()=>{})},'./adoptions':{},'./visibleBatchWrites':{}});
  const request={mode:'setting',requestKey:key,instruction:'',typeIds:[id],newTypeId:id,newCount:0};
- return {generate:input=>module.generateStoryBatch(book,input??request,gateway),read:()=>module.readStoryBatch(book,key),end:()=>module.endUnknownStoryBatch(book,key),rows,calls,request};
+ return {check:slotId=>module.checkStoryBatchSlot(book,key,slotId),generate:input=>module.generateStoryBatch(book,input??request,gateway),read:()=>module.readStoryBatch(book,key),end:()=>module.endUnknownStoryBatch(book,key),rows,calls,request};
 }
 test('same original batch request invokes a model once and reads the retained candidates without saving cards',async()=>{
  let invocations=0;const fixture=batchFixture({generateStoryWorkspaceBatch:async()=>{invocations++;return {output:{candidates:{[id]:{age:23}}},promptSnapshot:{},modelSnapshot:{},usedTokens:20};}});
@@ -54,6 +61,15 @@ test('same original batch request invokes a model once and reads the retained ca
  assert.equal(fixture.calls.filter(sql=>sql.startsWith('INSERT')).length,1);assert.ok(fixture.calls.some(sql=>sql.includes('pg_advisory_xact_lock')));
  assert.equal(fixture.calls.some(sql=>/INSERT INTO new_design\.(cards|planning_versions|entity_initial_states)/.test(sql)),false);
  await assert.rejects(fixture.generate({...fixture.request,instruction:'换输入'}),/原请求内容不匹配/);assert.equal(invocations,1);
+});
+test('a changed adopted world scope blocks loading an old character batch candidate',async()=>{
+ let stale=false,modelCalls=0;
+ const fixture=batchFixture({generateStoryWorkspaceBatch:async()=>{modelCalls++;return {output:{candidates:{[id]:{age:23}}},promptSnapshot:{},modelSnapshot:{},usedTokens:1};}},{snapshotValue:{...snapshot(),worldUsage:[]},assertWorldUsage:async()=>{if(stale)throw new NewDesignError('正式世界使用范围已变化。',409);}});
+ await fixture.generate();
+ assert.deepEqual((await fixture.check(id)).values,{age:23});
+ stale=true;
+ await assert.rejects(fixture.check(id),/世界使用范围已变化/);
+ assert.equal(modelCalls,1);
 });
 test('lost model response retains the original claim and blocks another provider call with the same key',async()=>{
  let invocations=0;const fixture=batchFixture({generateStoryWorkspaceBatch:async()=>{invocations++;throw Error('lost response');}});

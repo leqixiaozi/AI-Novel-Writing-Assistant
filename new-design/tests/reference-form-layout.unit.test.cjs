@@ -28,6 +28,7 @@ test('profile and visible share all AI fields and original values; errors reveal
  const DynamicForm=load('src/client/DynamicForm.tsx',{
   react:React,'react/jsx-runtime':require('react/jsx-runtime'),
   './api':{newDesignApi:{}},'./tree':{TreeSelector:()=>null},
+  './businessForms/legacy-form.css':{},
   './businessForms/aiAssist':{FormAiPanel:props=>{context=props;return null;}},
   '../common/treePolicy':{},'./storyWorkspace/Help':{default:()=>null},
   '../common/formPresentation':presentation,

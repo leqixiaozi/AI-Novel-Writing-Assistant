@@ -1,7 +1,7 @@
 import {Router} from "express";
 import {z} from "zod";
 import {uploadKnowledgeReference,parseKnowledgeReference} from "../../application/knowledgeReference";
-import {getKnowledgeReferenceWorkspace,searchKnowledgeReferences,getKnowledgeArchivePreview,bindKnowledgeReference,archiveKnowledgeReference,readKnowledgeReferenceReceipt,KnowledgeReferenceError,knowledgeUploadSchema,knowledgeWriteSchema,knowledgeBindSchema,knowledgeArchiveSchema,knowledgeSearchSchema,knowledgeKeySchema,getKnowledgeContent,getKnowledgeReferenceCandidates,getKnowledgeReferenceTargets,adoptKnowledgeReferences,knowledgeContentSchema,knowledgeReferenceSchema} from "../../database/knowledgeReference";
+import {getKnowledgeReferenceWorkspace,getKnowledgeReferenceItem,searchKnowledgeReferences,getKnowledgeArchivePreview,bindKnowledgeReference,archiveKnowledgeReference,readKnowledgeReferenceReceipt,KnowledgeReferenceError,knowledgeUploadSchema,knowledgeWriteSchema,knowledgeBindSchema,knowledgeArchiveSchema,knowledgeSearchSchema,knowledgeKeySchema,getKnowledgeContent,getKnowledgeReferenceCandidates,getKnowledgeReferenceTargets,adoptKnowledgeReferences,knowledgeContentSchema,knowledgeReferenceSchema} from "../../database/knowledgeReference";
 import {NewDesignError} from "../../domain/errors";
 import {AiExecutionError} from "../../ai";
 const uuid=z.string().uuid();
@@ -9,7 +9,8 @@ function failure(bookId:string,step:string,error:unknown){const issues=error ins
 /** Mount without a prefix on the main API router. */
 export function createKnowledgeReferenceRouter(){const router=Router();
  function handle(step:string,action:(request:any)=>Promise<unknown>){return(request:any,response:any,next:any)=>{let bookId="";try{bookId=uuid.parse(request.params.bookId);}catch(error){next(failure(bookId,step,error));return;}void Promise.resolve().then(()=>action(request)).then(data=>response.json({success:true,data})).catch(error=>next(failure(bookId,step,error)));};}
- router.get("/books/:bookId/knowledge/workspace",handle("读取知识参考",request=>getKnowledgeReferenceWorkspace(request.params.bookId)));
+ router.get("/books/:bookId/knowledge/workspace",handle("读取知识参考",request=>getKnowledgeReferenceWorkspace(request.params.bookId,request.query.before===undefined?undefined:uuid.parse(request.query.before))));
+ router.get("/books/:bookId/knowledge/assets/:id",handle("读取知识参考详情",request=>getKnowledgeReferenceItem(request.params.bookId,uuid.parse(request.params.id))));
  router.get("/books/:bookId/knowledge/assets/:id/content",handle("查看知识正文",request=>getKnowledgeContent(request.params.bookId,uuid.parse(request.params.id),knowledgeContentSchema.parse(request.query))));
  router.get("/books/:bookId/knowledge/reference-candidates",handle("读取精确知识引用候选",request=>getKnowledgeReferenceCandidates(request.params.bookId)));
  router.get("/books/:bookId/knowledge/reference-targets",handle("读取真实上下文参考位置",request=>getKnowledgeReferenceTargets(request.params.bookId)));
