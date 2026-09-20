@@ -30,7 +30,7 @@ type SnapshotNode=Omit<ProjectionNodeInput,"projectionKey"|"generationId">;
 type SnapshotEdge=Omit<ProjectionEdgeInput,"projectionKey"|"generationId"|"sourceProjectionKey"|"targetProjectionKey">&{from:{kind:string;id:string;versionId:string};to:{kind:string;id:string;versionId:string}};
 
 async function loadSnapshot(client:PoolClient,bookId:string):Promise<{nodes:SnapshotNode[];edges:SnapshotEdge[];watermark:Record<string,unknown>}>{const nodeRows=(await client.query(`
-SELECT 'book' source_kind,book.id source_id,book.id source_version_id,1::bigint source_revision,dependency_content_hash(to_jsonb(book)::text) source_hash,book.title, 'book' semantic_kind FROM new_design.books book WHERE book.id=$1 AND book.status='active'
+SELECT 'book' source_kind,book.id source_id,book.id source_version_id,1::bigint source_revision,dependency_content_hash(to_jsonb(book)::text) source_hash,book.name title, 'book' semantic_kind FROM new_design.books book WHERE book.id=$1 AND book.status='active'
 UNION ALL SELECT 'card_version',card.id,version.id,version.revision,dependency_content_hash(version.title||version.values::text||version.type_version_id::text),version.title,type.type_key FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id JOIN new_design.card_versions version ON version.id=card.current_version_id JOIN new_design.card_types type ON type.id=card.card_type_id WHERE book.id=$1 AND card.status='active'
 UNION ALL SELECT 'chapter_body_version',document.id,version.id,version.version,version.content_hash,'第'||document.logical_order::text||'章正文','chapter_body' FROM new_design.chapter_documents document JOIN new_design.chapter_body_versions version ON version.id=document.adopted_version_id WHERE document.book_id=$1 AND document.status='active'
 UNION ALL SELECT 'canonical_fact',fact.id,fact.id,fact.revision,fact.value_hash,fact.predicate,'fact' FROM new_design.canonical_facts fact WHERE fact.book_id=$1 AND fact.status='confirmed'
@@ -60,15 +60,45 @@ export async function rebuildGraphProjection(bookId:string,input:{idempotencyKey
 
 async function isCurrentProjectionResource(client:PoolClient,request:Record<string,unknown>):Promise<boolean>{const kind=String(request.source_kind),id=request.source_id,version=request.source_version_id,book=request.book_id;const checks:Record<string,string>={card_version:"SELECT 1 FROM new_design.books book JOIN new_design.cards item ON item.space_id=book.space_id WHERE book.id=$3 AND item.id=$1 AND item.current_version_id=$2 AND item.status='active'",chapter_body_version:"SELECT 1 FROM new_design.chapter_documents item WHERE item.book_id=$3 AND item.id=$1 AND item.adopted_version_id=$2 AND item.status='active'",canonical_fact:"SELECT 1 FROM new_design.canonical_facts item WHERE item.book_id=$3 AND item.id=$1 AND item.id=$2 AND item.status='confirmed'",state_change:"SELECT 1 FROM new_design.current_state_projections projection JOIN new_design.state_changes change ON change.id=projection.source_state_change_id WHERE projection.book_id=$3 AND change.id=$1 AND change.id=$2 AND change.status='active' AND NOT projection.is_stale",knowledge_state_change:"SELECT 1 FROM new_design.current_knowledge_state_projections projection JOIN new_design.knowledge_state_changes change ON change.id=projection.source_change_id WHERE projection.book_id=$3 AND change.proposal_id=$1 AND change.id=$2 AND change.status='active'",story_event_timing:"SELECT 1 FROM new_design.story_event_timings item WHERE item.book_id=$3 AND item.id=$1 AND item.id=$2 AND item.status='active'",story_event_relation:"SELECT 1 FROM new_design.story_event_relations item WHERE item.book_id=$3 AND item.proposal_id=$1 AND item.id=$2 AND item.status='active'",planning_version:"SELECT 1 FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.adopted_version_id WHERE object.book_id=$3 AND object.id=$1 AND version.id=$2 AND object.status='active' AND version.stale_at IS NULL",research_record_version:"SELECT 1 FROM new_design.book_research_references reference JOIN new_design.research_record_versions version ON version.id=reference.research_version_id WHERE reference.book_id=$3 AND version.record_id=$1 AND version.id=$2",asset_version:"SELECT 1 FROM new_design.assets item WHERE item.book_id=$3 AND item.id=$1 AND item.current_version_id=$2 AND item.status='active'",card_relation:"SELECT 1 FROM new_design.books book JOIN new_design.card_relations item ON item.space_id=book.space_id WHERE book.id=$3 AND item.id=$1 AND item.id=$2 AND item.status='active'"};const sql=checks[kind];return sql?Boolean((await client.query(sql,[id,version,book])).rowCount):false;}
 
+export async function recoverInterruptedGraphRebuild(bookId:string):Promise<number>{
+  const pool=await getNewDesignPool(),client=await pool.connect();
+  let locked=false;
+  try{
+    locked=Boolean((await client.query("SELECT pg_try_advisory_lock(hashtextextended($1,0)) acquired",[bookId])).rows[0]?.acquired);
+    if(!locked)throw new NewDesignError("该书已有图投影操作正在执行。",409,{code:"GRAPH_REBUILD_IN_PROGRESS"});
+    await client.query("BEGIN");
+    const interrupted=(await client.query("SELECT request.id,request.generation_id FROM new_design.graph_projection_requests request JOIN new_design.graph_projection_generations generation ON generation.id=request.generation_id WHERE request.book_id=$1 AND request.request_kind='full_rebuild' AND request.status='processing' AND generation.status IN ('building','ready') FOR UPDATE OF request,generation",[bookId])).rows;
+    for(const row of interrupted){
+      await client.query("UPDATE new_design.graph_projection_batches SET status='failed',completed_at=now() WHERE request_id=$1 AND status='running'",[row.id]);
+      await client.query("UPDATE new_design.graph_projection_generations SET status='failed',error_code='interrupted_rebuild',error_detail='上次全量构建未完成，原世代保留以供核对。',completed_at=now() WHERE id=$1",[row.generation_id]);
+      await client.query("UPDATE new_design.graph_projection_requests SET status='failed',last_error_code='interrupted_rebuild',last_error_detail='上次全量构建未完成，需重新建立世代。',completed_at=now() WHERE id=$1",[row.id]);
+    }
+    if(interrupted.length)await client.query("UPDATE new_design.graph_projection_book_states SET status=CASE WHEN active_generation_id IS NULL THEN 'unavailable' ELSE 'degraded' END,last_error_code='interrupted_rebuild',last_error_detail='上次全量构建未完成，需重新建立世代。',revision=revision+1,updated_at=now() WHERE book_id=$1",[bookId]);
+    await client.query("COMMIT");
+    return interrupted.length;
+  }catch(error){await client.query("ROLLBACK").catch(()=>undefined);throw error;}
+  finally{if(locked){try{await client.query("SELECT pg_advisory_unlock(hashtextextended($1,0))",[bookId]);client.release();}catch{client.release(true);}}else client.release();}
+}
+
 export async function processGraphProjectionRequest(id:string):Promise<GraphProjectionRequest>{
   const pool=await getNewDesignPool(),client=await pool.connect();
   let request:Record<string,unknown>|null=null;
   let batchId="";
   let generationId="";
+  let bookId="";
+  let locked=false;
   try{
+    bookId=String(assertFound((await client.query("SELECT book_id FROM new_design.graph_projection_requests WHERE id=$1",[id])).rows[0],"图同步请求不存在。").book_id);
+    locked=Boolean((await client.query("SELECT pg_try_advisory_lock(hashtextextended($1,0)) acquired",[bookId])).rows[0]?.acquired);
+    if(!locked)throw new NewDesignError("该书已有图投影操作正在执行。",409,{code:"GRAPH_REBUILD_IN_PROGRESS"});
     await client.query("BEGIN");
     const activeRequest=assertFound((await client.query("SELECT * FROM new_design.graph_projection_requests WHERE id=$1 FOR UPDATE",[id])).rows[0],"图同步请求不存在。");
     if(activeRequest.request_kind==="full_rebuild")throw new NewDesignError("全量重建请求必须通过书籍重建入口执行。",409);
+    if(activeRequest.status==="processing"){
+      await client.query("UPDATE new_design.graph_projection_batches SET status='failed',completed_at=now() WHERE request_id=$1 AND status='running'",[id]);
+      await client.query("UPDATE new_design.graph_projection_requests SET status='failed',last_error_code='interrupted_projection',last_error_detail='上次处理未完成，已在书籍锁保护下重新执行。',completed_at=now() WHERE id=$1",[id]);
+      activeRequest.status="failed";
+    }
     if(!["pending","failed"].includes(String(activeRequest.status)))throw new NewDesignError("图同步请求当前不可执行。",409);
     const state=assertFound((await client.query("SELECT * FROM new_design.graph_projection_book_states WHERE book_id=$1 AND active_generation_id IS NOT NULL",[activeRequest.book_id])).rows[0],"书籍尚无可用图投影世代。");
     const cfg=await config(client);
@@ -79,7 +109,6 @@ export async function processGraphProjectionRequest(id:string):Promise<GraphProj
     await client.query("COMMIT");
     request={...activeRequest,generation_id:generationId,status:"processing"};
     return await withAgeTransaction(Number(cfg.statement_timeout_ms),async ageClient=>{
-      await ageClient.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[String(activeRequest.book_id)]);
       const currentGeneration=(await ageClient.query("SELECT active_generation_id FROM new_design.graph_projection_book_states WHERE book_id=$1",[activeRequest.book_id])).rows[0]?.active_generation_id;
       if(String(currentGeneration??"")!==generationId)throw new NewDesignError("处理期间图投影已切换世代，请重试该同步请求。",409,{code:"GRAPH_GENERATION_CHANGED"});
       const source={bookId:String(activeRequest.book_id),generationId,sourceKind:String(activeRequest.source_kind),sourceId:String(activeRequest.source_id),sourceVersionId:String(activeRequest.source_version_id)};
@@ -115,7 +144,7 @@ export async function processGraphProjectionRequest(id:string):Promise<GraphProj
       await pool.query("UPDATE new_design.graph_projection_book_states SET status='degraded',last_error_code=$2,last_error_detail=$3,revision=revision+1,updated_at=now() WHERE book_id=$1 AND active_generation_id=$4",[request.book_id,code,detail,generationId]).catch(()=>undefined);
     }
     throw error;
-  }finally{client.release();}
+  }finally{if(locked){try{await client.query("SELECT pg_advisory_unlock(hashtextextended($1,0))",[bookId]);client.release();}catch{client.release(true);}}else client.release();}
 }
 
 export async function traverseGraph(input:{bookId:string;queryKind:GraphTraversalKind;sourceKind:string;sourceId:string;targetSourceKind?:string|null;targetSourceId?:string|null;depth?:number;limit?:number}):Promise<GraphTraversalResult>{const pool=await getNewDesignPool(),client=await pool.connect();try{const cfg=await config(client),state=await stateWith(client,input.bookId);if(!state.activeGenerationId)throw new NewDesignError("该书尚无已激活的 AGE 投影。",409);const depth=Math.min(Number(cfg.max_depth),Math.max(1,input.depth??3)),limit=Math.min(Number(cfg.max_results),Math.max(1,input.limit??50));if(input.queryKind==="shortest_path"&&(!input.targetSourceKind||!input.targetSourceId))throw new NewDesignError("最短路径查询必须指定目标来源。",422);const paths=await withAgeTransaction(Number(cfg.statement_timeout_ms),ageClient=>runAgeTraversal(ageClient,{...input,generationId:state.activeGenerationId!,depth,limit}));return{bookId:input.bookId,generationId:state.activeGenerationId,queryKind:input.queryKind,paths,truncated:paths.length===limit};}finally{client.release();}}
