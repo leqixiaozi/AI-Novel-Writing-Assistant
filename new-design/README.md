@@ -2,6 +2,8 @@
 
 开发调试中的“新版”范围是左侧“新设计”分组的全部菜单、子页面和书内操作。逐页功能状态见[施工记录](docs/legacy-page-replication-progress.md)；运行包、安装与发布另行验收，不计入当前页面功能调试。
 
+开发前从[项目文档工作台](../doc/README.md)定位产品、架构与规范；具体功能和运行合同从[新版专题索引](docs/README.md)进入。本目录的[AGENTS.md](AGENTS.md)规定新版代码与旧版只读参考的边界。
+
 ## 最新更新
 
 ### 2026-09-19
@@ -62,9 +64,9 @@
 
 这些对象全部存放在 PostgreSQL 的 `new_design` schema 中。模块不导入旧 Prisma/SQLite 模型，也不调用旧业务 Service。
 
-建表 SQL、内置数据和跨机器同步口径见 `migrations/001_card_kernel.sql` 至 `migrations/048_unified_book_creation_review.sql`、`docs/data-model.md`、`docs/completion-export-runtime-maintenance.md`、`docs/release-gate-checklist.md` 及各阶段专题。迁移 SQL、运行包规格和数据文档均随 Git 同步；作者实际填写的正文、完本快照、导出账本、规划候选、结算决定、质量处置、上下文规则和其他结构化数据必须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
+建表 SQL、内置数据和跨机器同步口径见 `migrations/`、[数据库架构](../doc/20架构/database.md)、[数据字典](docs/data-model.md)及[开发与数据交付](docs/development-delivery.md)。普通启动的迁移清单以 `src/server/database/migrations.ts` 为准，独立安装的手动迁移清单以 `src/server/runtime/manifest.ts` 为准；文件存在不代表作者数据库已经安装。迁移 SQL、运行包规格和数据文档随 Git 同步；作者实际填写的正文、完本快照、导出账本、规划候选、结算决定、质量处置、上下文规则和其他结构化数据须通过 PostgreSQL 逻辑备份与受管附件包迁移，不能把运行中的数据目录复制当作完整恢复。
 
-新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL 17.6、AGE 1.6.0、pgvector 0.8.6、`pg_trgm` 1.6、Node.js 24.19.0、归档工具、许可证和 001—045。仓库尚无已验收的 PG17 `age.dll` 与 `vector.dll`，所以运行包会失败关闭；不能把此状态描述为可安装发布。
+新设计不接受系统数据库连接串。最终 Windows x64 包必须自带经逐文件 SHA-256 校验的 PostgreSQL、AGE、pgvector、`pg_trgm`、Node.js、归档工具、许可证，以及与源码注册清单逐项一致的普通迁移和独立手动迁移；具体锁定版本与交付状态见[私有运行时手册](docs/private-runtime-runbook.md)。未通过运行包实际验证前，不能把源码开发环境描述为可安装发布。
 
 AGE 不是第二套小说数据库。关系表保存唯一正本和全部历史，图中只放可从正本重新印出的当前关系索引；所有查询都固定在一本书的当前激活世代，客户端不能直接写图或提交任意 Cypher。
 
@@ -174,34 +176,20 @@ AI 修复成功后先自动保存为 `proposed` 候选，作者采用前的每�
 
 ## 运行
 
-从仓库根目录运行：
+源码开发从 `new-design/` 目录使用本包入口；安装、数据库配置和启动前的数据保护步骤见[独立开发与运行](docs/standalone-development.md)及[开发与数据交付](docs/development-delivery.md)：
 
 ```powershell
-pnpm dev
+npm run dev
 ```
 
-浏览器进入 `http://localhost:5173/new-design`；桌面版从左侧底部可收起的“新设计”分组进入。API 统一挂载在 `/api/new-design`。
+独立页面为 `http://127.0.0.1:5273/new-design`，新版 API 为 `http://127.0.0.1:5301/api/new-design`。需要同一入口对照旧版时按[对照入口](docs/comparison-entry.md)分别启动前端，旧版业务服务不是新版 API 的依赖。
 
-首次访问时会启动随依赖锁定的 PostgreSQL 17.6 Windows x64 运行文件，并按 `001` 至 `044` 顺序建立卡片、书籍、多视图、研究分析、章节正文版本、统一事实、状态结算、知情状态、故事时间、规划版本、AI 执行合同、任务账本、质量审计、统一依赖、附件资产、图与语义派生、Outbox、可移植传输、完本快照、出版导出和 Release Gate。028 要求数据库运行包提供匹配 PostgreSQL 主版本的 Apache AGE，029 要求提供 pgvector；缺少扩展时初始化会明确失败，不会回退到 SQLite、内存图、外部消息队列或其他数据库。默认数据位置：
-
-- 桌面版：`%LOCALAPPDATA%/AI-Novel-Writing-Assistant-v2/new-design/`
-- 仓库开发：`new-design/.data/`
-- 自定义：设置 `NEW_DESIGN_DATA_DIR`
-
-运行时只监听 `127.0.0.1`，从 `55432-55532` 选择可用端口。首次初始化生成随机数据库密码，数据目录、日志和运行配置均位于应用安装目录之外。检测到已有数据但配置丢失或损坏时会停止，不会自动重置数据。
-
-如 CI 已提供真实 PostgreSQL，可设置 `NEW_DESIGN_DATABASE_URL`。该选项仍只连接 PostgreSQL，不提供 SQLite、Mock 或内存回退。
+启动可能检查并应用已登记的普通迁移；手动迁移不会随启动自动安装。作者库实际已应用范围要另行核对 `new_design.schema_migrations`，不能根据迁移文件或 HTTP 健康结果推定。私有运行包的数据目录、扩展要求、故障关闭和发布门槛在[私有运行时手册](docs/private-runtime-runbook.md)维护。
 
 ## 验证
 
-```powershell
-pnpm --filter @ai-novel/new-design test
-pnpm --filter @ai-novel/new-design test:integration
-pnpm --filter @ai-novel/client build
-```
+按[新版开发入口](AGENTS.md)与当前 [`package.json`](package.json) 选择受影响的构建、类型检查、边界检查或功能测试。需要数据库的测试须先核其数据来源和隔离范围；检查结果只证明实际运行的用例及环境，不代表全部新版页面或作者数据库已经验收。
 
-集成测试直接启动便携 PostgreSQL，覆盖类型发布、输入校验、卡片修订、归档/恢复、表单版本、关系与挂载、两本书隔离、高影响修改保护，以及研究候选自动入库后修订、研究复用、章节多候选、显式采用／回退、精确锚点、事实提案／冲突／确认／驳回／修正取代、人物数值／关系／道具／伏笔状态结算、人物与读者知情隔离、完整故事时间提案修订、四层规划树、AI 计划候选、计划修订并发、采用／再次采用、父版切换下游失效、正文不被改写、规划来源时间／因果引用、跨章叙事、并行与因果查询、计划转实际、叙事位置防泄漏、AI 任务恢复、质量报告精确绑定、问题证据、修复候选修订与正式采用引用、复检、正文切版陈旧、书籍隔离、投影重建和停库重启后的持久化读取。测试数据保留在被 `.gitignore` 排除的 `new-design/.data/integration-postgres/`，不会删除或重置已有用户数据库。
+## 状态与发布边界
 
-## 当前范围之外
-
-本模块当前不包含真实审稿／Embedding 模型、自动修文、质量门禁业务编排、质量热力图、RAG 或审稿 UI，也不包含关系图可视化、任意 Cypher 控制台、旧数据迁移、备份恢复 UI、Windows Service 或真实 AGE／Embedding／附件／AI／备份后台执行器。030/031 目前提供显式启动的受控运行壳与失败关闭的数据合同；归档打包／解包、匹配版本 `pg_dump/pg_restore`、数据库与附件一致性快照、staging 原子切换、恢复演练，以及 AGE、pgvector 与 Outbox 的真实迁移和故障恢复仍是 Release Gate 验证债务。后续能力只能依赖本模块公开契约继续扩展，不能在菜单里放置未实现占位入口。
+页面和业务操作的当前覆盖以[逐页施工记录](docs/legacy-page-replication-progress.md)与实际运行证据为准；数据库已安装迁移、模型任务质量、私有运行包和发布分别核对，不能由静态源码或本 README 推定。发布门槛见[Release Gate](docs/release-gate-checklist.md)，后续能力仍须通过本模块公开契约接入，不能用未实现的占位入口冒充功能。

@@ -583,9 +583,11 @@ shared/   前后端共享类型与协议
 images/   README 与产品预览截图
 scripts/  启动和辅助脚本
 docs/     设计文档、阶段检查点、模块计划与历史归档
+new-design/  独立的新版页面、服务、数据库迁移和专题文档
+doc/     新版项目文档工作台：产品、架构与开发规范
 ```
 
-更细的文档分区说明可以看 [docs/README.md](./docs/README.md)。
+开发新版先看[项目文档工作台](./doc/README.md)及[新版专题索引](./new-design/docs/README.md)；旧版与全仓资料的分区说明见[docs/README.md](./docs/README.md)。上表技术栈描述 `client/`、`server/` 旧版，新版底层以[新版架构总览](./doc/20架构/overview.md)为准。
 
 ### 当前系统关注点
 

@@ -12,10 +12,11 @@
 
 | 任务 | 先读 |
 | --- | --- |
+| 项目文档与开发约定 | `../doc/README.md`，按任务进入产品、架构或开发规范 |
 | 页面与功能对标 | `src/client/navigation.ts`、目标页面、`docs/legacy-page-replication-progress.md` 的相关行 |
 | API 接线 | `src/client/api.ts` 的目标方法、`src/server/http/` 对应路由和 `src/server/database/` 对应业务模块 |
 | 新旧展示入口 | `docs/comparison-entry.md`、`scripts/comparison/`；旧版业务代码仍只读 |
-| 数据与启动 | `docs/data-model.md`、`docs/development-delivery.md` 的相关章节及当前迁移清单 |
+| 数据与启动 | `../doc/20架构/database.md`、`docs/data-model.md`、`docs/development-delivery.md` 的相关章节及当前迁移清单 |
 
 ## 修改与验证
 

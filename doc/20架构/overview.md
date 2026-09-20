@@ -8,7 +8,7 @@
 
 新版的 `src/client/` 承接创作页面，`src/server/` 持有 HTTP、业务命令与后台执行，`migrations/` 定义 PostgreSQL `new_design` schema，`runtime/` 和 `scripts/` 承接私有运行包与开发入口。新版服务与页面有自身入口，旧版 `client/`、`server/` 只作为过渡比较和兼容参照，不应成为新版业务数据或模型调用的隐式依赖。[独立运行边界](../../new-design/docs/standalone-development.md)说明启动和隔离要求。
 
-数据与状态的依赖方向是：作者操作／AI 候选 → 专业命令校验 → PostgreSQL 正本及不可变版本／采用记录 → 可重建投影与检索。查询投影不能反向改写正本；后台任务记录执行过程，不复制另一套小说事实。具体数据关系和迁移以[数据模型](../../new-design/docs/data-model.md)及 SQL 为准。
+数据与状态的依赖方向是：作者操作／AI 候选 → 专业命令校验 → PostgreSQL 正本及不可变版本／采用记录 → 可重建投影与检索。查询投影不能反向改写正本；后台任务记录执行过程，不复制另一套小说事实。数据库隔离、迁移分层和数据保全见[数据库架构](database.md)，具体表关系与字段以[数据模型](../../new-design/docs/data-model.md)及 SQL 为准。
 
 ## 关键边界
 

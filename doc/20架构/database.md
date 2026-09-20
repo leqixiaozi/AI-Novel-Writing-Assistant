@@ -1,0 +1,27 @@
+# 新版数据库架构与迁移
+
+## 范围与权威来源
+
+`new-design/` 使用独立 PostgreSQL `new_design` schema 保存书籍、卡片、正式内容和业务运行记录。旧版 SQLite 及其 API、模型执行链仅供页面与功能对标，两套系统不能相互调用或共享业务数据。本文说明数据归属和迁移边界；完整表关系、字段和业务含义见[新版数据字典](../../new-design/docs/data-model.md)，物理定义以[迁移 SQL](../../new-design/migrations/)为准。
+
+## 数据归属
+
+| 数据 | 正本与写入边界 | 辅助记录 |
+| --- | --- | --- |
+| 资料与书籍 | 卡片、类型、书籍及其不可变版本；公共资源与书内副本各有身份 | 表单、字典、关系、挂载和来源版本 |
+| 规划与章节 | 专业对象、正文版本、正式采用指针及结算记录由对应业务命令维护 | AI 候选、操作回执、影响预览和质量报告 |
+| 运行与检索 | 领域请求和任务账本记录执行；PostgreSQL 关系表保存小说事实 | Outbox 负责投递；AGE、pgvector 和页面视图是可重建投影 |
+
+候选入库不等于正式采用；任务成功也不代替领域正本提交。查询投影和后台作业不能反向修改小说事实。具体约束及例外在[数据字典](../../new-design/docs/data-model.md)和相应[专题文档](../../new-design/docs/README.md)中维护。
+
+## 迁移分层
+
+普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`，与源码清单和能力状态分别核对。
+
+新增或修改数据库能力时，同时维护 SQL、适用的注册或手动清单、[数据字典](../../new-design/docs/data-model.md)与受影响的业务读取／写入合同；不通过旧版表结构推导新版表。静态文件、服务接线、数据库安装、能力启用和作者页面验收是不同证据。
+
+## 数据保全与恢复
+
+Git 保存迁移和确定性基础数据，不保存作者作品。跨机器迁移需 PostgreSQL 逻辑备份、受管附件与原回复凭证的完整清单，并在隔离环境验证恢复；不能复制运行中的数据目录或只凭 SHA 校验宣称应用可用。[开发快照与隔离恢复](../../new-design/docs/development-delivery.md)描述当前开发环境路径，[备份和导入导出合同](../../new-design/docs/transfer-backup-import-export.md)描述应用能力与限制。模型凭据密文还依赖匹配的私有运行配置，丢失时须在模型设置重新录入。
+
+启动新版服务可能检查并应用已注册迁移。执行迁移、恢复、重置或任何可能删除数据的步骤前，遵守仓库 [AGENTS.md](../../AGENTS.md) 的授权与备份门禁；本文仅提供文档入口，不授予数据库操作权限。
