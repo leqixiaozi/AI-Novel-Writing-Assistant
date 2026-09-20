@@ -10,6 +10,7 @@
 | 数据正本与迁移 | [数据库架构](../../doc/20架构/database.md)、[数据字典](data-model.md)、`../migrations/` 中的 SQL；字段和约束以当前迁移为准 |
 | 页面与 API 接线 | [导航与术语](navigation-and-terminology.md)、`../src/client/api.ts`、`../src/server/http/` 的目标路由；逐项追踪用户操作到新版回执 |
 | AI、上下文与运行 | [上下文组装](context-management-and-assembly.md)、[模型路由](model-route-runtime-review.md)、[研究运行](research-prompt-runtime-orchestration.md)、[后台投递](outbox-runtime.md) |
+| Story Runtime 研究 | [Story Runtime 适配判断](story-runtime-research.md)：提炼 Story OS 材料，区分已有基础、研究缺口和未批准的提案 |
 | 独立开发与数据交付 | [独立开发](standalone-development.md)、[开发与数据交付](development-delivery.md)、[备份和导入导出](transfer-backup-import-export.md) |
 
 `*-review.md`、`*-static-review.md` 与阶段记录保留对应范围的检查证据，不自动代表当前分支或作者环境已经验收。长期通用规则在对应专题或 `wiki/` 原位维护；执行进度以[逐页施工记录](legacy-page-replication-progress.md)和当前任务为准。
