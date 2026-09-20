@@ -6,6 +6,10 @@ export type SettingTab = typeof SETTING_TABS[number]['key'];
 export type PlanningTab = typeof PLANNING_TABS[number]['key'];
 const worldKeys = ['world_setting','world_overview','world_rule','time_rule','power_system','race','culture','religion'];
 export function settingTabForType(key:string):SettingTab { return key==='character'?'characters':worldKeys.includes(key)?'world':['location','faction','organization'].includes(key)?'places':key==='prop'?'props':'other'; }
+export function defaultSettingSelection(query:URLSearchParams,cards:ReadonlyArray<Pick<BookViewCard,'id'>>,creating:boolean,tab:SettingTab):string {
+ if(query.has('selected'))return query.get('selected')??'';
+ return creating||!['world','characters'].includes(tab)?'':cards[0]?.id??'';
+}
 export function plansInScope(objects:PlanningObject[], scope:string):PlanningObject[] {
  if(scope==='book')return objects.filter(item=>item.status==='active');
  const root=objects.find(item=>item.id===scope&&item.status==='active');if(!root)return [];

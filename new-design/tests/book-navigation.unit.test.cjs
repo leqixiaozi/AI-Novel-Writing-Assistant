@@ -16,6 +16,8 @@ function render(active,pathname,search=''){
  const load=name=>{
   if(name==='react'||name==='react/jsx-runtime')return require(name);
   if(name==='./workflow')return workflow;
+  if(name==='./progress')return {workflowProgress:()=>[]};
+  if(name==='../api')return {newDesignApi:{}};
   if(name==='./BookRouteShell')return {default:()=>null};
   if(name.endsWith('.css'))return {};
   throw new Error(`Unexpected dependency: ${name}`);
