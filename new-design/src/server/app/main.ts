@@ -2,6 +2,7 @@ import { createIndependentApplication } from "./index";
 import { startNewDesignRuntimeServices } from "../runtime";
 import { createTransferBackgroundHandlers } from "../transfers";
 import { createPublicationExportBackgroundHandlers } from "../publicationExport";
+import { createAiTaskReceiptBackgroundHandlers } from "../aiTasks/outboxReceipt";
 import { getNewDesignPool, stopNewDesignDatabase } from "../database/runtime";
 import type { PrivateRuntimeServices } from "../runtime";
 
@@ -19,7 +20,7 @@ export async function startIndependentServer() {
   try {
     await getNewDesignPool();
     app.locals.independentStartup = { phase: "workers", database: "ready", workers: "starting" };
-    workers = await startNewDesignRuntimeServices({ ...createTransferBackgroundHandlers(), ...createPublicationExportBackgroundHandlers() });
+    workers = await startNewDesignRuntimeServices({ ...createTransferBackgroundHandlers(), ...createPublicationExportBackgroundHandlers(), ...createAiTaskReceiptBackgroundHandlers() });
     app.locals.independentStartup = { phase: "ready", database: "ready", workers: "ready" };
   } catch {
     const databaseReady = app.locals.independentStartup.database === "ready";
