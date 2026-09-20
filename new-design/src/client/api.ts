@@ -15,6 +15,7 @@ import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies
 import {createWorldPackagesApi} from './worldPackages/api';
 import {createComicProjectsApi} from './comicProjects/api';
 import {createComicEpisodesApi} from './comicProjects/episodesApi';
+import {createComicPanelsApi} from './comicProjects/panelsApi';
 import {createWorldUsageApi} from './worldUsage/api';
 import type {PayoffLedgerWorkspace,PayoffWindowReceipt,SavePayoffWindowInput} from '../common/payoffLedger';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
@@ -424,6 +425,7 @@ export const newDesignApi = {
  worldPackages:createWorldPackagesApi(request),
  comicProjects:createComicProjectsApi(request),
  comicEpisodes:createComicEpisodesApi(request),
+ comicPanels:createComicPanelsApi(request),
  recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
  getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),

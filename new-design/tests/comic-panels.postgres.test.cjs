@@ -1,0 +1,37 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+
+test('comic panel scripts preserve adopted sets and block scripts based on an obsolete episode outline',async t=>{
+ const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'110_comic_episodes',fileName:'110_comic_episodes.sql'},{id:'111_comic_panels',fileName:'111_comic_panels.sql'}]);
+ const projects=compiled('server/database/comicProjects'),episodes=compiled('server/database/comicEpisodes'),panels=compiled('server/database/comicPanels');
+ const project=(await projects.createComicProject({requestKey:randomUUID(),title:'分格测试',sourceType:'original',sourceText:'雨夜的信。',comicFormat:'webtoon',stylePreset:'webtoon_color'})).project;
+ const outline=await episodes.proposeComicEpisode(project.id,{requestKey:randomUUID(),order:1,expectedRevision:0,content:{title:'第一话',outline:'收到一封信',hookType:null,cliffhanger:null,isPaywalled:false,sourceText:null}});
+ await episodes.adoptComicEpisode(project.id,outline.episode.id,{requestKey:randomUUID(),versionId:outline.version.id,expectedRevision:0});
+ const script={requestKey:randomUUID(),expectedScriptRevision:0,episodeVersionId:outline.version.id,densityMode:'balanced',panels:[{order:1,panelType:'establishing',action:'雨夜街道',dialogues:[],characterRefs:[],sceneRef:'街道',visualPrompt:'雨夜街道远景',densityLevel:'low',focus:'路灯',layoutData:null},{order:2,panelType:'close_up',action:'信落到手中',dialogues:[{speaker:'主角',text:'谁寄来的？',bubbleType:'round',anchorHint:null}],characterRefs:['主角'],sceneRef:'街道',visualPrompt:'信件特写',densityLevel:'medium',focus:'信封',layoutData:null}]};
+ const first=await panels.proposeComicPanelSet(project.id,outline.episode.id,script);
+ assert.equal(first.set.panels.length,2);
+ assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedSetId,null);
+ assert.equal((await panels.proposeComicPanelSet(project.id,outline.episode.id,script)).set.id,first.set.id);
+ const adopted=await panels.adoptComicPanelSet(project.id,outline.episode.id,{requestKey:randomUUID(),setId:first.set.id,expectedScriptRevision:0});
+ assert.equal(adopted.adoptedSetId,first.set.id);
+ assert.equal(adopted.workspace.scriptRevision,1);
+ const second=await panels.proposeComicPanelSet(project.id,outline.episode.id,{...script,requestKey:randomUUID(),expectedScriptRevision:1,panels:[...script.panels.slice(0,1),{...script.panels[1],visualPrompt:'信件与湿润的手部特写'}]});
+ assert.equal(second.set.panels[1].visualPrompt,'信件与湿润的手部特写');
+ assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedSetId,first.set.id);
+ const revised=await episodes.proposeComicEpisode(project.id,{requestKey:randomUUID(),order:1,expectedRevision:1,content:{...outline.version.content,outline:'信被烧毁'}});
+ await episodes.adoptComicEpisode(project.id,outline.episode.id,{requestKey:randomUUID(),versionId:revised.version.id,expectedRevision:1});
+ assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedReady,false);
+ await assert.rejects(panels.adoptComicPanelSet(project.id,outline.episode.id,{requestKey:randomUUID(),setId:second.set.id,expectedScriptRevision:1}),error=>error.status===409);
+ assert.equal((await panels.readComicPanelProposalOriginal(project.id,script.requestKey)).set.id,first.set.id);
+ await assert.rejects(pool.query('UPDATE new_design.comic_panels SET action=$1 WHERE panel_set_id=$2',['篡改',first.set.id]),error=>error.code==='23514');
+ const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
+ const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
+ const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${project.id}`;
+ assert.equal((await(await fetch(`${base}/episodes/${outline.episode.id}/panels`)).json()).data.adoptedReady,false);
+ assert.equal((await(await fetch(`${base}/panel-requests/${script.requestKey}`)).json()).data.set.id,first.set.id);
+ await pool.query('ALTER TABLE new_design.comic_panels DISABLE TRIGGER comic_panels_immutable');
+ assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedSetId,first.set.id);
+ await assert.rejects(panels.proposeComicPanelSet(project.id,outline.episode.id,{...script,requestKey:randomUUID(),episodeVersionId:revised.version.id,expectedScriptRevision:1}),error=>error.status===503);
+});
