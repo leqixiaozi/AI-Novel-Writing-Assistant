@@ -110,7 +110,7 @@ function ComparisonWorkspace({bookId,data}:{bookId:string;data:BookMultiviewWork
 function QualityWorkspace({bookId,data,workspace,selectedCardId,onSelectChapter,onReload}:{bookId:string;data:BookMultiviewWorkspace;workspace:BookViewWorkspace;selectedCardId:string|null;onSelectChapter:(id:string)=>boolean;onReload:()=>Promise<void>}){
   const [kind,setKind]=useState<"all"|"objective"|"subjective">("all"),[selectedId,setSelectedId]=useState(""),[detail,setDetail]=useState<QualityIssue|null>(null),[reason,setReason]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
   const [receiptState,setReceiptState]=useState<{documentId:string;items:ChapterQualityReceipt[]}|null>(null),[receiptFailure,setReceiptFailure]=useState<{documentId:string;message:string}|null>(null);
-  const chapterCards=orderQualityChapterCards(workspace.cards.filter(item=>item.typeKey==='chapter'&&item.status==='active'));
+  const chapterCards=orderQualityChapterCards(workspace.cards.filter(item=>item.typeKey==='chapter'&&item.status==='active'),data.chapters);
   const selectedCard=selectedCardId!==null?chapterCards.find(item=>item.id===selectedCardId)??null:chapterCards[0]??null;
   const chapter=data.chapters.find(item=>item.chapterCardId===selectedCard?.id)??null;
   const receipts=receiptState&&chapter&&receiptState.documentId===chapter.chapterDocumentId?receiptState.items:null,receiptError=receiptFailure&&chapter&&receiptFailure.documentId===chapter.chapterDocumentId?receiptFailure.message:'';

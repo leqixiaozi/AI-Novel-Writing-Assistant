@@ -12,6 +12,18 @@ test('quality chapter choices follow numeric chapter titles without mutating the
   assert.deepEqual(cards.map(card => card.id), ['ten', 'one', 'two']);
 });
 
+test('quality chapter choices use formal logical order when the titles are renamed', () => {
+  const cards = [{ id: 'end', title: '尾声' }, { id: 'start', title: '序幕' }];
+  const chapters = [{ chapterCardId: 'end', logicalOrder: 2 }, { chapterCardId: 'start', logicalOrder: 1 }];
+  assert.deepEqual(orderQualityChapterCards(cards, chapters).map(card => card.id), ['start', 'end']);
+});
+
+test('uncreated chapter plans remain between formal chapters at their numbered position', () => {
+  const cards = [{ id: 'three', title: '尾声' }, { id: 'two', title: '第2章' }, { id: 'one', title: '序幕' }];
+  const chapters = [{ chapterCardId: 'three', logicalOrder: 3 }, { chapterCardId: 'one', logicalOrder: 1 }];
+  assert.deepEqual(orderQualityChapterCards(cards, chapters).map(card => card.id), ['one', 'two', 'three']);
+});
+
 test('repair deep link keeps its exact issue first without changing the source list', () => {
   const issues = [{ id: 'other' }, { id: 'target' }, { id: 'later' }];
   assert.deepEqual(orderQualityRepairIssues(issues, 'target').map(issue => issue.id), ['target', 'other', 'later']);
