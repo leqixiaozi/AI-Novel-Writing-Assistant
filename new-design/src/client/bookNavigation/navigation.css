@@ -1,4 +1,4 @@
-.nd-book-content{min-width:0;container-type:inline-size;container-name:nd-book-content}
+.nd-book-content{min-width:0;padding:1rem;container-type:inline-size;container-name:nd-book-content}
 .nd-book-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:0;align-items:start}
 .nd-book-navigation{min-width:0;width:100%;padding:.5rem;background:var(--nd-soft);border-bottom:1px solid var(--nd-line)}
 .nd-book-navigation.is-collapsed{width:44px;padding:0}

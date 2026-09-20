@@ -3,6 +3,8 @@
 @media(max-width:700px){.nd-story-setting-layout,.nd-story-planning-layout,.nd-story-planning-layout.is-detail-closed{grid-template-columns:1fr}.nd-story-index{max-height:240px}.nd-story-plan-detail{grid-column:auto}.nd-story-heading{align-items:flex-start}.nd-story-tabs button{padding:.55rem .7rem}}
 
 .nd-story-plan-links{display:grid;gap:.8rem;margin-block:1rem}.nd-story-plan-links h3,.nd-story-plan-links h4{margin:0}.nd-story-detail>[hidden]{display:none}.nd-story-plan-detail[hidden]{display:none}
+.nd-book-shell .nd-story-form .nd-business-form-editor{padding:.75rem 1rem}
+.nd-book-shell .nd-story-plan-form .nd-plan-editor{padding:1rem}
 @container nd-book-content (max-width:850px){.nd-story-planning-layout{grid-template-columns:150px minmax(0,1fr)}.nd-story-plan-detail{grid-column:2}}
 @container nd-book-content (max-width:550px){.nd-story-setting-layout,.nd-story-planning-layout,.nd-story-planning-layout.is-detail-closed{grid-template-columns:1fr}.nd-story-plan-detail{grid-column:auto}}
 
