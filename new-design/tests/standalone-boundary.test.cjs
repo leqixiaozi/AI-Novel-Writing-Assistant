@@ -67,3 +67,15 @@ test("build configs, independent entry and UI theme are owned by new-design", ()
   assert.match(css, /:root\.dark\[data-theme="paper"\]/);
   assert.match(css, /:root\.dark\[data-theme="night"\]/);
 });
+
+test("new-design business code cannot bypass its registered prompt gateway", () => {
+  const server = path.join(root, "src/server");
+  for (const file of files(server).filter(file => file.endsWith(".ts"))) {
+    const relative = path.relative(server, file).replaceAll(path.sep, "/");
+    if (relative === "ai/runtime/managedExecution.ts" || relative === "ai/runtime/transport.ts") continue;
+    const source = fs.readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /\binvokeStructuredModel\s*\(|\bgetLLM\s*\(/, `${relative} bypasses the managed prompt executor`);
+    if (relative.startsWith("ai/prompts/")) continue;
+    assert.doesNotMatch(source, /\b(?:systemPrompt|userPrompt)\s*[:=]/, `${relative} defines a business prompt outside the registered asset directory`);
+  }
+});

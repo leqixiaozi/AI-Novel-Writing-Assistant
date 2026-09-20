@@ -791,6 +791,8 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `103` | `public_title_factory_trials`／`choices` | 未开书标题基于公共来源卡片的确切版本；生成和选择回执不创建占位书，也不代替明确采用书名。 |
 | `104` | `book_content_history_snapshots`／`restores` | 历史快照冻结书内来源，恢复先保存当前状态并留下原请求；不以快照替换各领域原有历史账本。 |
 | `105` | 原 `model_credential_refs.secret_envelope` | 数据库密文与 `secret://database` 成对受约束；旧 `env://` 引用继续可读，公开目录和运行快照不返回密钥。 |
+| `106` | `world_usage_candidates`／`adoptions`／`capability` | 本书世界正式来源冻结后，人工或 AI 只生成候选；明确采用才向规划与章节提供范围。手动安装且默认关闭，作者库未安装。 |
+| `107` | `payoff_windows` 及伏笔类型新版本 | 目标章节窗口由作者保存，账本只根据正式章节结算判断回收；手动安装且默认关闭，作者库未安装。 |
 
 `086` 没有对应文件。普通注册清单、手动交付清单与当前作者数据库的已应用记录分别核对；本节是迁移和模块源码的静态设计整理，没有连接数据库确认当前安装数量或能力状态。实际启用证据见 [逐页施工记录](legacy-page-replication-progress.md) 与各数据库模块的 `README.md`，其中历史阶段结论不可当作新的运行验证。
 

@@ -59,6 +59,14 @@ test('manual world scope and payoff window migrations preserve author rows and p
  const selection={primaryLocationId:null,factionIds:[],locationIds:[],ruleIds:[rule.cardId],boundary:'隔离测试范围'};
  const candidate=await world.prepareWorldUsageCandidate(source.book_id,source.root_id,{requestKey:randomUUID(),mode:'manual',expectedSourceHash:workspace.sources.sourceHash,selection,instruction:''});
  assert.equal(candidate.status,'review');
+ const suggestionKey=randomUUID();let modelCalls=0;
+ const ai={suggestWorldUsage:async input=>{modelCalls++;assert.equal(input.sources.sourceHash,workspace.sources.sourceHash);return{output:selection,promptSnapshot:{assetId:'new_design.world.usage_scope',version:'v1'},modelSnapshot:{routeSnapshotId:'isolated-fixture'},usedTokens:23};}};
+ const suggestionInput={requestKey:suggestionKey,mode:'ai',expectedSourceHash:workspace.sources.sourceHash,instruction:'整理本书规则'};
+ const suggestion=await world.prepareWorldUsageCandidate(source.book_id,source.root_id,suggestionInput,ai);
+ assert.equal(suggestion.status,'review');assert.equal(suggestion.usedTokens,23);
+ assert.equal((await world.prepareWorldUsageCandidate(source.book_id,source.root_id,suggestionInput,ai)).id,suggestion.id);
+ assert.equal(modelCalls,1);
+ assert.equal((await world.getWorldUsageWorkspace(source.book_id,source.root_id)).adopted,null,'AI candidate cannot become a formal adoption');
  const adopted=await world.adoptWorldUsageCandidate(source.book_id,source.root_id,{requestKey:randomUUID(),candidateId:candidate.id,expectedSourceHash:workspace.sources.sourceHash,expectedCurrentVersion:0});
  assert.equal(adopted.version,1);
  const reader=await pool.connect();

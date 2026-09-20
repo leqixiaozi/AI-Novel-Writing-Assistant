@@ -26,6 +26,9 @@ function fixture(){
   if(sql.startsWith('SELECT * FROM new_design.world_usage_candidates WHERE id=$1'))return{rows:state.candidate?.id===args[0]?[state.candidate]:[]};
   if(sql.startsWith('SELECT * FROM new_design.world_usage_candidates WHERE book_id=$1 AND root_card_id=$2 ORDER BY'))return{rows:state.candidate?[state.candidate]:[]};
   if(sql.startsWith('INSERT INTO new_design.world_usage_candidates')){state.candidate={id:args[0],book_id:args[1],root_card_id:args[2],request_key:args[3],input_hash:args[4],mode:args[5],status:args[6],source_hash:args[7],sources:JSON.parse(args[8]),selection:JSON.parse(args[9]),result_payload:null,message:'',created_at:new Date(0)};return{rows:[state.candidate]};}
+  if(sql.startsWith("UPDATE new_design.world_usage_candidates SET status='review'")){if(state.candidate?.request_key!==args[2]||state.candidate.status!=='running')return{rows:[]};Object.assign(state.candidate,{status:'review',selection:JSON.parse(args[3]),result_payload:JSON.parse(args[4])});return{rows:[state.candidate]};}
+  if(sql.startsWith("UPDATE new_design.world_usage_candidates SET status='failed'")){if(state.candidate?.request_key!==args[2]||state.candidate.status!=='running')return{rows:[]};Object.assign(state.candidate,{status:'failed',message:args[3],result_payload:JSON.parse(args[4])});return{rows:[state.candidate]};}
+  if(sql.startsWith('UPDATE new_design.world_usage_candidates SET message=')){if(state.candidate?.request_key===args[2])state.candidate.message=args[3];return{rows:[]};}
   if(sql.startsWith('SELECT * FROM new_design.world_usage_adoptions WHERE book_id=$1 AND request_key=$2'))return{rows:state.adoption?.request_key===args[1]?[state.adoption]:[]};
   if(sql.startsWith('SELECT * FROM new_design.world_usage_adoptions WHERE book_id=$1 AND root_card_id=$2 AND request_key=$3'))return{rows:state.adoption?.request_key===args[2]?[state.adoption]:[]};
   if(sql.startsWith('SELECT * FROM new_design.world_usage_adoptions WHERE book_id=$1 AND root_card_id=$2 ORDER BY'))return{rows:state.adoption?[state.adoption]:[]};
@@ -67,4 +70,30 @@ test('manual world scope requires an explicit candidate and adoption, then block
   await assert.rejects(store.readActiveWorldUsageScopes({query},ids.book),/已变化/);
   await assert.rejects(store.assertWorldUsageScopesCurrent({query},ids.book,frozen),/已变化/);
  assert.equal(state.modelCalls,0);
+});
+
+test('AI world suggestion is frozen under one request key, then requires explicit adoption',async()=>{
+ const {state,store}=fixture();
+ const workspace=await store.getWorldUsageWorkspace(ids.book,ids.root);
+ const selection={primaryLocationId:ids.location,factionIds:[],locationIds:[ids.location],ruleIds:[],boundary:'南城主舞台'};
+ const ai={suggestWorldUsage:async input=>{state.modelCalls++;assert.equal(input.sources.sourceHash,workspace.sources.sourceHash);return{output:selection,promptSnapshot:{assetId:'new_design.world.usage_scope',version:'v1'},modelSnapshot:{routeSnapshotId:'route-1'},usedTokens:31};}};
+ const input={requestKey:ids.request,mode:'ai',expectedSourceHash:workspace.sources.sourceHash,instruction:'整理主舞台'};
+ const proposal=await store.prepareWorldUsageCandidate(ids.book,ids.root,input,ai);
+ assert.equal(proposal.status,'review');
+ assert.equal(proposal.usedTokens,31);
+ assert.equal(state.candidate.result_payload.promptSnapshot.assetId,'new_design.world.usage_scope');
+ assert.equal((await store.getWorldUsageWorkspace(ids.book,ids.root)).adopted,null);
+ assert.equal((await store.prepareWorldUsageCandidate(ids.book,ids.root,input,ai)).id,proposal.id);
+ assert.equal(state.modelCalls,1);
+});
+
+test('unknown AI receipt keeps the original key and does not call the model again',async()=>{
+ const {state,store}=fixture();
+ const workspace=await store.getWorldUsageWorkspace(ids.book,ids.root);
+ const input={requestKey:ids.request,mode:'ai',expectedSourceHash:workspace.sources.sourceHash,instruction:''};
+ const ai={suggestWorldUsage:async()=>{state.modelCalls++;throw Error('connection lost');}};
+ await assert.rejects(store.prepareWorldUsageCandidate(ids.book,ids.root,input,ai),/connection lost/);
+ assert.equal((await store.getWorldUsageCandidateByKey(ids.book,ids.root,ids.request)).status,'running');
+ assert.equal((await store.prepareWorldUsageCandidate(ids.book,ids.root,input,ai)).status,'running');
+ assert.equal(state.modelCalls,1);
 });

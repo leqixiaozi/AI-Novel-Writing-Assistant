@@ -12,9 +12,9 @@ test("registered assets include chapter changes and chapter generation and expos
   const assets = listPromptAssets();
   assert.equal(assets.length, PROMPT_TASK_TYPES.length);
   assert.deepEqual(new Set(assets.map(item => item.taskType)), new Set(PROMPT_TASK_TYPES));
-  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, 8);
-  assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v1" && item.label === "生成章节正文"));
-  assert.ok(assets.every(item => item.contextPolicy === "explicit_task_snapshot_only" && item.version === "v1"));
+  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, assets.length);
+  assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v2" && item.label === "生成章节正文"));
+  assert.ok(assets.every(item => item.contextPolicy === "explicit_task_snapshot_only" && /^v[1-9]\d*$/.test(item.version) && item.assetId.startsWith("new_design.")));
   assert.ok(assets.every(item => !Object.hasOwn(item, "instruction") && !Object.hasOwn(item, "messages")));
 });
 

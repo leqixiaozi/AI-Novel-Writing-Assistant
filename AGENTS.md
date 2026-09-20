@@ -262,6 +262,8 @@ These areas have the highest priority for wiki accumulation:
 
 ## Prompt Governance
 
+- This section governs legacy `server/`. The independent `new-design/` product owns its prompt assets under `new-design/src/server/ai/prompts/`, with its registry and execution gate described in `new-design/AGENTS.md`. Do not cross-call or copy a prompt between the two products as a shortcut.
+
 - `server/src/prompting/` is the only allowed entrypoint for adding new product-level prompts.
 - Any new product-facing prompt must be implemented as a `PromptAsset` under `server/src/prompting/prompts/<family>/`.
 - Any new product-facing prompt must be registered in `server/src/prompting/registry.ts` with explicit `id`, `version`, `taskType`, `mode`, `contextPolicy`, and `outputSchema` when structured.
