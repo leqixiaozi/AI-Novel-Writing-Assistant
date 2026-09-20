@@ -31,6 +31,12 @@ export const NEW_DESIGN_ADVANCED_NAV = [
   { key: "maintenance", label: "运行维护", href: "/new-design/structure/maintenance" },
 ] as const;
 
+export function newDesignCurrentMenuHref(pathname:string):string|undefined {
+  return [...NEW_DESIGN_PRIMARY_NAV,...NEW_DESIGN_ADVANCED_NAV]
+    .filter(item=>pathname===item.href||(!('end' in item&&item.end)&&pathname.startsWith(`${item.href}/`)))
+    .sort((left,right)=>right.href.length-left.href.length)[0]?.href;
+}
+
 export const BOOK_TASK_NAV = [
   { key: "overview", label: "创作概览", path: "overview" },
   { key: "direction", label: "创作方向", path: "setting" },

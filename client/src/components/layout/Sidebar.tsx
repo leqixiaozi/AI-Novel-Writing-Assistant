@@ -27,8 +27,8 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
-import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV, isNewDesignAdvancedPath } from "@ai-novel/new-design/client";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV, isNewDesignAdvancedPath, newDesignCurrentMenuHref } from "@ai-novel/new-design/client";
 import { listKnowledgeDocuments } from "@/api/knowledge";
 import { queryKeys } from "@/api/queryKeys";
 import { getAutoDirectorFollowUpOverview } from "@/api/autoDirectorFollowUps";
@@ -133,6 +133,7 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
   const advancedRouteActive = isNewDesignAdvancedPath(location.pathname);
+  const newDesignCurrentHref = newDesignCurrentMenuHref(location.pathname);
   const [badgeQueriesEnabled, setBadgeQueriesEnabled] = useState(false);
   const [visualAssetLibraryOpen, setVisualAssetLibraryOpen] = useState(false);
   const [newDesignAdvancedExpanded, setNewDesignAdvancedExpanded] = useState(advancedRouteActive);
@@ -329,15 +330,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 );
               }
 
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  reloadDocument={APP_RUNTIME !== "desktop" && !item.to.startsWith("/new-design")}
-                  title={collapsed ? item.label : undefined}
-                >
-                  {({ isActive }) => (
+              const itemContent = (isActive: boolean) => (
                     <div
                       className={cn(
                         "relative flex items-center rounded-md text-sm transition-colors",
@@ -372,9 +365,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
                       {renderBadge(item.to)}
                     </div>
-                  )}
-                </NavLink>
               );
+              if (item.to.startsWith("/new-design")) {
+                const isActive = newDesignCurrentHref === item.to;
+                return <Link key={item.to} to={item.to} aria-current={isActive ? "page" : undefined} title={collapsed ? item.label : undefined}>{itemContent(isActive)}</Link>;
+              }
+              return <NavLink key={item.to} to={item.to} end={item.end} reloadDocument={APP_RUNTIME !== "desktop"} title={collapsed ? item.label : undefined}>{({ isActive }) => itemContent(isActive)}</NavLink>;
               })}
               {(collapsed || expanded) && group.title === "新设计" ? (
                 <div className="space-y-1">
@@ -397,7 +393,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     <div id="new-design-advanced-navigation" className="space-y-1">
                       {newDesignAdvancedItems.map((item) => {
                         const Icon = item.icon;
-                        return <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined}>{({ isActive }) => <div className={cn("relative flex items-center rounded-md text-sm transition-colors", collapsed ? "justify-center px-2 py-2.5" : "py-2 pl-8 pr-2", isActive ? "bg-accent/90 text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground")}><span className={cn("absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-transparent", isActive && "bg-primary", collapsed && "left-0.5 h-6")}/><Icon className={cn("h-[18px] w-[18px] shrink-0", collapsed ? "mx-auto" : "mr-3")}/>{!collapsed ? <span className="truncate">{item.label}</span> : null}</div>}</NavLink>;
+                        const isActive=newDesignCurrentHref===item.to;
+                        return <Link key={item.to} to={item.to} aria-current={isActive?"page":undefined} title={collapsed ? item.label : undefined}><div className={cn("relative flex items-center rounded-md text-sm transition-colors", collapsed ? "justify-center px-2 py-2.5" : "py-2 pl-8 pr-2", isActive ? "bg-accent/90 text-accent-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground")}><span className={cn("absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-transparent", isActive && "bg-primary", collapsed && "left-0.5 h-6")}/><Icon className={cn("h-[18px] w-[18px] shrink-0", collapsed ? "mx-auto" : "mr-3")}/>{!collapsed ? <span className="truncate">{item.label}</span> : null}</div></Link>;
                       })}
                     </div>
                   ) : null}

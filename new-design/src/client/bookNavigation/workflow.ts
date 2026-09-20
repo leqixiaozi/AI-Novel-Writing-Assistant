@@ -1,6 +1,6 @@
 import type {BookTaskNavKey} from '../navigation';
 export const BOOK_WORKFLOW_STEPS=[
- {label:'项目设定',path:'setting',pages:['direction','settings']},
+ {label:'项目设定',path:'setting',pages:['direction']},
  {label:'故事宏观规划',path:'planning?stage=story_macro',pages:['planning']},
  {label:'世界观准备',path:'story-setting?tab=world',pages:['world']},
  {label:'角色准备',path:'story-setting?tab=characters',pages:['story-setting','characters','character-dialogue','visual-assets']},

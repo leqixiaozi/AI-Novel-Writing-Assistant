@@ -8,7 +8,8 @@ export {default as BookRouteShell} from './BookRouteShell';
 export default function BookNavigation({book,active}:{book:BookSummary;active:BookTaskNavKey}){
  const bodyId=useId(),preferenceKey=`new-design:book-navigation:${book.id}:collapsed`;
  const [collapsed,setCollapsed]=useState(()=>{try{return sessionStorage.getItem(preferenceKey)==='true';}catch{return false;}});
- const current=currentBookWorkflowStep(active,new URLSearchParams(location.search),location.pathname);
+  const current=currentBookWorkflowStep(active,new URLSearchParams(location.search),location.pathname);
+  const toolCurrent=(key:BookTaskNavKey)=>current<0&&active===key?'page':undefined;
  const toggle=()=>{const next=!collapsed;setCollapsed(next);try{sessionStorage.setItem(preferenceKey,String(next));}catch{}};
  const base=`/new-design/books/${book.id}`;
  return <aside className={`nd-book-navigation${collapsed?' is-collapsed':''}`} aria-label={`${book.name}创作工作台`}>
@@ -16,7 +17,7 @@ export default function BookNavigation({book,active}:{book:BookSummary;active:Bo
   <div id={bodyId} hidden={collapsed}>
    <div className="nd-book-navigation-context"><strong title={book.name}>{book.name}</strong><p><a href="/new-design/books">返回我的书籍</a></p><p>流程：{current>=0?BOOK_WORKFLOW_STEPS[current].label:'项目工具'}</p></div>
    <nav className="nd-production-steps nd-book-navigation-body" aria-label="小说创作流程">{BOOK_WORKFLOW_STEPS.map((step,index)=><a key={step.label} href={`${base}/${step.path}`} aria-current={index===current?'page':undefined}><span className="nd-production-step-number">{index+1}</span><strong>{step.label}</strong>{index===current&&<small>查看中</small>}</a>)}</nav>
-   <nav className="nd-production-tools" aria-label="本书辅助工具"><a href={`${base}/overview`}>创作概览</a><a href={`${base}/composition`}>全书编排</a><a href={`${base}/planning`}>多维故事规划</a><a href={`${base}/director`}>AI 驾驶舱</a><a href={`${base}/views/chapters`}>查看与分析</a><a href={`${base}/history`} aria-current={active==='history'?'page':undefined}>整书历史</a><a href={`${base}/completion`}>完本与导出</a><a href={`${base}/fields`}>本书设置</a></nav>
+   <nav className="nd-production-tools" aria-label="本书辅助工具"><a href={`${base}/overview`} aria-current={toolCurrent('overview')}>创作概览</a><a href={`${base}/composition`} aria-current={toolCurrent('composition')}>全书编排</a><a href={`${base}/planning`} aria-current={toolCurrent('planning')}>多维故事规划</a><a href={`${base}/director`} aria-current={toolCurrent('director')}>AI 驾驶舱</a><a href={`${base}/views/chapters`} aria-current={toolCurrent('views')}>查看与分析</a><a href={`${base}/history`} aria-current={toolCurrent('history')}>整书历史</a><a href={`${base}/completion`} aria-current={toolCurrent('completion')}>完本与导出</a><a href={`${base}/fields`} aria-current={toolCurrent('settings')}>本书设置</a></nav>
   </div>
  </aside>;
 }

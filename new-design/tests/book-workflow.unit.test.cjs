@@ -14,3 +14,7 @@ test('shared planning distinguishes macro and volume entry; quality belongs to s
  assert.equal(currentBookWorkflowStep('views',new URLSearchParams(),'/views/chapters'),-1);
  assert.equal(BOOK_WORKFLOW_STEPS.length,8);
 });
+
+test('book content settings are an auxiliary tool, not the project-setting step',()=>{
+ assert.equal(currentBookWorkflowStep('settings',new URLSearchParams(),'/fields'),-1);
+});
