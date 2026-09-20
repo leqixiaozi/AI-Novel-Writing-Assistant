@@ -69,3 +69,27 @@ test('project navigation wins the collapsed book grid in both hosts',()=>{
  assert.match(standalone,/\.nd-independent-layout\.is-book-workspace\.is-project-navigation \.nd-independent-sidebar \{ display: block; \}/);
  assert.match(standalone,/\.nd-independent-layout\.is-book-workspace \.nd-independent-menu \{ display: none; \}/);
 });
+
+test('writing opens compact at 1280 unless this session chose a rail state',()=>{
+ const chapter=`/new-design/books/${bookId}/chapters/chapter/write`;
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1280,null),true);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1440,null),false);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1280,'false'),false);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1440,'true'),true);
+ assert.equal(workflow.defaultBookNavigationCollapsed(`/new-design/books/${bookId}/planning`,1280,null),false);
+});
+
+test('intermediate writing widths show exactly the selected panel',()=>{
+ const css=fs.readFileSync(path.join(__dirname,'../src/client/new-design.css'),'utf8');
+ assert.match(css,/@container \(max-width: 979px\)[\s\S]*?\.nd-writing-layout > \* \{ display: none; \}/);
+ assert.match(css,/\.nd-writing-layout\.panel-editor > \.nd-writing-editor/);
+ assert.match(css,/@container \(min-width: 980px\)[\s\S]*?\.nd-writing-layout \{ grid-template-columns:/);
+});
+
+test('desktop writing keeps AI actions beside the body and references',()=>{
+ const page=fs.readFileSync(path.join(__dirname,'../src/client/chapterWriting/ChapterWritingPage.tsx'),'utf8');
+ const context=page.lastIndexOf('<aside className="nd-writing-context">');
+ const ai=page.lastIndexOf('<section className="nd-ai-writing-tools">');
+ const candidates=page.lastIndexOf('<section className="nd-writing-candidates">');
+ assert.ok(context>=0&&context<ai&&ai<candidates);
+});

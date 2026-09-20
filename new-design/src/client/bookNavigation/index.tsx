@@ -2,14 +2,14 @@ import {useEffect,useId,useState} from 'react';
 import type {BookTaskNavKey} from '../navigation';
 import type {BookSummary} from '../../common/contracts';
 import {newDesignApi} from '../api';
-import {BOOK_WORKFLOW_STEPS,currentBookWorkflowStep} from './workflow';
+import {BOOK_WORKFLOW_STEPS,currentBookWorkflowStep,defaultBookNavigationCollapsed} from './workflow';
 import {workflowProgress,type WorkflowProgress} from './progress';
 import './navigation.css';
 import './workbench.css';
 export {default as BookRouteShell} from './BookRouteShell';
 export default function BookNavigation({book,active}:{book:BookSummary;active:BookTaskNavKey}){
  const bodyId=useId(),preferenceKey=`new-design:book-navigation:${book.id}:collapsed`;
- const [collapsed,setCollapsed]=useState(()=>{try{const saved=sessionStorage.getItem(preferenceKey);if(saved!==null)return saved==='true';return typeof window!=='undefined'&&window.innerWidth>=800&&window.innerWidth<=1360&&(/\/writing$/.test(location.pathname)||/\/chapters\/[^/]+\/write$/.test(location.pathname));}catch{return false;}});
+ const [collapsed,setCollapsed]=useState(()=>{try{return defaultBookNavigationCollapsed(location.pathname,typeof window==='undefined'?0:window.innerWidth,sessionStorage.getItem(preferenceKey));}catch{return false;}});
  const [progress,setProgress]=useState<WorkflowProgress[]|null>(null),[progressError,setProgressError]=useState(false);
  useEffect(()=>{let active=true;const read=()=>{void Promise.all([newDesignApi.getPlanningCenter(book.id),newDesignApi.getBookViewWorkspace(book.id),newDesignApi.getChapterWritingWorkspace(book.id)]).then(([planning,views,writing])=>{if(!active)return;if(planning.bookId!==book.id||views.bookId!==book.id||writing.bookId!==book.id)throw Error('书内状态来源不匹配');setProgress(workflowProgress(planning.objects,views.cards,writing.chapters));setProgressError(false);}).catch(()=>{if(active){setProgress(null);setProgressError(true);}});};read();addEventListener('focus',read);return()=>{active=false;removeEventListener('focus',read);};},[book.id]);
   const current=currentBookWorkflowStep(active,new URLSearchParams(location.search),location.pathname);

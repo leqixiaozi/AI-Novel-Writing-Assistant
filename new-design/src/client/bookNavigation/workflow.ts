@@ -9,6 +9,10 @@ export const BOOK_WORKFLOW_STEPS=[
  {label:'章节执行',path:'writing',pages:['writing']},
  {label:'质量修复',path:'views/quality',pages:[]},
 ] as const;
+export function defaultBookNavigationCollapsed(pathname:string,width:number,saved:string|null):boolean {
+ if(saved!==null)return saved==='true';
+ return width>=800&&width<=1360&&(/\/writing$/.test(pathname)||/\/chapters\/[^/]+\/write$/.test(pathname));
+}
 export function currentBookWorkflowStep(active:BookTaskNavKey,query:URLSearchParams,pathname:string){
  if(active==='planning'&&query.get('stage')==='outline')return 4;
  if(active==='planning'&&query.get('stage')==='structured')return 5;

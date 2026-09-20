@@ -1270,6 +1270,14 @@
   .nd-settlement-review { grid-template-columns: minmax(16rem,.36fr) minmax(0,1fr); }
 }
 
+@container (max-width: 979px) {
+  .nd-writing-layout > * { display: none; }
+  .nd-writing-layout.panel-chapters > .nd-writing-chapters,
+  .nd-writing-layout.panel-editor > .nd-writing-editor,
+  .nd-writing-layout.panel-context > .nd-writing-context,
+  .nd-writing-layout.panel-candidates > .nd-writing-candidates { display: grid; }
+}
+
 @container (max-width: 680px) {
   .nd-book-review-heading,.nd-book-review-actions { align-items: stretch; flex-direction: column; }
   .nd-book-review-actions .nd-row-actions,.nd-book-review-actions .nd-button { width: 100%; }
