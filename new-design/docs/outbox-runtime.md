@@ -57,7 +57,7 @@
 
 ## 显式运行器
 
-`BackgroundJobRunner` 只有调用 `start()` 后才轮询，导入模块不会自动运行。运行器只执行进程内显式注册的 `BackgroundHandlerKey`；停止时先停止领取，再等待当前 handler 结束，未开始的活动租约可以归还。当前不含 Windows Service，也没有装入 AGE、Embedding、资产、AI 或备份真实 handler。
+`BackgroundJobRunner` 只有调用 `start()` 后才轮询，导入模块不会自动运行。运行器只执行进程内显式注册的 `BackgroundHandlerKey`；停止时先停止领取，再等待当前 handler 结束，未开始的活动租约可以归还。当前独立服务仅装入 `publication.export`；备份适配器未提供，AGE、Embedding、资产、AI 与依赖重算 handler 仍未接通。数据库中消费者标记为 `active` 不等于进程已加载 handler；运行维护诊断会据此显示受限及等待处理器的作业数。已有 AI 专业任务可能已经通过来源页结束，接通队列前必须核对原任务状态，不能对旧作业直接重新调用模型。
 
 ## 跨机器同步
 
