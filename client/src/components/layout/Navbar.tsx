@@ -1,4 +1,4 @@
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { SlidersHorizontal } from "lucide-react";
 import LLMSelector from "@/components/common/LLMSelector";
 import { useCreationSetup } from "@/components/onboarding/CreationSetupContext";
@@ -23,7 +23,9 @@ export default function Navbar(props: NavbarProps) {
   const { workspaceNavMode, onWorkspaceNavModeChange } = props;
   const { openQuickSetup } = useCreationSetup();
   const location = useLocation();
+  const navigate = useNavigate();
   const isHome = location.pathname === "/";
+  const isNewDesign = location.pathname === "/new-design" || location.pathname.startsWith("/new-design/");
   const showWorkspaceToggle = Boolean(workspaceNavMode && onWorkspaceNavModeChange);
   const useMobileAutoDirectorShell = shouldUseAutoDirectorMobileFullWidthContent(location.pathname);
 
@@ -60,19 +62,21 @@ export default function Navbar(props: NavbarProps) {
           size="sm"
           variant="outline"
           className="gap-1.5"
-          onClick={openQuickSetup}
+          onClick={isNewDesign ? () => navigate("/new-design/structure/models") : openQuickSetup}
         >
           <SlidersHorizontal className="h-4 w-4" />
           <span className="hidden lg:inline">模型设置</span>
         </Button>
-        <div className={useMobileAutoDirectorShell ? AUTO_DIRECTOR_MOBILE_CLASSES.navbarModelSelector : undefined}>
-          <LLMSelector
-            compact
-            showBadge={false}
-            showHelperText={false}
-            showCompactTemperature
-          />
-        </div>
+        {isNewDesign ? <span className="hidden text-xs text-muted-foreground lg:inline">新版模型按任务配置</span> : (
+          <div className={useMobileAutoDirectorShell ? AUTO_DIRECTOR_MOBILE_CLASSES.navbarModelSelector : undefined}>
+            <LLMSelector
+              compact
+              showBadge={false}
+              showHelperText={false}
+              showCompactTemperature
+            />
+          </div>
+        )}
       </div>
     </header>
   );
