@@ -97,3 +97,12 @@ test('unknown AI receipt keeps the original key and does not call the model agai
  assert.equal((await store.prepareWorldUsageCandidate(ids.book,ids.root,input,ai)).status,'running');
  assert.equal(state.modelCalls,1);
 });
+
+test('AI world suggestion rejects an empty formal source before claiming a request or calling the model',async()=>{
+ const {state,store}=fixture();state.cards=[];
+ const workspace=await store.getWorldUsageWorkspace(ids.book,ids.root);
+ const ai={suggestWorldUsage:async()=>{state.modelCalls++;throw Error('must not call');}};
+ await assert.rejects(store.prepareWorldUsageCandidate(ids.book,ids.root,{requestKey:ids.request,mode:'ai',expectedSourceHash:workspace.sources.sourceHash,instruction:''},ai),/尚无可选的正式世界资料/);
+ assert.equal(state.candidate,null);
+ assert.equal(state.modelCalls,0);
+});

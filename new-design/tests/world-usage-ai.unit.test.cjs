@@ -18,6 +18,7 @@ test('world usage AI is a registered new-design asset and only accepts frozen so
  assert.throws(()=>prompt.parseOutput({...selection,locationIds:[id(9)]}));
  assert.throws(()=>prompt.parseOutput({...selection,primaryLocationId:id(9)}));
  assert.throws(()=>prompt.parseOutput({...selection,secret:'越权'}));
+ assert.throws(()=>preparePrompt('world_usage',{sources:{...sources,cards:[]},instruction:''}));
 });
 
 test('world usage gateway uses the existing managed planning route and records one model receipt',async()=>{

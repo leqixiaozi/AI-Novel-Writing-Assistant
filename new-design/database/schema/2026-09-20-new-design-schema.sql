@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict PmmqJ7nlgbtgNIji2TeWnrLfWkv8HgSWGrRjDJzYlSiE0rvAuvGt2sxaXSddRAT
+\restrict ARsncguI9qB5Mw06LUJpVLt1wNiUjwOruJYOMuOLc0J7s4theaEEYhL3xMUaFDS
 
 -- Dumped from database version 17.11 (Debian 17.11-1.pgdg13+2)
 -- Dumped by pg_dump version 17.11 (Debian 17.11-1.pgdg13+2)
@@ -3075,6 +3075,30 @@ CREATE FUNCTION new_design.guard_outbox_append_only() RETURNS trigger
 
 
 --
+-- Name: guard_payoff_window_version(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_payoff_window_version() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'new_design', 'public', 'pg_temp'
+    AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    RAISE EXCEPTION 'payoff window versions are immutable' USING ERRCODE='23514';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM books book
+    JOIN cards card ON card.space_id=book.space_id AND card.id=NEW.card_id AND card.status='active'
+    JOIN card_types type ON type.id=card.card_type_id AND type.type_key='foreshadow'
+    WHERE book.id=NEW.book_id AND book.status='active'
+  ) THEN
+    RAISE EXCEPTION 'payoff window must target an active foreshadow in its book' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END $$;
+
+
+--
 -- Name: guard_planning_center_append_only(); Type: FUNCTION; Schema: new_design; Owner: -
 --
 
@@ -4172,6 +4196,23 @@ BEGIN
  IF NEW.public_value IS DISTINCT FROM (CASE WHEN public_values ? NEW.source_key THEN jsonb_build_object('present',true,'value',public_values->NEW.source_key) ELSE jsonb_build_object('present',false) END)
  OR NEW.local_value IS DISTINCT FROM (CASE WHEN actual_values ? NEW.target_key THEN jsonb_build_object('present',true,'value',actual_values->NEW.target_key) ELSE jsonb_build_object('present',false) END)
  THEN RAISE EXCEPTION 'baseline must contain actual acknowledged values' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END $$;
+
+
+--
+-- Name: guard_world_usage_adoption(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_world_usage_adoption() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'new_design', 'public', 'pg_temp'
+    AS $$
+BEGIN
+ IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'world usage adoption immutable' USING ERRCODE='23514'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM world_usage_capability WHERE contract='world_usage_scope_v1' AND operational)
+  OR NOT EXISTS(SELECT 1 FROM world_usage_candidates candidate WHERE candidate.id=NEW.candidate_id AND candidate.book_id=NEW.book_id AND candidate.root_card_id=NEW.root_card_id AND candidate.status='review' AND candidate.source_hash=NEW.source_hash AND candidate.sources=NEW.sources AND candidate.selection=NEW.selection)
+ THEN RAISE EXCEPTION 'world usage adoption source mismatch' USING ERRCODE='23514'; END IF;
  RETURN NEW;
 END $$;
 
@@ -11941,6 +11982,40 @@ CREATE TABLE new_design.outbox_inbox_receipts (
 
 
 --
+-- Name: payoff_window_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.payoff_window_versions (
+    id uuid NOT NULL,
+    book_id uuid NOT NULL,
+    card_id uuid NOT NULL,
+    version integer NOT NULL,
+    start_chapter_order integer,
+    end_chapter_order integer,
+    idempotency_key uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payoff_window_versions_check CHECK (((start_chapter_order IS NULL) OR (end_chapter_order IS NULL) OR (start_chapter_order <= end_chapter_order))),
+    CONSTRAINT payoff_window_versions_end_chapter_order_check CHECK ((end_chapter_order > 0)),
+    CONSTRAINT payoff_window_versions_start_chapter_order_check CHECK ((start_chapter_order > 0)),
+    CONSTRAINT payoff_window_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: payoff_windows; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.payoff_windows (
+    book_id uuid NOT NULL,
+    card_id uuid NOT NULL,
+    current_version_id uuid NOT NULL,
+    revision integer NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payoff_windows_revision_check CHECK ((revision > 0))
+);
+
+
+--
 -- Name: planning_adoptions; Type: TABLE; Schema: new_design; Owner: -
 --
 
@@ -15090,6 +15165,62 @@ CREATE TABLE new_design.world_package_versions (
     CONSTRAINT world_package_versions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
     CONSTRAINT world_package_versions_receipt_check CHECK ((jsonb_typeof(receipt) = 'object'::text)),
     CONSTRAINT world_package_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: world_usage_adoptions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_usage_adoptions (
+    id uuid NOT NULL,
+    book_id uuid NOT NULL,
+    root_card_id uuid NOT NULL,
+    candidate_id uuid NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    version integer NOT NULL,
+    source_hash character(64) NOT NULL,
+    sources jsonb NOT NULL,
+    selection jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT world_usage_adoptions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: world_usage_candidates; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_usage_candidates (
+    id uuid NOT NULL,
+    book_id uuid NOT NULL,
+    root_card_id uuid NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    mode text NOT NULL,
+    status text NOT NULL,
+    source_hash character(64) NOT NULL,
+    sources jsonb NOT NULL,
+    selection jsonb,
+    result_payload jsonb,
+    message text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT world_usage_candidates_check CHECK (((status = 'review'::text) = (selection IS NOT NULL))),
+    CONSTRAINT world_usage_candidates_mode_check CHECK ((mode = ANY (ARRAY['manual'::text, 'ai'::text]))),
+    CONSTRAINT world_usage_candidates_status_check CHECK ((status = ANY (ARRAY['running'::text, 'review'::text, 'failed'::text, 'ended_unknown'::text])))
+);
+
+
+--
+-- Name: world_usage_capability; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_usage_capability (
+    contract text NOT NULL,
+    operational boolean DEFAULT false NOT NULL,
+    CONSTRAINT world_usage_capability_contract_check CHECK ((contract = 'world_usage_scope_v1'::text))
 );
 
 
@@ -18674,6 +18805,46 @@ ALTER TABLE ONLY new_design.outbox_inbox_receipts
 
 
 --
+-- Name: payoff_window_versions payoff_window_versions_book_id_card_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_book_id_card_id_version_key UNIQUE (book_id, card_id, version);
+
+
+--
+-- Name: payoff_window_versions payoff_window_versions_book_id_idempotency_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_book_id_idempotency_key_key UNIQUE (book_id, idempotency_key);
+
+
+--
+-- Name: payoff_window_versions payoff_window_versions_id_book_id_card_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_id_book_id_card_id_key UNIQUE (id, book_id, card_id);
+
+
+--
+-- Name: payoff_window_versions payoff_window_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payoff_windows payoff_windows_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_windows
+    ADD CONSTRAINT payoff_windows_pkey PRIMARY KEY (book_id, card_id);
+
+
+--
 -- Name: planning_adoptions planning_adoptions_idempotency_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -20698,6 +20869,62 @@ ALTER TABLE ONLY new_design.world_package_versions
 
 
 --
+-- Name: world_usage_adoptions world_usage_adoptions_book_id_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_book_id_request_key_key UNIQUE (book_id, request_key);
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoptions_book_id_root_card_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_book_id_root_card_id_version_key UNIQUE (book_id, root_card_id, version);
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoptions_candidate_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_candidate_id_key UNIQUE (candidate_id);
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoptions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: world_usage_candidates world_usage_candidates_book_id_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_candidates
+    ADD CONSTRAINT world_usage_candidates_book_id_request_key_key UNIQUE (book_id, request_key);
+
+
+--
+-- Name: world_usage_candidates world_usage_candidates_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_candidates
+    ADD CONSTRAINT world_usage_candidates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: world_usage_capability world_usage_capability_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_capability
+    ADD CONSTRAINT world_usage_capability_pkey PRIMARY KEY (contract);
+
+
+--
 -- Name: ProjectedNode ProjectedNode_pkey; Type: CONSTRAINT; Schema: new_design_projection; Owner: -
 --
 
@@ -22259,6 +22486,20 @@ CREATE INDEX transfer_steps_operation_idx ON new_design.transfer_steps USING btr
 --
 
 CREATE INDEX transfer_validation_operation_idx ON new_design.transfer_validation_results USING btree (operation_id, created_at, id);
+
+
+--
+-- Name: world_usage_adoptions_root; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX world_usage_adoptions_root ON new_design.world_usage_adoptions USING btree (book_id, root_card_id, version DESC);
+
+
+--
+-- Name: world_usage_candidates_root; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX world_usage_candidates_root ON new_design.world_usage_candidates USING btree (book_id, root_card_id, created_at DESC);
 
 
 --
@@ -23872,6 +24113,13 @@ CREATE TRIGGER outbox_topics_registry_guard BEFORE DELETE OR UPDATE ON new_desig
 
 
 --
+-- Name: payoff_window_versions payoff_window_version_guard; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER payoff_window_version_guard BEFORE INSERT OR DELETE OR UPDATE ON new_design.payoff_window_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_payoff_window_version();
+
+
+--
 -- Name: planning_objects planning_objects_hierarchy_guard; Type: TRIGGER; Schema: new_design; Owner: -
 --
 
@@ -24919,6 +25167,13 @@ CREATE TRIGGER world_relation_source_stale AFTER UPDATE OF current_version_id, s
 --
 
 CREATE TRIGGER world_relation_type_specification_stale AFTER UPDATE ON new_design.relation_types FOR EACH ROW EXECUTE FUNCTION new_design.stale_world_quality_specification();
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoption_guard; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER world_usage_adoption_guard BEFORE INSERT OR DELETE OR UPDATE ON new_design.world_usage_adoptions FOR EACH ROW EXECUTE FUNCTION new_design.guard_world_usage_adoption();
 
 
 --
@@ -29802,6 +30057,46 @@ ALTER TABLE ONLY new_design.outbox_inbox_receipts
 
 
 --
+-- Name: payoff_window_versions payoff_window_versions_book_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_book_id_fkey FOREIGN KEY (book_id) REFERENCES new_design.books(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payoff_window_versions payoff_window_versions_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_window_versions
+    ADD CONSTRAINT payoff_window_versions_card_id_fkey FOREIGN KEY (card_id) REFERENCES new_design.cards(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payoff_windows payoff_windows_book_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_windows
+    ADD CONSTRAINT payoff_windows_book_id_fkey FOREIGN KEY (book_id) REFERENCES new_design.books(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payoff_windows payoff_windows_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_windows
+    ADD CONSTRAINT payoff_windows_card_id_fkey FOREIGN KEY (card_id) REFERENCES new_design.cards(id) ON DELETE CASCADE;
+
+
+--
+-- Name: payoff_windows payoff_windows_current_version_id_book_id_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.payoff_windows
+    ADD CONSTRAINT payoff_windows_current_version_id_book_id_card_id_fkey FOREIGN KEY (current_version_id, book_id, card_id) REFERENCES new_design.payoff_window_versions(id, book_id, card_id);
+
+
+--
 -- Name: planning_adoptions planning_adoptions_from_version_id_object_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -32882,8 +33177,48 @@ ALTER TABLE ONLY new_design.world_package_versions
 
 
 --
+-- Name: world_usage_adoptions world_usage_adoptions_book_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_book_id_fkey FOREIGN KEY (book_id) REFERENCES new_design.books(id);
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoptions_candidate_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_candidate_id_fkey FOREIGN KEY (candidate_id) REFERENCES new_design.world_usage_candidates(id);
+
+
+--
+-- Name: world_usage_adoptions world_usage_adoptions_root_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_adoptions
+    ADD CONSTRAINT world_usage_adoptions_root_card_id_fkey FOREIGN KEY (root_card_id) REFERENCES new_design.cards(id);
+
+
+--
+-- Name: world_usage_candidates world_usage_candidates_book_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_candidates
+    ADD CONSTRAINT world_usage_candidates_book_id_fkey FOREIGN KEY (book_id) REFERENCES new_design.books(id);
+
+
+--
+-- Name: world_usage_candidates world_usage_candidates_root_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_usage_candidates
+    ADD CONSTRAINT world_usage_candidates_root_card_id_fkey FOREIGN KEY (root_card_id) REFERENCES new_design.cards(id);
+
+
+--
 -- PostgreSQL database dump complete
 --
 
-\unrestrict PmmqJ7nlgbtgNIji2TeWnrLfWkv8HgSWGrRjDJzYlSiE0rvAuvGt2sxaXSddRAT
+\unrestrict ARsncguI9qB5Mw06LUJpVLt1wNiUjwOruJYOMuOLc0J7s4theaEEYhL3xMUaFDS
 
