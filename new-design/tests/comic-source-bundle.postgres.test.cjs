@@ -1,0 +1,37 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+
+test('comic source digests remain candidates until explicit adoption and keep original provenance',async t=>{
+ const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'113_comic_source_bundle',fileName:'113_comic_source_bundle.sql'}]);
+ const projects=compiled('server/database/comicProjects'),bundles=compiled('server/database/comicSourceBundle');
+ const created=await projects.createComicProject({requestKey:randomUUID(),title:'来源整理',sourceType:'original',sourceText:'雨夜的相遇、误会和和解。',comicFormat:'webtoon',stylePreset:'webtoon_color'}),projectId=created.project.id;
+ const input={requestKey:randomUUID(),expectedRevision:0,content:{synopsis:'两人在雨夜因一封错投的信相遇，误会后共同找到了收信人。',beats:[{order:1,summary:'错投的信引发相遇'},{order:2,summary:'两人化解误会'}],characters:[{name:'林青',role:'主角',visualAnchor:'黑发，蓝色雨衣'}]}};
+ const first=await bundles.proposeComicSourceBundle(projectId,input);
+ assert.equal(first.version.version,1);
+ assert.equal(first.workspace.adoptedVersionId,null);
+ assert.equal(first.version.sourceVersionId,created.source.id);
+ assert.equal((await bundles.proposeComicSourceBundle(projectId,input)).version.id,first.version.id);
+ await assert.rejects(bundles.proposeComicSourceBundle(projectId,{...input,content:{...input.content,synopsis:'另一个故事'}}),error=>error.status===409);
+ const second=await bundles.proposeComicSourceBundle(projectId,{...input,requestKey:randomUUID(),content:{...input.content,synopsis:'完整修订的来源梗概。'}});
+ const adoption={requestKey:randomUUID(),versionId:first.version.id,expectedRevision:0};
+ const adopted=await bundles.adoptComicSourceBundle(projectId,adoption);
+ assert.equal(adopted.workspace.adoptedVersionId,first.version.id);
+ assert.equal(adopted.workspace.revision,1);
+ await assert.rejects(bundles.adoptComicSourceBundle(projectId,{requestKey:randomUUID(),versionId:second.version.id,expectedRevision:0}),error=>error.status===409);
+ assert.equal((await bundles.adoptComicSourceBundle(projectId,adoption)).adoptedVersionId,first.version.id);
+ assert.equal((await bundles.readComicSourceBundleOriginal(projectId,input.requestKey)).version.id,first.version.id);
+ assert.equal((await bundles.readComicSourceBundleAdoptionOriginal(projectId,adoption.requestKey)).adoptedVersionId,first.version.id);
+ await assert.rejects(pool.query('DELETE FROM new_design.comic_source_bundle_versions WHERE id=$1',[first.version.id]),error=>error.code==='23514');
+ assert.equal((await projects.getComicProject(projectId)).source.content,'雨夜的相遇、误会和和解。');
+ const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
+ const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
+ const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${projectId}`;
+ assert.equal((await(await fetch(`${base}/source-bundle`)).json()).data.adoptedVersionId,first.version.id);
+ assert.equal((await(await fetch(`${base}/source-bundle-requests/${input.requestKey}`)).json()).data.version.id,first.version.id);
+ assert.equal((await(await fetch(`${base}/source-bundle-adoptions/${adoption.requestKey}`)).json()).data.adoptedVersionId,first.version.id);
+ await pool.query('ALTER TABLE new_design.comic_source_bundle_versions DISABLE TRIGGER comic_source_bundle_versions_immutable');
+ await assert.rejects(bundles.proposeComicSourceBundle(projectId,{...input,requestKey:randomUUID()}),error=>error.status===503);
+ assert.equal((await bundles.getComicSourceBundleWorkspace(projectId)).versions.length,2);
+});

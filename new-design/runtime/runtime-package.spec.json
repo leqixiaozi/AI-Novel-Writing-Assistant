@@ -177,7 +177,8 @@
     "app/migrations/manual/109_comic_projects.sql",
     "app/migrations/manual/110_comic_episodes.sql",
     "app/migrations/manual/111_comic_panels.sql",
-    "app/migrations/manual/112_comic_bibles.sql"
+    "app/migrations/manual/112_comic_bibles.sql",
+    "app/migrations/manual/113_comic_source_bundle.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -302,6 +303,11 @@
     "105_database_model_credentials.sql",
     "106_world_usage_scope.sql",
     "107_payoff_ledger_windows.sql",
-    "108_world_package_archive.sql"
+    "108_world_package_archive.sql",
+    "109_comic_projects.sql",
+    "110_comic_episodes.sql",
+    "111_comic_panels.sql",
+    "112_comic_bibles.sql",
+    "113_comic_source_bundle.sql"
   ]
 }
