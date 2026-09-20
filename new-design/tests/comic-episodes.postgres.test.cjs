@@ -1,0 +1,38 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+
+test('comic episode candidates are preserved until the author adopts a specific version',async t=>{
+ const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'110_comic_episodes',fileName:'110_comic_episodes.sql'}]);
+ const comic=compiled('server/database/comicProjects'),episodes=compiled('server/database/comicEpisodes');
+ const created=await comic.createComicProject({requestKey:randomUUID(),title:'分集测试',sourceType:'original',sourceText:'人物在雨夜相遇。',comicFormat:'webtoon',stylePreset:'webtoon_color'}),projectId=created.project.id;
+ const input={requestKey:randomUUID(),order:1,expectedRevision:0,content:{title:'第一话',outline:'在雨中相遇',hookType:'mystery',cliffhanger:'神秘来信',isPaywalled:false,sourceText:'人物在雨夜相遇。'}};
+ const first=await episodes.proposeComicEpisode(projectId,input);
+ assert.equal(first.version.version,1);
+ assert.equal((await episodes.getComicEpisodeWorkspace(projectId)).episodes[0].adoptedVersionId,null);
+ assert.equal((await episodes.proposeComicEpisode(projectId,input)).version.id,first.version.id);
+ await assert.rejects(episodes.proposeComicEpisode(projectId,{...input,content:{...input.content,title:'不同输入'}}),error=>error.status===409);
+ const second=await episodes.proposeComicEpisode(projectId,{...input,requestKey:randomUUID(),content:{...input.content,title:'第一话·修订候选'}});
+ const firstAdoption={requestKey:randomUUID(),versionId:first.version.id,expectedRevision:0};
+ const adopted=await episodes.adoptComicEpisode(projectId,first.episode.id,firstAdoption);
+ assert.equal(adopted.episode.adoptedVersionId,first.version.id);
+ assert.equal(adopted.episode.revision,1);
+ assert.equal((await episodes.getComicEpisodeWorkspace(projectId)).episodes[0].versions.length,2);
+ await assert.rejects(episodes.adoptComicEpisode(projectId,first.episode.id,{requestKey:randomUUID(),versionId:second.version.id,expectedRevision:0}),error=>error.status===409);
+ const switchInput={requestKey:randomUUID(),versionId:second.version.id,expectedRevision:1};
+ const switched=await episodes.adoptComicEpisode(projectId,first.episode.id,switchInput);
+ assert.equal(switched.episode.adoptedVersionId,second.version.id);
+ assert.equal((await episodes.adoptComicEpisode(projectId,first.episode.id,switchInput)).episode.revision,2);
+ assert.equal((await episodes.readComicEpisodeAdoptionOriginal(projectId,firstAdoption.requestKey)).adoptedVersionId,first.version.id);
+ assert.equal((await episodes.readComicEpisodeOriginal(projectId,input.requestKey)).version.id,first.version.id);
+ await assert.rejects(pool.query('DELETE FROM new_design.comic_episode_versions WHERE id=$1',[first.version.id]),error=>error.code==='23514');
+ const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
+ const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
+ const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${projectId}`;
+ assert.equal((await(await fetch(`${base}/episodes`)).json()).data.episodes[0].adoptedVersionId,second.version.id);
+ const original=(await(await fetch(`${base}/episode-requests/${input.requestKey}`)).json()).data;
+ assert.equal(original.version.id,first.version.id);
+ const originalAdoption=(await(await fetch(`${base}/episode-adoptions/${firstAdoption.requestKey}`)).json()).data;
+ assert.equal(originalAdoption.adoptedVersionId,first.version.id);
+});
