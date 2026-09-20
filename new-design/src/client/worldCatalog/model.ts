@@ -33,6 +33,11 @@ export function worldImportRoute(bookId:string,packageId:string,rootCardId:strin
   :`${base}&new=1&source=import&worldPackage=${encodeURIComponent(packageId)}`;
 }
 
+export function worldPublishRoute(bookId:string,rootCardId:string|null):string{
+ const base=`/new-design/books/${encodeURIComponent(bookId)}/story-setting?tab=world`;
+ return rootCardId?`${base}&selected=${encodeURIComponent(rootCardId)}&detail=sync`:`${base}&new=1`;
+}
+
 export function worldPackageDeepLink(search:string):{kind:'none'}|{kind:'invalid'}|{kind:'selected';packageId:string}{
  const values=new URLSearchParams(search).getAll('worldPackage');
  if(!values.length)return {kind:'none'};

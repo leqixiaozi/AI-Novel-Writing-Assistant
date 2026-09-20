@@ -50,6 +50,27 @@ test('world catalog hands an exact fixed version to the selected book root',()=>
  assert.equal(worldImportRoute(bookId,packageId,null),`/new-design/books/${bookId}/story-setting?tab=world&new=1&source=import&worldPackage=${packageId}`);
 });
 
+test('public world management opens the existing book publication flow without publishing on navigation',()=>{
+ const {worldPublishRoute}=model();
+ const bookId='10000000-0000-4000-8000-000000000001',rootId='20000000-0000-4000-8000-000000000002';
+ assert.equal(worldPublishRoute(bookId,rootId),`/new-design/books/${bookId}/story-setting?tab=world&selected=${rootId}&detail=sync`);
+ assert.equal(worldPublishRoute(bookId,null),`/new-design/books/${bookId}/story-setting?tab=world&new=1`);
+ const {WorldPublishTargetView}=catalogPage();
+ assert.equal(typeof WorldPublishTargetView,'function');
+ const props={books:[{id:bookId,name:'本书',status:'active'}],selectedBookId:bookId,loading:false,error:'',onSelect:()=>{}};
+ const withRoot=renderToStaticMarkup(React.createElement(WorldPublishTargetView,{...props,roots:[{id:rootId,title:'本书世界',status:'active',typeKey:'world_setting'}]})).replaceAll('&amp;','&');
+ assert.match(withRoot,/打开本书发布与同步/);
+ assert.match(withRoot,new RegExp(`href="/new-design/books/${bookId}/story-setting\\?tab=world&selected=${rootId}&detail=sync"`));
+ const withoutRoot=renderToStaticMarkup(React.createElement(WorldPublishTargetView,{...props,roots:[]})).replaceAll('&amp;','&');
+ assert.match(withoutRoot,/先建立本书世界档案/);
+ assert.match(withoutRoot,new RegExp(`href="/new-design/books/${bookId}/story-setting\\?tab=world&new=1"`));
+ const withoutBooks=renderToStaticMarkup(React.createElement(WorldPublishTargetView,{...props,books:[],selectedBookId:''}));
+ assert.match(withoutBooks,/还没有可用书籍/);
+ assert.match(withoutBooks,/href="\/new-design\/books\/new"/);
+ const catalog=renderCatalog([packageVersion('first-v1','first',1,'紫霞界','2026-09-20T00:00:00Z')],null);
+ assert.match(catalog,/从本书发布或更新世界样本/);
+});
+
 test('world import deep link rejects duplicate package parameters without replacing the author choice',()=>{
  const {worldPackageDeepLink}=model(),id='30000000-0000-4000-8000-000000000003';
  assert.deepEqual(worldPackageDeepLink(`?source=import&worldPackage=${id}`),{kind:'selected',packageId:id});
