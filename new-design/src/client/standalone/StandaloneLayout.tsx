@@ -1,7 +1,7 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import NewDesignPage from "../NewDesignPage";
 import {ModelFailureNotice} from "../modelSettings";
-import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV } from "../navigation";
+import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV, isNewDesignBookWorkspacePath } from "../navigation";
 import { applyTheme, readTheme, THEMES, type ThemeKey } from "./theme";
 
 class PageBoundary extends Component<{children: ReactNode}, {failed: boolean}> {
@@ -16,6 +16,8 @@ export function StandaloneLayout() {
   const [theme, setTheme] = useState<ThemeKey>(readTheme);
   const [expanded, setExpanded] = useState(location.pathname.startsWith("/new-design/structure/"));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const bookWorkspace = isNewDesignBookWorkspacePath(location.pathname);
+  const [projectNavigation, setProjectNavigation] = useState(false);
   useEffect(() => {
     applyTheme(theme);
     const media = matchMedia("(prefers-color-scheme: dark)");
@@ -24,10 +26,10 @@ export function StandaloneLayout() {
     return () => media.removeEventListener("change", update);
   }, [theme]);
   const active = (href: string) => location.pathname === href || (href !== "/new-design" && location.pathname.startsWith(`${href}/`));
-  return <div className="nd-independent-layout">
+  return <div className={`nd-independent-layout${bookWorkspace ? " is-book-workspace" : ""}${projectNavigation ? " is-project-navigation" : ""}`}>
     <a href="#creative-content" className="nd-independent-skip">跳到编辑内容</a>
     <ModelFailureNotice/>
-    <header className="nd-independent-header"><button className="nd-independent-menu" aria-label={mobileOpen ? "收起导航" : "展开导航"} aria-expanded={mobileOpen} aria-controls="creative-navigation" onClick={() => setMobileOpen(value => !value)}>☰</button><a href="/new-design" className="nd-independent-brand">小说创作工作台<small>规划 · 创作 · 完本</small></a><a className="nd-independent-models" href="/new-design/structure/models">模型设置</a><label className="nd-independent-theme">主题<select value={theme} onChange={event => setTheme(event.target.value as ThemeKey)}>{THEMES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label></header>
-    <div className="nd-independent-body"><aside id="creative-navigation" className={`nd-independent-sidebar${mobileOpen ? " is-open" : ""}`}><nav aria-label="创作导航">{NEW_DESIGN_PRIMARY_NAV.map(link => <a key={link.key} href={link.href} aria-current={active(link.href) ? "page" : undefined}>{link.label}</a>)}<a href="/new-design/resources/prompts" aria-current={active("/new-design/resources/prompts") ? "page" : undefined}>提示词管理</a><button className="nd-independent-section" aria-expanded={expanded} aria-controls="advanced-navigation" onClick={() => setExpanded(value => !value)}>高级设置<span aria-hidden="true">{expanded ? "⌄" : "›"}</span></button>{expanded && <div id="advanced-navigation" className="nd-independent-advanced">{NEW_DESIGN_ADVANCED_NAV.map(link => <a key={link.key} href={link.href} aria-current={active(link.href) ? "page" : undefined}>{link.label}</a>)}</div>}</nav></aside><main id="creative-content" className="nd-independent-content" tabIndex={-1}><PageBoundary><NewDesignPage /></PageBoundary></main></div>
+    <header className="nd-independent-header"><button className="nd-independent-menu" aria-label={mobileOpen ? "收起导航" : "展开导航"} aria-expanded={mobileOpen} aria-controls="creative-navigation" onClick={() => setMobileOpen(value => !value)}>☰</button><a href="/new-design" className="nd-independent-brand">小说创作工作台<small>规划 · 创作 · 完本</small></a>{bookWorkspace&&<button className="nd-independent-nav-switch" type="button" onClick={()=>setProjectNavigation(value=>!value)}>{projectNavigation?"创作导航":"项目导航"}</button>}<a className="nd-independent-models" href="/new-design/structure/models">模型设置</a><label className="nd-independent-theme">主题<select value={theme} onChange={event => setTheme(event.target.value as ThemeKey)}>{THEMES.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label></header>
+    <div className="nd-independent-body"><aside id="creative-navigation" className={`nd-independent-sidebar${mobileOpen ? " is-open" : ""}`}><nav aria-label={bookWorkspace&&projectNavigation?"项目导航":"创作导航"}>{NEW_DESIGN_PRIMARY_NAV.map(link => <a key={link.key} href={link.href} aria-current={active(link.href) ? "page" : undefined}>{link.label}</a>)}<a href="/new-design/resources/prompts" aria-current={active("/new-design/resources/prompts") ? "page" : undefined}>提示词管理</a><button className="nd-independent-section" aria-expanded={expanded} aria-controls="advanced-navigation" onClick={() => setExpanded(value => !value)}>高级设置<span aria-hidden="true">{expanded ? "⌄" : "›"}</span></button>{expanded && <div id="advanced-navigation" className="nd-independent-advanced">{NEW_DESIGN_ADVANCED_NAV.map(link => <a key={link.key} href={link.href} aria-current={active(link.href) ? "page" : undefined}>{link.label}</a>)}</div>}</nav></aside><main id="creative-content" className="nd-independent-content" tabIndex={-1}><PageBoundary><NewDesignPage /></PageBoundary></main></div>
   </div>;
 }

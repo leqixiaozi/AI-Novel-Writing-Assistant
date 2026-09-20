@@ -37,6 +37,13 @@ export function newDesignCurrentMenuHref(pathname:string):string|undefined {
     .sort((left,right)=>right.href.length-left.href.length)[0]?.href;
 }
 
+// Book pages own their creative navigation. Standalone creation/reading views do not
+// render BookShell and therefore keep the project-level navigation.
+export function isNewDesignBookWorkspacePath(pathname:string):boolean {
+  const match=pathname.match(/^\/new-design\/books\/([^/]+)(?:\/([^/]+))?(?:\/|$)/);
+  return Boolean(match&&match[1]!=="new"&&!(["simple","short-story","reading"].includes(match[2])));
+}
+
 export const BOOK_TASK_NAV = [
   { key: "overview", label: "创作概览", path: "overview" },
   { key: "direction", label: "创作方向", path: "setting" },

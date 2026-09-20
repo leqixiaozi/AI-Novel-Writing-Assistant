@@ -10,6 +10,7 @@ export {
   NEW_DESIGN_ADVANCED_NAV,
   NEW_DESIGN_PRIMARY_NAV,
   isNewDesignAdvancedPath,
+  isNewDesignBookWorkspacePath,
   newDesignCurrentMenuHref,
   type BookTaskNavKey,
 } from "./navigation";

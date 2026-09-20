@@ -6,6 +6,7 @@ import BookViewsPage from "./BookViewsPage";
 import TypeDesigner from "./TypeDesigner";
 import { BusinessFormWorkspace, type BusinessFormScope } from "./businessForms";
 import InitializeProjectRule from './bookClassification/InitializeProjectRule';
+import ProjectSetupIntro from './bookNavigation/ProjectSetupIntro';
 
 interface Props { bookId:string; view:"forms"|"views"|"cards"|"fields"; viewKey?:BookViewKey; }
 
@@ -24,9 +25,9 @@ export default function BookWorkspacePage({bookId,view,viewKey="chapters"}:Props
   if(view!=="fields") {
     const scope:BusinessFormScope=view==="forms"?"overview":"all";
     const active=view==="forms"?"direction":"materials";
-    if(view==='forms'&&canInitialize)return <BookShell book={book} active={active}><h1>项目设定</h1><InitializeProjectRule bookId={bookId} onReady={load}/></BookShell>;
+    if(view==='forms'&&canInitialize)return <BookShell book={book} active={active}><ProjectSetupIntro/><InitializeProjectRule bookId={bookId} onReady={load}/></BookShell>;
     if(view==='forms'&&!projectCardId)return <BookShell book={book} active={active}><p role="alert">{projectIssue??'\u4f5c\u54c1\u7ea6\u5b9a\u539f\u6765\u6e90\u672a\u786e\u5b9a\uff0c\u4e0d\u6539\u9009\u5176\u4ed6\u8d44\u6599\u3002'}</p><a className="nd-button nd-button-secondary" href={`/new-design/books/${bookId}/cards?typeKey=project_rule`}>核对原作品约定</a><a className="nd-button nd-button-secondary" href={`/new-design/books/${bookId}/fields`}>维护本书原规格</a></BookShell>;
-    return <BookShell book={book} active={active}><BusinessFormWorkspace book={book} cardTypes={types} scope={scope} compact initialCardId={view==='forms'?projectCardId:undefined} initialTypeId={view==="forms"?types.find(type=>type.key==="project_rule")?.id:types.find(type=>type.key===new URLSearchParams(location.search).get("typeKey"))?.id}/></BookShell>;
+    return <BookShell book={book} active={active}>{view==='forms'&&<ProjectSetupIntro/>}<BusinessFormWorkspace book={book} cardTypes={types} scope={scope} compact initialCardId={view==='forms'?projectCardId:undefined} initialTypeId={view==="forms"?types.find(type=>type.key==="project_rule")?.id:types.find(type=>type.key===new URLSearchParams(location.search).get("typeKey"))?.id}/></BookShell>;
   }
   const selected=types.find((type)=>type.id===selectedId)??null;
   const saved=(next:CardTypeSummary)=>{setTypes((current)=>current.map((item)=>item.id===next.id?next:item));setSelectedId(next.id);};

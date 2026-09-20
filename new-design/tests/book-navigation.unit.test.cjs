@@ -50,3 +50,20 @@ test('workflow step and auxiliary tool never claim the same current page',()=>{
   assert.deepEqual(currentLinks(html),[`/new-design/books/${bookId}/${selected}`],`${active}: ${route}`);
  }
 });
+
+test('auxiliary routes are tucked away during eight-step creation and expanded when selected',()=>{
+ const step=render('direction',`/new-design/books/${bookId}/setting`);
+ assert.match(step,/<details class="nd-production-tools"/);
+ assert.doesNotMatch(step,/<details class="nd-production-tools" open=""/);
+ const tool=render('history',`/new-design/books/${bookId}/history`);
+ assert.match(tool,/<details class="nd-production-tools" open=""/);
+});
+
+test('project navigation wins the collapsed book grid in both hosts',()=>{
+ const workbench=fs.readFileSync(path.join(__dirname,'../src/client/bookNavigation/workbench.css'),'utf8');
+ const standalone=fs.readFileSync(path.join(__dirname,'../src/client/standalone/theme.css'),'utf8');
+ assert.match(workbench,/\[data-new-design-nav-mode="project"\] \.nd-book-shell \.nd-book-layout:has\(>\.nd-book-navigation\.is-collapsed\)\{grid-template-columns:minmax\(0,1fr\)\}/);
+ assert.match(standalone,/\.is-project-navigation \.nd-book-shell \.nd-book-layout:has\(>\.nd-book-navigation\.is-collapsed\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+ assert.match(standalone,/\.nd-independent-layout\.is-book-workspace\.is-project-navigation \.nd-independent-sidebar \{ display: block; \}/);
+ assert.match(standalone,/\.nd-independent-layout\.is-book-workspace \.nd-independent-menu \{ display: none; \}/);
+});

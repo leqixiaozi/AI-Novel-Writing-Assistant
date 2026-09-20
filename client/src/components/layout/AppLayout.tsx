@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { matchPath, Outlet, useLocation } from "react-router-dom";
+import { Link, matchPath, Outlet, useLocation } from "react-router-dom";
 import AppRouteFallback from "./AppRouteFallback";
 import LLMSelectionBootstrap from "./LLMSelectionBootstrap";
 import Navbar from "./Navbar";
@@ -16,6 +16,7 @@ import {
   shouldUseAutoDirectorMobileFullWidthContent,
 } from "@/mobile/autoDirector";
 import { CreationSetupProvider } from "@/components/onboarding/CreationSetupContext";
+import { NEW_DESIGN_ADVANCED_NAV, NEW_DESIGN_PRIMARY_NAV, isNewDesignBookWorkspacePath } from "@ai-novel/new-design/client";
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "ai-novel.sidebar.collapsed";
 const WORKSPACE_RAIL_COLLAPSED_STORAGE_KEY = "ai-novel.workspace-rail.collapsed";
@@ -25,7 +26,9 @@ export default function AppLayout() {
   const location = useLocation();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isWorkspaceRailCollapsed, setIsWorkspaceRailCollapsed] = useState(false);
-  const [workspaceNavMode, setWorkspaceNavMode] = useState<"workspace" | "project">("project");
+  const [workspaceNavMode, setWorkspaceNavMode] = useState<"workspace" | "project">(() =>
+    isNewDesignBookWorkspacePath(location.pathname) ? "workspace" : "project"
+  );
   const isMobileViewport = useIsMobileViewport();
   const isNovelPreview = Boolean(matchPath("/novels/:id/preview", location.pathname));
 
@@ -48,8 +51,10 @@ export default function AppLayout() {
   }, [location.pathname]);
 
   const isNovelWorkspace = Boolean(workspaceRoute?.novelId);
-  const useMobileNovelWorkspaceLayout = isMobileViewport && isNovelWorkspace;
-  const useMobileSiteLayout = isMobileViewport && !isNovelWorkspace;
+  const isNewDesignBookWorkspace = isNewDesignBookWorkspacePath(location.pathname);
+  const hasWorkspaceNavigation = isNovelWorkspace || isNewDesignBookWorkspace;
+  const useMobileWorkspaceLayout = isMobileViewport && hasWorkspaceNavigation;
+  const useMobileSiteLayout = isMobileViewport && !hasWorkspaceNavigation;
   const useMobileFullWidthContent = useMemo(
     () => shouldUseAutoDirectorMobileFullWidthContent(location.pathname),
     [location.pathname],
@@ -71,8 +76,8 @@ export default function AppLayout() {
   }, [isWorkspaceRailCollapsed]);
 
   useEffect(() => {
-    setWorkspaceNavMode(isNovelWorkspace ? "workspace" : "project");
-  }, [isNovelWorkspace, location.pathname]);
+    setWorkspaceNavMode(hasWorkspaceNavigation ? "workspace" : "project");
+  }, [hasWorkspaceNavigation, location.pathname]);
 
   if (isNovelPreview) {
     return (
@@ -91,14 +96,18 @@ export default function AppLayout() {
     );
   }
 
-  if (useMobileNovelWorkspaceLayout) {
+  if (useMobileWorkspaceLayout) {
     return (
       <CreationSetupProvider>
       <TaskRecoveryProvider>
-        <div className="min-h-screen bg-background">
+        <div data-new-design-nav-mode={isNewDesignBookWorkspace ? workspaceNavMode : undefined} className="min-h-screen bg-background">
           <AutoDirectorPauseNotificationWatcher />
           <LiveExecutionDialog compact className="fixed right-3 top-3 z-50 h-9 w-9 bg-background px-0 shadow-sm" />
           <LLMSelectionBootstrap />
+          {isNewDesignBookWorkspace && <header className="border-b bg-background px-4 py-2">
+            <button type="button" className="min-h-10 rounded-md border px-3 text-sm" aria-expanded={workspaceNavMode === "project"} aria-controls="new-design-mobile-project-nav" onClick={() => setWorkspaceNavMode(current => current === "workspace" ? "project" : "workspace")}>{workspaceNavMode === "project" ? "创作导航" : "项目导航"}</button>
+          </header>}
+          {isNewDesignBookWorkspace && <nav id="new-design-mobile-project-nav" aria-label="项目导航" hidden={workspaceNavMode !== "project"} className="max-h-64 overflow-y-auto border-b bg-background px-4 py-3"><div className="grid grid-cols-2 gap-2 text-sm">{[...NEW_DESIGN_PRIMARY_NAV, ...NEW_DESIGN_ADVANCED_NAV].map(item => <Link key={item.key} to={item.href} className="rounded-md border px-3 py-2">{item.label}</Link>)}</div></nav>}
           <Suspense fallback={<AppRouteFallback />}>
             <Outlet />
           </Suspense>
@@ -133,11 +142,11 @@ export default function AppLayout() {
         <AutoDirectorPauseNotificationWatcher />
         <LLMSelectionBootstrap />
         <Navbar
-          workspaceNavMode={isNovelWorkspace ? workspaceNavMode : undefined}
-          onWorkspaceNavModeChange={isNovelWorkspace ? setWorkspaceNavMode : undefined}
+          workspaceNavMode={hasWorkspaceNavigation ? workspaceNavMode : undefined}
+          onWorkspaceNavModeChange={hasWorkspaceNavigation ? setWorkspaceNavMode : undefined}
         />
         <div className="flex h-[calc(100dvh-4rem)] min-h-0">
-          <div className={useMobileFullWidthContent ? "hidden md:block" : "shrink-0"}>
+          <div className={useMobileFullWidthContent || isNewDesignBookWorkspace && workspaceNavMode === "workspace" ? "hidden" : "shrink-0"}>
             {isNovelWorkspace && workspaceNavMode === "workspace" && workspaceRoute ? (
               <NovelWorkspaceRail
                 novelId={workspaceRoute.novelId}
@@ -153,7 +162,7 @@ export default function AppLayout() {
               />
             )}
           </div>
-          <main className={useMobileFullWidthContent ? AUTO_DIRECTOR_MOBILE_CLASSES.appMain : DEFAULT_APP_MAIN_CLASS_NAME}>
+          <main data-new-design-nav-mode={isNewDesignBookWorkspace ? workspaceNavMode : undefined} className={useMobileFullWidthContent ? AUTO_DIRECTOR_MOBILE_CLASSES.appMain : DEFAULT_APP_MAIN_CLASS_NAME}>
             <Suspense fallback={<AppRouteFallback />}>
               <Outlet />
             </Suspense>

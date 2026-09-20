@@ -16,6 +16,7 @@ interface DynamicFormProps {
   preview?: boolean;
   compactHelp?:boolean;
   fieldSection?:CharacterFieldSection;
+  preferredFieldKeys?:string[];
   scopeLabelByKey?: Record<string, string>;
   onChange?: (values: Record<string, unknown>) => void;
   aiContext?:FormAiContext;
@@ -56,11 +57,12 @@ function DictionaryTreeField({field,value,disabled,onChange}:{field:FieldDefinit
   return <>{dictionary?<TreeSelector label={field.name} nodes={[...dictionary.items].sort((a,b)=>a.sortOrder-b.sortOrder).map(item=>({id:item.id,parentId:item.parentId,name:item.label,description:item.description,status:item.status,sortOrder:item.sortOrder,path:item.path.map(part=>part.label)}))} rule={source.rule} selectedIds={selectedIds} disabled={disabled||busy||pendingId!==null} onChange={ids=>{if(!disabledRef.current&&!inFlight.current&&!pendingId)onChange(field.type==="select"?ids[0]??null:ids);}} onCreateChild={source.rule.allowInlineCreate&&dictionary.scope==="book"&&!pendingId?parentId=>{if(!disabledRef.current&&!inFlight.current)setCreatingParent(parentId);}:undefined}/>:<p className="nd-help-text">正在读取字典树…</p>}{creatingParent!==undefined&&<div className="nd-tree-inline-editor"><label className="nd-control"><span>中文名称</span><input autoFocus disabled={disabled||busy||pendingId!==null} value={newName} onChange={event=>setNewName(event.target.value)}/></label><label className="nd-control"><span>解释</span><input disabled={disabled||busy||pendingId!==null} value={newDescription} onChange={event=>setNewDescription(event.target.value)}/></label><div className="nd-row-actions"><button className="nd-button nd-button-secondary" type="button" disabled={busy||pendingId!==null} onClick={()=>setCreatingParent(undefined)}>取消</button><button className="nd-button nd-button-primary" type="button" disabled={disabled||busy||pendingId!==null||!newName.trim()} onClick={()=>void saveChild()}>{busy?"正在核对…":"新增并选中"}</button></div></div>}{pendingId&&<p role="status">原新增结果待核对；未找到原节点不证明未写入，不再次生成节点。<button type="button" disabled={busy||pendingId==="unreadable"} onClick={()=>void check()}>只读核对原字典项</button></p>}{notice&&<p role="status">{notice}</p>}{error&&<em role="alert">{error}</em>}</>;
 }
 
-export default function DynamicForm({ fields, values, issues = {}, disabled, preview, compactHelp=false, fieldSection, scopeLabelByKey = {}, onChange, aiContext }: DynamicFormProps) {
+export default function DynamicForm({ fields, values, issues = {}, disabled, preview, compactHelp=false, fieldSection, preferredFieldKeys, scopeLabelByKey = {}, onChange, aiContext }: DynamicFormProps) {
   const formId = useId().replace(/:/g, "");
   const patch = (field: FieldDefinition, value: unknown) => onChange?.({ ...values, [field.key]: value });
   const groups = new Map<string, FieldDefinition[]>();
-  for (const field of [...fields].filter((item)=>!item.hidden).sort((a, b) => a.order - b.order)) {
+  const priority=(field:FieldDefinition)=>{const index=preferredFieldKeys?.indexOf(field.key)??-1;return index<0?Number.MAX_SAFE_INTEGER:index;};
+  for (const field of [...fields].filter((item)=>!item.hidden).sort((a, b) => priority(a)-priority(b)||a.order-b.order)) {
     if (!isVisible(field, values)) continue;
     if (fieldSection && !fieldInCharacterSection(field, fieldSection) && !issues[field.key]) continue;
     const group = field.group.trim() || "基本信息";
