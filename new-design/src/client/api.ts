@@ -19,6 +19,8 @@ import {createComicPanelsApi} from './comicProjects/panelsApi';
 import {createComicBiblesApi} from './comicProjects/biblesApi';
 import {createComicVisualAssetsApi} from './comicProjects/visualAssetsApi';
 import {createComicSourceBundleApi} from './comicProjects/sourceBundleApi';
+import {createComicRenderingApi} from './comicProjects/renderingApi';
+import {createDramaApi} from './dramaProjects/api';
 import {createCreativeHubApi} from './creativeHub/api';
 import {createWorldGenerationApi} from './worldGenerator/api';
 import {createWorldUsageApi} from './worldUsage/api';
@@ -436,6 +438,8 @@ export const newDesignApi = {
  comicBibles:createComicBiblesApi(request),
  comicVisualAssets:createComicVisualAssetsApi(request),
  comicSourceBundle:createComicSourceBundleApi(request),
+ comicRendering:createComicRenderingApi(request),
+ drama:createDramaApi(request),
  recentBodyExperiences:createRecentBodyExperienceApi(request),
  getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
  getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),

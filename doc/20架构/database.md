@@ -11,6 +11,8 @@
 | 资料与书籍 | 卡片、类型、书籍及其不可变版本；公共资源与书内副本各有身份 | 表单、字典、关系、挂载和来源版本 |
 | 规划与章节 | 专业对象、正文版本、正式采用指针及结算记录由对应业务命令维护 | AI 候选、操作回执、影响预览和质量报告 |
 | 运行与检索 | 领域请求和任务账本记录执行；PostgreSQL 关系表保存小说事实 | Outbox 负责投递；AGE、pgvector 和页面视图是可重建投影 |
+| 漫画衍生 | 独立漫画项目冻结小说正式正文或作者来源；来源整理、分话、分镜、Bible、成图和导出分别保存版本与采用 | 图片字节进入新版受管资产；事实快照、气泡输出、批次和导出清单用于追溯 |
+| 短剧衍生 | 独立短剧项目冻结来源；策略、人物、分集、台本和分镜各自使用不可变候选与明确采用 | 质量报告、媒体提示词／任务和导出清单不替代正式台本；未装供应商端口时不伪造结果 |
 
 候选入库不等于正式采用；任务成功也不代替领域正本提交。查询投影和后台作业不能反向修改小说事实。具体约束及例外在[数据字典](../../new-design/docs/data-model.md)和相应[专题文档](../../new-design/docs/README.md)中维护。
 
@@ -26,7 +28,7 @@
 
 ## 迁移分层
 
-普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`，与源码清单和能力状态分别核对。
+普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。当前漫画／短剧新增结构为 `117`—`122`，只完成源码合同，不代表已安装作者库。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`，与源码清单和能力状态分别核对。
 
 新增或修改数据库能力时，同时维护 SQL、适用的注册或手动清单、[数据字典](../../new-design/docs/data-model.md)与受影响的业务读取／写入合同；不通过旧版表结构推导新版表。静态文件、服务接线、数据库安装、能力启用和作者页面验收是不同证据。
 

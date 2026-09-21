@@ -26,8 +26,14 @@
 
 ## 顶层导航
 
+独立侧栏按“开始与创作、衍生工作台、资源与研究、运行与设置”四组呈现；分组只是信息架构，不建立第二套业务正本，也不增加书内主步骤。
+
 - 创作首页：`/new-design`
 - 我的书籍：`/new-design/books`
+- 创作向导：`/new-design/guide`
+- 创作中枢：`/new-design/creative-hub`
+- 漫画工作台：`/new-design/comic`
+- 短剧工作台：`/new-design/drama`
 - 创作资源：`/new-design/resources`
 - 开书前标题：`/new-design/resources/titles`
 - 资源工作台：`/new-design/resources/professional`
@@ -77,7 +83,7 @@
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/`；普通启动的注册清单到 `083_character_dialogue.sql`，后续独立安装的手动迁移到 `105_database_model_credentials.sql`。数据归属、手动启用边界及权威清单见 [新设计数据模型](data-model.md)。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/`；普通启动的注册清单到 `083_character_dialogue.sql`，独立安装的手动迁移当前到 `122_drama_exports.sql`。数据归属、手动启用边界及权威清单见 [新设计数据模型](data-model.md)。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 

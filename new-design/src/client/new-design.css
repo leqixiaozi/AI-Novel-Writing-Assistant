@@ -1303,3 +1303,4 @@
 @media (prefers-reduced-motion: reduce) {
   .nd-shell *, .nd-shell *::before, .nd-shell *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+.nd-independent-nav-group{display:grid;gap:2px;margin:0 0 14px}.nd-independent-nav-group>strong{padding:7px 12px;color:var(--nd-muted);font-size:.78rem;letter-spacing:.06em}.nd-independent-nav-group>a{display:block}

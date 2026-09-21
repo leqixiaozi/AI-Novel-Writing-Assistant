@@ -181,7 +181,13 @@
     "app/migrations/manual/113_comic_source_bundle.sql",
     "app/migrations/manual/114_comic_visual_assets.sql",
     "app/migrations/manual/115_creative_hub.sql",
-    "app/migrations/manual/116_world_generation_sessions.sql"
+    "app/migrations/manual/116_world_generation_sessions.sql",
+    "app/migrations/manual/117_comic_rendering_exports.sql",
+    "app/migrations/manual/118_drama_projects_sources.sql",
+    "app/migrations/manual/119_drama_strategy_episodes.sql",
+    "app/migrations/manual/120_drama_scripts_quality.sql",
+    "app/migrations/manual/121_drama_storyboards_media.sql",
+    "app/migrations/manual/122_drama_exports.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -314,6 +320,12 @@
     "113_comic_source_bundle.sql",
     "114_comic_visual_assets.sql",
     "115_creative_hub.sql",
-    "116_world_generation_sessions.sql"
+    "116_world_generation_sessions.sql",
+    "117_comic_rendering_exports.sql",
+    "118_drama_projects_sources.sql",
+    "119_drama_strategy_episodes.sql",
+    "120_drama_scripts_quality.sql",
+    "121_drama_storyboards_media.sql",
+    "122_drama_exports.sql"
   ]
 }

@@ -7,7 +7,8 @@ const model={};new Function('exports',source)(model);
 test('comic project tabs retain explicit deep links and reject invalid tabs',()=>{
  assert.equal(model.resolveComicProjectTab(new URLSearchParams()),'outline');
  assert.equal(model.resolveComicProjectTab(new URLSearchParams('tab=panels')),'panels');
- assert.equal(model.resolveComicProjectTab(new URLSearchParams('tab=export')),null);
+ assert.equal(model.resolveComicProjectTab(new URLSearchParams('tab=export')),'export');
+ assert.equal(model.resolveComicProjectTab(new URLSearchParams('tab=unknown')),null);
  assert.equal(model.resolveComicProjectTab(new URLSearchParams('tab=outline&tab=panels')),null);
 });
 test('an invalid or unadopted comic episode deep link never silently selects another episode',()=>{

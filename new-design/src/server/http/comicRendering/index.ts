@@ -1,0 +1,19 @@
+import {Router} from 'express';
+import {z} from 'zod';
+import {comicBibleRenderSchema,comicExportManifestSchema,comicExportSubmitSchema,comicRenderAdoptionSchema,comicRenderBatchSchema} from '../../../common/comicRendering';
+import {startComicBibleRender,startComicRenderBatch} from '../../application/comicRendering';
+import {createComicExport,listComicExports,previewComicExport,resolveComicExportDownload} from '../../comicExport';
+import {adoptComicRenderVersion,getComicRenderWorkspace,readComicRenderBatchOriginal,readComicRenderContent} from '../../database/comicRendering';
+const uuid=z.string().uuid();
+export function comicRenderingRouter(){const router=Router();
+ router.get('/comic/projects/:projectId/rendering',(req,res,next)=>{void Promise.resolve().then(()=>getComicRenderWorkspace(uuid.parse(req.params.projectId),req.query.episodeId?uuid.parse(req.query.episodeId):undefined,req.query.bibleEntityId?uuid.parse(req.query.bibleEntityId):undefined,String(req.query.assetType??''))).then(data=>res.json({success:true,data})).catch(next);});
+ router.get('/comic/projects/:projectId/render-batches/:requestKey',(req,res,next)=>{void Promise.resolve().then(()=>readComicRenderBatchOriginal(uuid.parse(req.params.projectId),uuid.parse(req.params.requestKey))).then(data=>res.json({success:true,data})).catch(next);});
+ router.post('/comic/projects/:projectId/render-batches',(req,res,next)=>{void Promise.resolve().then(()=>startComicRenderBatch(uuid.parse(req.params.projectId),comicRenderBatchSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(next);});
+ router.post('/comic/projects/:projectId/bible-renders',(req,res,next)=>{void Promise.resolve().then(()=>startComicBibleRender(uuid.parse(req.params.projectId),comicBibleRenderSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(next);});
+ router.post('/comic/projects/:projectId/render-targets/:targetKind/:targetId/adoptions',(req,res,next)=>{void Promise.resolve().then(()=>adoptComicRenderVersion(uuid.parse(req.params.projectId),z.enum(['panel','bible']).parse(req.params.targetKind),uuid.parse(req.params.targetId),String(req.query.assetType??''),comicRenderAdoptionSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(next);});
+ router.get('/comic/projects/:projectId/render-versions/:versionId/content',(req,res,next)=>{void Promise.resolve().then(()=>readComicRenderContent(uuid.parse(req.params.projectId),uuid.parse(req.params.versionId))).then(content=>{res.setHeader('Content-Type',content.mimeType);res.setHeader('Content-Length',String(content.bytes.length));res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Cache-Control','private, max-age=31536000, immutable');res.setHeader('ETag',`"${content.checksum}"`);res.send(content.bytes);}).catch(next);});
+ router.post('/comic/projects/:projectId/export-manifests',(req,res,next)=>{void Promise.resolve().then(()=>previewComicExport(uuid.parse(req.params.projectId),comicExportManifestSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(next);});
+ router.post('/comic/projects/:projectId/exports',(req,res,next)=>{void Promise.resolve().then(()=>createComicExport(uuid.parse(req.params.projectId),comicExportSubmitSchema.parse(req.body))).then(data=>res.status(201).json({success:true,data})).catch(next);});
+ router.get('/comic/projects/:projectId/exports',(req,res,next)=>{void Promise.resolve().then(()=>listComicExports(uuid.parse(req.params.projectId))).then(data=>res.json({success:true,data})).catch(next);});
+ router.get('/comic/exports/:artifactId/download',(req,res,next)=>{void resolveComicExportDownload(uuid.parse(req.params.artifactId)).then(file=>res.download(file.path,file.filename,error=>{if(error)next(error);}),next);});return router;
+}

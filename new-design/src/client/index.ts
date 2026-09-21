@@ -9,6 +9,7 @@ export {
   CUSTOMER_TERMS,
   NEW_DESIGN_ADVANCED_NAV,
   NEW_DESIGN_PRIMARY_NAV,
+  NEW_DESIGN_NAV_GROUPS,
   isNewDesignAdvancedPath,
   isNewDesignBookWorkspacePath,
   newDesignCurrentMenuHref,

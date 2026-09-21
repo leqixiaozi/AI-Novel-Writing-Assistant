@@ -97,7 +97,11 @@ const navGroups: NavGroup[] = [
       label: item.label,
       icon: ({
         home: Layers3,
+        guide: CircleHelp,
+        "creative-hub": LayoutDashboard,
         books: BookOpenText,
+        comic: SquareStack,
+        drama: MonitorPlay,
         resources: Database,
         titles: SquarePen,
         professional: WandSparkles,
@@ -115,6 +119,7 @@ const newDesignAdvancedItems: NavItem[] = NEW_DESIGN_ADVANCED_NAV.map((item) => 
   to: item.href,
   label: item.label,
   icon: ({
+    settings: Settings2,
     "content-types": SquareStack,
     "options-relations": Workflow,
     forms: SquarePen,

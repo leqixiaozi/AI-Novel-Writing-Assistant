@@ -1,0 +1,1 @@
+import type {DramaWorkspace} from '../../common/drama';export default function DramaSourcePanel({workspace}:{workspace:DramaWorkspace}){return <section className="nd-drama-panel"><h2>冻结来源</h2><p>来源版本 {workspace.project.sourceVersionId}。后续小说修改不会暗中覆盖本项目。</p><pre>{workspace.project.sourceContent}</pre></section>}
