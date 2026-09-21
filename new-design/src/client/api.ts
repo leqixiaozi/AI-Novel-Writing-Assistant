@@ -19,6 +19,7 @@ import {createComicPanelsApi} from './comicProjects/panelsApi';
 import {createComicBiblesApi} from './comicProjects/biblesApi';
 import {createComicVisualAssetsApi} from './comicProjects/visualAssetsApi';
 import {createComicSourceBundleApi} from './comicProjects/sourceBundleApi';
+import {createCreativeHubApi} from './creativeHub/api';
 import {createWorldUsageApi} from './worldUsage/api';
 import type {PayoffLedgerWorkspace,PayoffWindowReceipt,SavePayoffWindowInput} from '../common/payoffLedger';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
@@ -420,6 +421,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  creativeHub:createCreativeHubApi(request),
   ...createChapterQualityApi(request),
   worldUsage:createWorldUsageApi(request),
   getPayoffLedger:(bookId:string)=>request<PayoffLedgerWorkspace>(`/books/${encodeURIComponent(bookId)}/payoff-ledger`),

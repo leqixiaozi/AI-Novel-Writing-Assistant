@@ -1,0 +1,5 @@
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export interface CreativeHubLocation {threadId:string|null;explicit:boolean;error:string|null;}
+export function creativeHubHref(threadId?:string|null):string{return threadId?`/new-design/creative-hub?threadId=${encodeURIComponent(threadId)}`:'/new-design/creative-hub';}
+export function readCreativeHubLocation(search:string):CreativeHubLocation{const params=new URLSearchParams(search),values=params.getAll('threadId');if(!values.length)return{threadId:null,explicit:false,error:null};if(values.length!==1||!UUID.test(values[0]))return{threadId:null,explicit:true,error:'会话地址无效，请从创作中枢列表重新选择。'};return{threadId:values[0],explicit:true,error:null};}
+export function isSafeCreativeHubActionHref(value:string):boolean{if(value.length>1200||!value.startsWith('/new-design/')||/[\\\u0000-\u0020]/.test(value))return false;try{const url=new URL(value,'http://creative-hub.invalid');return url.origin==='http://creative-hub.invalid'&&url.pathname.startsWith('/new-design/')&&!/%(?:2f|5c|00)/i.test(url.pathname);}catch{return false;}}

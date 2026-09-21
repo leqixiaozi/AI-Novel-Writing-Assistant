@@ -17,6 +17,7 @@ import ResourceCenterPage from "./ResourceCenterPage";
 import WorldCatalogPage from "./worldCatalog/WorldCatalogPage";
 import ComicProjectsPage from './comicProjects/ComicProjectsPage';
 import ComicProjectDetail from './comicProjects/ComicProjectDetail';
+import CreativeHubPage from './creativeHub/CreativeHubPage';
 import VisualCatalogPage from "./visualCatalog/VisualCatalogPage";
 import CharacterImportPage,{PublicCharacterLibrary} from './characterImport';
 import ResourceTreesPage from "./ResourceTreesPage";
@@ -63,6 +64,7 @@ export default function NewDesignPage(props:NewDesignPageProps) {
 function NewDesignRoute({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
+  if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf}/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
   if(path==="/new-design/comic")return <ComicProjectsPage/>;
