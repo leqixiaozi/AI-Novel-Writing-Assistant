@@ -24,6 +24,7 @@ import {publicCharacterDialogueAsset} from './publicCharacterDialogue';
 import {imagePreparationAsset} from './imagePreparation';
 import {characterAuthorAsset} from './characterAuthor';
 import {publicTitlesAsset} from './publicTitles';
+import {creativeHubAsset} from './creativeHub';
 import { PROMPT_TASK_TYPES, type PreparedPrompt, type PromptAsset, type PromptAssetMetadata, type PromptTaskType } from "./contracts";
 import { AiExecutionError } from "../runtime/errors";
 
@@ -33,7 +34,7 @@ export type {CreationPreparationPromptInput} from "./creationPreparation";
 export {creationPreparationPromptInputSchema} from "./creationPreparation";
 export type {ChapterGenerationInput} from "./chapterGeneration";
 
-const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, chapterQualityAsset, worldConsistencyAsset, worldUsageAsset, creativeExtractionAsset, characterDialogueAsset, publicCharacterDialogueAsset, imagePreparationAsset, characterAuthorAsset, publicTitlesAsset, storyWorkspaceAsset,...referenceCandidateAssets,characterResourceBackfillAsset,characterExperiencesAsset,recentBodyExperiencesAsset,characterResourceFocusAsset,characterResourceHistoryFocusAsset,stableResourceSupplementAsset,resourceSupplementCorrectionAsset];
+const assets: readonly PromptAsset[] = [...creationAssets, ...researchAssets, planningAsset, chapterSettlementAsset,chapterGenerationAsset, chapterQualityAsset, worldConsistencyAsset, worldUsageAsset, creativeExtractionAsset, characterDialogueAsset, creativeHubAsset, publicCharacterDialogueAsset, imagePreparationAsset, characterAuthorAsset, publicTitlesAsset, storyWorkspaceAsset,...referenceCandidateAssets,characterResourceBackfillAsset,characterExperiencesAsset,recentBodyExperiencesAsset,characterResourceFocusAsset,characterResourceHistoryFocusAsset,stableResourceSupplementAsset,resourceSupplementCorrectionAsset];
 const registry = new Map<PromptTaskType, PromptAsset>();
 const identity = new Set<string>();
 for (const asset of assets) {

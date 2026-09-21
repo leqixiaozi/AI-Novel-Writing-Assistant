@@ -179,7 +179,8 @@
     "app/migrations/manual/111_comic_panels.sql",
     "app/migrations/manual/112_comic_bibles.sql",
     "app/migrations/manual/113_comic_source_bundle.sql",
-    "app/migrations/manual/114_comic_visual_assets.sql"
+    "app/migrations/manual/114_comic_visual_assets.sql",
+    "app/migrations/manual/115_creative_hub.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -310,6 +311,7 @@
     "111_comic_panels.sql",
     "112_comic_bibles.sql",
     "113_comic_source_bundle.sql",
-    "114_comic_visual_assets.sql"
+    "114_comic_visual_assets.sql",
+    "115_creative_hub.sql"
   ]
 }

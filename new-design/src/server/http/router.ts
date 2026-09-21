@@ -50,6 +50,7 @@ import {knowledgeIndexRouter} from "./knowledgeIndex";
 import {worldConsistencyRouter} from "./worldConsistency";
 import {chapterQualityRouter} from './chapterQuality';
 import {characterDialogueRouter} from "./characterDialogue";
+import {creativeHubRouter} from './creativeHub';
 import {creativeExtractionRouter} from "./creativeExtraction";
 import {imageGenerationRouter,ImageHttpError} from "./imageGeneration";
 import {ImageGenerationError} from "../database/imageGeneration";
@@ -464,6 +465,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(worldConsistencyRouter());
   router.use(chapterQualityRouter());
   router.use(characterDialogueRouter());
+  router.use(creativeHubRouter(dependencies.ai));
   router.use("/creative-extraction",creativeExtractionRouter());
   router.use(imageGenerationRouter());
   router.use("/director-followup",directorFollowupRouter());

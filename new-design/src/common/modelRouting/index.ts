@@ -10,6 +10,7 @@ export const MODEL_TASKS=[
   {key:"world_consistency",label:"检查世界设定一致性"},
   {key:"creative_extraction",label:"提炼写法与生成标题"},
   {key:"character_dialogue",label:"人物对话模拟"},
+  {key:"creative_hub",label:"创作中枢诊断"},
 ] as const;
 export type ModelTaskKey=(typeof MODEL_TASKS)[number]["key"];
 export type ManagedProvider="ollama"|"openai-compatible"|"anthropic-compatible";

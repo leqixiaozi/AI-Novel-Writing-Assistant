@@ -22,6 +22,7 @@ export function createIndependentAiGateway(options:ExecutionDependencies={}):New
     return {...result,promptSnapshot:{assetId:prompt.assetId,version:prompt.version,taskType,contextPolicy:prompt.contextPolicy,outputSchema:prompt.outputSchema},modelSnapshot:{...result.modelSnapshot,temperature:prompt.temperature}};
   }
   return {
+    diagnoseCreativeHub:input=>execute<import('../../common/creativeHub').CreativeHubDiagnostic>('creative_hub',input),
     suggestWorldUsage:input=>execute<import('../../common/worldUsage').WorldUsageSelection>('world_usage',input),
     generateCharacterRecentBodyExperiences:input=>execute<import('../../common/characterExperiences/recentBodies').RecentBodyExperienceOutput>('character_recent_body_experiences',input),
     generateCharacterResourceHistoryFocus:input=>execute<import("../../common/characterResources/focus").ResourceFocusOutput>("character_resource_history_focus",input),
