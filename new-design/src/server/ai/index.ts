@@ -23,6 +23,7 @@ export function createIndependentAiGateway(options:ExecutionDependencies={}):New
   }
   return {
     diagnoseCreativeHub:input=>execute<import('../../common/creativeHub').CreativeHubDiagnostic>('creative_hub',input),
+    generateWorldCandidate:input=>execute<import('../../common/worldGeneration').WorldGenerationCandidateContent>('world_generation',input),
     suggestWorldUsage:input=>execute<import('../../common/worldUsage').WorldUsageSelection>('world_usage',input),
     generateCharacterRecentBodyExperiences:input=>execute<import('../../common/characterExperiences/recentBodies').RecentBodyExperienceOutput>('character_recent_body_experiences',input),
     generateCharacterResourceHistoryFocus:input=>execute<import("../../common/characterResources/focus").ResourceFocusOutput>("character_resource_history_focus",input),

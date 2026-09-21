@@ -1,5 +1,6 @@
 import type { BookAnalysisPlan, BookAnalysisResult, BookCreationMethod, BookDirectionCandidate, FieldDefinition, InitialCardDraft, MarketAnalysisResult, MarketRankingItem, PlanningLevel } from "../../common/contracts";
 import type {CreativeHubBinding,CreativeHubDiagnostic,CreativeHubState} from '../../common/creativeHub';
+import type {WorldGenerationCandidateContent,WorldGenerationPromptInput} from '../../common/worldGeneration';
 
 export interface AiSchemaType {
   key: string;
@@ -38,6 +39,7 @@ export interface PlanningCandidateOutput {title:string;goal:string;storyTime:str
 
 export interface NewDesignAiGateway {
   diagnoseCreativeHub?(input:{question:string;binding:CreativeHubBinding;state:CreativeHubState}):Promise<AiResearchRunResult<CreativeHubDiagnostic>>;
+  generateWorldCandidate?(input:WorldGenerationPromptInput):Promise<AiResearchRunResult<WorldGenerationCandidateContent>>;
   suggestWorldUsage?(input:{sources:import('../../common/worldUsage').WorldUsageSources;instruction:string}):Promise<AiResearchRunResult<import('../../common/worldUsage').WorldUsageSelection>>;
   generateCharacterRecentBodyExperiences?(input:{snapshot:import('../../common/characterExperiences/recentBodies').RecentBodyExperienceSnapshot;instruction:string}):Promise<AiResearchRunResult<import('../../common/characterExperiences/recentBodies').RecentBodyExperienceOutput>>;
   generateCharacterResourceFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;

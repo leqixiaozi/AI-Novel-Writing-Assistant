@@ -6,7 +6,7 @@
 
 复刻旧版页面和功能时，以用户可见的布局、操作和结果为对标依据；新设计的数据继续由本模型中的卡片及其业务记录承载，不复制旧版表结构，也不把旧版数据表当作新版的运行依赖。
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`，普通启动注册清单以 `../src/server/database/migrations.ts` 为准：当前从 `001_card_kernel.sql` 到 `083_character_dialogue.sql`，共 81 个文件，编号并不连续。`084_world_packages.sql` 至 `115_creative_hub.sql` 中的 31 个文件属于独立安装的手动迁移，清单见 `../src/server/runtime/manifest.ts`；它们不进入普通启动。运行时执行迁移目录中的 SQL，不在代码中维护第二份 SQL 副本。文件存在、代码已接线、实际数据库已安装、能力已启用和页面已验收是不同状态；本文描述结构与业务约束，不以文件存在推定作者数据库的当前状态。
+本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`，普通启动注册清单以 `../src/server/database/migrations.ts` 为准：当前从 `001_card_kernel.sql` 到 `083_character_dialogue.sql`，共 81 个文件，编号并不连续。`084_world_packages.sql` 至 `116_world_generation_sessions.sql` 中的 32 个文件属于独立安装的手动迁移，清单见 `../src/server/runtime/manifest.ts`；它们不进入普通启动。运行时执行迁移目录中的 SQL，不在代码中维护第二份 SQL 副本。文件存在、代码已接线、实际数据库已安装、能力已启用和页面已验收是不同状态；本文描述结构与业务约束，不以文件存在推定作者数据库的当前状态。
 
 `001`—`045` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046`—`048` 补齐统一字典树、多维标签树、历史路径快照及开书前统一审阅。`049`—`083` 扩展表单 AI、模型路由、章节结算、导演、知识索引、世界一致性、图像与人物对话等来源和回执。`084`—`112` 的手动合同另有安装、能力开关和数据保护边界。详细规则见 `unified-tree-resources.md`、`unified-book-creation-form.md` 及下文“后续迁移与页面数据边界”。
 
@@ -791,6 +791,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `113` | `comic_source_bundle_state`、`comic_source_bundle_versions`、`comic_source_bundle_adoptions` | 冻结原文之上另建人工来源梗概／情节节拍／角色线索候选，明确采用后才成为正式整理依据。每版绑定原来源版本，候选和采用流水不可改写；原文始终保留。AI 来源提取尚未接入。 |
 | `114` | `comic_visual_assets`、`comic_visual_asset_versions`、`comic_visual_asset_adoptions` | 角色肖像、三视图、表情、服装、道具和场景设定图保存为不可改写候选；每版绑定当时已采用的角色／场景设定版本，只有作者明确采用才成为正式视觉锚点。当前接入本地上传，不把图片候选自动视为已采用，也不冒充分格成图或导出。 |
 | `115` | `creative_hub_threads`、`creative_hub_turns`；创作中枢独立模型任务范围 | 会话绑定作品、章节或原任务；每次诊断冻结当时只读投影和原请求身份，迟到结果只写回原 turn，同键不同输入拒绝。线程只归档不删除，原问题与冻结状态不可改写。中枢只返回查询、失败解释、影响分析和已有页面定位，不提供生成、保存、采用、审批、取消或重试业务写入。未安装或保护不完整时写入停用。 |
+| `116` | `world_generation_sessions`、`world_generation_candidates`、`world_generation_publications`；世界样本独立模型任务和公共关系规则 | 灵感、模板、属性与确切参考版本冻结为生成会话；模型和人工修改只新增候选，明确发布才经世界包底座生成公共世界固定版本。规则、势力、地点及候选关系分别进入正式卡片和关系版本；来源变化、旧修订、同键不同输入及重复发布受阻。手动迁移未安装或保护不完整时写入停用。 |
 | `087`—`094` | `chapter_resource_supplements`、影响复核、完整性日志／冲突／解除证明、修正来源与正式提交回执 | 补充引用原稳定检查点、采用正文和结算，不重开原会话或覆盖原状态；下游冲突与投影来源必须经实际证明解除。各迁移按合同顺序独立启用，不能因部分表已存在就宣称闭环可用。 |
 | `095` | `chapter_quality_requests` | 冻结待审正文版本、AI 任务／步骤／尝试和原回复；质量报告仍归 `quality_audit_reports`，请求成功不自动采用修复。 |
 | `096`—`097` | 公共人物能力、`public_character_trials`、`public_character_portrait_events` 及公共人物上下文范围 | 人物档案仍用公共 `cards/card_versions`；试聊和肖像事件是候选／回执，不写书内人物正本。 |
@@ -802,7 +803,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `106` | `world_usage_candidates`／`adoptions`／`capability` | 本书世界正式来源冻结后，人工或 AI 只生成候选；明确采用才向规划与章节提供范围。手动迁移不随启动安装；当前作者库已安装并启用能力行。 |
 | `107` | `payoff_windows` 及伏笔类型新版本 | 目标章节窗口由作者保存，账本只根据正式章节结算判断回收；手动迁移不随启动安装，当前作者库已安装。 |
 
-`086` 没有对应文件。普通注册清单、手动交付清单与当前作者数据库的已应用记录分别核对；2026-09-21 本机新版作者库已在完整备份与独立恢复演练后安装 `108`—`114`，迁移总数为 111，旧版数据库未操作。`115` 目前仅有源码合同和隔离库验证，尚未安装到作者库。页面操作仍须作者验收。实际启用证据见 [开发交付记录](development-delivery.md)、[逐页施工记录](legacy-page-replication-progress.md) 与各数据库模块的 `README.md`，其中历史阶段结论不可当作新的运行验证。
+`086` 没有对应文件。普通注册清单、手动交付清单与当前作者数据库的已应用记录分别核对；2026-09-21 本机新版作者库已在完整备份与独立恢复演练后安装 `108`—`114`，迁移总数为 111，旧版数据库未操作。`115`、`116` 目前仅有源码合同和隔离库验证，尚未安装到作者库。页面操作仍须作者验收。实际启用证据见 [开发交付记录](development-delivery.md)、[逐页施工记录](legacy-page-replication-progress.md) 与各数据库模块的 `README.md`，其中历史阶段结论不可当作新的运行验证。
 
 ## 内置小说资料规格
 

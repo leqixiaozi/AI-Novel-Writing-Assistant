@@ -8,6 +8,7 @@ export const MODEL_TASKS=[
   {key:"chapter_generation",label:"生成章节正文"},
   {key:"quality_audit",label:"章节诊断与复检"},
   {key:"world_consistency",label:"检查世界设定一致性"},
+  {key:"world_generation",label:"生成世界样本"},
   {key:"creative_extraction",label:"提炼写法与生成标题"},
   {key:"character_dialogue",label:"人物对话模拟"},
   {key:"creative_hub",label:"创作中枢诊断"},

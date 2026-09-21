@@ -18,6 +18,8 @@ import WorldCatalogPage from "./worldCatalog/WorldCatalogPage";
 import ComicProjectsPage from './comicProjects/ComicProjectsPage';
 import ComicProjectDetail from './comicProjects/ComicProjectDetail';
 import CreativeHubPage from './creativeHub/CreativeHubPage';
+import WorldGeneratorPage from './worldGenerator/WorldGeneratorPage';
+import WorldWorkspacePage from './worldGenerator/WorldWorkspacePage';
 import VisualCatalogPage from "./visualCatalog/VisualCatalogPage";
 import CharacterImportPage,{PublicCharacterLibrary} from './characterImport';
 import ResourceTreesPage from "./ResourceTreesPage";
@@ -81,6 +83,9 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   const knowledgeMatch=path.match(/^\/new-design\/books\/([^/]+)\/knowledge$/);
   if(knowledgeMatch)return <KnowledgeReferencePage bookId={decodeURIComponent(knowledgeMatch[1])}/>;
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
+  if(path==="/new-design/resources/worlds/new")return <WorldGeneratorPage/>;
+  const worldWorkspaceMatch=path.match(/^\/new-design\/resources\/worlds\/([^/]+)$/);
+  if(worldWorkspaceMatch)return <WorldWorkspacePage rootCardId={decodeURIComponent(worldWorkspaceMatch[1])}/>;
   if(path==="/new-design/resources/worlds")return <WorldCatalogPage/>;
   if(path==="/new-design/resources/visual-assets")return <VisualCatalogPage/>;
   if(path==="/new-design/resources/characters")return <CharacterImportPage/>;
