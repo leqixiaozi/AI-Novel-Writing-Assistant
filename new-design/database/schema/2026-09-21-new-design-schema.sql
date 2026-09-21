@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 886WB5PjE4Vvk402LfAKQbDM0dEAHE8EgcSWp30E62Em2QRkSUT0tyefVPCUMwc
+\restrict Sqg6g9mpRJOimBg9EgiRmu7ePSnuwRdeXXhTQ2TQZQ5zM5oyvQxwDDhSsilrrwT
 
 -- Dumped from database version 17.11 (Debian 17.11-1.pgdg13+2)
 -- Dumped by pg_dump version 17.11 (Debian 17.11-1.pgdg13+2)
@@ -2392,6 +2392,15 @@ BEGIN RAISE EXCEPTION 'comic episode history is immutable' USING ERRCODE='23514'
 
 
 --
+-- Name: guard_comic_render_history(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_comic_render_history() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$ BEGIN RAISE EXCEPTION 'comic render history is immutable' USING ERRCODE='23514'; END $$;
+
+
+--
 -- Name: guard_comic_source_bundle_event_immutable(); Type: FUNCTION; Schema: new_design; Owner: -
 --
 
@@ -2625,6 +2634,32 @@ END $$;
 
 
 --
+-- Name: guard_creative_hub_thread_delete(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_creative_hub_thread_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN RAISE EXCEPTION 'creative hub threads are archived, never deleted' USING ERRCODE='23514'; END; $$;
+
+
+--
+-- Name: guard_creative_hub_turn_identity(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_creative_hub_turn_identity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+ IF TG_OP='DELETE' OR NEW.thread_id IS DISTINCT FROM OLD.thread_id OR NEW.request_key IS DISTINCT FROM OLD.request_key
+    OR NEW.request_hash IS DISTINCT FROM OLD.request_hash OR NEW.question IS DISTINCT FROM OLD.question
+    OR NEW.frozen_state IS DISTINCT FROM OLD.frozen_state OR NEW.created_at IS DISTINCT FROM OLD.created_at
+ THEN RAISE EXCEPTION 'creative hub original turn evidence is immutable' USING ERRCODE='23514'; END IF;
+ RETURN NEW;
+END; $$;
+
+
+--
 -- Name: guard_dependency_edge(); Type: FUNCTION; Schema: new_design; Owner: -
 --
 
@@ -2706,6 +2741,15 @@ BEGIN
   ) THEN RAISE EXCEPTION '字典树不能形成循环'; END IF;
   RETURN NEW;
 END $$;
+
+
+--
+-- Name: guard_drama_history(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_drama_history() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$ BEGIN RAISE EXCEPTION 'drama history is immutable' USING ERRCODE='23514'; END $$;
 
 
 --
@@ -3881,6 +3925,24 @@ CREATE FUNCTION new_design.guard_world_consistency_request() RETURNS trigger
  IF NEW.status='ended_unknown' AND NEW.generated_output IS NOT NULL THEN RAISE EXCEPTION 'saved world reply cannot become unknown' USING ERRCODE='23514'; END IF;
  RETURN NEW;
 END $$;
+
+
+--
+-- Name: guard_world_generation_immutable(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_world_generation_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$ BEGIN RAISE EXCEPTION 'world generation candidates and publication receipts are immutable' USING ERRCODE='23514'; END; $$;
+
+
+--
+-- Name: guard_world_generation_session_identity(); Type: FUNCTION; Schema: new_design; Owner: -
+--
+
+CREATE FUNCTION new_design.guard_world_generation_session_identity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$ BEGIN IF TG_OP='DELETE' OR NEW.create_request_key IS DISTINCT FROM OLD.create_request_key OR NEW.request_hash IS DISTINCT FROM OLD.request_hash OR NEW.blueprint IS DISTINCT FROM OLD.blueprint OR NEW.frozen_references IS DISTINCT FROM OLD.frozen_references OR NEW.source_hash IS DISTINCT FROM OLD.source_hash OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN RAISE EXCEPTION 'world generation source identity is immutable' USING ERRCODE='23514'; END IF; RETURN NEW; END; $$;
 
 
 --
@@ -9723,6 +9785,23 @@ CREATE TABLE new_design.comic_bible_versions (
 
 
 --
+-- Name: comic_bubble_outputs; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_bubble_outputs (
+    id uuid NOT NULL,
+    render_version_id uuid NOT NULL,
+    dialogue_snapshot jsonb NOT NULL,
+    layout_snapshot jsonb NOT NULL,
+    source_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_bubble_outputs_dialogue_snapshot_check CHECK ((jsonb_typeof(dialogue_snapshot) = 'array'::text)),
+    CONSTRAINT comic_bubble_outputs_layout_snapshot_check CHECK ((jsonb_typeof(layout_snapshot) = 'object'::text)),
+    CONSTRAINT comic_bubble_outputs_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text))
+);
+
+
+--
 -- Name: comic_episode_adoptions; Type: TABLE; Schema: new_design; Owner: -
 --
 
@@ -9779,6 +9858,69 @@ CREATE TABLE new_design.comic_episodes (
     CONSTRAINT comic_episodes_episode_order_check CHECK (((episode_order >= 1) AND (episode_order <= 1000))),
     CONSTRAINT comic_episodes_revision_check CHECK ((revision >= 0)),
     CONSTRAINT comic_episodes_script_revision_check CHECK ((script_revision >= 0))
+);
+
+
+--
+-- Name: comic_export_artifacts; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_export_artifacts (
+    id uuid NOT NULL,
+    manifest_id uuid NOT NULL,
+    variant text NOT NULL,
+    storage_locator text NOT NULL,
+    display_filename text NOT NULL,
+    media_type text NOT NULL,
+    checksum character(64) NOT NULL,
+    byte_size bigint NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_export_artifacts_byte_size_check CHECK ((byte_size > 0)),
+    CONSTRAINT comic_export_artifacts_checksum_check CHECK ((checksum ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_export_artifacts_display_filename_check CHECK ((display_filename !~ '[\\/]'::text)),
+    CONSTRAINT comic_export_artifacts_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_export_artifacts_storage_locator_check CHECK (((storage_locator ~ '^comic/[A-Za-z0-9._/-]+$'::text) AND (storage_locator !~ '(^|/)\.\.(/|$)|//'::text)))
+);
+
+
+--
+-- Name: comic_export_manifests; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_export_manifests (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    variant text NOT NULL,
+    source_snapshot jsonb NOT NULL,
+    source_hash character(64) NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_export_manifests_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_export_manifests_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_export_manifests_source_snapshot_check CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
+    CONSTRAINT comic_export_manifests_variant_check CHECK ((variant = ANY (ARRAY['original_images'::text, 'bubble_preview'::text, 'project_manifest'::text])))
+);
+
+
+--
+-- Name: comic_fact_snapshots; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_fact_snapshots (
+    id uuid NOT NULL,
+    batch_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    target_kind text NOT NULL,
+    target_id uuid NOT NULL,
+    source_snapshot jsonb NOT NULL,
+    source_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_fact_snapshots_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_fact_snapshots_source_snapshot_check CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
+    CONSTRAINT comic_fact_snapshots_target_kind_check CHECK ((target_kind = ANY (ARRAY['panel'::text, 'bible'::text])))
 );
 
 
@@ -9870,6 +10012,93 @@ CREATE TABLE new_design.comic_projects (
     CONSTRAINT comic_projects_status_check CHECK ((status = 'draft'::text)),
     CONSTRAINT comic_projects_style_preset_check CHECK ((style_preset = ANY (ARRAY['webtoon_color'::text, 'bl_manga'::text, 'shounen_bw'::text, 'ink_traditional'::text, 'chibi'::text, 'realistic'::text]))),
     CONSTRAINT comic_projects_title_check CHECK (((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 120)))
+);
+
+
+--
+-- Name: comic_render_adoptions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_render_adoptions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    target_kind text NOT NULL,
+    target_id uuid NOT NULL,
+    asset_type text DEFAULT ''::text NOT NULL,
+    version_id uuid NOT NULL,
+    revision integer NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_render_adoptions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_render_adoptions_revision_check CHECK ((revision > 0))
+);
+
+
+--
+-- Name: comic_render_batches; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_render_batches (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    episode_id uuid,
+    panel_set_id uuid,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    connection_version_id uuid NOT NULL,
+    image_size text NOT NULL,
+    status text NOT NULL,
+    total_count integer NOT NULL,
+    completed_count integer DEFAULT 0 NOT NULL,
+    stop_position integer,
+    last_error text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT comic_render_batches_completed_count_check CHECK ((completed_count >= 0)),
+    CONSTRAINT comic_render_batches_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT comic_render_batches_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text]))),
+    CONSTRAINT comic_render_batches_total_count_check CHECK ((total_count > 0))
+);
+
+
+--
+-- Name: comic_render_target_state; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_render_target_state (
+    project_id uuid NOT NULL,
+    target_kind text NOT NULL,
+    target_id uuid NOT NULL,
+    asset_type text DEFAULT ''::text NOT NULL,
+    revision integer DEFAULT 0 NOT NULL,
+    adopted_version_id uuid,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_render_target_state_revision_check CHECK ((revision >= 0)),
+    CONSTRAINT comic_render_target_state_target_kind_check CHECK ((target_kind = ANY (ARRAY['panel'::text, 'bible'::text])))
+);
+
+
+--
+-- Name: comic_render_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.comic_render_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    episode_id uuid,
+    panel_id uuid,
+    bible_entity_id uuid,
+    asset_type text,
+    version integer NOT NULL,
+    fact_snapshot_id uuid NOT NULL,
+    content_object_id uuid NOT NULL,
+    source_kind text DEFAULT 'ai_candidate'::text NOT NULL,
+    prompt text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT comic_render_versions_check CHECK (((((panel_id IS NOT NULL))::integer + ((bible_entity_id IS NOT NULL))::integer) = 1)),
+    CONSTRAINT comic_render_versions_source_kind_check CHECK ((source_kind = 'ai_candidate'::text)),
+    CONSTRAINT comic_render_versions_version_check CHECK ((version > 0))
 );
 
 
@@ -10498,6 +10727,56 @@ CREATE TABLE new_design.creative_extraction_write_receipts (
 
 
 --
+-- Name: creative_hub_threads; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.creative_hub_threads (
+    id uuid NOT NULL,
+    title text NOT NULL,
+    binding jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    revision integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT creative_hub_threads_binding_check CHECK ((jsonb_typeof(binding) = 'object'::text)),
+    CONSTRAINT creative_hub_threads_revision_check CHECK ((revision > 0)),
+    CONSTRAINT creative_hub_threads_status_check CHECK ((status = ANY (ARRAY['active'::text, 'archived'::text]))),
+    CONSTRAINT creative_hub_threads_title_check CHECK (((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 120)))
+);
+
+
+--
+-- Name: creative_hub_turns; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.creative_hub_turns (
+    id uuid NOT NULL,
+    thread_id uuid NOT NULL,
+    request_key uuid NOT NULL,
+    request_hash text NOT NULL,
+    question text NOT NULL,
+    frozen_state jsonb NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    result jsonb,
+    failure text,
+    prompt_snapshot jsonb,
+    model_snapshot jsonb,
+    used_tokens integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT creative_hub_turns_frozen_state_check CHECK ((jsonb_typeof(frozen_state) = 'object'::text)),
+    CONSTRAINT creative_hub_turns_model_snapshot_check CHECK (((model_snapshot IS NULL) OR (jsonb_typeof(model_snapshot) = 'object'::text))),
+    CONSTRAINT creative_hub_turns_prompt_snapshot_check CHECK (((prompt_snapshot IS NULL) OR (jsonb_typeof(prompt_snapshot) = 'object'::text))),
+    CONSTRAINT creative_hub_turns_question_check CHECK (((length(btrim(question)) >= 1) AND (length(btrim(question)) <= 4000))),
+    CONSTRAINT creative_hub_turns_request_hash_check CHECK ((request_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT creative_hub_turns_result_check CHECK (((result IS NULL) OR (jsonb_typeof(result) = 'object'::text))),
+    CONSTRAINT creative_hub_turns_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'result_unknown'::text]))),
+    CONSTRAINT creative_hub_turns_used_tokens_check CHECK (((used_tokens IS NULL) OR (used_tokens >= 0)))
+);
+
+
+--
 -- Name: current_knowledge_state_projections; Type: TABLE; Schema: new_design; Owner: -
 --
 
@@ -10879,6 +11158,325 @@ CREATE TABLE new_design.dictionary_items (
     CONSTRAINT dictionary_item_not_self_parent CHECK (((parent_id IS NULL) OR (parent_id <> id))),
     CONSTRAINT dictionary_items_revision_check CHECK ((revision > 0)),
     CONSTRAINT dictionary_items_status_check CHECK ((status = ANY (ARRAY['active'::text, 'archived'::text])))
+);
+
+
+--
+-- Name: drama_export_artifacts; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_export_artifacts (
+    id uuid NOT NULL,
+    manifest_id uuid NOT NULL,
+    storage_locator text NOT NULL,
+    display_filename text NOT NULL,
+    media_type text NOT NULL,
+    checksum character(64) NOT NULL,
+    byte_size bigint NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_export_artifacts_byte_size_check CHECK ((byte_size > 0)),
+    CONSTRAINT drama_export_artifacts_checksum_check CHECK ((checksum ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_export_artifacts_display_filename_check CHECK ((display_filename !~ '[\\/]'::text)),
+    CONSTRAINT drama_export_artifacts_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_export_artifacts_storage_locator_check CHECK (((storage_locator ~ '^drama/[A-Za-z0-9._/-]+$'::text) AND (storage_locator !~ '(^|/)\.\.(/|$)|//'::text)))
+);
+
+
+--
+-- Name: drama_export_manifests; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_export_manifests (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    variant text NOT NULL,
+    source_snapshot jsonb NOT NULL,
+    source_hash character(64) NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_export_manifests_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_export_manifests_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_export_manifests_source_snapshot_check CHECK ((jsonb_typeof(source_snapshot) = 'object'::text)),
+    CONSTRAINT drama_export_manifests_variant_check CHECK ((variant = ANY (ARRAY['srt'::text, 'timeline_json'::text, 'project_markdown'::text, 'project_json'::text])))
+);
+
+
+--
+-- Name: drama_media_prompt_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_media_prompt_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    storyboard_version_id uuid NOT NULL,
+    shot_key text NOT NULL,
+    media_kind text NOT NULL,
+    version integer NOT NULL,
+    content jsonb NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_media_prompt_versions_content_check CHECK ((jsonb_typeof(content) = 'object'::text)),
+    CONSTRAINT drama_media_prompt_versions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_media_prompt_versions_media_kind_check CHECK ((media_kind = ANY (ARRAY['character_design'::text, 'keyframe'::text, 'dialogue_audio'::text, 'video_prompt'::text]))),
+    CONSTRAINT drama_media_prompt_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: drama_media_tasks; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_media_tasks (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    prompt_version_id uuid NOT NULL,
+    provider_key text,
+    status text NOT NULL,
+    stop_position integer,
+    last_error text DEFAULT ''::text NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_media_tasks_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_media_tasks_status_check CHECK ((status = ANY (ARRAY['unavailable'::text, 'queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'result_unknown'::text])))
+);
+
+
+--
+-- Name: drama_projects; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_projects (
+    id uuid NOT NULL,
+    title text NOT NULL,
+    source_type text NOT NULL,
+    track text DEFAULT 'auto'::text NOT NULL,
+    target_episodes integer NOT NULL,
+    episode_duration_sec integer NOT NULL,
+    revision integer DEFAULT 0 NOT NULL,
+    adopted_source_version_id uuid,
+    create_request_key uuid NOT NULL,
+    create_input_hash character(64) NOT NULL,
+    status text DEFAULT 'draft'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_projects_create_input_hash_check CHECK ((create_input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_projects_episode_duration_sec_check CHECK (((episode_duration_sec >= 30) AND (episode_duration_sec <= 3600))),
+    CONSTRAINT drama_projects_source_type_check CHECK ((source_type = ANY (ARRAY['novel'::text, 'original'::text, 'text'::text]))),
+    CONSTRAINT drama_projects_status_check CHECK ((status = 'draft'::text)),
+    CONSTRAINT drama_projects_target_episodes_check CHECK (((target_episodes >= 1) AND (target_episodes <= 200)))
+);
+
+
+--
+-- Name: drama_quality_reports; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_quality_reports (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    script_version_id uuid NOT NULL,
+    rule_version text NOT NULL,
+    issues jsonb NOT NULL,
+    passed boolean NOT NULL,
+    request_key uuid NOT NULL,
+    source_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_quality_reports_issues_check CHECK ((jsonb_typeof(issues) = 'array'::text)),
+    CONSTRAINT drama_quality_reports_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text))
+);
+
+
+--
+-- Name: drama_script_adoptions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_script_adoptions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version_id uuid NOT NULL,
+    revision integer NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_script_adoptions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text))
+);
+
+
+--
+-- Name: drama_script_entities; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_script_entities (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    episode_entity_id uuid NOT NULL,
+    revision integer DEFAULT 0 NOT NULL,
+    adopted_version_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: drama_script_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_script_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version integer NOT NULL,
+    episode_version_id uuid NOT NULL,
+    content jsonb NOT NULL,
+    source_kind text NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_script_versions_content_check CHECK ((jsonb_typeof(content) = 'object'::text)),
+    CONSTRAINT drama_script_versions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_script_versions_source_kind_check CHECK ((source_kind = ANY (ARRAY['manual'::text, 'ai_candidate'::text, 'repair_candidate'::text]))),
+    CONSTRAINT drama_script_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: drama_source_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_source_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    version integer NOT NULL,
+    source_type text NOT NULL,
+    source_book_id uuid,
+    source_book_name text,
+    content text NOT NULL,
+    content_hash character(64) NOT NULL,
+    manifest jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_source_versions_content_hash_check CHECK ((content_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_source_versions_manifest_check CHECK ((jsonb_typeof(manifest) = 'object'::text)),
+    CONSTRAINT drama_source_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: drama_stage_adoptions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_stage_adoptions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version_id uuid NOT NULL,
+    revision integer NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_stage_adoptions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_stage_adoptions_revision_check CHECK ((revision > 0))
+);
+
+
+--
+-- Name: drama_stage_entities; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_stage_entities (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    stage_kind text NOT NULL,
+    logical_order integer,
+    revision integer DEFAULT 0 NOT NULL,
+    adopted_version_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_stage_entities_stage_kind_check CHECK ((stage_kind = ANY (ARRAY['strategy'::text, 'character'::text, 'episode'::text])))
+);
+
+
+--
+-- Name: drama_stage_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_stage_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version integer NOT NULL,
+    source_version_id uuid NOT NULL,
+    upstream_version_ids jsonb NOT NULL,
+    content jsonb NOT NULL,
+    source_kind text NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_stage_versions_content_check CHECK ((jsonb_typeof(content) = 'object'::text)),
+    CONSTRAINT drama_stage_versions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_stage_versions_source_kind_check CHECK ((source_kind = ANY (ARRAY['manual'::text, 'ai_candidate'::text]))),
+    CONSTRAINT drama_stage_versions_upstream_version_ids_check CHECK ((jsonb_typeof(upstream_version_ids) = 'array'::text)),
+    CONSTRAINT drama_stage_versions_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: drama_storyboard_adoptions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_storyboard_adoptions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version_id uuid NOT NULL,
+    revision integer NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_storyboard_adoptions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text))
+);
+
+
+--
+-- Name: drama_storyboard_entities; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_storyboard_entities (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    script_entity_id uuid NOT NULL,
+    revision integer DEFAULT 0 NOT NULL,
+    adopted_version_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: drama_storyboard_versions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.drama_storyboard_versions (
+    id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    entity_id uuid NOT NULL,
+    version integer NOT NULL,
+    script_version_id uuid NOT NULL,
+    content jsonb NOT NULL,
+    source_kind text NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash character(64) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT drama_storyboard_versions_content_check CHECK ((jsonb_typeof(content) = 'object'::text)),
+    CONSTRAINT drama_storyboard_versions_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT drama_storyboard_versions_source_kind_check CHECK ((source_kind = ANY (ARRAY['manual'::text, 'ai_candidate'::text]))),
+    CONSTRAINT drama_storyboard_versions_version_check CHECK ((version > 0))
 );
 
 
@@ -12240,7 +12838,7 @@ CREATE TABLE new_design.model_route_snapshots (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     managed_task_key text,
     CONSTRAINT model_route_snapshots_budget_policy_check CHECK ((jsonb_typeof(budget_policy) = 'object'::text)),
-    CONSTRAINT model_route_snapshots_managed_scope_check CHECK ((((book_id IS NOT NULL) AND (task_contract_version_id IS NOT NULL) AND (managed_task_key IS NULL)) OR ((book_id IS NULL) AND (task_contract_version_id IS NULL) AND (managed_task_key IS NOT NULL) AND (managed_task_key = ANY (ARRAY['directions'::text, 'initial_content'::text, 'form_assist'::text, 'market_analysis'::text, 'book_analysis'::text, 'planning_candidate'::text, 'chapter_settlement'::text, 'chapter_generation'::text, 'world_consistency'::text, 'creative_extraction'::text, 'character_dialogue'::text]))) OR ((book_id IS NULL) AND (task_contract_version_id IS NULL) AND (managed_task_key IS NOT NULL) AND (managed_task_key = 'image_generation'::text)))),
+    CONSTRAINT model_route_snapshots_managed_scope_check CHECK ((((book_id IS NOT NULL) AND (task_contract_version_id IS NOT NULL) AND (managed_task_key IS NULL)) OR ((book_id IS NULL) AND (task_contract_version_id IS NULL) AND (managed_task_key IS NOT NULL) AND (managed_task_key = ANY (ARRAY['directions'::text, 'initial_content'::text, 'form_assist'::text, 'market_analysis'::text, 'book_analysis'::text, 'planning_candidate'::text, 'chapter_settlement'::text, 'chapter_generation'::text, 'quality_audit'::text, 'world_consistency'::text, 'creative_extraction'::text, 'character_dialogue'::text, 'creative_hub'::text, 'world_generation'::text]))))),
     CONSTRAINT model_route_snapshots_parameters_check CHECK ((jsonb_typeof(parameters) = 'object'::text)),
     CONSTRAINT model_route_snapshots_retry_policy_check CHECK ((jsonb_typeof(retry_policy) = 'object'::text)),
     CONSTRAINT model_route_snapshots_source_layers_check CHECK ((jsonb_typeof(source_layers) = 'array'::text)),
@@ -15390,6 +15988,82 @@ CREATE TABLE new_design.world_consistency_requests (
 
 
 --
+-- Name: world_generation_candidates; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_generation_candidates (
+    id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    version integer NOT NULL,
+    request_key uuid NOT NULL,
+    request_hash text NOT NULL,
+    source text NOT NULL,
+    based_on_candidate_id uuid,
+    candidate jsonb NOT NULL,
+    prompt_snapshot jsonb,
+    model_snapshot jsonb,
+    used_tokens integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT world_generation_candidates_candidate_check CHECK ((jsonb_typeof(candidate) = 'object'::text)),
+    CONSTRAINT world_generation_candidates_model_snapshot_check CHECK (((model_snapshot IS NULL) OR (jsonb_typeof(model_snapshot) = 'object'::text))),
+    CONSTRAINT world_generation_candidates_prompt_snapshot_check CHECK (((prompt_snapshot IS NULL) OR (jsonb_typeof(prompt_snapshot) = 'object'::text))),
+    CONSTRAINT world_generation_candidates_request_hash_check CHECK ((request_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT world_generation_candidates_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'ai'::text]))),
+    CONSTRAINT world_generation_candidates_used_tokens_check CHECK (((used_tokens IS NULL) OR (used_tokens >= 0))),
+    CONSTRAINT world_generation_candidates_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: world_generation_publications; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_generation_publications (
+    id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    candidate_id uuid NOT NULL,
+    request_key uuid NOT NULL,
+    input_hash text NOT NULL,
+    input jsonb NOT NULL,
+    receipt jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT world_generation_publications_input_check CHECK ((jsonb_typeof(input) = 'object'::text)),
+    CONSTRAINT world_generation_publications_input_hash_check CHECK ((input_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT world_generation_publications_receipt_check CHECK ((jsonb_typeof(receipt) = 'object'::text))
+);
+
+
+--
+-- Name: world_generation_sessions; Type: TABLE; Schema: new_design; Owner: -
+--
+
+CREATE TABLE new_design.world_generation_sessions (
+    id uuid NOT NULL,
+    create_request_key uuid NOT NULL,
+    request_hash text NOT NULL,
+    name text NOT NULL,
+    blueprint jsonb NOT NULL,
+    frozen_references jsonb NOT NULL,
+    source_hash text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    revision integer DEFAULT 1 NOT NULL,
+    failure text,
+    published_candidate_id uuid,
+    public_root_card_id uuid,
+    published_package_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT world_generation_sessions_blueprint_check CHECK ((jsonb_typeof(blueprint) = 'object'::text)),
+    CONSTRAINT world_generation_sessions_frozen_references_check CHECK ((jsonb_typeof(frozen_references) = 'array'::text)),
+    CONSTRAINT world_generation_sessions_name_check CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 160))),
+    CONSTRAINT world_generation_sessions_request_hash_check CHECK ((request_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT world_generation_sessions_revision_check CHECK ((revision > 0)),
+    CONSTRAINT world_generation_sessions_source_hash_check CHECK ((source_hash ~ '^[a-f0-9]{64}$'::text)),
+    CONSTRAINT world_generation_sessions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'published'::text, 'failed'::text, 'result_unknown'::text])))
+);
+
+
+--
 -- Name: world_library_candidates; Type: TABLE; Schema: new_design; Owner: -
 --
 
@@ -17869,6 +18543,22 @@ ALTER TABLE ONLY new_design.comic_bible_versions
 
 
 --
+-- Name: comic_bubble_outputs comic_bubble_outputs_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_bubble_outputs
+    ADD CONSTRAINT comic_bubble_outputs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_bubble_outputs comic_bubble_outputs_render_version_id_source_hash_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_bubble_outputs
+    ADD CONSTRAINT comic_bubble_outputs_render_version_id_source_hash_key UNIQUE (render_version_id, source_hash);
+
+
+--
 -- Name: comic_episode_adoptions comic_episode_adoptions_episode_id_revision_key; Type: CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -17946,6 +18636,62 @@ ALTER TABLE ONLY new_design.comic_episodes
 
 ALTER TABLE ONLY new_design.comic_episodes
     ADD CONSTRAINT comic_episodes_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: comic_export_artifacts comic_export_artifacts_manifest_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_artifacts
+    ADD CONSTRAINT comic_export_artifacts_manifest_id_key UNIQUE (manifest_id);
+
+
+--
+-- Name: comic_export_artifacts comic_export_artifacts_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_artifacts
+    ADD CONSTRAINT comic_export_artifacts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_export_artifacts comic_export_artifacts_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_artifacts
+    ADD CONSTRAINT comic_export_artifacts_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: comic_export_manifests comic_export_manifests_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_manifests
+    ADD CONSTRAINT comic_export_manifests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_export_manifests comic_export_manifests_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_manifests
+    ADD CONSTRAINT comic_export_manifests_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: comic_fact_snapshots comic_fact_snapshots_batch_id_target_kind_target_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_fact_snapshots
+    ADD CONSTRAINT comic_fact_snapshots_batch_id_target_kind_target_id_key UNIQUE (batch_id, target_kind, target_id);
+
+
+--
+-- Name: comic_fact_snapshots comic_fact_snapshots_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_fact_snapshots
+    ADD CONSTRAINT comic_fact_snapshots_pkey PRIMARY KEY (id);
 
 
 --
@@ -18034,6 +18780,86 @@ ALTER TABLE ONLY new_design.comic_projects
 
 ALTER TABLE ONLY new_design.comic_projects
     ADD CONSTRAINT comic_projects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_render_adoptions comic_render_adoptions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_adoptions
+    ADD CONSTRAINT comic_render_adoptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_render_adoptions comic_render_adoptions_project_id_target_kind_target_id_ass_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_adoptions
+    ADD CONSTRAINT comic_render_adoptions_project_id_target_kind_target_id_ass_key UNIQUE (project_id, target_kind, target_id, asset_type, revision);
+
+
+--
+-- Name: comic_render_adoptions comic_render_adoptions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_adoptions
+    ADD CONSTRAINT comic_render_adoptions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: comic_render_target_state comic_render_target_state_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_target_state
+    ADD CONSTRAINT comic_render_target_state_pkey PRIMARY KEY (project_id, target_kind, target_id, asset_type);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_project_id_bible_entity_id_asset_type_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_project_id_bible_entity_id_asset_type_key UNIQUE (project_id, bible_entity_id, asset_type, version);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_project_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_project_id_panel_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_project_id_panel_id_version_key UNIQUE (project_id, panel_id, version);
 
 
 --
@@ -18445,6 +19271,30 @@ ALTER TABLE ONLY new_design.creative_extraction_write_receipts
 
 
 --
+-- Name: creative_hub_threads creative_hub_threads_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.creative_hub_threads
+    ADD CONSTRAINT creative_hub_threads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: creative_hub_turns creative_hub_turns_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.creative_hub_turns
+    ADD CONSTRAINT creative_hub_turns_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: creative_hub_turns creative_hub_turns_thread_id_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.creative_hub_turns
+    ADD CONSTRAINT creative_hub_turns_thread_id_request_key_key UNIQUE (thread_id, request_key);
+
+
+--
 -- Name: current_knowledge_state_projections current_knowledge_state_projections_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -18674,6 +19524,382 @@ ALTER TABLE ONLY new_design.dictionary_items
 
 ALTER TABLE ONLY new_design.dictionary_items
     ADD CONSTRAINT dictionary_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_export_artifacts drama_export_artifacts_manifest_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_artifacts
+    ADD CONSTRAINT drama_export_artifacts_manifest_id_key UNIQUE (manifest_id);
+
+
+--
+-- Name: drama_export_artifacts drama_export_artifacts_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_artifacts
+    ADD CONSTRAINT drama_export_artifacts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_export_artifacts drama_export_artifacts_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_artifacts
+    ADD CONSTRAINT drama_export_artifacts_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_export_manifests drama_export_manifests_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_manifests
+    ADD CONSTRAINT drama_export_manifests_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_export_manifests drama_export_manifests_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_manifests
+    ADD CONSTRAINT drama_export_manifests_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_prompt_versions
+    ADD CONSTRAINT drama_media_prompt_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_prompt_versions
+    ADD CONSTRAINT drama_media_prompt_versions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_storyboard_version_id_shot_key__key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_prompt_versions
+    ADD CONSTRAINT drama_media_prompt_versions_storyboard_version_id_shot_key__key UNIQUE (storyboard_version_id, shot_key, media_kind, version);
+
+
+--
+-- Name: drama_media_tasks drama_media_tasks_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_tasks
+    ADD CONSTRAINT drama_media_tasks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_media_tasks drama_media_tasks_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_tasks
+    ADD CONSTRAINT drama_media_tasks_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_projects drama_projects_create_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_projects
+    ADD CONSTRAINT drama_projects_create_request_key_key UNIQUE (create_request_key);
+
+
+--
+-- Name: drama_projects drama_projects_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_projects
+    ADD CONSTRAINT drama_projects_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_quality_reports drama_quality_reports_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_quality_reports
+    ADD CONSTRAINT drama_quality_reports_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_quality_reports drama_quality_reports_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_quality_reports
+    ADD CONSTRAINT drama_quality_reports_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_script_adoptions drama_script_adoptions_entity_id_revision_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_adoptions
+    ADD CONSTRAINT drama_script_adoptions_entity_id_revision_key UNIQUE (entity_id, revision);
+
+
+--
+-- Name: drama_script_adoptions drama_script_adoptions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_adoptions
+    ADD CONSTRAINT drama_script_adoptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_script_adoptions drama_script_adoptions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_adoptions
+    ADD CONSTRAINT drama_script_adoptions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_script_entities drama_script_entities_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_entities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_script_entities drama_script_entities_project_id_episode_entity_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_entities_project_id_episode_entity_id_key UNIQUE (project_id, episode_entity_id);
+
+
+--
+-- Name: drama_script_entities drama_script_entities_project_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_entities_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_entity_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_entity_id_id_key UNIQUE (entity_id, id);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_entity_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_entity_id_version_key UNIQUE (entity_id, version);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_source_versions drama_source_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_source_versions
+    ADD CONSTRAINT drama_source_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_source_versions drama_source_versions_project_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_source_versions
+    ADD CONSTRAINT drama_source_versions_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: drama_source_versions drama_source_versions_project_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_source_versions
+    ADD CONSTRAINT drama_source_versions_project_id_version_key UNIQUE (project_id, version);
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_entity_id_revision_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_adoptions
+    ADD CONSTRAINT drama_stage_adoptions_entity_id_revision_key UNIQUE (entity_id, revision);
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_adoptions
+    ADD CONSTRAINT drama_stage_adoptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_adoptions
+    ADD CONSTRAINT drama_stage_adoptions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_stage_entities drama_stage_entities_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_entities
+    ADD CONSTRAINT drama_stage_entities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_stage_entities drama_stage_entities_project_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_entities
+    ADD CONSTRAINT drama_stage_entities_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: drama_stage_entities drama_stage_entities_project_id_stage_kind_logical_order_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_entities
+    ADD CONSTRAINT drama_stage_entities_project_id_stage_kind_logical_order_key UNIQUE (project_id, stage_kind, logical_order);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_entity_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_entity_id_id_key UNIQUE (entity_id, id);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_entity_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_entity_id_version_key UNIQUE (entity_id, version);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_storyboard_adoptions drama_storyboard_adoptions_entity_id_revision_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_adoptions
+    ADD CONSTRAINT drama_storyboard_adoptions_entity_id_revision_key UNIQUE (entity_id, revision);
+
+
+--
+-- Name: drama_storyboard_adoptions drama_storyboard_adoptions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_adoptions
+    ADD CONSTRAINT drama_storyboard_adoptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_storyboard_adoptions drama_storyboard_adoptions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_adoptions
+    ADD CONSTRAINT drama_storyboard_adoptions_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_entities_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_entities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_entities_project_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_entities_project_id_id_key UNIQUE (project_id, id);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_entities_project_id_script_entity_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_entities_project_id_script_entity_id_key UNIQUE (project_id, script_entity_id);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_entity_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_entity_id_id_key UNIQUE (entity_id, id);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_entity_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_entity_id_version_key UNIQUE (entity_id, version);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_request_key_key UNIQUE (request_key);
 
 
 --
@@ -21517,6 +22743,70 @@ ALTER TABLE ONLY new_design.world_consistency_requests
 
 
 --
+-- Name: world_generation_candidates world_generation_candidates_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: world_generation_candidates world_generation_candidates_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: world_generation_candidates world_generation_candidates_session_id_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_session_id_id_key UNIQUE (session_id, id);
+
+
+--
+-- Name: world_generation_candidates world_generation_candidates_session_id_version_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_session_id_version_key UNIQUE (session_id, version);
+
+
+--
+-- Name: world_generation_publications world_generation_publications_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_publications
+    ADD CONSTRAINT world_generation_publications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: world_generation_publications world_generation_publications_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_publications
+    ADD CONSTRAINT world_generation_publications_request_key_key UNIQUE (request_key);
+
+
+--
+-- Name: world_generation_sessions world_generation_sessions_create_request_key_key; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_sessions
+    ADD CONSTRAINT world_generation_sessions_create_request_key_key UNIQUE (create_request_key);
+
+
+--
+-- Name: world_generation_sessions world_generation_sessions_pkey; Type: CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_sessions
+    ADD CONSTRAINT world_generation_sessions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: world_library_candidates world_library_candidates_command_id_key; Type: CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -22438,6 +23728,20 @@ CREATE INDEX comic_projects_recent ON new_design.comic_projects USING btree (cre
 
 
 --
+-- Name: comic_render_batches_project; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX comic_render_batches_project ON new_design.comic_render_batches USING btree (project_id, created_at DESC, id);
+
+
+--
+-- Name: comic_render_versions_panel; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX comic_render_versions_panel ON new_design.comic_render_versions USING btree (project_id, panel_id, version DESC, id);
+
+
+--
 -- Name: comic_visual_asset_versions_recent; Type: INDEX; Schema: new_design; Owner: -
 --
 
@@ -22526,6 +23830,20 @@ CREATE INDEX context_previews_book_idx ON new_design.context_previews USING btre
 --
 
 CREATE UNIQUE INDEX creation_preparation_key_unique ON new_design.ai_generation_batches USING btree (session_id, preparation_request_key) WHERE (preparation_contract IS NOT NULL);
+
+
+--
+-- Name: creative_hub_threads_recent; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX creative_hub_threads_recent ON new_design.creative_hub_threads USING btree (status, updated_at DESC, id DESC);
+
+
+--
+-- Name: creative_hub_turns_thread_recent; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX creative_hub_turns_thread_recent ON new_design.creative_hub_turns USING btree (thread_id, created_at DESC, id DESC);
 
 
 --
@@ -23390,6 +24708,20 @@ CREATE INDEX transfer_validation_operation_idx ON new_design.transfer_validation
 
 
 --
+-- Name: world_generation_candidates_recent; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX world_generation_candidates_recent ON new_design.world_generation_candidates USING btree (session_id, version DESC);
+
+
+--
+-- Name: world_generation_sessions_recent; Type: INDEX; Schema: new_design; Owner: -
+--
+
+CREATE INDEX world_generation_sessions_recent ON new_design.world_generation_sessions USING btree (updated_at DESC, id DESC);
+
+
+--
 -- Name: world_package_catalog_actions_latest; Type: INDEX; Schema: new_design; Owner: -
 --
 
@@ -24146,6 +25478,13 @@ CREATE TRIGGER comic_bible_versions_immutable BEFORE DELETE OR UPDATE ON new_des
 
 
 --
+-- Name: comic_bubble_outputs comic_bubble_outputs_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_bubble_outputs_immutable BEFORE DELETE OR UPDATE ON new_design.comic_bubble_outputs FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
+
+
+--
 -- Name: comic_episode_adoptions comic_episode_adoptions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
 --
 
@@ -24157,6 +25496,27 @@ CREATE TRIGGER comic_episode_adoptions_immutable BEFORE DELETE OR UPDATE ON new_
 --
 
 CREATE TRIGGER comic_episode_versions_immutable BEFORE DELETE OR UPDATE ON new_design.comic_episode_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_episode_event_immutable();
+
+
+--
+-- Name: comic_export_artifacts comic_export_artifacts_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_export_artifacts_immutable BEFORE DELETE OR UPDATE ON new_design.comic_export_artifacts FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
+
+
+--
+-- Name: comic_export_manifests comic_export_manifests_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_export_manifests_immutable BEFORE DELETE OR UPDATE ON new_design.comic_export_manifests FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
+
+
+--
+-- Name: comic_fact_snapshots comic_fact_snapshots_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_fact_snapshots_immutable BEFORE DELETE OR UPDATE ON new_design.comic_fact_snapshots FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
 
 
 --
@@ -24178,6 +25538,20 @@ CREATE TRIGGER comic_panel_sets_immutable BEFORE DELETE OR UPDATE ON new_design.
 --
 
 CREATE TRIGGER comic_panels_immutable BEFORE DELETE OR UPDATE ON new_design.comic_panels FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_episode_event_immutable();
+
+
+--
+-- Name: comic_render_adoptions comic_render_adoptions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_render_adoptions_immutable BEFORE DELETE OR UPDATE ON new_design.comic_render_adoptions FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
+
+
+--
+-- Name: comic_render_versions comic_render_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER comic_render_versions_immutable BEFORE DELETE OR UPDATE ON new_design.comic_render_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_comic_render_history();
 
 
 --
@@ -24405,6 +25779,20 @@ CREATE TRIGGER creative_extraction_receipt_guard BEFORE DELETE OR UPDATE ON new_
 
 
 --
+-- Name: creative_hub_threads creative_hub_threads_no_delete; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER creative_hub_threads_no_delete BEFORE DELETE ON new_design.creative_hub_threads FOR EACH ROW EXECUTE FUNCTION new_design.guard_creative_hub_thread_delete();
+
+
+--
+-- Name: creative_hub_turns creative_hub_turn_identity_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER creative_hub_turn_identity_immutable BEFORE DELETE OR UPDATE ON new_design.creative_hub_turns FOR EACH ROW EXECUTE FUNCTION new_design.guard_creative_hub_turn_identity();
+
+
+--
 -- Name: dependency_stale_acceptances dependency_acceptances_immutable; Type: TRIGGER; Schema: new_design; Owner: -
 --
 
@@ -24619,6 +26007,83 @@ CREATE TRIGGER director_commands_metadata_guard BEFORE DELETE OR UPDATE ON new_d
 --
 
 CREATE TRIGGER director_runs_metadata_guard BEFORE DELETE OR UPDATE ON new_design.production_director_runs FOR EACH ROW EXECUTE FUNCTION new_design.guard_production_director_metadata();
+
+
+--
+-- Name: drama_export_artifacts drama_export_artifacts_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_export_artifacts_immutable BEFORE DELETE OR UPDATE ON new_design.drama_export_artifacts FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_export_manifests drama_export_manifests_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_export_manifests_immutable BEFORE DELETE OR UPDATE ON new_design.drama_export_manifests FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_media_prompt_versions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_media_prompt_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_quality_reports drama_quality_reports_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_quality_reports_immutable BEFORE DELETE OR UPDATE ON new_design.drama_quality_reports FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_script_adoptions drama_script_adoptions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_script_adoptions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_script_adoptions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_script_versions drama_script_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_script_versions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_script_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_source_versions drama_source_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_source_versions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_source_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_stage_adoptions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_stage_adoptions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_stage_versions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_stage_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_storyboard_adoptions drama_storyboard_adoptions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_storyboard_adoptions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_storyboard_adoptions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER drama_storyboard_versions_immutable BEFORE DELETE OR UPDATE ON new_design.drama_storyboard_versions FOR EACH ROW EXECUTE FUNCTION new_design.guard_drama_history();
 
 
 --
@@ -25879,6 +27344,27 @@ CREATE TRIGGER world_dictionary_specification_stale AFTER UPDATE ON new_design.d
 --
 
 CREATE TRIGGER world_field_specification_stale AFTER INSERT OR UPDATE ON new_design.field_definitions FOR EACH ROW EXECUTE FUNCTION new_design.stale_world_quality_specification();
+
+
+--
+-- Name: world_generation_candidates world_generation_candidates_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER world_generation_candidates_immutable BEFORE DELETE OR UPDATE ON new_design.world_generation_candidates FOR EACH ROW EXECUTE FUNCTION new_design.guard_world_generation_immutable();
+
+
+--
+-- Name: world_generation_publications world_generation_publications_immutable; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER world_generation_publications_immutable BEFORE DELETE OR UPDATE ON new_design.world_generation_publications FOR EACH ROW EXECUTE FUNCTION new_design.guard_world_generation_immutable();
+
+
+--
+-- Name: world_generation_sessions world_generation_session_identity; Type: TRIGGER; Schema: new_design; Owner: -
+--
+
+CREATE TRIGGER world_generation_session_identity BEFORE DELETE OR UPDATE ON new_design.world_generation_sessions FOR EACH ROW EXECUTE FUNCTION new_design.guard_world_generation_session_identity();
 
 
 --
@@ -29023,6 +30509,14 @@ ALTER TABLE ONLY new_design.comic_bible_versions
 
 
 --
+-- Name: comic_bubble_outputs comic_bubble_outputs_render_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_bubble_outputs
+    ADD CONSTRAINT comic_bubble_outputs_render_version_id_fkey FOREIGN KEY (render_version_id) REFERENCES new_design.comic_render_versions(id);
+
+
+--
 -- Name: comic_episodes comic_episode_adopted_panel_set_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -29079,6 +30573,38 @@ ALTER TABLE ONLY new_design.comic_episodes
 
 
 --
+-- Name: comic_export_artifacts comic_export_artifacts_manifest_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_artifacts
+    ADD CONSTRAINT comic_export_artifacts_manifest_id_fkey FOREIGN KEY (manifest_id) REFERENCES new_design.comic_export_manifests(id);
+
+
+--
+-- Name: comic_export_manifests comic_export_manifests_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_export_manifests
+    ADD CONSTRAINT comic_export_manifests_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.comic_projects(id);
+
+
+--
+-- Name: comic_fact_snapshots comic_fact_snapshots_batch_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_fact_snapshots
+    ADD CONSTRAINT comic_fact_snapshots_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES new_design.comic_render_batches(id);
+
+
+--
+-- Name: comic_fact_snapshots comic_fact_snapshots_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_fact_snapshots
+    ADD CONSTRAINT comic_fact_snapshots_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.comic_projects(id);
+
+
+--
 -- Name: comic_panel_set_adoptions comic_panel_set_adoptions_episode_id_set_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -29124,6 +30650,86 @@ ALTER TABLE ONLY new_design.comic_panels
 
 ALTER TABLE ONLY new_design.comic_projects
     ADD CONSTRAINT comic_project_adopted_source_fk FOREIGN KEY (id, adopted_source_version_id) REFERENCES new_design.comic_source_versions(project_id, id);
+
+
+--
+-- Name: comic_render_adoptions comic_render_adoptions_project_id_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_adoptions
+    ADD CONSTRAINT comic_render_adoptions_project_id_version_id_fkey FOREIGN KEY (project_id, version_id) REFERENCES new_design.comic_render_versions(project_id, id);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_connection_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_connection_version_id_fkey FOREIGN KEY (connection_version_id) REFERENCES new_design.model_route_versions(id);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_episode_id_panel_set_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_episode_id_panel_set_id_fkey FOREIGN KEY (episode_id, panel_set_id) REFERENCES new_design.comic_panel_sets(episode_id, id);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_project_id_episode_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_project_id_episode_id_fkey FOREIGN KEY (project_id, episode_id) REFERENCES new_design.comic_episodes(project_id, id);
+
+
+--
+-- Name: comic_render_batches comic_render_batches_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_batches
+    ADD CONSTRAINT comic_render_batches_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.comic_projects(id);
+
+
+--
+-- Name: comic_render_target_state comic_render_target_state_project_id_adopted_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_target_state
+    ADD CONSTRAINT comic_render_target_state_project_id_adopted_version_id_fkey FOREIGN KEY (project_id, adopted_version_id) REFERENCES new_design.comic_render_versions(project_id, id);
+
+
+--
+-- Name: comic_render_target_state comic_render_target_state_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_target_state
+    ADD CONSTRAINT comic_render_target_state_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.comic_projects(id);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_content_object_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_content_object_id_fkey FOREIGN KEY (content_object_id) REFERENCES new_design.asset_content_objects(id);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_fact_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_fact_snapshot_id_fkey FOREIGN KEY (fact_snapshot_id) REFERENCES new_design.comic_fact_snapshots(id);
+
+
+--
+-- Name: comic_render_versions comic_render_versions_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.comic_render_versions
+    ADD CONSTRAINT comic_render_versions_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.comic_projects(id);
 
 
 --
@@ -29591,6 +31197,14 @@ ALTER TABLE ONLY new_design.creative_extraction_write_receipts
 
 
 --
+-- Name: creative_hub_turns creative_hub_turns_thread_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.creative_hub_turns
+    ADD CONSTRAINT creative_hub_turns_thread_id_fkey FOREIGN KEY (thread_id) REFERENCES new_design.creative_hub_threads(id);
+
+
+--
 -- Name: current_knowledge_state_projections current_knowledge_state_projections_book_id_claim_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -30036,6 +31650,230 @@ ALTER TABLE ONLY new_design.dictionary_items
 
 ALTER TABLE ONLY new_design.dictionary_items
     ADD CONSTRAINT dictionary_items_source_item_id_fkey FOREIGN KEY (source_item_id) REFERENCES new_design.dictionary_items(id);
+
+
+--
+-- Name: drama_export_artifacts drama_export_artifacts_manifest_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_artifacts
+    ADD CONSTRAINT drama_export_artifacts_manifest_id_fkey FOREIGN KEY (manifest_id) REFERENCES new_design.drama_export_manifests(id);
+
+
+--
+-- Name: drama_export_manifests drama_export_manifests_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_export_manifests
+    ADD CONSTRAINT drama_export_manifests_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_prompt_versions
+    ADD CONSTRAINT drama_media_prompt_versions_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_media_prompt_versions drama_media_prompt_versions_storyboard_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_prompt_versions
+    ADD CONSTRAINT drama_media_prompt_versions_storyboard_version_id_fkey FOREIGN KEY (storyboard_version_id) REFERENCES new_design.drama_storyboard_versions(id);
+
+
+--
+-- Name: drama_media_tasks drama_media_tasks_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_tasks
+    ADD CONSTRAINT drama_media_tasks_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_media_tasks drama_media_tasks_prompt_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_media_tasks
+    ADD CONSTRAINT drama_media_tasks_prompt_version_id_fkey FOREIGN KEY (prompt_version_id) REFERENCES new_design.drama_media_prompt_versions(id);
+
+
+--
+-- Name: drama_projects drama_project_source_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_projects
+    ADD CONSTRAINT drama_project_source_fk FOREIGN KEY (id, adopted_source_version_id) REFERENCES new_design.drama_source_versions(project_id, id);
+
+
+--
+-- Name: drama_quality_reports drama_quality_reports_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_quality_reports
+    ADD CONSTRAINT drama_quality_reports_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_quality_reports drama_quality_reports_script_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_quality_reports
+    ADD CONSTRAINT drama_quality_reports_script_version_id_fkey FOREIGN KEY (script_version_id) REFERENCES new_design.drama_script_versions(id);
+
+
+--
+-- Name: drama_script_entities drama_script_adopted_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_adopted_fk FOREIGN KEY (id, adopted_version_id) REFERENCES new_design.drama_script_versions(entity_id, id);
+
+
+--
+-- Name: drama_script_adoptions drama_script_adoptions_entity_id_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_adoptions
+    ADD CONSTRAINT drama_script_adoptions_entity_id_version_id_fkey FOREIGN KEY (entity_id, version_id) REFERENCES new_design.drama_script_versions(entity_id, id);
+
+
+--
+-- Name: drama_script_entities drama_script_entities_episode_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_entities_episode_entity_id_fkey FOREIGN KEY (episode_entity_id) REFERENCES new_design.drama_stage_entities(id);
+
+
+--
+-- Name: drama_script_entities drama_script_entities_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_entities
+    ADD CONSTRAINT drama_script_entities_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_episode_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_episode_version_id_fkey FOREIGN KEY (episode_version_id) REFERENCES new_design.drama_stage_versions(id);
+
+
+--
+-- Name: drama_script_versions drama_script_versions_project_id_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_script_versions
+    ADD CONSTRAINT drama_script_versions_project_id_entity_id_fkey FOREIGN KEY (project_id, entity_id) REFERENCES new_design.drama_script_entities(project_id, id);
+
+
+--
+-- Name: drama_source_versions drama_source_versions_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_source_versions
+    ADD CONSTRAINT drama_source_versions_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_stage_entities drama_stage_adopted_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_entities
+    ADD CONSTRAINT drama_stage_adopted_fk FOREIGN KEY (id, adopted_version_id) REFERENCES new_design.drama_stage_versions(entity_id, id);
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_entity_id_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_adoptions
+    ADD CONSTRAINT drama_stage_adoptions_entity_id_version_id_fkey FOREIGN KEY (entity_id, version_id) REFERENCES new_design.drama_stage_versions(entity_id, id);
+
+
+--
+-- Name: drama_stage_adoptions drama_stage_adoptions_project_id_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_adoptions
+    ADD CONSTRAINT drama_stage_adoptions_project_id_entity_id_fkey FOREIGN KEY (project_id, entity_id) REFERENCES new_design.drama_stage_entities(project_id, id);
+
+
+--
+-- Name: drama_stage_entities drama_stage_entities_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_entities
+    ADD CONSTRAINT drama_stage_entities_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_project_id_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_project_id_entity_id_fkey FOREIGN KEY (project_id, entity_id) REFERENCES new_design.drama_stage_entities(project_id, id);
+
+
+--
+-- Name: drama_stage_versions drama_stage_versions_project_id_source_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_stage_versions
+    ADD CONSTRAINT drama_stage_versions_project_id_source_version_id_fkey FOREIGN KEY (project_id, source_version_id) REFERENCES new_design.drama_source_versions(project_id, id);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_adopted_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_adopted_fk FOREIGN KEY (id, adopted_version_id) REFERENCES new_design.drama_storyboard_versions(entity_id, id);
+
+
+--
+-- Name: drama_storyboard_adoptions drama_storyboard_adoptions_entity_id_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_adoptions
+    ADD CONSTRAINT drama_storyboard_adoptions_entity_id_version_id_fkey FOREIGN KEY (entity_id, version_id) REFERENCES new_design.drama_storyboard_versions(entity_id, id);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_entities_project_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_entities_project_id_fkey FOREIGN KEY (project_id) REFERENCES new_design.drama_projects(id);
+
+
+--
+-- Name: drama_storyboard_entities drama_storyboard_entities_script_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_entities
+    ADD CONSTRAINT drama_storyboard_entities_script_entity_id_fkey FOREIGN KEY (script_entity_id) REFERENCES new_design.drama_script_entities(id);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_project_id_entity_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_project_id_entity_id_fkey FOREIGN KEY (project_id, entity_id) REFERENCES new_design.drama_storyboard_entities(project_id, id);
+
+
+--
+-- Name: drama_storyboard_versions drama_storyboard_versions_script_version_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.drama_storyboard_versions
+    ADD CONSTRAINT drama_storyboard_versions_script_version_id_fkey FOREIGN KEY (script_version_id) REFERENCES new_design.drama_script_versions(id);
 
 
 --
@@ -34031,6 +35869,62 @@ ALTER TABLE ONLY new_design.world_consistency_requests
 
 
 --
+-- Name: world_generation_candidates world_generation_candidates_based_on_candidate_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_based_on_candidate_id_fkey FOREIGN KEY (based_on_candidate_id) REFERENCES new_design.world_generation_candidates(id);
+
+
+--
+-- Name: world_generation_candidates world_generation_candidates_session_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_candidates
+    ADD CONSTRAINT world_generation_candidates_session_id_fkey FOREIGN KEY (session_id) REFERENCES new_design.world_generation_sessions(id);
+
+
+--
+-- Name: world_generation_publications world_generation_publications_session_id_candidate_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_publications
+    ADD CONSTRAINT world_generation_publications_session_id_candidate_id_fkey FOREIGN KEY (session_id, candidate_id) REFERENCES new_design.world_generation_candidates(session_id, id);
+
+
+--
+-- Name: world_generation_publications world_generation_publications_session_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_publications
+    ADD CONSTRAINT world_generation_publications_session_id_fkey FOREIGN KEY (session_id) REFERENCES new_design.world_generation_sessions(id);
+
+
+--
+-- Name: world_generation_sessions world_generation_published_candidate_fk; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_sessions
+    ADD CONSTRAINT world_generation_published_candidate_fk FOREIGN KEY (id, published_candidate_id) REFERENCES new_design.world_generation_candidates(session_id, id);
+
+
+--
+-- Name: world_generation_sessions world_generation_sessions_public_root_card_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_sessions
+    ADD CONSTRAINT world_generation_sessions_public_root_card_id_fkey FOREIGN KEY (public_root_card_id) REFERENCES new_design.cards(id);
+
+
+--
+-- Name: world_generation_sessions world_generation_sessions_published_package_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
+--
+
+ALTER TABLE ONLY new_design.world_generation_sessions
+    ADD CONSTRAINT world_generation_sessions_published_package_id_fkey FOREIGN KEY (published_package_id) REFERENCES new_design.world_package_versions(id);
+
+
+--
 -- Name: world_library_candidates world_library_candidates_book_id_fkey; Type: FK CONSTRAINT; Schema: new_design; Owner: -
 --
 
@@ -34490,4 +36384,4 @@ ALTER TABLE ONLY new_design.world_usage_candidates
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 886WB5PjE4Vvk402LfAKQbDM0dEAHE8EgcSWp30E62Em2QRkSUT0tyefVPCUMwc
+\unrestrict Sqg6g9mpRJOimBg9EgiRmu7ePSnuwRdeXXhTQ2TQZQ5zM5oyvQxwDDhSsilrrwT
