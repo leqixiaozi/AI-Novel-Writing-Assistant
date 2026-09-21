@@ -15,6 +15,7 @@
 | 数据库设计、迁移与数据恢复 | [数据库架构](20架构/database.md) | [数据字典](../new-design/docs/data-model.md)、[开发快照与恢复](../new-design/docs/development-delivery.md) |
 | 开发、检查、文档和交付 | [开发规范](30规范/development.md) | 仓库 [AGENTS.md](../AGENTS.md)、[旧版与全仓 Wiki 索引](../docs/wiki/README.md) |
 | 查询某一功能或既有设计 | [新版专题索引](../new-design/docs/README.md)、[全仓文档索引](../docs/README.md) | 对应源码、迁移及经核实的运行证据 |
+| 执行旧版功能完整复刻 | [完整复刻设计](10产品/旧版功能完整复刻.md) | [新版阶段记录](../new-design/docs/legacy-page-replication-progress.md)、旧版实际页面与源码 |
 | 查询当前执行优先级或已完成阶段 | [项目任务入口](../TASK.md)、[新版阶段记录](../new-design/docs/legacy-page-replication-progress.md) | 以相关任务的最新状态与当前工作区为准；不在本工作台复制进度 |
 
 仓库根 `AGENTS.md` 是机器必须遵守的项目约束；本工作台解释文档位置与项目层面的判断，不覆盖它。机器专属路径、端口占用、凭据可用状态等应留在受忽略的 `AGENTS.local.md`，不写入共享规范，也不能当作跨机器事实。本机入口缺失时按仓库 `AGENTS.md` 的规则核实和建立。
