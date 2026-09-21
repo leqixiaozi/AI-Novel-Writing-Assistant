@@ -5,6 +5,9 @@
   --nd-paper: hsl(var(--card));
   --nd-soft: hsl(var(--muted) / 0.55);
   --nd-line: hsl(var(--border) / 0.82);
+  --nd-panel: var(--nd-paper);
+  --nd-border: var(--nd-line);
+  --nd-accent-soft: color-mix(in srgb, var(--nd-accent) 14%, var(--nd-paper));
   --nd-accent: hsl(var(--primary));
   --nd-accent-foreground: hsl(var(--primary-foreground));
   --nd-success: hsl(var(--success));
@@ -322,6 +325,13 @@
 .nd-message { margin: 0; font-size: .73rem; }
 .nd-message.is-success { color: var(--nd-success); }
 .nd-message.is-error { color: var(--nd-error); }
+.nd-creative-hub > .nd-message.is-warning { margin-bottom: 1rem; padding: .85rem 1rem; color: var(--nd-ink); background: color-mix(in srgb, var(--nd-warning) 8%, var(--nd-paper)); border: 1px solid color-mix(in srgb, var(--nd-warning) 32%, var(--nd-line)); border-radius: var(--radius); }
+.nd-creative-hub > .nd-message.is-warning p { margin: .25rem 0 0; color: var(--nd-muted); }
+.nd-creative-hub > .nd-message.is-warning a { display: inline-flex; margin-top: .45rem; color: var(--nd-accent); }
+.nd-hub-main.is-empty { display: grid; place-items: center; min-height: 360px; padding: 2rem; }
+.nd-hub-main.is-empty .nd-empty-state { width: min(100%, 30rem); padding: 2rem; text-align: center; background: var(--nd-soft); border: 1px dashed var(--nd-line); border-radius: calc(var(--radius) + .25rem); }
+.nd-hub-main.is-empty .nd-empty-state h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.nd-hub-main.is-empty .nd-empty-state p { margin: .55rem auto 0; max-width: 32rem; color: var(--nd-muted); line-height: 1.7; }
 
 .nd-preview-column { min-width: 0; padding: 1rem; }
 .nd-preview-header { align-items: center; padding-bottom: .75rem; border-bottom: 1px solid var(--nd-line); }

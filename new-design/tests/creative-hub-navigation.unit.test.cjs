@@ -30,3 +30,15 @@ test('conversation renders evidence links but no business write action',()=>{
   const html=renderToStaticMarkup(React.createElement(CreativeHubConversation,{turns:[turn],busy:false,question:'',onQuestionChange(){},onSubmit(){},onResume(){}}));
   assert.match(html,/前往质量检查/);assert.match(html,/未检查不代表通过/);for(const label of ['批准任务','取消任务','直接保存','生成正文'])assert.doesNotMatch(html,new RegExp(`>${label}<`));
 });
+
+test('creative hub reuses the embedded shell theme without nesting main landmarks',()=>{
+  const fs=require('node:fs'),path=require('node:path');
+  const theme=fs.readFileSync(path.join(__dirname,'../src/client/new-design.css'),'utf8');
+  const page=fs.readFileSync(path.join(__dirname,'../src/client/creativeHub/CreativeHubPage.tsx'),'utf8');
+  assert.match(theme,/--nd-panel:\s*var\(--nd-paper\)/);
+  assert.match(theme,/--nd-border:\s*var\(--nd-line\)/);
+  assert.match(theme,/--nd-accent-soft:\s*color-mix/);
+  assert.match(theme,/\.nd-hub-main\.is-empty\s*\{/);
+  assert.match(page,/className=\{`nd-hub-main\$\{selected \? "" : " is-empty"\}`\}/);
+  assert.doesNotMatch(page,/<main className="nd-hub-layout">/);
+});

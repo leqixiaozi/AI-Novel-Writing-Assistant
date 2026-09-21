@@ -562,7 +562,7 @@ export default function CreativeHubPage({
           </div>
         </section>
       )}
-      <main className="nd-hub-layout">
+      <div className="nd-hub-layout">
         <CreativeHubThreadList
           threads={threads}
           selectedId={selected?.id ?? null}
@@ -578,7 +578,10 @@ export default function CreativeHubPage({
             setIncludeArchived((value) => !value);
           }}
         />
-        <section className="nd-hub-main" aria-busy={detailBusy}>
+        <section
+          className={`nd-hub-main${selected ? "" : " is-empty"}`}
+          aria-busy={detailBusy}
+        >
           {selected ? (
             <>
               <header className="nd-hub-binding">
@@ -734,7 +737,7 @@ export default function CreativeHubPage({
             </div>
           )}
         </section>
-      </main>
+      </div>
     </div>
   );
 }
