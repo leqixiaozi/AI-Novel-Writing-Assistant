@@ -11,6 +11,7 @@ export const CUSTOMER_TERMS = Object.freeze({
 
 export const NEW_DESIGN_PRIMARY_NAV = [
   { key: "home", label: "创作首页", href: "/new-design", end: true },
+  { key: "guide", label: "创作向导", href: "/new-design/guide" },
   { key: "creative-hub", label: "创作中枢", href: "/new-design/creative-hub" },
   { key: "books", label: "我的书籍", href: "/new-design/books" },
   { key: "comic", label: "漫画工作台 Beta", href: "/new-design/comic" },
@@ -24,6 +25,7 @@ export const NEW_DESIGN_PRIMARY_NAV = [
 ] as const;
 
 export const NEW_DESIGN_ADVANCED_NAV = [
+  { key: "settings", label: "系统设置", href: "/new-design/structure/settings" },
   { key: "content-types", label: "内容类型", href: "/new-design/structure/card-types" },
   { key: "options-relations", label: "选项与关联", href: "/new-design/structure/dictionaries-relations" },
   { key: "forms", label: "创作表单", href: "/new-design/structure/forms" },

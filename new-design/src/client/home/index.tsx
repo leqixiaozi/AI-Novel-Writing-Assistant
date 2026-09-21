@@ -40,7 +40,7 @@ export default function HomePage() {
   const totals = snapshot ? homeTotals(snapshot) : null;
   const retry = () => setRefresh(value => value + 1);
   return <main className="nd-shell nd-home" aria-busy={loading}>
-    <header className="nd-home-heading"><div><p className="nd-kicker">你的创作工作台</p><h1>创作首页</h1></div><nav aria-label="首页常用操作"><a href="/new-design/books">我的书籍</a><a href="/new-design/books/new">＋ 开始新故事</a><a href="/new-design/books/new?method=idea&mode=automatic&form=short_story">创作短篇</a><button type="button" onClick={retry} disabled={loading}>{loading ? "读取中…" : "刷新进展"}</button></nav></header>
+    <header className="nd-home-heading"><div><p className="nd-kicker">你的创作工作台</p><h1>创作首页</h1></div><nav aria-label="首页常用操作"><a href="/new-design/guide">创作向导</a><a href="/new-design/books">我的书籍</a><a href="/new-design/books/new">＋ 开始新故事</a><a href="/new-design/books/new?method=idea&mode=automatic&form=short_story">创作短篇</a><button type="button" onClick={retry} disabled={loading}>{loading ? "读取中…" : "刷新进展"}</button></nav></header>
     <HomeModelNotice models={models} failed={modelFailure} loading={loading} retry={retry} />
     {failure && <section className="nd-home-alert" role="alert"><div><strong>暂时无法更新创作现场</strong><p>{failure}{snapshot ? "下方保留的是上次读取结果。" : ""}</p></div><button className="nd-button" onClick={retry} disabled={loading}>重新读取</button></section>}
     {!snapshot && loading ? <section className="nd-home-loading" role="status"><span className="nd-loader" /><h2>正在整理你的创作现场</h2><p>读取作品、采用正文和创作进展。</p></section> : snapshot ? <>

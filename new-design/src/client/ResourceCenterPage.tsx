@@ -8,6 +8,22 @@ import "./resourceBrowser/resources.css";
 
 const EMPTY:ResourceCatalog={strategies:[],prompts:[],signals:[],dictionaries:[],dimensions:[],books:[]};
 const SYSTEM_SPACE="00000000-0000-4000-8000-000000000001";
+const RESOURCE_SOURCES=[
+ {group:"开书方向",label:"题材基底",detail:"选择题材边界与读者预期。",href:"/new-design/resources/strategies?type=genre_strategy"},
+ {group:"开书方向",label:"推进模式",detail:"选择故事推进和阶段节奏。",href:"/new-design/resources/strategies?type=progression_mode"},
+ {group:"开书方向",label:"标题",detail:"生成、筛选并保存开书前标题。",href:"/new-design/resources/titles"},
+ {group:"写作与质量",label:"写法",detail:"维护可复用的写作方法。",href:"/new-design/resources/strategies?type=writing_config"},
+ {group:"写作与质量",label:"反 AI",detail:"管理表达约束与质量规则。",href:"/new-design/resources/strategies?type=quality_rule"},
+ {group:"写作与质量",label:"知识",detail:"上传、解析、索引并绑定参考资料。",href:"/new-design/knowledge"},
+ {group:"故事资产",label:"世界",detail:"生成、深化并发布世界样本。",href:"/new-design/resources/worlds"},
+ {group:"故事资产",label:"人物",detail:"浏览公共角色并导入到指定书籍。",href:"/new-design/resources/characters"},
+ {group:"故事资产",label:"视觉",detail:"浏览跨书图片与视觉资产。",href:"/new-design/resources/visual-assets"},
+ {group:"AI 资产",label:"提示词",detail:"维护可复用的 AI 指令组件。",href:"/new-design/resources/prompts"},
+ {group:"研究来源",label:"市场雷达",detail:"采集榜单证据并保存市场信号。",href:"/new-design/research/market-radar"},
+ {group:"研究来源",label:"拆书",detail:"按原请求恢复并分析参考作品。",href:"/new-design/research/book-analysis"},
+ {group:"研究来源",label:"研究记录",detail:"查看、归档或恢复研究任务记录。",href:"/new-design/research/records"},
+ {group:"研究来源",label:"参考包",detail:"冻结来源版本并明确采用到目标书籍。",href:"/new-design/research/reference-packs"},
+] as const;
 export default function ResourceCenterPage(){
  const [catalog,setCatalog]=useState<ResourceCatalog>(EMPTY),[selectedId,setSelectedId]=useState("strategies"),[loading,setLoading]=useState(false),[message,setMessage]=useState(""),[failures,setFailures]=useState<string[]>([]),[managerCards,setManagerCards]=useState<BookViewCard[]>([]);
  const guarded=useRef(false),generation=useRef(0);
@@ -28,6 +44,7 @@ export default function ResourceCenterPage(){
  const branch=(items:typeof nodes):typeof nodes[number]|undefined=>{for(const item of items){if(item.id===selectedId)return item;const child=branch(item.children??[]);if(child)return child;}};
  const selectedNode=branch(nodes);
  return <ResourceShell active="home" treeNavigation><main className="nd-resource-browser">
+  <section className="nd-resource-source-launcher" aria-labelledby="resource-source-title"><header><div><p className="nd-kicker">全部来源</p><h2 id="resource-source-title">从创作目标进入资源</h2></div><p>选择来源进入对应工作区；正式内容仍由原模块保存和采用。</p></header><div>{RESOURCE_SOURCES.map(item=><a href={item.href} key={item.href}><small>{item.group}</small><strong>{item.label}</strong><span>{item.detail}</span></a>)}</div></section>
   <div className="nd-resource-browser-toolbar"><p>展开目录，选择具体资源查看或编辑。</p><button type="button" className="nd-button nd-button-secondary" disabled={loading} onClick={()=>void read()}>{loading?"正在读取…":"重新读取目录"}</button></div>
   {message&&<p className="nd-message" role="status">{message}</p>}{failures.length>0&&<section className="nd-message is-error" role="alert"><p>部分目录读取失败，其他资源仍可使用。点击“重新读取目录”核对失败项。</p><ul>{failures.map(failure=><li key={failure}>{failure}</li>)}</ul></section>}
   <div className="nd-resource-browser-workspace"><ResourceCatalogTree nodes={nodes} selectedId={selectedId} onSelect={select}/><div className="nd-resource-browser-content">

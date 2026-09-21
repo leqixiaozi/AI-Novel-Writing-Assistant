@@ -1,0 +1,21 @@
+.nd-guide { display: grid; gap: 22px; }
+.nd-guide-header,.nd-guide-next,.nd-guide-alert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; }
+.nd-guide-header h1 { margin: 6px 0 8px; font-size: clamp(28px,4cqi,42px); letter-spacing: -.04em; }
+.nd-guide-header p:last-child,.nd-guide-next p,.nd-guide-alert p,.nd-guide-steps p,.nd-guide-note { margin: 0; color: var(--nd-muted); line-height: 1.7; }
+.nd-guide-next { padding: 28px 30px; border-radius: 18px; background: linear-gradient(120deg,hsl(var(--primary)/.08),var(--nd-paper)); }
+.nd-guide-next>div { flex: 1 1 420px; }
+.nd-guide-next h2 { margin: 7px 0; font-size: clamp(20px,2.2cqi,30px); }
+.nd-guide-alert { padding: 14px 18px; border-left: 3px solid var(--nd-warning); background: hsl(var(--destructive)/.06); }
+.nd-guide-alert p { margin-top: 4px; font-size: 13px; }
+.nd-guide-steps { display: grid; margin: 0; padding: 0; list-style: none; }
+.nd-guide-steps li { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 16px; min-height: 96px; padding: 16px 4px; border-bottom: 1px solid var(--nd-line); }
+.nd-guide-number { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--nd-soft); color: var(--nd-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.nd-guide-steps .is-complete .nd-guide-number { background: hsl(var(--success)/.12); color: var(--nd-success); }
+.nd-guide-steps .is-pending .nd-guide-number { background: hsl(var(--primary)/.12); color: var(--nd-accent); }
+.nd-guide-step-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.nd-guide-step-title h2 { margin: 0; font-size: 17px; }
+.nd-guide-step-title small { color: var(--nd-muted); font-size: 11px; }
+.nd-guide-steps p { margin-top: 5px; font-size: 13px; }
+.nd-guide-steps a { min-height: 44px; display: inline-flex; align-items: center; color: var(--nd-accent); font-size: 13px; }
+.nd-guide-note { font-size: 12px; }
+@media(max-width:680px){.nd-guide-next{padding:22px 20px}.nd-guide-steps li{grid-template-columns:36px minmax(0,1fr)}.nd-guide-steps li>a{grid-column:2}.nd-guide-header>a,.nd-guide-next>a,.nd-guide-next>button{width:100%;justify-content:center}}

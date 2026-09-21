@@ -1,4 +1,14 @@
 .nd-resource-browser { display: grid; gap: .8rem; }
+.nd-resource-source-launcher { display: grid; gap: 1rem; margin-bottom: .7rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--nd-line); }
+.nd-resource-source-launcher>header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: .7rem 1.5rem; }
+.nd-resource-source-launcher h2 { margin: .25rem 0 0; font-size: 1.15rem; }
+.nd-resource-source-launcher>header>p { max-width: 34rem; margin: 0; color: var(--nd-muted); font-size: .76rem; }
+.nd-resource-source-launcher>div { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: .45rem; }
+.nd-resource-source-launcher a { display: grid; gap: .2rem; min-height: 88px; padding: .75rem .8rem; border-radius: .6rem; background: var(--nd-soft); }
+.nd-resource-source-launcher a:hover { background: color-mix(in srgb,var(--nd-accent) 9%,var(--nd-soft)); }
+.nd-resource-source-launcher small { color: var(--nd-muted); font-size: .62rem; }
+.nd-resource-source-launcher strong { font-size: .82rem; }
+.nd-resource-source-launcher span { color: var(--nd-muted); font-size: .68rem; line-height: 1.55; }
 .nd-resource-browser-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
 .nd-resource-browser-toolbar p { color: var(--nd-muted); margin: 0; }
 .nd-resource-browser-workspace { display: grid; gap: 1rem; align-items: start; }

@@ -1,3 +1,4 @@
+import {useEffect} from 'react';
 import SavedRecoveryPage from './savedRecovery';
 import BookHistoryPage from './bookHistory';
 import PublicTitlesPage from './publicTitles';
@@ -55,17 +56,22 @@ import type { BookViewKey } from "../common/contracts";
 import {SettingWorkspace,PlanningWorkspace} from './storyWorkspace';
 import PlanningCenterPage from './planningCenter/PlanningCenterPage';
 import SimpleCreationPage from './simpleCreation';
+import NewDesignGuidePage from './guide/NewDesignGuidePage';
+import SystemSettingsPage from './systemSettings/SystemSettingsPage';
+import {applyStoredUiPreferences} from './systemSettings/preferences';
 
 interface NewDesignPageProps { pathname?:string; }
 const visualApi:VisualAssetsApi={workspace:newDesignApi.getVisualWorkspace,upload:newDesignApi.uploadVisualAsset,command:newDesignApi.executeVisualCommand,preview:newDesignApi.previewVisualChange,receipt:newDesignApi.getVisualReceipt,previewByKey:newDesignApi.getVisualPreviewByKey,imageUrl:newDesignApi.visualImageUrl};
 
 export default function NewDesignPage(props:NewDesignPageProps) {
+  useEffect(()=>{applyStoredUiPreferences();},[]);
   return <div className="nd-legacy-surface"><NewDesignRoute {...props}/></div>;
 }
 
 function NewDesignRoute({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
+  if(path==="/new-design/guide")return <NewDesignGuidePage/>;
   if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf}/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
@@ -147,5 +153,6 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(path==="/new-design/structure/context")return <ContextManagementPage/>;
   if(path==="/new-design/structure/maintenance")return <OperationsMaintenancePage/>;
   if(path==="/new-design/structure/models")return <ModelSettingsPage/>;
+  if(path==="/new-design/structure/settings")return <SystemSettingsPage/>;
   return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前新设计导航范围内。</p><a className="nd-button nd-button-primary" href="/new-design">返回创作首页</a></div>;
 }

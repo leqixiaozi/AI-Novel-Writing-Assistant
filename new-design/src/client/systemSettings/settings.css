@@ -1,0 +1,22 @@
+.nd-system-settings { display: grid; gap: 30px; }
+.nd-system-preferences { display: grid; grid-template-columns: minmax(260px,1.2fr) minmax(220px,.8fr) minmax(220px,.8fr); align-items: center; gap: 22px; padding: 24px 0; border-bottom: 1px solid var(--nd-line); }
+.nd-system-preferences h2,.nd-system-groups h2 { margin: 6px 0; font-size: 18px; }
+.nd-system-preferences p,.nd-system-groups p { margin: 0; color: var(--nd-muted); font-size: 13px; line-height: 1.7; }
+.nd-system-preferences fieldset { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 0; border: 0; }
+.nd-system-preferences legend { width: 100%; margin-bottom: 5px; font-size: 12px; color: var(--nd-muted); }
+.nd-system-preferences fieldset label,.nd-system-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.nd-system-toggle small { display: block; margin-top: 3px; color: var(--nd-muted); font-size: 11px; font-weight: 400; }
+.nd-system-preferences>.nd-message { grid-column: 1/-1; }
+.nd-system-groups { display: grid; gap: 28px; }
+.nd-system-groups>section { display: grid; grid-template-columns: minmax(220px,.65fr) minmax(0,1.35fr); gap: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--nd-line); }
+.nd-system-groups>section>div { display: grid; gap: 4px; }
+.nd-system-groups a { display: grid; grid-template-columns: minmax(150px,.55fr) minmax(0,1fr) auto; align-items: center; gap: 14px; min-height: 66px; padding: 12px 14px; border-radius: 9px; }
+.nd-system-groups a:hover { background: var(--nd-soft); }
+.nd-system-groups a strong { font-size: 14px; }
+.nd-system-groups a span { color: var(--nd-muted); font-size: 12px; line-height: 1.6; }
+.nd-system-groups a b { color: var(--nd-accent); font-weight: 500; }
+html[data-nd-density="compact"] .nd-shell :is(.nd-system-groups a,.nd-guide-steps li) { min-height: 54px; padding-block: 8px; }
+html[data-nd-density="compact"] .nd-legacy-surface .nd-shell { font-size: 15px; line-height: 1.42; }
+html[data-nd-density="compact"] .nd-legacy-surface :is(.nd-button,.nd-subnav a) { min-height: 38px; }
+html[data-nd-motion="reduced"] .nd-legacy-surface *,html[data-nd-motion="reduced"] .nd-legacy-surface *::before,html[data-nd-motion="reduced"] .nd-legacy-surface *::after { animation-duration: .001ms!important; animation-iteration-count: 1!important; scroll-behavior: auto!important; transition-duration: .001ms!important; }
+@media(max-width:800px){.nd-system-preferences,.nd-system-groups>section{grid-template-columns:1fr}.nd-system-groups a{grid-template-columns:1fr auto}.nd-system-groups a span{grid-column:1}.nd-system-groups a b{grid-column:2;grid-row:1/3}}
