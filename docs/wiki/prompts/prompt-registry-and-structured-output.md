@@ -34,6 +34,7 @@
 - 抽取类 schema 如果用字符串承载“可读状态值”，必须在 PromptAsset 中明示数值也要按字符串输出，并在 schema 层对已经结构化的数值 / 布尔标量做确定性字符串化。典型场景是时间线 `stateChanges.before/after`：差评值、评分、倒计时等是剧情状态，不是计算字段，进入连续性账本时应保存为 `"19"`、`"5"` 这类可读文本，避免每次抽取都把合理数值输出推给 JSON repair。
 - 聚合型结构化 prompt 必须列出所有受限 enum 字段，不能只列最容易出错的字段。章节资产抽取这类一次性输出多个子账本的 prompt，应同时约束 `updateType`、`resourceType`、`narrativeFunction`、`scopeType`、`syncPlan` 等字段；否则模型会用语义合理但不被 schema 接受的自然分类词，导致后台任务被 Zod 校验失败卡住。
 - 结构化输出后的确定性归一只用于字段别名、枚举别名和兼容旧形状，例如把 `pacing` 映射为接收闸门的 `plot`、把 payoff `active` 映射为 `pending_payoff`、把字符串风险转成 `{ code, severity, summary }` 对象。不能用这种归一替代 AI 对剧情事实、风险等级或下一步动作的判断。
+- 当结构化 Prompt 要求 AI 从候选目录中选择稳定 ID 时，目录必须明确区分“候选序号”和“真实 ID”，并要求原样返回真实 ID。若模型仍把纯整数候选序号写入 ID 字段，schema 应先把 JSON 数字确定性转成字符串，`postValidate` 再按本次已传入的有序候选数组做确定性映射；精确 ID 必须优先，零、负数、非规范整数、越界序号和任意未知值必须继续拒绝并进入 semantic retry。该映射只修复已经结构化的目录引用，不能根据名称、关键词或描述猜测选择结果。
 - 章节接收闸门、时间线抽取和章节资产抽取都属于高频后台结构化 prompt，示例必须覆盖非空对象数组。`missingObligations`、`hooks/possibleHooks`、资源变化等字段不能只给空数组示例，否则模型在发现真实问题时容易自造字段或把对象压成字符串。
 - 事实抽取类 prompt 不继承创作温度。时间线、章节资产 delta、接收闸门等用于审校或账本写入的调用应在 service 层钳制低温，避免自动导演高创造温度放大 schema drift。
 - JSON repair 日志应保留 `promptId`、`schemaPaths`、`repairAttempt` 和 `validationError`。诊断 repair 率时先按 `promptId + schemaPath` 聚合，判断是 prompt 示例、枚举合同、上下文污染还是模型路由问题。
@@ -43,7 +44,7 @@
 - 开书灵感、短方向候选这类“小结构、强创作上下文”的任务，通用 JSON repair 可能只恢复字段结构，却丢失用户已选题材、推进方式和方向差异。此类 PromptAsset 应限制采样温度与输出预算、给出完整非空数组示例；原始输出退化或结构损坏时，优先携带原始业务上下文重新执行已注册 Prompt，而不是让无业务上下文的 repair 补造一组新内容。传输错误不能用内容重试掩盖模型连接问题；结构化调用只可按“模型路由管理”的全局重试次数，对尚未取得可信输出的服务端错误、超时或连接中断执行有限重试，默认 1 次、最多 3 次。达到次数后才可切换已启用的备用模型或返回来源页恢复；每次重试必须沿用同一 Prompt 与结构合同，并在 AI 实况中留下独立调用记录，不能伪造成功或把它当作 JSON repair。
 - 长列表与多层对象类 PromptAsset 必须同时控制字段长度、数组规模和调用级输出预算。仅声明“严格 JSON”不能防止模型把说明文字塞进字段或在闭合括号前持续生成；可以按卷、节拍或片段拆分的结果，应优先分段生成并持久化。
 - 空模型响应不属于 JSON 或 schema 修复问题。普通和流式结构化入口在原生 JSON 模式返回空内容时，都应先用同一模型、同一 Prompt 和同一 Schema 降级到 `prompt_json`；降级后仍为空，才按模型传输 / 输出失败进入有限重试和备用模型。repair 没有原始语义可保留，禁止用空对象补造必填业务内容。
-- 支持开关思考模式的模型执行结构化任务时，应由 provider capability profile 显式关闭思考模式，避免推理预算耗尽后没有最终 JSON。新模型别名接入时必须同步验证其思考开关、结构化 profile 和实际请求参数，不能只把模型名加入下拉列表。
+- 支持开关思考模式的模型执行结构化任务时，应由 provider capability profile 显式关闭思考模式，避免推理预算耗尽后没有最终 JSON。新模型别名接入时必须同步验证其思考开关、结构化 profile 和实际请求参数，不能只把模型名加入下拉列表。DeepSeek 当前官方名 `deepseek-flash` / `deepseek-pro` 与旧名 `deepseek-v4-flash` / `deepseek-v4-pro` 必须按同一套思考开关处理。
 - GLM 4.5 及以上模型在官方兼容端点执行结构化任务时，必须通过 `thinking: { type: "disabled" }` 关闭思考。`enable_thinking: false` 是 Qwen 兼容参数，不能复用于 GLM；聚合或未知代理端点仍按自身已验证的能力处理。
 - Semantic retry 必须把原始业务失败原因传回重试 prompt，并指明需要整体重排还是局部修正。章节列表、卷级拆章这类结果如果因为标题同构、章节功能重复、摘要空泛或结尾牵引不足被拒绝，重试指令应要求重排整组标题骨架和章节功能分配，而不是只替换被点名的一章。
 - editable slots 只能开放低风险表达层内容，不能覆盖 schema、postValidate、taskType、mode、contextPolicy、工具目录、审批边界或 required context。

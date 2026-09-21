@@ -490,7 +490,7 @@ export const promptAssetLoaderEntries: PromptAssetLoaderEntry[] = [
     load: () => require("../prompts/novel/production.prompts").novelProductionCharactersPrompt as UnknownPromptAsset,
   },
   {
-    key: "novel.create.resource_recommendation@v1",
+    key: "novel.create.resource_recommendation@v3",
     load: () => require("../prompts/novel/resourceRecommendation.prompts").novelCreateResourceRecommendationPrompt as UnknownPromptAsset,
   },
   {
