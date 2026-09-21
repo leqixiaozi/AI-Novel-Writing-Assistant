@@ -8,7 +8,7 @@ test('creative hub keeps bindings, archives instead of deleting, and replays the
   const repository=compiled('server/database/creativeHub');
   await repository.withCreativeHubPool(pool,async()=>{
     assert.deepEqual(await repository.getCreativeHubCapability(),{installed:true,operational:true,reason:'创作中枢会话、只读诊断与原回执保护可用。'});
-    const binding={bookId:randomUUID(),chapterDocumentId:randomUUID(),taskKind:'quality_audit',taskId:randomUUID()};
+    const binding={bookId:randomUUID(),chapterDocumentId:randomUUID(),taskKind:'quality_issue',taskId:randomUUID()};
     const thread=await repository.createCreativeHubThread({title:'第十章诊断',binding});
     assert.equal(thread.revision,1);
     assert.deepEqual(thread.binding,binding);
@@ -34,6 +34,9 @@ test('creative hub keeps bindings, archives instead of deleting, and replays the
     assert.equal((await repository.listCreativeHubThreads({includeArchived:false})).length,0);
     assert.equal((await repository.listCreativeHubThreads({includeArchived:true})).length,1);
     assert.equal((await repository.listCreativeHubTurns(thread.id))[0].id,first.turn.id);
+    const restored=await repository.restoreCreativeHubThread(thread.id,archived.revision);
+    assert.equal(restored.status,'active');
+    assert.equal(restored.revision,3);
 
     const application=compiled('server/application/creativeHub'),plain=await repository.createCreativeHubThread({title:'全局入口',binding:{}});let calls=0;
     const ai={diagnoseCreativeHub:async input=>{calls++;assert.equal(input.state.book,null);return{output:{summary:'当前没有绑定作品。',findings:[],actions:[{kind:'find_entry',label:'返回项目导航',href:'/new-design'}]},promptSnapshot:{assetId:'new_design.creative_hub.diagnosis',version:'v1'},modelSnapshot:{routeKey:'creative_hub'},usedTokens:7};}};

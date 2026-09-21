@@ -2,7 +2,7 @@ import {Router,type NextFunction,type Request,type Response} from 'express';
 import {z,ZodError} from 'zod';
 import type {NewDesignAiGateway} from '../../ai/gateway';
 import * as application from '../../application/creativeHub';
-import {creativeHubArchiveSchema,creativeHubThreadCreateSchema,creativeHubThreadUpdateSchema,creativeHubTurnRequestSchema} from '../../../common/creativeHub';
+import {creativeHubArchiveSchema,creativeHubRestoreSchema,creativeHubThreadCreateSchema,creativeHubThreadUpdateSchema,creativeHubTurnRequestSchema} from '../../../common/creativeHub';
 import {NewDesignError} from '../../domain/errors';
 
 const uuid=z.string().uuid();
@@ -17,6 +17,7 @@ export function creativeHubRouter(ai?:NewDesignAiGateway){
   router.get(`${base}/:threadId`,asyncRoute(async(req,res)=>ok(res,await application.getCreativeHubThread(uuid.parse(req.params.threadId)))));
   router.patch(`${base}/:threadId`,asyncRoute(async(req,res)=>ok(res,await application.updateCreativeHubThread(uuid.parse(req.params.threadId),creativeHubThreadUpdateSchema.parse(req.body)))));
   router.delete(`${base}/:threadId`,asyncRoute(async(req,res)=>{const input=creativeHubArchiveSchema.parse(req.body);return ok(res,await application.archiveCreativeHubThread(uuid.parse(req.params.threadId),input.expectedRevision));}));
+  router.post(`${base}/:threadId/restore`,asyncRoute(async(req,res)=>{const input=creativeHubRestoreSchema.parse(req.body);return ok(res,await application.restoreCreativeHubThread(uuid.parse(req.params.threadId),input.expectedRevision));}));
   router.get(`${base}/:threadId/state`,asyncRoute(async(req,res)=>ok(res,await application.readCreativeHubState(uuid.parse(req.params.threadId)))));
   router.get(`${base}/:threadId/history`,asyncRoute(async(req,res)=>ok(res,await application.listCreativeHubTurns(uuid.parse(req.params.threadId)))));
   router.post(`${base}/:threadId/turns`,asyncRoute(async(req,res)=>ok(res,await application.runCreativeHubTurn(uuid.parse(req.params.threadId),creativeHubTurnRequestSchema.parse(req.body),ai))));

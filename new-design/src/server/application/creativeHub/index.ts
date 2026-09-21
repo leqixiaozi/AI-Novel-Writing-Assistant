@@ -10,6 +10,7 @@ export const getCreativeHubThread=repository.getCreativeHubThread;
 export const createCreativeHubThread=repository.createCreativeHubThread;
 export const updateCreativeHubThread=repository.updateCreativeHubThread;
 export const archiveCreativeHubThread=repository.archiveCreativeHubThread;
+export const restoreCreativeHubThread=repository.restoreCreativeHubThread;
 export const readCreativeHubState=repository.readCreativeHubState;
 export const listCreativeHubTurns=repository.listCreativeHubTurns;
 

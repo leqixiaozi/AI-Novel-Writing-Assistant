@@ -22,7 +22,7 @@ test('creative hub only accepts explicit read-only diagnostic actions',()=>{
 
 test('thread bindings and original request identities are strict',()=>{
   const bookId=randomUUID(),requestKey=randomUUID();
-  const thread={title:'检查第十章为什么没有通过',binding:{bookId,chapterDocumentId:randomUUID(),taskKind:'quality_audit',taskId:randomUUID()}};
+  const thread={title:'检查第十章为什么没有通过',binding:{bookId,chapterDocumentId:randomUUID(),taskKind:'quality_issue',taskId:randomUUID()}};
   assert.deepEqual(creativeHubThreadCreateSchema.parse(thread),thread);
   const request={requestKey,question:'这章现在缺什么？',expectedThreadRevision:1};
   assert.deepEqual(creativeHubTurnRequestSchema.parse(request),request);

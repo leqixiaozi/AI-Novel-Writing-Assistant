@@ -74,7 +74,7 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
   if(path==="/new-design/guide")return <NewDesignGuidePage/>;
-  if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf}/>;
+  if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf} getShelfBookDetail={newDesignApi.getShelfBookDetail} listChapterDocuments={newDesignApi.listChapterDocuments}/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
   if(path==="/new-design/comic")return <ComicProjectsPage/>;

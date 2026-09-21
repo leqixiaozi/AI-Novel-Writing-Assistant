@@ -6,6 +6,7 @@ function load(relative){
  let source=fs.readFileSync(file,'utf8');if(relative==='client/bookshelf/index.tsx')source+='\nexport { BookCard };';
  const requireLocal=name=>{
   if(name.endsWith('.css'))return {};
+  if(name.endsWith('.webp'))return 'fixture-cover.webp';
   if(relative==='client/bookshelf/index.tsx'){
    if(name==='../api')return {newDesignApi:{},ApiError:Error};
    if(['./BookDialog','./BookDetails','./DirectorQuickAction','../storyWorkspace/Help'].includes(name))return {__esModule:true,default:noop};
@@ -18,13 +19,18 @@ function load(relative){
  };
  new Function('exports','require',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText)(exports,requireLocal);return exports;
 }
-const panels=load('client/home/panels.tsx'),presentation=load('common/home/presentation.ts'),workflow=load('client/bookNavigation/workflow.ts'),{BookCard}=load('client/bookshelf/index.tsx');
+const panels=load('client/home/panels.tsx'),support=load('client/home/HomeSupportingPanels.tsx'),presentation=load('common/home/presentation.ts'),workflow=load('client/bookNavigation/workflow.ts'),{BookCard}=load('client/bookshelf/index.tsx');
 function book(overrides={}){return {id:'41000000-0000-4000-8000-000000000002',name:'Fixture',description:'',createdAt:'2026-09-16T00:00:00Z',updatedAt:'2026-09-17T00:00:00Z',characterCount:1,worldCount:1,writtenChapterCount:1,stableChapterCount:0,adoptedChapterPlanCount:3,writableChapterPlanCount:1,runningTasks:0,queuedTasks:0,waitingTasks:0,pendingFacts:0,pendingChanges:0,latestTask:null,latestDirector:null,lastChapterCardId:null,revision:1,candidateCount:0,wordCount:20,cover:null,...overrides};}
 const render=props=>renderToStaticMarkup(React.createElement(BookCard,{book:book(props),layout:'workbench',locked:false,onArchive:noop,onOpen:noop,onDownload:noop,downloading:false,onChanged:noop}));
 test('first-book entry renders actionable short and manual creation links with the actual parameters',()=>{
  const html=renderToStaticMarkup(React.createElement(panels.HomeHero,{book:null,draft:null}));
  assert.match(html,/href="\/new-design\/books\/new\?method=idea&amp;mode=automatic&amp;form=short_story"/);
  assert.match(html,/href="\/new-design\/books\/new\?method=blank&amp;mode=manual"/);
+});
+test('home keeps visible reminders and recent-book continuation entries',()=>{
+ const item=book({name:'等待处理的书',waitingTasks:1,openQualityIssues:2});
+ const html=renderToStaticMarkup(React.createElement(support.HomeSupportingPanels,{books:[item]}));
+ assert.match(html,/创作提醒/);assert.match(html,/最近作品/);assert.match(html,/等待处理的书/);assert.match(html,/2 项质量问题/);
 });
 test('quality guidance targets the existing quality view',()=>{assert.equal(presentation.homeStages(book()).at(-1).href,'/new-design/books/41000000-0000-4000-8000-000000000002/views/quality');});
 test('completed director does not capture the next-action writing link',()=>{

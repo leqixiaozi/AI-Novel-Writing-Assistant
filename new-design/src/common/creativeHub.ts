@@ -1,16 +1,18 @@
 import {z} from 'zod';
+import {AUTHOR_TASK_KINDS} from './authorTasks';
 
 const uuid=z.string().uuid();
 export const creativeHubBindingSchema=z.object({
   bookId:uuid.optional(),
   chapterDocumentId:uuid.optional(),
-  taskKind:z.string().trim().min(1).max(80).optional(),
+  taskKind:z.enum(AUTHOR_TASK_KINDS).optional(),
   taskId:uuid.optional(),
 }).strict().refine(value=>!value.chapterDocumentId||Boolean(value.bookId),{message:'章节绑定必须同时指定作品。',path:['chapterDocumentId']}).refine(value=>Boolean(value.taskKind)===Boolean(value.taskId),{message:'任务类型与任务标识必须同时提供。',path:['taskId']});
 
 export const creativeHubThreadCreateSchema=z.object({title:z.string().trim().min(1).max(120),binding:creativeHubBindingSchema.default({})}).strict();
 export const creativeHubThreadUpdateSchema=z.object({title:z.string().trim().min(1).max(120).optional(),binding:creativeHubBindingSchema.optional(),expectedRevision:z.number().int().positive()}).strict().refine(value=>value.title!==undefined||value.binding!==undefined,{message:'没有需要更新的会话信息。'});
 export const creativeHubArchiveSchema=z.object({expectedRevision:z.number().int().positive()}).strict();
+export const creativeHubRestoreSchema=creativeHubArchiveSchema;
 export const creativeHubTurnRequestSchema=z.object({requestKey:uuid,question:z.string().trim().min(1).max(4000),expectedThreadRevision:z.number().int().positive()}).strict();
 
 export const creativeHubSourceLinkSchema=z.object({label:z.string().trim().min(1).max(120),href:z.string().regex(/^\/new-design(?:\/|$)/),kind:z.enum(['book','chapter','task','workspace'])}).strict();

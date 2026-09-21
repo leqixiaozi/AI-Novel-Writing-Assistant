@@ -46,7 +46,7 @@ export function AuthorTaskCenterPage({api,bookId}:{api:AuthorTasksApi;bookId?:st
       <section><h3>{detail.failedStep?`未完成步骤：${detail.failedStep}`:"保存结果"}</h3><p>{detail.retainedResult}</p><p>{detail.recoveryGuidance}</p></section>
       <section><h3>来源与凭证</h3><dl><dt>书籍</dt><dd>{detail.bookName??"未建立正式书籍"}</dd><dt>更新时间</dt><dd>{dateLabel(detail.updatedAt)}</dd>{detail.requestKey&&<><dt>原请求凭证</dt><dd><code>{detail.requestKey}</code></dd></>}{detail.proofs.map(proof=><div key={`${proof.label}:${proof.id}`}><dt>{proof.label}</dt><dd><code>{proof.id}</code></dd></div>)}</dl></section>
       <AuthorUsagePanel key={detail.id} record={detail}/>
-      <footer><p>{detail.consequence}</p>{!detail.source.exact&&<p>进入来源页后，请按本记录名称、版本或原请求凭证选择对应内容。</p>}{isAuthorTaskSourceRoute(detail.source.route)&&<a className="nd-button nd-button-primary" href={detail.source.route}>{detail.source.label}</a>}</footer></>:<p className="nd-empty-state">选择一条记录，查看进度、保存结果和处理来源。</p>}
+      <footer><p>{detail.consequence}</p>{!detail.source.exact&&<p>进入来源页后，请按本记录名称、版本或原请求凭证选择对应内容。</p>}{isAuthorTaskSourceRoute(detail.source.route)&&<a className="nd-button nd-button-primary" href={detail.source.route}>{detail.source.label}</a>}{detail.bookId&&<a className="nd-button" href={`/new-design/creative-hub?${new URLSearchParams({bookId:detail.bookId,taskKind:detail.kind,taskId:detail.id.startsWith(`${detail.kind}:`)?detail.id.slice(detail.kind.length+1):detail.id})}`}>在创作中枢诊断</a>}</footer></>:<p className="nd-empty-state">选择一条记录，查看进度、保存结果和处理来源。</p>}
     </aside></main>
   </div>;
 }
