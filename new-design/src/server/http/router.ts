@@ -12,6 +12,7 @@ import {comicProjectsRouter} from './comicProjects';
 import {comicEpisodesRouter} from './comicEpisodes';
 import {comicPanelsRouter} from './comicPanels';
 import {comicBiblesRouter} from './comicBibles';
+import {comicVisualAssetsRouter} from './comicVisualAssets';
 import {comicSourceBundleRouter} from './comicSourceBundle';
 import {worldUsageRouter} from './worldUsage';
 import {payoffLedgerRouter} from './payoffLedger';
@@ -430,6 +431,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(comicEpisodesRouter());
   router.use(comicPanelsRouter());
   router.use(comicBiblesRouter());
+  router.use(comicVisualAssetsRouter());
   router.use(comicSourceBundleRouter());
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());

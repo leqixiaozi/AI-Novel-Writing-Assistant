@@ -50,6 +50,25 @@ test("MiniMax official endpoint separates reasoning so structured creative outpu
  assert.deepEqual(await gateway.assistForm(input),{name:"沈青"});
 });
 
+test("official DeepSeek thinking-toggle models disable thinking for structured output",async()=>{
+ for(const model of ["deepseek-flash","deepseek-pro","deepseek-v4-flash","deepseek-v4-pro","deepseek-reasoner"]){
+  const gateway=createIndependentAiGateway({environment:{...env,NEW_DESIGN_AI_PROVIDER:"openai-compatible",NEW_DESIGN_AI_BASE_URL:"https://api.deepseek.com/v1",NEW_DESIGN_AI_MODEL:model,NEW_DESIGN_AI_API_KEY:"fixture-key"},fetcher:async(url,init)=>{
+   assert.equal(url,"https://api.deepseek.com/v1/chat/completions");
+   const payload=JSON.parse(init.body);
+   assert.deepEqual(payload.thinking,{type:"disabled"});
+   assert.equal(payload.response_format.type,"json_schema");
+   return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({suggestions:{name:"沈青"}})}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}));
+  }});
+  assert.deepEqual(await gateway.assistForm(input),{name:"沈青"});
+ }
+ const gateway=createIndependentAiGateway({environment:{...env,NEW_DESIGN_AI_PROVIDER:"openai-compatible",NEW_DESIGN_AI_BASE_URL:"https://example.com/v1",NEW_DESIGN_AI_MODEL:"deepseek-flash",NEW_DESIGN_AI_API_KEY:"fixture-key"},fetcher:async(_url,init)=>{
+  const payload=JSON.parse(init.body);
+  assert.equal(payload.thinking,undefined);
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({suggestions:{name:"沈青"}})}}]}));
+ }});
+ assert.deepEqual(await gateway.assistForm(input),{name:"沈青"});
+});
+
 test("Anthropic-compatible connection uses Messages protocol and reads text blocks and usage",async()=>{
  const configuration={...env,NEW_DESIGN_AI_PROVIDER:"anthropic-compatible",NEW_DESIGN_AI_BASE_URL:"https://api.anthropic.com/v1",NEW_DESIGN_AI_MODEL:"claude-test",NEW_DESIGN_AI_API_KEY:"fixture-key"};
  const config=readModelConfiguration(configuration);

@@ -46,6 +46,17 @@ function anthropicOutputSchema(source:Record<string,unknown>):Record<string,unkn
   }catch{return null;}
 }
 
+function disablesDeepSeekThinking(endpoint:string,model:string):boolean {
+  const hostname=new URL(endpoint).hostname.toLowerCase();
+  if(hostname!=="api.deepseek.com"&&hostname!=="deepseek.com")return false;
+  const normalized=model.trim().toLowerCase();
+  return normalized==="deepseek-reasoner"
+    ||normalized.startsWith("deepseek-flash")
+    ||normalized.startsWith("deepseek-pro")
+    ||normalized.startsWith("deepseek-v4-flash")
+    ||normalized.startsWith("deepseek-v4-pro");
+}
+
 function protocolRequest(config:ModelConfiguration,request:UnifiedModelRequest):{path:string;body:Record<string,unknown>} {
   const {model,messages,outputSchema,taskType,temperature,maxOutputTokens}=request;
   if(config.provider==="ollama")return {path:"/api/chat",body:{model,messages,stream:false,format:outputSchema,options:{temperature,num_predict:maxOutputTokens}}};
@@ -57,7 +68,7 @@ function protocolRequest(config:ModelConfiguration,request:UnifiedModelRequest):
   const hostname=new URL(config.endpoint).hostname;
   // MiniMax M3 can spend the entire bounded output on thinking, leaving no JSON reply.
   if(["api.minimax.cn","api.minimax.io"].includes(hostname))return {path:"/chat/completions",body:{...base,reasoning_split:true,...(model==="MiniMax-M3"?{thinking:{type:"disabled"}}:{})}};
-  return {path:"/chat/completions",body:{...base,response_format:{type:"json_schema",json_schema:{name:taskType,strict:false,schema:outputSchema}},...(hostname==="openrouter.ai"?{provider:{require_parameters:true}}:{})}};
+  return {path:"/chat/completions",body:{...base,response_format:{type:"json_schema",json_schema:{name:taskType,strict:false,schema:outputSchema}},...(disablesDeepSeekThinking(config.endpoint,model)?{thinking:{type:"disabled"}}:{}),...(hostname==="openrouter.ai"?{provider:{require_parameters:true}}:{})}};
 }
 
 export function normalizeModelResponse(provider:ModelConfiguration["provider"],data:Record<string,unknown>):UnifiedModelResponse {
