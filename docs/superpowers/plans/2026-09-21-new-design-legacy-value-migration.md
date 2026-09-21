@@ -77,7 +77,7 @@ test("late assistant result stays on the original turn", async () => {
 
 - [ ] **Step 2: 运行定向测试并确认缺少合同**
 
-Run: `node --test tests/creative-hub.unit.test.cjs tests/creative-hub.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/creative-hub.unit.test.cjs tests/creative-hub.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，提示迁移、模块或导出尚不存在；不得因数据库连接配置缺失而提前失败。
 
 - [ ] **Step 3: 实现最小会话正本、只读工具目录和 PromptAsset**
@@ -109,7 +109,7 @@ export interface CreativeHubDiagnosticAction {
 
 - [ ] **Step 4: 验证会话、只读边界和原键恢复**
 
-Run: `npm run build:server && node --test tests/creative-hub.unit.test.cjs tests/creative-hub.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && node --test tests/creative-hub.unit.test.cjs tests/creative-hub.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS；跨书绑定、迟到回复、相同键不同输入和写入工具拒绝均有断言。
 
 - [ ] **Step 5: 提交创作中枢底座**
@@ -148,7 +148,7 @@ test("creative hub route keeps the shell and maps actions to source pages", () =
 
 - [ ] **Step 2: 运行测试确认页面尚未接线**
 
-Run: `node --test tests/creative-hub-navigation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/creative-hub-navigation.unit.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少路由和页面。
 
 - [ ] **Step 3: 实现持续会话 UI**
@@ -170,7 +170,7 @@ export const creativeHubApi = {
 
 - [ ] **Step 4: 验证客户端类型和导航合同**
 
-Run: `npm run typecheck:client && node --test tests/creative-hub-navigation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `npm run typecheck:client && node --test tests/creative-hub-navigation.unit.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交创作中枢页面**
@@ -221,7 +221,7 @@ test("world wizard freezes template references and publishes only by explicit co
 
 - [ ] **Step 2: 运行测试确认生成会话不存在**
 
-Run: `node --test tests/world-generation.unit.test.cjs tests/world-generation.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/world-generation.unit.test.cjs tests/world-generation.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少会话和命令。
 
 - [ ] **Step 3: 以新版候选和世界包实现生成链**
@@ -240,8 +240,8 @@ export interface WorldGenerationBlueprint {
 
 - [ ] **Step 4: 接入两页工作区并验证**
 
-`/new-design/resources/worlds/new` 承载三步生成，`/new-design/resources/worlds/:rootCardId` 承载手册、六层、关系和历史；从目录进入时保持原版本。  
-Run: `npm run build:server && npm run typecheck:client && node --test tests/world-generation.unit.test.cjs tests/world-generation.postgres.test.cjs`（工作目录 `new-design`）  
+`/new-design/resources/worlds/new` 承载三步生成，`/new-design/resources/worlds/:rootCardId` 承载手册、六层、关系和历史；从目录进入时保持原版本。
+Run: `npm run build:server && npm run typecheck:client && node --test tests/world-generation.unit.test.cjs tests/world-generation.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交世界样本生成**
@@ -294,7 +294,7 @@ test("guide derives all milestones from real new-design state", () => {
 
 - [ ] **Step 2: 运行测试确认缺少向导和统一设置**
 
-Run: `node --test tests/global-legacy-value.unit.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/global-legacy-value.unit.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少向导／设置路由或资源映射。
 
 - [ ] **Step 3: 实现真实状态向导和聚合设置**
@@ -303,7 +303,7 @@ Expected: FAIL，缺少向导／设置路由或资源映射。
 
 - [ ] **Step 4: 验证入口、术语和类型**
 
-Run: `npm run typecheck:client && node --test tests/global-legacy-value.unit.test.cjs`（工作目录 `new-design`）  
+Run: `npm run typecheck:client && node --test tests/global-legacy-value.unit.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交全局功能入口**
@@ -353,7 +353,7 @@ test("bookshelf filters only by adopted classification values", async () => {
 
 - [ ] **Step 2: 运行测试确认现存差项**
 
-Run: `node --test tests/book-workflow-legacy-value.unit.test.cjs tests/book-workflow-legacy-value.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/book-workflow-legacy-value.unit.test.cjs tests/book-workflow-legacy-value.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL 在尚未等价的正式分类、任务投影或封面状态断言。
 
 - [ ] **Step 3: 复用现有新版正本闭合操作**
@@ -362,7 +362,7 @@ Expected: FAIL 在尚未等价的正式分类、任务投影或封面状态断�
 
 - [ ] **Step 4: 验证书架和业务接口**
 
-Run: `npm run build:server && npm run typecheck:client && node --test tests/book-workflow-legacy-value.unit.test.cjs tests/book-workflow-legacy-value.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && npm run typecheck:client && node --test tests/book-workflow-legacy-value.unit.test.cjs tests/book-workflow-legacy-value.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交小说入口差项**
@@ -410,7 +410,7 @@ test("comic panel generation cannot adopt or overwrite an older outline", async 
 
 - [ ] **Step 2: 运行测试确认只有人工候选**
 
-Run: `node --test tests/comic-ai-generation.unit.test.cjs tests/comic-ai-generation.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/comic-ai-generation.unit.test.cjs tests/comic-ai-generation.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少 PromptAsset 和开始生成命令。
 
 - [ ] **Step 3: 实现 PromptAsset、冻结上下文和候选写入**
@@ -435,7 +435,7 @@ export interface ComicGenerationReceipt {
 
 - [ ] **Step 4: 验证三条生成链**
 
-Run: `npm run build:server && npm run typecheck:client && node --test tests/comic-ai-generation.unit.test.cjs tests/comic-ai-generation.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && npm run typecheck:client && node --test tests/comic-ai-generation.unit.test.cjs tests/comic-ai-generation.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交漫画文本生成链**
@@ -484,7 +484,7 @@ test("comic export freezes adopted panel images and refuses changed sources", as
 
 - [ ] **Step 2: 运行测试确认视觉账本缺失**
 
-Run: `node --test tests/comic-rendering.unit.test.cjs tests/comic-rendering.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/comic-rendering.unit.test.cjs tests/comic-rendering.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少 117 和渲染命令。
 
 - [ ] **Step 3: 复用新版图片运行和资产存储实现**
@@ -493,7 +493,7 @@ Expected: FAIL，缺少 117 和渲染命令。
 
 - [ ] **Step 4: 验证渲染、恢复和导出**
 
-Run: `npm run build:server && npm run typecheck:client && node --test tests/comic-rendering.unit.test.cjs tests/comic-rendering.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && npm run typecheck:client && node --test tests/comic-rendering.unit.test.cjs tests/comic-rendering.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交漫画完整视觉产线**
@@ -539,7 +539,7 @@ test("drama scripts remain candidates until adopted", async () => {
 
 - [ ] **Step 2: 运行测试确认短剧领域不存在**
 
-Run: `node --test tests/drama-projects.postgres.test.cjs tests/drama-generation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/drama-projects.postgres.test.cjs tests/drama-generation.unit.test.cjs`（工作目录 `new-design`）
 Expected: FAIL，缺少迁移与模块。
 
 - [ ] **Step 3: 按新版版本／采用语义实现短剧核心**
@@ -560,7 +560,7 @@ export interface DramaEpisodeCandidate {
 
 - [ ] **Step 4: 验证短剧核心链**
 
-Run: `npm run build:server && node --test tests/drama-projects.postgres.test.cjs tests/drama-generation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && node --test tests/drama-projects.postgres.test.cjs tests/drama-generation.unit.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交短剧领域底座**
@@ -600,7 +600,7 @@ test("drama deep links reject unknown tabs without silently selecting another ta
 
 - [ ] **Step 2: 运行测试确认页面缺失**
 
-Run: `node --test tests/drama-navigation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/drama-navigation.unit.test.cjs`（工作目录 `new-design`）
 Expected: FAIL。
 
 - [ ] **Step 3: 实现新版短剧工作台 UI**
@@ -609,7 +609,7 @@ Expected: FAIL。
 
 - [ ] **Step 4: 验证客户端类型和导航**
 
-Run: `npm run typecheck:client && node --test tests/drama-navigation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `npm run typecheck:client && node --test tests/drama-navigation.unit.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交短剧工作台**
@@ -655,7 +655,7 @@ test("drama repair never overwrites the adopted script", async () => {
 
 - [ ] **Step 2: 运行测试确认制作账本缺失**
 
-Run: `node --test tests/drama-production.unit.test.cjs tests/drama-production.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/drama-production.unit.test.cjs tests/drama-production.postgres.test.cjs`（工作目录 `new-design`）
 Expected: FAIL。
 
 - [ ] **Step 3: 实现制作链与版本冻结**
@@ -664,7 +664,7 @@ Expected: FAIL。
 
 - [ ] **Step 4: 验证短剧完整制作链**
 
-Run: `npm run build:server && npm run typecheck:client && node --test tests/drama-production.unit.test.cjs tests/drama-production.postgres.test.cjs`（工作目录 `new-design`）  
+Run: `npm run build:server && npm run typecheck:client && node --test tests/drama-production.unit.test.cjs tests/drama-production.postgres.test.cjs`（工作目录 `new-design`）
 Expected: PASS。
 
 - [ ] **Step 5: 提交短剧制作与导出**
@@ -702,7 +702,7 @@ test("every primary feature route belongs to exactly one navigation group", () =
 
 - [ ] **Step 2: 运行测试确认新增入口尚未统一**
 
-Run: `node --test tests/legacy-value-navigation.unit.test.cjs`（工作目录 `new-design`）  
+Run: `node --test tests/legacy-value-navigation.unit.test.cjs`（工作目录 `new-design`）
 Expected: FAIL。
 
 - [ ] **Step 3: 重组导航但不改业务路由**
@@ -711,8 +711,8 @@ Expected: FAIL。
 
 - [ ] **Step 4: 验证两套前端类型和导航合同**
 
-Run: `npm run typecheck:client && node --test tests/legacy-value-navigation.unit.test.cjs`（工作目录 `new-design`）  
-Run: `pnpm --filter @ai-novel/client typecheck`（工作目录仓库根）  
+Run: `npm run typecheck:client && node --test tests/legacy-value-navigation.unit.test.cjs`（工作目录 `new-design`）
+Run: `pnpm --filter @ai-novel/client typecheck`（工作目录仓库根）
 Expected: PASS。
 
 - [ ] **Step 5: 提交统一导航和矩阵**
@@ -738,22 +738,22 @@ git commit -m "优化：统一新版功能导航与价值映射"
 
 - [ ] **Step 1: 核对组合工作树和迁移清单**
 
-Run: `git status --short`  
-Run: `node --test tests/runtime-migration-files.unit.test.cjs tests/standalone-boundary.test.cjs`（工作目录 `new-design`）  
+Run: `git status --short`
+Run: `node --test tests/runtime-migration-files.unit.test.cjs tests/standalone-boundary.test.cjs`（工作目录 `new-design`）
 Expected: 新增 115–122 均只在手动清单；默认迁移 001–083 不变；旧版业务目录没有本任务修改（共享导航文件除外）。
 
 - [ ] **Step 2: 运行全部新增合同和相关旧回归**
 
-Run: `$tests = Get-ChildItem tests -File | Where-Object { $_.Name -match '^(creative-hub|world-generation|global-legacy-value|book-workflow-legacy-value|comic-|drama-|legacy-value-navigation).*\.test\.cjs$' } | Sort-Object Name | ForEach-Object FullName; node --test $tests`（PowerShell，工作目录 `new-design`）  
+Run: `$tests = Get-ChildItem tests -File | Where-Object { $_.Name -match '^(creative-hub|world-generation|global-legacy-value|book-workflow-legacy-value|comic-|drama-|legacy-value-navigation).*\.test\.cjs$' } | Sort-Object Name | ForEach-Object FullName; node --test $tests`（PowerShell，工作目录 `new-design`）
 Expected: PASS；测试文件列表非空且包含 Tasks 1–11 的新增测试及既有漫画回归，不跨 Shell 拼接路径。
 
 - [ ] **Step 3: 运行组合构建和边界检查**
 
-Run: `npm run build:server`（工作目录 `new-design`）  
-Run: `npm run typecheck:client`（工作目录 `new-design`）  
-Run: `npm run build:client`（工作目录 `new-design`）  
-Run: `npm run check:boundary`（工作目录 `new-design`）  
-Run: `pnpm --filter @ai-novel/client typecheck`（工作目录仓库根）  
+Run: `npm run build:server`（工作目录 `new-design`）
+Run: `npm run typecheck:client`（工作目录 `new-design`）
+Run: `npm run build:client`（工作目录 `new-design`）
+Run: `npm run check:boundary`（工作目录 `new-design`）
+Run: `pnpm --filter @ai-novel/client typecheck`（工作目录仓库根）
 Expected: 全部退出 0；Vite chunk warning 可记录但不得掩盖 error。
 
 - [ ] **Step 4: 启动本地源码服务并完成浏览器调试**
