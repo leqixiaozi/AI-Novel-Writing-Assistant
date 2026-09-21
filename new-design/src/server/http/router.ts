@@ -430,11 +430,11 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use("/home", homeRouter());
   router.use(bookshelfRouter());
   router.use(comicProjectsRouter());
-  router.use(comicEpisodesRouter());
-  router.use(comicPanelsRouter());
+  router.use(comicEpisodesRouter(dependencies.ai));
+  router.use(comicPanelsRouter(dependencies.ai));
   router.use(comicBiblesRouter());
   router.use(comicVisualAssetsRouter());
-  router.use(comicSourceBundleRouter());
+  router.use(comicSourceBundleRouter(dependencies.ai));
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
   router.use(chapterSettlementEditingRouter());

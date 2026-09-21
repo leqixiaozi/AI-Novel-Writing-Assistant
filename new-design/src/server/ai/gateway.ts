@@ -38,6 +38,7 @@ export interface PlanningCandidateInput {bookName:string;bookDescription:string;
 export interface PlanningCandidateOutput {title:string;goal:string;storyTime:string;mustHappen:string[];mustPreserve:string[];forbiddenBoundaries:string[];expectedChanges:string[];characterArc:string;notes:string;sourceCardIds:string[];stageFields?:Record<string,unknown>;}
 
 export interface NewDesignAiGateway {
+  generateComicCandidate?(input:import('../../common/comicSourceBundle').ComicSourceExtractionPrompt|import('../../common/comicEpisodes').ComicEpisodeOutlinePrompt|import('../../common/comicPanels').ComicPanelScriptPrompt):Promise<AiResearchRunResult<{operation:'source_extract';content:import('../../common/comicSourceBundle').ComicSourceBundleContent}|{operation:'episode_outline';content:import('../../common/comicEpisodes').ComicEpisodeContent}|{operation:'panel_script';panels:Array<Omit<import('../../common/comicPanels').ComicPanel,'id'>>}>>;
   diagnoseCreativeHub?(input:{question:string;binding:CreativeHubBinding;state:CreativeHubState}):Promise<AiResearchRunResult<CreativeHubDiagnostic>>;
   generateWorldCandidate?(input:WorldGenerationPromptInput):Promise<AiResearchRunResult<WorldGenerationCandidateContent>>;
   suggestWorldUsage?(input:{sources:import('../../common/worldUsage').WorldUsageSources;instruction:string}):Promise<AiResearchRunResult<import('../../common/worldUsage').WorldUsageSelection>>;
