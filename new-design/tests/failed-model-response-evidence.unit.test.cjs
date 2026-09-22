@@ -26,7 +26,7 @@ function setup(content, {retain = true, finish = 'stop', status = 200} = {}) {
       assert.deepEqual(body.thinking, {type: 'disabled'});
       return new Response(JSON.stringify({
         id: 'reply-id', model: 'MiniMax-M3', choices: [{finish_reason: finish,
-          message: {content, reasoning_content: 'private-thinking', tool_calls: [{private: 'tool-data'}]}}],
+          message: {content:null, reasoning_content: 'private-thinking', tool_calls: [{type:'function',function:{name:'submit_creative_result',arguments:content},private: 'tool-data'}]}}],
         usage: {prompt_tokens: 10, completion_tokens: 5, total_tokens: 15},
         unknown_provider_field: 'not-allowed',
       }), {status});
@@ -75,6 +75,21 @@ test('valid JSON with invalid fields also retains evidence and never auto-adopts
 test('provider length stop reason is retained rather than inferred from token counts', async () => {
   const error = await failure('{"suggestions":', {finish: 'length'});
   assert.equal(error.executionSnapshot.failedResponseEvidence.finishReason, 'length');
+});
+
+test('length-limited or refused replies cannot succeed even with parseable result arguments', async () => {
+  for (const finish of ['length', 'content_filter']) {
+    const error = await failure('{"suggestions":{"name":"沈青"}}', {finish});
+    assert.equal(error.recovery.failedStep, '读取模型输出');
+    assert.equal(error.executionSnapshot.failedResponseEvidence.finishReason, finish);
+  }
+});
+
+test('missing delimiters from the observed failure are rejected without guessing field boundaries', async () => {
+  const malformed='{"suggestions":{"name":"保留收入。motivation":"保留资格。obstacle":"规则未明。"}}';
+  const error=await failure(malformed);
+  assert.equal(error.recovery.failedStep,'解析创作结果');
+  assert.equal(error.executionSnapshot.failedResponseEvidence.content,malformed);
 });
 
 test('missing final text does not retain reasoning or tool payload as a substitute', async () => {

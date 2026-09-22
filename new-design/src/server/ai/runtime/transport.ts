@@ -8,6 +8,7 @@ export type ModelFinishReason="completed"|"output_limit"|"tool_calls"|"refused"|
 /** Protocol fields stop here; execution and diagnostics consume this same object. */
 export interface UnifiedModelResponse {content:string|null;inputTokens:number|null;outputTokens:number|null;usedTokens:number;usageReported:boolean;responseId:string|null;responseModel:string|null;finishReason:ModelFinishReason;rawFinishReason:string|null;}
 export interface UnifiedModelCatalog {models:string[];hasMore:boolean;}
+const RESULT_TOOL="submit_creative_result";
 
 export function createModelRequest(config:Pick<ModelConfiguration,"model"|"maxTokens">,prompt:Pick<PreparedPrompt,"messages"|"outputSchema"|"taskType"|"temperature"|"maxTokens">):UnifiedModelRequest {
   return {model:config.model,messages:prompt.messages,outputSchema:prompt.outputSchema,taskType:prompt.taskType,temperature:prompt.temperature,maxOutputTokens:Math.min(config.maxTokens,prompt.maxTokens)};
@@ -60,21 +61,23 @@ function disablesDeepSeekThinking(endpoint:string,model:string):boolean {
     ||normalized.startsWith("deepseek-v4-pro");
 }
 
-function protocolRequest(config:ModelConfiguration,request:UnifiedModelRequest):{path:string;body:Record<string,unknown>} {
+function protocolRequest(config:ModelConfiguration,request:UnifiedModelRequest):{path:string;body:Record<string,unknown>;resultTool?:string} {
   const {model,messages,outputSchema,taskType,temperature,maxOutputTokens}=request;
+  const miniMax=["api.minimax.cn","api.minimax.io"].includes(new URL(config.endpoint).hostname);
+  const description="Return the complete result object matching this schema for author review. This only submits candidate data; it does not execute actions or adopt content.";
   if(config.provider==="ollama")return {path:"/api/chat",body:{model,messages,stream:false,format:outputSchema,options:{temperature,num_predict:maxOutputTokens}}};
   if(config.provider==="anthropic-compatible"){
     const schema=new URL(config.endpoint).hostname==="api.anthropic.com"?anthropicOutputSchema(outputSchema):null;
-    return {path:"/messages",body:{model,system:messages.filter(message=>message.role==="system").map(message=>message.content).join("\n\n"),messages:messages.filter(message=>message.role!=="system"),max_tokens:maxOutputTokens,temperature,...(schema?{output_config:{format:{type:"json_schema",schema}}}:{})}};
+    return {path:"/messages",...(miniMax?{resultTool:RESULT_TOOL}:{}),body:{model,system:messages.filter(message=>message.role==="system").map(message=>message.content).join("\n\n"),messages:messages.filter(message=>message.role!=="system"),max_tokens:maxOutputTokens,temperature,...(schema?{output_config:{format:{type:"json_schema",schema}}}:{}),...(miniMax?{tools:[{name:RESULT_TOOL,description,input_schema:outputSchema}],tool_choice:{type:"tool",name:RESULT_TOOL}}:{})}};
   }
   const base={model,messages,stream:false,temperature,max_tokens:maxOutputTokens};
   const hostname=new URL(config.endpoint).hostname;
   // MiniMax M3 can spend the entire bounded output on thinking, leaving no JSON reply.
-  if(["api.minimax.cn","api.minimax.io"].includes(hostname))return {path:"/chat/completions",body:{...base,reasoning_split:true,...(model==="MiniMax-M3"?{thinking:{type:"disabled"}}:{})}};
+  if(miniMax)return {path:"/chat/completions",resultTool:RESULT_TOOL,body:{...base,tools:[{type:"function",function:{name:RESULT_TOOL,description,parameters:outputSchema}}],tool_choice:{type:"function",function:{name:RESULT_TOOL}},reasoning_split:true,...(model==="MiniMax-M3"?{thinking:{type:"disabled"}}:{})}};
   return {path:"/chat/completions",body:{...base,response_format:{type:"json_schema",json_schema:{name:taskType,strict:false,schema:outputSchema}},...(disablesDeepSeekThinking(config.endpoint,model)?{thinking:{type:"disabled"}}:{}),...(hostname==="openrouter.ai"?{provider:{require_parameters:true}}:{})}};
 }
 
-export function normalizeModelResponse(provider:ModelConfiguration["provider"],data:Record<string,unknown>):UnifiedModelResponse {
+export function normalizeModelResponse(provider:ModelConfiguration["provider"],data:Record<string,unknown>,resultTool?:string):UnifiedModelResponse {
   const usage=data.usage&&typeof data.usage==="object"&&!Array.isArray(data.usage)?data.usage as Record<string,unknown>:{};
   const measured=(value:unknown)=>typeof value==="number"&&Number.isSafeInteger(value)&&value>=0?value:null;
   const inputTokens=measured(provider==="ollama"?data.prompt_eval_count:provider==="anthropic-compatible"?usage.input_tokens:usage.prompt_tokens);
@@ -84,7 +87,15 @@ export function normalizeModelResponse(provider:ModelConfiguration["provider"],d
   const first=Array.isArray(data.choices)&&data.choices[0]&&typeof data.choices[0]==="object"?data.choices[0] as Record<string,unknown>:null;
   const message=provider==="ollama"?data.message:first?.message;
   const blocks=Array.isArray(data.content)?data.content.filter(block=>block&&typeof block==="object"&&(block as Record<string,unknown>).type==="text"&&typeof (block as Record<string,unknown>).text==="string") as Array<{text:string}>:[];
-  const rawContent=provider==="anthropic-compatible"?blocks.length?blocks.map(block=>block.text).join(""):null:message&&typeof message==="object"?(message as Record<string,unknown>).content:null;
+  let rawContent=provider==="anthropic-compatible"?blocks.length?blocks.map(block=>block.text).join(""):null:message&&typeof message==="object"?(message as Record<string,unknown>).content:null;
+  // Only the one result tool declared by this request is data. Never execute model tools.
+  if(resultTool){
+    const calls=provider==="anthropic-compatible"?(Array.isArray(data.content)?data.content.filter(block=>block&&typeof block==="object"&&(block as Record<string,unknown>).type==="tool_use"):[]):message&&typeof message==="object"?(message as Record<string,unknown>).tool_calls:undefined;
+    const list=Array.isArray(calls)?calls:[];
+    const call=list.length===1&&list[0]&&typeof list[0]==="object"?list[0] as Record<string,unknown>:null;
+    if(provider==="anthropic-compatible")rawContent=call?.name===resultTool&&call.input&&typeof call.input==="object"&&!Array.isArray(call.input)?JSON.stringify(call.input):null;
+    else {const fn=call?.type==="function"&&call.function&&typeof call.function==="object"?call.function as Record<string,unknown>:null;rawContent=fn?.name===resultTool&&typeof fn.arguments==="string"?fn.arguments:null;}
+  }
   const metadata=(value:unknown)=>typeof value==="string"?value.slice(0,256):null;
   const rawFinishReason=metadata(provider==="anthropic-compatible"?data.stop_reason:provider==="ollama"?data.done_reason:first?.finish_reason);
   const reasons:Record<string,ModelFinishReason>=provider==="anthropic-compatible"
@@ -140,11 +151,13 @@ function captureResponseEvidence(reply:UnifiedModelResponse,maxOutputTokens:numb
 export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch,retainFailedResponse=false):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null;responseEvidence?:FailedModelResponseEvidence}> {
   const wire=protocolRequest(config,createModelRequest(config,prompt));
   const data=await receive(config,destination(config,wire.path),{method:"POST",body:JSON.stringify(wire.body)},"生成创作候选",fetcher);
-  const reply=normalizeModelResponse(config.provider,data);
+  const reply=normalizeModelResponse(config.provider,data,wire.resultTool);
   const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(reply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
   const receipt={responseReceived:true as const,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
   const outputFailure=(message:string,step:string)=>{const failure=new AiExecutionError(step,message);failure.transportReceipt=receipt;return failure;};
-  if(reply.content===null)throw outputFailure("模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");
+  if(reply.finishReason==="output_limit")throw outputFailure("模型输出达到长度上限，本次不接收不完整结果。请减少本次资料范围或调整输出预算。","读取模型输出");
+  if(reply.finishReason==="refused")throw outputFailure("模型拒绝了本次生成，本次未产生可采用的候选。","读取模型输出");
+  if(reply.content===null)throw outputFailure(wire.resultTool?"模型未返回唯一且匹配的结构化结果参数，本次回复未采用。":"模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");
   let value:unknown;
   try {value=JSON.parse(reply.content);}catch{throw outputFailure("模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。","解析创作结果");}
   return {value,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};

@@ -45,7 +45,8 @@ test("MiniMax official endpoint separates reasoning so structured creative outpu
   assert.equal(payload.reasoning_split,true);
   assert.deepEqual(payload.thinking,{type:"disabled"});
   assert.equal(payload.response_format,undefined);
-  return new Response(JSON.stringify({choices:[{message:{reasoning_details:[{text:"private reasoning"}],content:JSON.stringify({suggestions:{name:"沈青"}})}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}));
+  assert.equal(payload.tool_choice.function.name,"submit_creative_result");
+  return new Response(JSON.stringify({choices:[{message:{reasoning_details:[{text:"private reasoning"}],content:null,tool_calls:[{type:"function",function:{name:"submit_creative_result",arguments:JSON.stringify({suggestions:{name:"沈青"}})}}]}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}));
  }});
  assert.deepEqual(await gateway.assistForm(input),{name:"沈青"});
 });
@@ -142,7 +143,8 @@ test("Anthropic-compatible MiniMax endpoint uses protocol headers and its Messag
   assert.equal(init.headers["x-api-key"],"fixture-key");
   assert.equal(init.headers.Authorization,undefined);
   assert.equal(JSON.parse(init.body).output_config,undefined);
-  return new Response(JSON.stringify({content:[{type:"text",text:JSON.stringify({suggestions:{name:"沈青"}})}],usage:{input_tokens:10,output_tokens:5}}));
+  assert.equal(JSON.parse(init.body).tool_choice.name,"submit_creative_result");
+  return new Response(JSON.stringify({content:[{type:"tool_use",name:"submit_creative_result",input:{suggestions:{name:"沈青"}}}],usage:{input_tokens:10,output_tokens:5}}));
  }});
  assert.deepEqual(await gateway.assistForm(input),{name:"沈青"});
 });
