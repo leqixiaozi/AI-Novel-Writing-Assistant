@@ -98,7 +98,7 @@ BEGIN
   mount:=structure_record('card_mount',NEW.card_mount_id);
   instance:=structure_record('card_group_form_instance',(mount->>'form_instance_id')::uuid);
   IF mount IS NULL OR instance IS NULL OR instance->>'space_id' IS DISTINCT FROM NEW.space_id::text
-   OR NOT EXISTS(SELECT 1 FROM cards WHERE id=(mount->>'card_id')::uuid AND card_type_id=NEW.card_type_id AND space_id=NEW.space_id) THEN
+   OR NOT EXISTS(SELECT 1 FROM cards WHERE id=(instance->>'primary_card_id')::uuid AND card_type_id=NEW.card_type_id AND space_id=NEW.space_id) THEN
    RAISE EXCEPTION '挂载局部字段必须属于原空间和资料规格'; END IF;
  END IF;
  RETURN NEW;

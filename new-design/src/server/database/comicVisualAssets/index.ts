@@ -4,7 +4,7 @@ import {VISUAL_MAX_BYTES} from '../../../common/visualAssets';
 import {comicVisualAdoptionSchema,comicVisualUploadSchema,type ComicVisualAdoptionInput,type ComicVisualAdoptionReceipt,type ComicVisualAsset,type ComicVisualAssetVersion,type ComicVisualUploadInput,type ComicVisualUploadReceipt,type ComicVisualWorkspace} from '../../../common/comicVisualAssets';
 import {NewDesignError,assertFound} from '../../domain/errors';
 import {recordWorkflowAction,requireCardWorkflowTypes,workflowActionByRequest,workflowCard} from '../cardWorkflow';
-import {createRecordCard,findRecordCardByValue,listRecordCards,replaceRecordCard,type RecordCardRow} from '../recordCards';
+import { createRecordCard, listRecordCards, replaceRecordCard, type RecordCardRow } from '../recordCards';
 import {getNewDesignPool} from '../runtime';
 import {DEFAULT_SPACE_ID} from '../store';
 import {decodeVisualUpload,persistVisualBytes,readVisualBytes,validateVisualBytes} from '../visualAssets/files';
@@ -152,7 +152,7 @@ export async function adoptComicVisualVersion(projectId:string,assetId:string,ra
     const bible=await workflowCard(db,String(asset.bible_entity_id),'comic_bible');
     if(String(bible.space_id)!==projectId||bible.values.adopted_version_id!==candidate.source_bible_version_id)throw new NewDesignError('角色或场景设定已变化，请基于当前采用设定重新准备视觉素材。',409);
     const revision=Number(asset.revision)+1;
-    await replaceRecordCard(db,{id:asset.recordCardId,spaceId:asset.space_id,typeKey:ASSET_TYPE,title:String(candidate.name),values:{id:assetId,project_id:projectId,bible_entity_id:asset.bible_entity_id,asset_type:asset.asset_type,revision,adopted_version_id:input.versionId,status:'active'}});
+    await replaceRecordCard(db,{id:asset.recordCardId,spaceId:asset.recordSpaceId,typeKey:ASSET_TYPE,title:String(candidate.name),values:{id:assetId,project_id:projectId,bible_entity_id:asset.bible_entity_id,asset_type:asset.asset_type,revision,adopted_version_id:input.versionId,status:'active'}});
     await recordWorkflowAction(db,{cardId:asset.recordCardId,actionKey:'comic_visual.adopt',requestKey:input.requestKey,inputHash,payload:{projectId,assetId,versionId:input.versionId,revision}});
     const result=await visualAsset(db,projectId,assetId);
     committing=true;

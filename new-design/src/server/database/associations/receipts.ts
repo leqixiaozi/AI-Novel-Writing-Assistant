@@ -2,7 +2,7 @@ import {executeBookFormWrite} from "../referenceParity";
 import type {PoolClient} from "pg";
 import type {AssociationWorkspace,CardGroupFormSummary} from "../../../common/contracts";
 import {assertFound,NewDesignError} from "../../domain/errors";
-import {executeStructureWrite,readStructureWriteReceipt,structureWriteHash,StructureWriteError} from "../structureWrites";
+import {readStructureWriteReceipt,structureWriteHash,StructureWriteError} from "../structureWrites";
 import {findRecordCard} from '../recordCards';
 interface AssociationReceipt extends CardGroupFormSummary {associationResult:{bookId:string;targetId:string;operation:string;workspace:AssociationWorkspace};}
 export function associationReceiptKey(key:string){const bytes=structureWriteHash({namespace:'association_write',key}).slice(0,32).split('');bytes[12]='5';bytes[16]='8';const hex=bytes.join('');return`${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;}

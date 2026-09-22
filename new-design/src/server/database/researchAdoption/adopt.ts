@@ -33,7 +33,7 @@ export async function adoptBookResearchBatch(id: string, input: {bookId: string;
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
     const savedBatch=await requireRecordCard(client,id,'book_research_adoption_batch','研究采用预览不存在。',{lock:true});
-    const book=assertFound((await client.query('SELECT space_id,status FROM new_design.books WHERE id=$1 FOR SHARE',[savedBatch.book_id])).rows[0],'书籍不存在。'),batch={...savedBatch,space_id:String(book.space_id),book_status:book.status};
+    const book=assertFound((await client.query('SELECT space_id,status FROM new_design.books WHERE id=$1 FOR SHARE',[savedBatch.book_id])).rows[0],'书籍不存在。'),batch={...savedBatch,book_id:String(savedBatch.book_id),space_id:String(book.space_id),book_status:book.status};
     if(batch.book_id!==input.bookId)throw new NewDesignError('研究采用预览不属于当前书籍。',404);
     const repeated=(await listRecordCards(client,'book_research_adoption_event',{where:{batch_id:id,action:'adopt',idempotency_key:input.idempotencyKey}}))[0];
     if (repeated) {

@@ -1,5 +1,5 @@
 import {saveEmbeddingSourceSnapshot} from "./sourceStorage";
-import {saveEmbeddingVector,embeddingReplyMetadata} from "./vectorStorage";
+import { saveEmbeddingVector } from "./vectorStorage";
 import {createRecordCard,listRecordCards,replaceRecordCard,requireRecordCard} from "../recordCards";
 import {DEFAULT_SPACE_ID} from "../store";
 import { randomUUID } from "node:crypto";

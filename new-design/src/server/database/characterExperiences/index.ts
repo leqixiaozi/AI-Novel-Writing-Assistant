@@ -2,7 +2,6 @@ import {saveBatchDecision} from '../generationBatches';
 import {listRecordCards} from '../recordCards';
 import {readBookGeneration,createBookGeneration,finishBookGeneration} from '../generationBatches';
 import {updateGenerationBatch} from '../bookCreationProduction/repository';
-import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import type {ExperienceRequest,ExperienceRecord,ExperienceSnapshot,ExperienceOutput,ExperienceCandidateSource,ExperienceDraft} from '../../../common/characterExperiences';
 import type {AuthorTimelineCommand,AuthorTimelineReceipt} from '../../../common/bookComposition/timeline';

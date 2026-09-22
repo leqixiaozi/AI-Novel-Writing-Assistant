@@ -1,12 +1,12 @@
 import {readBookGeneration,readBatchDecision,saveBatchDecision} from '../generationBatches';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
-import type {StoryBatchRecord,StoryBatchDraft,VisibleBatchWriteReceipt} from '../../../common/storyWorkspace';
+import type {StoryBatchDraft,VisibleBatchWriteReceipt} from '../../../common/storyWorkspace';
 import {NewDesignError} from '../../domain/errors';
 import {getNewDesignPool} from '../runtime';
 import {formHash,freezeFormContext} from '../formAssist';
 import {updateAuthorMaterialInTransaction} from '../authorMaterials';
-import {StoryBatchError,validateStoryBatchSlot} from './index';
+import {StoryBatchError,validateStoryBatchSlot,mapStoryBatchRecord} from './index';
 import {visibleAdoptionSchema} from './adoptions';
 
 export const visibleBatchWriteSchema=z.object({requestKey:z.string().uuid(),items:z.array(z.object({...visibleAdoptionSchema.shape,saveRequestKey:z.string().uuid()}).strict()).min(1).max(20)}).strict().refine(input=>{
@@ -38,7 +38,7 @@ export async function writeVisibleBatch(bookId:string,batchKey:string,input:Inpu
   if(original){committing=true;await db.query('COMMIT');return original;}
   const batch=await readBookGeneration(db,bookId,batchKey,'story_workspace_ai_v1');
   if(!batch||!['visible_prepare','visible_adjust'].includes(batch.input_payload.snapshot.mode))throw new NewDesignError('所选原请求不是本书的外显候选。',422);
-  const record:StoryBatchRecord={id:batch.id,bookId,requestKey:batchKey,request:batch.input_payload.request,status:batch.status,stage:batch.stage,error:batch.error_message??'',snapshot:batch.input_payload.snapshot,output:batch.output_payload?.result??null,createdAt:new Date(batch.created_at).toISOString()};
+  const record=mapStoryBatchRecord(batch);
   await db.query("SELECT card.id FROM new_design.cards card JOIN new_design.books book ON book.space_id=card.space_id WHERE book.id=$1 AND card.id=ANY($2::uuid[]) AND card.status='active' ORDER BY card.id FOR UPDATE OF card",[bookId,parsed.items.map(item=>item.slotId)]);
   const drafts=new Map<string,StoryBatchDraft>();
   for(const item of parsed.items){

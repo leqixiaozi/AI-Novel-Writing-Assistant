@@ -1,6 +1,6 @@
 import type {PoolClient} from "pg";
 import type {KnowledgeReferenceItem,KnowledgeWorkspace,KnowledgeOwnerChoice,KnowledgeSearchResult,KnowledgeArchivePreview} from "../../../common/knowledgeReference";
-import {NewDesignError,assertFound} from "../../domain/errors";
+import { assertFound } from "../../domain/errors";
 import {stableHash} from "../aiContracts/integrity";
 import {knowledgePool} from "./repository";
 import {readReadyKnowledgeRows} from "./content";

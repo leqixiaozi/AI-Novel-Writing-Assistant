@@ -393,7 +393,7 @@ function installedTreePath(nodes:Map<string,{id:string;parent_id:string|null;nam
   while(current){
     if(seen.has(current))throw new NewDesignError("模板树存在循环，未安装任何内容。",422);
     seen.add(current);
-    const node=assertFound(nodes.get(current),"模板树引用了缺失的父节点。");
+    const node:{id:string;parent_id:string|null;name:string}=assertFound(nodes.get(current),"模板树引用了缺失的父节点。");
     path.unshift({id:node.id,name:node.name});current=node.parent_id;
   }
   return path;

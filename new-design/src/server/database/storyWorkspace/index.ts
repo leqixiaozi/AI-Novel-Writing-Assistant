@@ -1,6 +1,6 @@
 import {readBookGeneration,createBookGeneration,finishBookGeneration} from '../generationBatches';
 import {updateGenerationBatch} from '../bookCreationProduction/repository';
-import {findRecordCard,listRecordCards} from '../recordCards';
+import {findRecordCard,listRecordCards,type RecordCardRow} from '../recordCards';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
 import type {StoryBatchRecord,StoryBatchRequest,StoryBatchOutput,StoryBatchDraft} from '../../../common/storyWorkspace';
@@ -22,7 +22,12 @@ export const storyBatchRequestSchema=z.discriminatedUnion('mode',[
 ]);
 const contract='story_workspace_ai_v1';
 export class StoryBatchError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:'not_written'|'unknown'){super(message,status);}}
-function mapRecord(row:Record<string,any>):StoryBatchRecord{return {id:row.id,bookId:row.book_id,requestKey:row.input_payload.request.requestKey,request:row.input_payload.request,status:row.stage==='ended_unknown'?'ended_unknown':row.status,stage:row.stage,error:row.error_message??'',snapshot:row.input_payload.snapshot,output:row.output_payload?.result??null,createdAt:new Date(row.created_at).toISOString()};}
+export function mapStoryBatchRecord(row:RecordCardRow):StoryBatchRecord{
+ const status=row.stage==='ended_unknown'?'ended_unknown':row.status;
+ if(status!=='running'&&status!=='review'&&status!=='applied'&&status!=='failed'&&status!=='ended_unknown')throw new StoryBatchError('原故事批次状态无法确认，请保留原请求核对。',409,'unknown');
+ return {id:row.id,bookId:row.book_id,requestKey:row.input_payload.request.requestKey,request:row.input_payload.request,status,stage:row.stage,error:row.error_message??'',snapshot:row.input_payload.snapshot,output:row.output_payload?.result??null,createdAt:row.created_at instanceof Date?row.created_at.toISOString():new Date(String(row.created_at)).toISOString()};
+}
+const mapRecord=mapStoryBatchRecord;
 export async function readStoryBatch(bookId:string,key:string):Promise<StoryBatchRecord|null>{
  const db=await (await getNewDesignPool()).connect();
  try{await db.query('BEGIN');await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`story-batch:${bookId}:${key}`]);const row=await readBookGeneration(db,bookId,key,contract);await db.query('COMMIT');return row?mapRecord(row):null;}catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
@@ -39,7 +44,7 @@ export async function validateStoryBatchSlot(db:PoolClient,record:StoryBatchReco
    if(Object.keys(issues).length)throw new NewDesignError('候选字段不符合本书表单，请重新准备。',422,issues);
   }else if(slot.planningId){
    const object=await findRecordCard(db,slot.planningId,'planning_object'),parent=object?.parent_object_id?await findRecordCard(db,object.parent_object_id,'planning_object'):null;
-   const plan=object?.book_id===bookId&&object.status==='active'?{...object,parent_version_id:parent?.adopted_version_id??null}:null;
+   const plan=object?.book_id===bookId&&object.status==='active'?{revision:object.revision,current_version_id:object.current_version_id as string|null,parent_version_id:parent?.adopted_version_id??null}:null;
    if(!plan||Number(plan.revision)!==slot.revision||plan.current_version_id!==slot.baseVersionId||(plan.parent_version_id??null)!==slot.parentVersionId)throw new NewDesignError('此规划或上级采用依据已更新，请保留旧候选并另行准备。',409);
   }else if((await listRecordCards(db,'planning_object',{where:{book_id:bookId,level:'story',status:'active'}})).length)throw new NewDesignError('本书已有故事总览，请选择该规划后另行准备。',409);
   const ownIds=new Set(record.snapshot.slots.map(item=>item.target?.cardId).filter(Boolean));

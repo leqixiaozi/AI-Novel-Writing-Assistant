@@ -76,7 +76,7 @@ async function tagsForDimensions(client: Pick<PoolClient,"query">,dimensionIds:s
   const versionById=new Map(versions.map(version=>[version.id,version]));
   const rows=tags.flatMap(tag=>{
     const version=versionById.get(String(tag.current_version_id));if(!version)return [];
-    return [{...tag,name:version.name,aliases:version.aliases,color:version.color,metadata:version.metadata,path_node_ids:version.path_node_ids,path_names:version.path_names,
+    return [{...tag,dimension_id:String(tag.dimension_id),parent_id:tag.parent_id as string|null,sort_order:Number(tag.sort_order),name:version.name,aliases:version.aliases,color:version.color,metadata:version.metadata,path_node_ids:version.path_node_ids,path_names:version.path_names,
       child_count:tags.filter(child=>child.parent_id===tag.id&&child.status==='active').length,
       member_count:memberships.filter(item=>item.tag_id===tag.id).length}];
   }).sort((a,b)=>String(a.dimension_id).localeCompare(String(b.dimension_id))||String(a.parent_id??'').localeCompare(String(b.parent_id??''))||Number(a.sort_order)-Number(b.sort_order)||String(a.name).localeCompare(String(b.name)));

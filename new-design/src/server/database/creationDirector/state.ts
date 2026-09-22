@@ -1,9 +1,9 @@
 import type {BookDirectionCandidate} from "../../../common/contracts";
 import {CREATION_DIRECTOR_STAGES,creationDirectorState,type CreationDirectorCommand,type CreationDirectorControl,type CreationDirectorControlReceipt,type CreationDirectorState,type CreationDirectorCommandReceipt} from "../../../common/creationDirector";
-import {NewDesignError,assertFound} from "../../domain/errors";
+import {NewDesignError} from "../../domain/errors";
 import {stableHash} from "../aiContracts";
 import {getCreationPool} from "../bookCreationStore";
-import {getBookCreationSession,readBookCreationSessionInTransaction} from "../bookCreationStore";
+import {readBookCreationSessionInTransaction} from "../bookCreationStore";
 import {directorTransaction} from "./transaction";
 import {creationPreparationReceipt,preparationBatches} from "./preparation";
 import {requireRecordCard,replaceRecordCard} from "../recordCards";

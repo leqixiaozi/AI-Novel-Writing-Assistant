@@ -5,7 +5,7 @@ import type {CardGroupFormDefinition} from "../../../common/contracts";
 import type {ReferenceFormInstallInput,ReferenceFormPreviewInput,ReferenceFormPreview,ReferenceFormReceipt,ReferenceFormsWorkspace,ReferenceFormSelectionInput} from "../../../common/referenceParity";
 import {NewDesignError,assertFound} from "../../domain/errors";
 import {getNewDesignPool} from "../runtime";
-import {executeStructureWrite,readStructureWriteReceipt,structureWriteHash} from "../structureWrites";
+import {readStructureWriteReceipt,structureWriteHash} from "../structureWrites";
 import type {TemplatePayload} from "../templateStore";
 import {formSlots,formEvolutionConflicts,relationDefinition} from "./formPolicy";
 import {createRecordCard,findRecordCard,listRecordCards,replaceRecordCard} from "../recordCards";
@@ -35,7 +35,7 @@ async function inspect(client:PoolClient,bookId:string,input:ReferenceFormPrevie
   const usedKeys=[...new Set([primary,...formSlots(definition).flatMap(slot=>slot.allowedTypeKeys)])],typeMappings:ReferenceFormPreview['installation']['typeMappings']=[];
   for(const key of usedKeys){const origin=payload.cardTypes.find(type=>type.key===key),target=types.find(type=>type.type_key===key);if(!origin||!target){conflicts.push(`本书缺少已发布的“${key}”规格，需先明确安装内容类型。`);continue;}const version=(await client.query("SELECT fields,card_type_id FROM new_design.card_type_versions WHERE id=$1",[origin.sourceVersionId])).rows[0];if(!version||String(version.card_type_id)!==origin.sourceId||structureWriteHash(version.fields)!==structureWriteHash(origin.fields)){conflicts.push(`“${key}”的冻结类型来源不匹配。`);continue;}typeMappings.push({key,sourceId:origin.sourceId,sourceVersionId:origin.sourceVersionId,targetId:String(target.id),targetVersionId:String(target.current_version_id)});}
   const allTargetForms=await listRecordCards(client,"card_group_form",{spaceId:String(book.space_id),includeArchived:true,lock}),allTargetVersions=await listRecordCards(client,"card_group_form_version",{includeArchived:true});
-  const targetRows=allTargetForms.filter(form=>input.targetFormId?form.id===input.targetFormId:form.source_form_id===frozen.sourceId).flatMap(form=>{const version=allTargetVersions.find(item=>item.id===form.current_version_id);return version?[{...form,definition:version.definition,version:version.version}]:[];});
+  const targetRows=allTargetForms.filter(form=>input.targetFormId?form.id===input.targetFormId:form.source_form_id===frozen.sourceId).flatMap(form=>{const version=allTargetVersions.find(item=>item.id===form.current_version_id);return version?[{...form,current_version_id:form.current_version_id as string|null,draft_definition:form.draft_definition as CardGroupFormDefinition,definition:version.definition as CardGroupFormDefinition,version:Number(version.version)}]:[];});
   if(input.targetFormId&&!targetRows.length)conflicts.push('目标表单不属于本书。');if(targetRows.length>1)conflicts.push('本书有多份来源安装，请明确选择目标表单。');
   const target=targetRows.length===1?targetRows[0]:null;
   if(target&&(target.status!=='published'||structureWriteHash(target.draft_definition)!==structureWriteHash(target.definition)))conflicts.push('目标表单有未发布草稿或不可用，保留草稿后明确处理。');

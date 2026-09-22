@@ -4,7 +4,7 @@ import {freezePublicCharacterReply} from './replies';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
-import {PUBLIC_CHARACTER_ROUTE,publicCharacterTrialSchema,publicDialogueOutputSchema,publicPortraitCommandSchema,type PublicCharacterWorkspace,type PublicCharacterTrialInput,type PublicPortraitReceipt,type PublicPortraitOutput} from '../../../common/publicCharacters';
+import { PUBLIC_CHARACTER_ROUTE, publicCharacterTrialSchema, publicDialogueOutputSchema, publicPortraitCommandSchema, type PublicCharacterWorkspace, type PublicPortraitReceipt, type PublicPortraitOutput } from '../../../common/publicCharacters';
 import {imageReplySchema,type ImageGenerationReply} from '../../../common/imageGeneration';
 import {getCharacterImportCatalog} from '../characterImport';
 import {getManagedImageConnectionCatalog} from '../modelManagement/imageGeneration';

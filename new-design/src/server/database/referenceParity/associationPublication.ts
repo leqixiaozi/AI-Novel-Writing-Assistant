@@ -12,7 +12,7 @@ const SYSTEM_SPACE_ID='00000000-0000-4000-8000-000000000001';
 async function inspect(client:PoolClient,sourceTemplateVersionId:string,primaryTypeKeys:ReferencePrimaryType[],lock=false){
   const templateVersion=assertFound(await findRecordCard(client,sourceTemplateVersionId,'template_group_version',{includeArchived:true}),'模板版本不存在。');
   const templateHead=assertFound(await findRecordCard(client,String(templateVersion.template_id),'template_group',{includeArchived:true,lock}),'模板不存在。');
-  const template={...templateHead,payload:templateVersion.payload};
+  const template={...templateHead,current_version_id:templateHead.current_version_id as string|null,name:String(templateHead.name),payload:templateVersion.payload};
   if(template.current_version_id!==sourceTemplateVersionId)throw new NewDesignError("模板已有新版本，请重新选择当前发布版本。",409);
   const payload=structuredClone(template.payload as TemplatePayload),keys=payload.cardTypes.map(type=>type.key),available=(['character','world_setting','world_rule'] as const).filter(key=>keys.includes(key)),conflicts:string[]=[],forms:ReferenceAssociationPublicationPreview['forms']=[];
   if(new Set(primaryTypeKeys).size!==primaryTypeKeys.length||primaryTypeKeys.some(key=>!available.includes(key)))conflicts.push("请选择模板中实际已发布的主资料类型，不会自动改变旧书类型。");
@@ -22,7 +22,7 @@ async function inspect(client:PoolClient,sourceTemplateVersionId:string,primaryT
     if(lock)await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`public-form:${key}`]);
     const form=(await listRecordCards(client,'card_group_form',{includeArchived:true,lock,where:{space_id:null,form_key:key}}))[0];
     const version=form?.current_version_id?await findRecordCard(client,String(form.current_version_id),'card_group_form_version',{includeArchived:true}):null;
-    const existing=form?{...form,version:version?.version,definition:version?.definition}:null;
+    const existing=form?{...form,current_version_id:form.current_version_id as string|null,draft_definition:form.draft_definition,version:version?.version,definition:version?.definition}:null;
     if(existing){existingRows.push(existing);if(existing.status!=='published'||structureWriteHash(existing.definition)!==structureWriteHash(definition)||structureWriteHash(existing.draft_definition)!==structureWriteHash(existing.definition))conflicts.push(`“${name}”已有不同规格或草稿，请明确处理，不能自动覆盖。`);}
     const frozen=payload.forms.find(form=>form.key===key);
     if(!frozen||structureWriteHash(frozen.definition)!==structureWriteHash(definition)||existing&&frozen.sourceVersionId!==existing.current_version_id)forms.push({key,name,definition});

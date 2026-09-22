@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { InitialCardDraft, ResearchPrefillCard, ResearchReferencePack, ResearchReferencePackItem, ResearchReferencePackVersion, ResearchReusePreview, ResearchRecordType } from "../../common/contracts";
-import { NewDesignError, assertFound } from "../domain/errors";
+import { NewDesignError } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 import type { TemplatePayload } from "./templateStore";
@@ -15,7 +15,7 @@ function isBlank(value:unknown):boolean{return value===null||value===undefined||
 function mapPackItem(row:Record<string,unknown>):ResearchReferencePackItem{return{researchVersionId:String(row.research_version_id),recordId:String(row.record_id),recordTitle:String(row.record_title),recordType:row.record_type as ResearchRecordType,recordVersion:Number(row.record_version),purpose:String(row.purpose),weight:Number(row.weight),sortOrder:Number(row.sort_order),note:String(row.item_note??"")};}
 
 async function packItems(db:RecordCardDb,versionId:string){return(await listRecordCards(db,'research_reference_pack_item',{where:{pack_version_id:versionId}})).sort((a,b)=>Number(a.sort_order)-Number(b.sort_order)||a.id.localeCompare(b.id));}
-async function researchVersion(db:RecordCardDb,id:string){const run=await requireRecordCard(db,id,'research_record_version','研究版本不存在。');const record=await requireRecordCard(db,run.record_id,'research_record','研究记录不存在。',{includeArchived:true});return {...run,record_id:record.id,title:record.title,record_type:record.record_type};}
+async function researchVersion(db:RecordCardDb,id:string){const run=await requireRecordCard(db,id,'research_record_version','研究版本不存在。');const record=await requireRecordCard(db,run.record_id,'research_record','研究记录不存在。',{includeArchived:true});return {record_id:record.id,title:String(record.title),record_type:record.record_type as ResearchRecordType,version:Number(run.version),run_status:String(run.run_status),report:String(run.report??''),structured_result:asObject(run.structured_result)};}
 export async function listReferencePacks():Promise<ResearchReferencePack[]>{
  const rows=(await listRecordCards(await getNewDesignPool(),'research_reference_pack')).filter(row=>row.status!=='archived').sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at)));
  return Promise.all(rows.map(row=>getReferencePack(row.id)));
@@ -26,6 +26,7 @@ export async function getReferencePack(id:string):Promise<ResearchReferencePack>
  for(const version of rows){const items:ResearchReferencePackItem[]=[];for(const item of await packItems(db,version.id)){const run=await researchVersion(db,item.research_version_id);items.push(mapPackItem({...item,item_note:item.note,record_id:run.record_id,record_title:run.title,record_type:run.record_type,record_version:run.version}));}
  versions.push({id:version.id,packId:id,version:Number(version.version),note:String(version.note??''),items,createdAt:asDate(version.created_at)});}
  const current=rows.find(row=>row.id===pack.current_version_id);
+ if(pack.status!=='draft'&&pack.status!=='published'&&pack.status!=='archived')throw new NewDesignError('研究参考包状态无效，请核对原记录。',409);
  return{id:pack.id,name:pack.name,description:pack.description??'',status:pack.status,currentVersionId:pack.current_version_id??null,currentVersion:current?Number(current.version):null,versionCount:versions.length,revision:pack.revision,versions,createdAt:asDate(pack.created_at),updatedAt:asDate(pack.updated_at)};
 }
 export async function publishReferencePack(input:{id?:string;name:string;description:string;note:string;revision?:number;items:Array<{researchVersionId:string;purpose:string;weight:number;note:string}>}):Promise<ResearchReferencePack>{

@@ -1,5 +1,4 @@
 import {requireTablesOnlyInstallation} from './tablesOnly';
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import type { PrivateRuntimeDiagnostics, PrivateRuntimeStatus } from "../../common/contracts";

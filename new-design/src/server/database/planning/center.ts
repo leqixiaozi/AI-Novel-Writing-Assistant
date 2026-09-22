@@ -1,5 +1,5 @@
-import {findRecordCard,listRecordCards,type RecordCardDb} from '../recordCards';
-import {planningRow,planningVersion,planningReferences} from './records';
+import {listRecordCards,type RecordCardDb} from '../recordCards';
+import {planningVersion,planningReferences} from './records';
 import {readStoryFormat} from "../../../common/storyFormat";
 import type { AdoptedChapterPlanContract, BookMaterialReadiness, BookOverview, BookOverviewMetric, PlanningCenterWorkspace, PlanningObject } from "../../../common/contracts";
 import { NewDesignError, assertFound } from "../../domain/errors";
@@ -63,7 +63,7 @@ export async function getPlanningCenterWorkspace(bookId:string):Promise<Planning
 export async function getBookOverview(bookId:string):Promise<BookOverview>{
   const pool=await getNewDesignPool(),book=assertFound((await pool.query("SELECT id,space_id,updated_at FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
   const plans=await planningRows(pool,bookId),storyObject=plans.find(row=>row.level==='story'&&row.status==='active'&&row.adopted_version_id),storyVersion=storyObject?await planningVersion(pool,storyObject.adopted_version_id,storyObject.id):null;
-  const story={rows:storyObject&&storyVersion?[{...storyObject,version_id:storyVersion.id,content:storyVersion.content}]:[]};
+  const story={rows:storyObject&&storyVersion?[{id:storyObject.id,title:String(storyObject.title),updated_at:storyObject.updated_at,version_id:storyVersion.id,content:storyVersion.content}]:[]};
   const [materialRows,bodyCounts,settlement,fact,issue,dependency,tasks,contextRow]=await Promise.all([
     pool.query(`SELECT type.type_key,type.name type_name,type.category_id,type.sort_order,type.name,version.fields,card.id card_id,card.values,card.updated_at
       FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id
@@ -107,7 +107,7 @@ export async function getAdoptedChapterPlanContract(bookId:string,chapterCardId:
   const pool=await getNewDesignPool(),record=(await listRecordCards(pool,'planning_object',{where:{book_id:bookId,card_id:chapterCardId,level:'chapter',status:'active'}}))[0];
   if(!record)throw new NewDesignError('章节计划不存在。',404);
   const card=assertFound((await pool.query('SELECT card.current_version_id FROM new_design.cards card JOIN new_design.books book ON book.space_id=card.space_id WHERE book.id=$1 AND card.id=$2',[bookId,chapterCardId])).rows[0],'章节资料不存在。'),row={...record,chapter_card_version_id:card.current_version_id};
-  if(!row.adopted_version_id)throw new NewDesignError("该章节还没有采用的计划版本。",409);
+  if(!record.adopted_version_id)throw new NewDesignError("该章节还没有采用的计划版本。",409);
   const object=await getPlanningObject(String(row.id)),version=assertFound(object.adoptedVersion,"该章节还没有采用的计划版本。");
   if(!version.basedOnParentVersionId)throw new NewDesignError("章节采用计划缺少卷计划版本依据。",409);
   return{bookId,planningObjectId:object.id,planningObjectRevision:object.revision,chapterCardId,chapterCardVersionId:String(row.chapter_card_version_id),planningVersionId:version.id,planningVersionNumber:version.version,planningContentHash:version.contentHash,executionMode:version.executionMode,content:version.content,references:version.references,basedOnVolumePlanVersionId:version.basedOnParentVersionId,updatedAt:asDate(row.updated_at)!};

@@ -2,7 +2,7 @@ import {assertRevisionOriginal,readRevisionOriginal,revisionFailure} from './ori
 import {lockStoryRecords} from '../storyTimeline/persistence';
 import {requireCardWorkflowTypes} from '../cardWorkflow';
 import {canonicalFactEvidenceRows,canonicalFactRows,chapterAdoptionPreparationRows,chapterAdoptionSessionRows,chapterRevisionExecutionRows,chapterRevisionImpactRows,chapterRevisionPlanItemRows,chapterRevisionPlanRows,chapterRevisionPreviewRows,chapterRevisionProtectionMarkRows,chapterRevisionRecomputeStepRows,chapterRevisionReviewFlagRows,chapterStableCheckpointRows,currentKnowledgeStateProjectionRows,currentStateProjectionRows,deleteRevisionRecords,dependencyInvalidationEventRows,dependencyRecomputeRequestRows,dependencyResourceStateRows,insertRevisionRecords,insertStoryReviewActions,knowledgeStateChangeRows,knowledgeStateProposalRows,knowledgeStateProposalVersionRows,stateChangeProposalRows,stateChangeRows,updateRevisionRecords} from '../resourceSupplements/persistence';
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type {
   ChapterRevisionAction,

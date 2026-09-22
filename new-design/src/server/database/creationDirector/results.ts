@@ -1,7 +1,6 @@
 import type {CreationPreparationOutput,CreationPreparationReceipt,CreationPreparationFailure,CreationPreparationAdoptionReceipt,AdoptCreationPreparationInput} from "../../../common/creationReviewAi";
 import {CREATION_DIRECTOR_STAGES,creationDirectorState} from "../../../common/creationDirector";
-import {NewDesignError,assertFound} from "../../domain/errors";
-import {getCreationPool as getNewDesignPool} from "../bookCreationStore";
+import {NewDesignError} from "../../domain/errors";
 import {adoptCreationPreparationInTransaction} from "../bookCreationStore";
 import {stableHash} from "../aiContracts";
 import {lockCreationSession,updateCreationSession,updateGenerationBatch} from "../bookCreationProduction/repository";
@@ -68,7 +67,7 @@ export async function adoptCreationPreparation(batchId:string,input:AdoptCreatio
  return directorTransaction(sessionId,async db=>{
   await lockCreationSession(db,sessionId);
   const batch=await readOwnedCreationBatch(db,batchId,true),receipt=creationPreparationReceipt(batch);
-  const previous=(batch.preparation_adoption_receipts??[]).find((item:Record<string,any>)=>item.receipt.requestKey===input.requestKey);
+  const previous=(batch.preparation_adoption_receipts??[]).find(item=>item.receipt.requestKey===input.requestKey);
   if(previous){if(previous.inputHash!==stableHash(input))throw new NewDesignError("同一次采用的勾选内容已改变，请读取原采用回执。",409);return{...previous.receipt,repeated:true};}
   if(!receipt.canAdoptSavedResult)throw new NewDesignError("此批候选不能继续采用，请读取保存结果或原采用回执。",409);
   const adopted=await adoptCreationPreparationInTransaction(db,sessionId,{...input,batchId,frozenSessionRevision:Number(batch.base_revision),templateVersionId:batch.frozen_plan.input.catalog.templateVersionId,specificationHash:batch.frozen_plan.input.specificationHash,output:receipt.output!});
@@ -77,11 +76,11 @@ export async function adoptCreationPreparation(batchId:string,input:AdoptCreatio
  },false,input.requestKey,true);
 }
 export async function getCreationPreparationAdoptionReceipt(batchId:string,key:string):Promise<CreationPreparationAdoptionReceipt|null>{
- const sessionId=await batchSessionId(batchId);return directorTransaction(sessionId,async db=>{const row=await readOwnedCreationBatch(db,batchId);return row.preparation_adoption_receipts?.find((item:Record<string,any>)=>item.receipt.requestKey===key)?.receipt??null;},false,key);
+ const sessionId=await batchSessionId(batchId);return directorTransaction(sessionId,async db=>{const row=await readOwnedCreationBatch(db,batchId);return row.preparation_adoption_receipts?.find(item=>item.receipt.requestKey===key)?.receipt??null;},false,key);
 }
 export async function recoverSavedCreationPreparation(batchId:string):Promise<CreationPreparationReceipt>{
  const sessionId=await batchSessionId(batchId),saved=await directorTransaction(sessionId,db=>readOwnedCreationBatch(db,batchId));
  if(Array.isArray(saved.output_payload?.candidates))return creationPreparationReceipt(saved);
- if(!creationPreparationReceipt(saved).canRecoverSavedResult)throw new NewDesignError("此批没有可恢复的已保存模型输出，请先读取原请求。",409);
+ if(!creationPreparationReceipt(saved).canRecoverSavedResult||!saved.preparation_generated_output)throw new NewDesignError("此批没有可恢复的已保存模型输出，请先读取原请求。",409);
  return saveCreationPreparationOutput({sessionId,batchId,requestKey:String(saved.preparation_request_key),stage:saved.frozen_plan.input.stage,plan:saved.frozen_plan},saved.preparation_generated_output,saved.preparation_execution??{});
 }

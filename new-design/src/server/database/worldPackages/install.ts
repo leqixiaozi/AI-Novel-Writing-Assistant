@@ -1,13 +1,9 @@
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {worldInstallInputSchema,worldInstallCommitSchema,type WorldInstallInput,type WorldInstallCommit,type WorldInstallPreview,type WorldInstallTarget,type WorldInstallReceipt,type PublishedWorldPackage} from '../../../common/worldPackages';
-import {WORLD_PROFESSIONAL_TYPE_KEYS} from '../../../common/worldCharacterMaintenance';
 import {assertFound,NewDesignError} from '../../domain/errors';
 import {getNewDesignPool} from '../runtime';
-import {freezeFormContext,formHash} from '../formAssist';
-import {resolveBookFormVersion} from '../referenceParity';
-import {validateCardValues} from '../../domain/validation';
-import {validateDictionaryTreeValues} from '../treeResources';
+import { formHash } from '../formAssist';
 import {createAuthorMaterialInTransaction} from '../authorMaterials';
 import {requireWorldPackageCapability} from './capability';
 import {readWorldOriginal,writeWorldOriginal} from './receipts';

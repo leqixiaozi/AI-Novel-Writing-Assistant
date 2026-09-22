@@ -25,7 +25,7 @@ export async function completeBookAnalysis(versionId:string,result:BookAnalysisR
   const pool=await getNewDesignPool(),client=await pool.connect();
   try{
     await client.query("BEGIN");
-    const version=await requireRecordCard(client,versionId,'research_record_version','拆书运行不存在。',{lock:true}),record=await requireRecordCard(client,version.record_id,'research_record','研究记录不存在。'),run={...version,source_document_version_id:record.source_document_version_id};
+    const version=await requireRecordCard(client,versionId,'research_record_version','拆书运行不存在。',{lock:true}),record=await requireRecordCard(client,version.record_id,'research_record','研究记录不存在。'),run={cancel_requested:version.cancel_requested,source_document_version_id:record.source_document_version_id};
     if(run.cancel_requested){await setResearchRunState(client,versionId,{status:"cancelled",progress:100});await client.query("COMMIT");return;}
     const evidenceIds:string[]=[];
     for(const item of result.evidence){const id=randomUUID();evidenceIds.push(id);await insertResearchRecord(client,'research_evidence',{id,research_version_id:versionId,source_document_version_id:run.source_document_version_id,field_path:item.fieldPath,excerpt:item.excerpt,start_offset:item.startOffset,end_offset:item.endOffset,certainty:item.certainty,note:item.note});}

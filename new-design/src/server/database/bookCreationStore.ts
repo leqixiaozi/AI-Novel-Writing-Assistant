@@ -14,15 +14,14 @@ import type {
   ResearchPrefillCard,
 } from "../../common/contracts";
 import type { AiSchemaType } from "../ai/gateway";
-import {creationDirectorState,CREATION_DIRECTOR_STAGES} from "../../common/creationDirector";
+import {creationDirectorState} from "../../common/creationDirector";
 import { NewDesignError, assertFound } from "../domain/errors";
-import { validateCardValues } from "../domain/validation";
 import {getCreationPool as getNewDesignPool,BookCreationProductionError,lockCreationSession,updateCreationSession,createGenerationBatch,updateGenerationBatch,creationTransaction,appendCreationReceipt} from "./bookCreationProduction/repository";
 import {createRecordCard,findRecordCard,listRecordCards,replaceRecordCard} from './recordCards';
 import {saveBookCreationReviewCommand,completeBookCreationCommand} from "./bookCreationProduction/commands";
 import { getStrategyResourceDrafts } from "./resourceStore";
 import type {TemplatePayload} from "./templateStore";
-import { getSessionResearchReuse, persistSessionResearchSelections, previewResearchReuse } from "./referencePackStore";
+import { persistSessionResearchSelections, previewResearchReuse } from "./referencePackStore";
 import {stableHash} from "./aiContracts/integrity";
 import type {BookCreationProductionReceipt} from "../../common/bookCreationProduction";
 
@@ -276,7 +275,7 @@ export async function applyFormAssist(batchId: string, fieldKeys: string[], expe
       const prior=(await listRecordCards(client,'card_field_origin',{where:{card_id:card.id,field_key:key},lock:true}))[0],id=prior?.id??randomUUID(),now=new Date().toISOString();
       const fields={...(prior??{}),id,card_id:card.id,field_key:key,source_kind:'ai',generation_batch_id:batchId,confirmation_status:'confirmed',original_value:suggestions[key],current_value:suggestions[key],updated_at:now};
       if(prior)await replaceRecordCard(client,{id,spaceId:prior.recordSpaceId,typeKey:'card_field_origin',values:fields});
-      else await createRecordCard(client,{id,spaceId:String(card.space_id),typeKey:'card_field_origin',title:key,values:{source_id:null,created_at:now,...fields}});
+      else await createRecordCard(client,{id,spaceId:String(card.space_id),typeKey:'card_field_origin',title:key,values:{source_id:null,...fields,created_at:now}});
     }
     await updateGenerationBatch(client,batchId,{status:'applied',stage:'applied'});
     await client.query("COMMIT");

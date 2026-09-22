@@ -1,5 +1,4 @@
 import type {PoolClient} from "pg";
-import type {BookCreationReviewCard} from "../../../common/contracts";
 import type {AdoptCreationPreparationInput,CreationPreparationOutput,CreationPreparationAdoptionReceipt,CreationPreparationTarget} from "../../../common/creationReviewAi";
 import {isBlankCreationReviewValue} from "../../../common/creationReviewAi";
 import {NewDesignError} from "../../domain/errors";

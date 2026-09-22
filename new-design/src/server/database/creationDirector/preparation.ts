@@ -1,26 +1,45 @@
 import {randomUUID} from "node:crypto";
 import {readStoryFormat} from '../../../common/storyFormat';
 import type {PoolClient} from "pg";
-import type {CreationPreparationOutput,CreationPreparationReceipt,CreationReviewAiInput,CreationPreparationTarget} from "../../../common/creationReviewAi";
+import type {CreationPreparationOutput,CreationPreparationReceipt,CreationReviewAiInput,CreationPreparationTarget,CreationPreparationFailure,CreationPreparationAdoptionReceipt} from "../../../common/creationReviewAi";
 import {CREATION_DIRECTOR_STAGES,creationDirectorState,type CreationDirectorStage} from "../../../common/creationDirector";
 import {getCreationPool as getNewDesignPool} from "../bookCreationStore";
 import {stableHash} from "../aiContracts";
 import {getCreationPreparationContext} from "../bookCreationStore";
 import {resolveManagedTaskRoute,captureManagedModelSnapshot,getManagedCredentialEnvironment} from "../modelManagement";
-import {preparePrompt,creationPreparationPromptInputSchema,type PreparedPrompt,type PromptTaskType,type CreationPreparationPromptInput} from "../../ai/prompts";
+import {preparePrompt,creationPreparationPromptInputSchema,type PreparedPrompt,type CreationPreparationPromptInput} from "../../ai/prompts";
 import {configurationForConnection,validateExecutionPolicy} from "../../ai/runtime/managedExecution";
-import {NewDesignError,assertFound} from "../../domain/errors";
+import {NewDesignError} from "../../domain/errors";
 import {directorTransaction} from "./transaction";
 import type {ManagedModelSnapshot,ManagedTaskRoute} from "../../../common/modelRouting";
 import {isBlankCreationReviewValue} from "../../../common/creationReviewAi";
 import {formAiFieldVisible} from "../../../common/formAssist";
-import {findRecordCard,listRecordCards,requireRecordCard,type RecordCardDb} from "../recordCards";
+import {listRecordCards,requireRecordCard,type RecordCardDb,type RecordCardRow} from "../recordCards";
 import {lockCreationSession,updateCreationSession,createGenerationBatch} from "../bookCreationProduction/repository";
 
 export const isBlankCreationValue=isBlankCreationReviewValue;
 export interface CreationPreparationPlan {format:1;input:CreationPreparationPromptInput;inputHash:string;taskType:"directions"|"initial_content"|"form_assist";assetId:string;assetVersion:string;messages:PreparedPrompt["messages"];outputSchema:Record<string,unknown>;route:ManagedTaskRoute;modelSnapshot:ManagedModelSnapshot;templateSnapshot:unknown;catalogHash:string;carriedOutput:CreationPreparationOutput|null;sourceBatches:Array<{id:string;outputHash:string;inputHash:string}>;}
 export interface CreationPreparationClaim {batchId:string;sessionId:string;requestKey:string;stage:CreationDirectorStage|null;plan:CreationPreparationPlan;}
-async function withSessionRevision(db:RecordCardDb,batch:Record<string,any>){const session=await requireRecordCard(db,String(batch.session_id),'book_creation_session','开书流程不存在。');return {...batch,current_session_revision:session.revision,expired:batch.preparation_lease_until?Date.now()>=new Date(batch.preparation_lease_until).getTime():false};}
+async function withSessionRevision(db:RecordCardDb,batch:RecordCardRow){
+ const session=await requireRecordCard(db,String(batch.session_id),'book_creation_session','开书流程不存在。');
+ return {...batch,
+  session_id:String(batch.session_id),base_revision:Number(batch.base_revision),
+  input_payload:batch.input_payload as Record<string,unknown>,
+  frozen_plan:batch.frozen_plan as CreationPreparationPlan,
+  output_payload:batch.output_payload as CreationPreparationOutput|null,
+  preparation_generated_output:batch.preparation_generated_output as CreationPreparationOutput|null,
+  preparation_execution:batch.preparation_execution as Record<string,unknown>|null,
+  preparation_request_key:String(batch.preparation_request_key),preparation_request_hash:String(batch.preparation_request_hash),
+  preparation_terminal:batch.preparation_terminal as 'released'|'ended_unknown'|null,
+  preparation_superseded_by:batch.preparation_superseded_by as string|null,
+  preparation_lease_until:batch.preparation_lease_until as string|Date|null,
+  preparation_failure:batch.preparation_failure as CreationPreparationFailure|null,
+  preparation_adoption_receipts:batch.preparation_adoption_receipts as Array<{inputHash:string;receipt:CreationPreparationAdoptionReceipt}>|undefined,
+  completed_at:batch.completed_at as string|Date|null,
+  current_session_revision:session.revision,
+  expired:batch.preparation_lease_until?Date.now()>=(batch.preparation_lease_until instanceof Date?batch.preparation_lease_until:new Date(String(batch.preparation_lease_until))).getTime():false,
+ };
+}
 export async function readOwnedCreationBatch(db:PoolClient,id:string,lock=false){const batch=await requireRecordCard(db,id,'ai_generation_batch','本次开书准备不存在。',{lock});if(batch.preparation_contract!=='creation_preparation_v1')throw new NewDesignError('本次开书准备不存在。',404);return withSessionRevision(db,batch);}
 export async function preparationBatches(db:RecordCardDb,sessionId:string){const rows=await listRecordCards(db,'ai_generation_batch',{where:{session_id:sessionId,preparation_contract:'creation_preparation_v1'}});return Promise.all(rows.map(row=>withSessionRevision(db,row)));}
 export function creationPreparationReceipt(row:Record<string,any>):CreationPreparationReceipt {
@@ -46,7 +65,7 @@ export async function claimCreationPreparation(sessionId:string,input:CreationRe
   if(stage&&(!state||CREATION_DIRECTOR_STAGES[state.cursor]?.key!==stage||state.mode==="manual"))throw new NewDesignError("导演阶段已改变，请读取当前开书进度。",409);
   const earlier=stage?(await preparationBatches(db,sessionId)).filter(saved=>saved.status==='review'&&!saved.preparation_terminal&&saved.frozen_plan?.input?.catalog?.reviewCardsHash===context.catalog.reviewCardsHash).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))||String(b.id).localeCompare(String(a.id))).filter(saved=>CREATION_DIRECTOR_STAGES.findIndex(item=>item.key===saved.frozen_plan.input.stage)<CREATION_DIRECTOR_STAGES.findIndex(item=>item.key===stage)).slice(0,1):[];
   const contextCards=context.session.reviewCards.map(({id,typeKey,title,values})=>({id,typeKey,title,values:structuredClone(values)}));
-  for(const saved of earlier)for(const candidate of saved.output_payload.candidates??[])if(!contextCards.some(card=>card.id===candidate.reviewCardId))contextCards.push({id:candidate.reviewCardId,typeKey:candidate.typeKey,title:candidate.titleSuggestion??"",values:candidate.values});
+  for(const saved of earlier)for(const candidate of saved.output_payload?.candidates??[])if(!contextCards.some(card=>card.id===candidate.reviewCardId))contextCards.push({id:candidate.reviewCardId,typeKey:candidate.typeKey,title:candidate.titleSuggestion??"",values:candidate.values});
   let schemaTypes=context.schemaTypes;
   if(stage){const keys=CREATION_DIRECTOR_STAGES.find(item=>item.key===stage)!.typeKeys as readonly string[];schemaTypes=schemaTypes.filter(type=>keys.includes(type.key));}
   const targets:CreationPreparationTarget[]=[];
@@ -56,7 +75,7 @@ export async function claimCreationPreparation(sessionId:string,input:CreationRe
   }
   if(input.reviewCardId&&!context.session.reviewCards.some(card=>card.id===input.reviewCardId))throw new NewDesignError("请从当前开书表单选择要补全的资料。",404);
   if(!targets.length&&stage===null)throw new NewDesignError("当前范围没有可补全的空白字段或名称，已填写的内容不会覆盖。",422);
-  const selected=context.session.directionCandidates.find(item=>item.id===context.session.selectedDirectionId)??earlier.flatMap(saved=>saved.output_payload.directions??[])[0]??null;
+  const selected=context.session.directionCandidates.find(item=>item.id===context.session.selectedDirectionId)??earlier.flatMap(saved=>saved.output_payload?.directions??[])[0]??null;
   if(stage&&stage!=="direction"&&!selected)throw new NewDesignError("请先准备并选择创作方向。",422);
   const specificationHash=stableHash({templateVersionId:context.session.templateVersionId,templateSnapshot:context.templateSnapshot,catalog:context.catalog,reviewCards:context.session.reviewCards});
   const promptInput=creationPreparationPromptInputSchema.parse({contract:"creation_preparation_v1",sessionId,sessionRevision:context.session.revision,specificationHash,stage,mode:input.mode,method:context.session.method,storyFormat:readStoryFormat(context.session.inputPayload.storyFormat),bookName:context.session.bookName,sourceReference:context.session.sourceReference,sourceText:context.sourceText,direction:selected,schemaTypes,targets,contextCards,catalog:context.catalog});

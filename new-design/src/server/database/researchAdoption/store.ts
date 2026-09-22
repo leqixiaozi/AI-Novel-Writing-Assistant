@@ -1,4 +1,4 @@
-import {createRecordCard,listRecordCards,requireRecordCard,replaceRecordCard,type RecordCardDb} from '../recordCards';
+import {createRecordCard,listRecordCards,requireRecordCard,replaceRecordCard} from '../recordCards';
 import {researchCandidateRows} from '../researchStore';
 import { randomUUID } from "node:crypto";
 import type { BookResearchAdoptionBatch, BookResearchAdoptionItem } from "../../../common/contracts";

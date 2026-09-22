@@ -27,8 +27,16 @@ test("explicit adopt and archive require real preview references; bindings freez
  assert.equal(visualPreviewSchema.safeParse({...ref,toVersionId:null}).success,true);
 });
 test("visual facts reuse original asset ledgers and original local storage contract",()=>{
- const code=read("src/server/database/visualAssets/index.ts"),sql=read("migrations/067_visual_asset_source_receipts.sql");
- for(const table of ["assets","asset_versions","asset_adoptions","asset_events","asset_mounts","dependency_change_previews"])assert.match(code,new RegExp("new_design\\."+table));
+ const code=read("src/server/database/visualAssets/index.ts"),adoptions=read("src/server/database/assets/adoptions.ts"),sql=read("migrations/067_visual_asset_source_receipts.sql"),native=read("src/server/database/bootstrap/tablesOnly/assets-jobs-functions.sql");
+ for(const table of ["cards","card_types","card_versions","asset_versions","asset_content_objects","asset_events","asset_links"])assert.match(code,new RegExp("new_design\\."+table+"\\b"));
+ assert.match(code,/record_type\.type_key='asset' JOIN new_design\.card_versions record_version ON record_version\.id=record\.current_version_id AND record_version\.card_id=record\.id/);
+ assert.match(code,/createRecordCard\(client,\{[^\n]*typeKey:"asset"/);assert.match(code,/requireRecordCard\(client,String\(asset\.id\),"asset"/);
+ assert.match(code,/new_design\.asset_versions v JOIN new_design\.asset_content_objects c ON c\.id=v\.content_object_id/);
+ assert.match(code,/INSERT INTO new_design\.asset_links\(id,book_id,asset_id,asset_version_id,owner_kind,owner_stable_id,owner_exact_version_id/);
+ assert.match(code,/typeKey:"dependency_change_preview"/);assert.match(code,/recordAssetAdoption\(client,values\)/);
+ assert.match(adoptions,/createRecordCard\(client,\{[^\n]*typeKey:'asset_adoption'/);assert.match(adoptions,/asset\.book_id!==values\.book_id\|\|asset\.current_version_id!==values\.to_version_id\|\|Number\(asset\.revision\)!==Number\(values\.asset_revision\)/);assert.match(adoptions,/new_design\.record_dependency_invalidation/);assert.match(adoptions,/values\.dependency_preview_id/);
+ assert.match(native,/IF kind IN \('asset_adoption'/);assert.match(native,/CREATE TRIGGER native_asset_version_scope BEFORE INSERT ON new_design\.asset_versions/);assert.match(native,/CREATE TRIGGER native_asset_link_scope BEFORE INSERT ON new_design\.asset_links/);
+ assert.doesNotMatch(code,/new_design\.(?:assets|asset_adoptions|asset_mounts|dependency_change_previews)\b/);
  assert.match(code,/'managed_file','local'/);assert.doesNotMatch(code,/new_design_visual|invokeStructuredModel|fetch\(/);assert.doesNotMatch(sql,/CREATE TABLE/);assert.match(sql,/visual_preview_source_validate/);assert.match(sql,/visual event operation or version mismatch/);assert.match(code,/getManagedImageConnectionCatalog/);assert.match(code,/generation=\(await getManagedImageConnectionCatalog\(\)\)\.connections\.length>0/);assert.match(code,/row\.incomplete/);assert.match(code,/await checkedImage/);assert.match(code,/stableHash\(await mountReferences/);assert.match(sql,/visual_mount_active_source/);
 });
 test("image reading is controlled, content-addressed and immutable exact version scoped",()=>{

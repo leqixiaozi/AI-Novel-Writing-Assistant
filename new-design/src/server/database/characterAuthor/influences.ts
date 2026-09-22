@@ -50,7 +50,7 @@ export async function decideCharacterAuthorInfluence(raw:unknown){
   const prior=(await client.query(`WITH ${characterRecordCtes.character_author_influence_decisions}
 SELECT input_hash,receipt FROM character_author_influence_decisions WHERE request_key=$1`,[input.requestKey])).rows[0];if(prior){if(prior.input_hash!==hash)throw new NewDesignError('原创作倾向选择键不能改动完整输入。',409);committing=true;await client.query('COMMIT');return characterAuthorInfluenceReceiptSchema.parse(prior.receipt);}
   absent=true;const person=await scope(client,input.bookId,input.cardId,true);await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`character-author-influence-person:${input.bookId}:${input.cardId}`]);
-  const row=assertFound((await lockedCharacterQuery(client,select+' WHERE candidate.id=$1 AND candidate.book_id=$2 AND candidate.card_id=$3',[input.candidateId,input.bookId,input.cardId])).rows[0],'原创作倾向候选未找到。');if(row.source_hash!==input.sourceHash||Number(row.revision)!==input.expectedRevision)throw new NewDesignError('原创作倾向修订已变化，选择保留。',409);
+  const row=assertFound((await lockedCharacterQuery<Row>(client,select+' WHERE candidate.id=$1 AND candidate.book_id=$2 AND candidate.card_id=$3',[input.candidateId,input.bookId,input.cardId])).rows[0],'原创作倾向候选未找到。');if(row.source_hash!==input.sourceHash||Number(row.revision)!==input.expectedRevision)throw new NewDesignError('原创作倾向修订已变化，选择保留。',409);
   if(input.action==='activate'){
    if(!(await influenceCapability(client)).operational)throw new NewDesignError('创作倾向带入尚未启用，原候选保留。',503);
    if(row.status!=='draft'||(await present(client,row,true)).effectiveStatus==='expired')throw new NewDesignError('原倾向已选择或来源失效，不能带入。',409);

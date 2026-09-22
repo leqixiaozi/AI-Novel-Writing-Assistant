@@ -35,5 +35,13 @@ test('append-only same-session receipts and real version chains remain additive'
 });
 
 test('cumulative adoption preserves actual field batch provenance and explicit direction choice',()=>{
- const adoption=fs.readFileSync(path.join(__dirname,'../src/server/database/bookCreationProduction/adoption.ts'),'utf8');assert.ok(adoption.includes('plan.sourceBatches'));assert.ok(adoption.includes('stableHash(previous.output_payload)!==source.outputHash'));assert.ok(adoption.includes('preparation_generated_output'));assert.ok(adoption.includes('[key]:origin.batchId'));assert.ok(adoption.includes('$title:origin.batchId'));assert.ok(adoption.includes('direction_candidates=$6::jsonb,selected_direction_id=$7'));assert.ok(adoption.includes('row.director_active_command_key'));
+ const adoption=fs.readFileSync(path.join(__dirname,'../src/server/database/bookCreationProduction/adoption.ts'),'utf8');
+ assert.ok(adoption.includes('plan.sourceBatches'));assert.ok(adoption.includes('stableHash(previous.output_payload)!==source.outputHash'));assert.ok(adoption.includes('preparation_generated_output'));assert.ok(adoption.includes('[key]:origin.batchId'));assert.ok(adoption.includes('$title:origin.batchId'));assert.ok(adoption.includes('row.director_active_command_key'));
+ // The session card update carries both fields atomically; direction choice is still explicit.
+ assert.match(adoption,/const direction=input\.directionId\?input\.output\.directions\.find\(d=>d\.id===input\.directionId\):null/);
+ assert.match(adoption,/await updateCreationSession\(client,row,\{review_cards:validated\.cards,formal_review:formal,book_name:bookName,description,direction_candidates:directions,selected_direction_id:direction\?\.id\?\?session\.selectedDirectionId,status:'review'\}\)/);
+ assert.ok(adoption.indexOf('await appendCreationReceipt(client,id,hash,receipt)')>adoption.indexOf('await updateCreationSession(client,row,'));
+ const repository=fs.readFileSync(path.join(__dirname,'../src/server/database/bookCreationProduction/repository.ts'),'utf8');
+ assert.match(repository,/function updateCreationSession[\s\S]*?return replaceRecordCard\(client,\{id:row\.id,spaceId:row\.recordSpaceId,typeKey:'book_creation_session',values:\{\.\.\.row,\.\.\.patch,revision:row\.revision\+1,updated_at:new Date\(\)\.toISOString\(\)\}\}\)/);
+ assert.doesNotMatch(adoption,/UPDATE new_design\.book_creation_sessions|adoptInitialPlanningVersionInTransaction|INSERT INTO new_design\.cards/);
 });

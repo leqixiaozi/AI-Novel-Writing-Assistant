@@ -13,11 +13,11 @@ async function inspect(client:PoolClient,bookId:string,instanceId:string,targetF
   const book=assertFound((await client.query(`SELECT * FROM new_design.books WHERE id=$1 AND status='active' ${lock?'FOR UPDATE':''}`,[bookId])).rows[0],'书籍不存在。');
   const instanceHead=assertFound(await findRecordCard(client,instanceId,'card_group_form_instance',{spaceId:String(book.space_id),lock}),'关联实例不属于本书。');
   const source=assertFound(await findRecordCard(client,String(instanceHead.form_version_id),'card_group_form_version',{includeArchived:true}),'实例原表单版本不存在。');
-  const instance={...instanceHead,definition:source.definition as CardGroupFormDefinition,form_id:source.form_id};
+  const instance={...instanceHead,form_version_id:String(instanceHead.form_version_id),primary_card_id:String(instanceHead.primary_card_id),definition:source.definition as CardGroupFormDefinition,form_id:String(source.form_id)};
   const targetVersion=assertFound(await findRecordCard(client,targetFormVersionId,'card_group_form_version',{includeArchived:true}),'目标表单版本不存在。');
   const targetHead=assertFound(await findRecordCard(client,String(targetVersion.form_id),'card_group_form',{spaceId:String(book.space_id),lock}),'目标表单版本不属于本书。');
   if(targetHead.status!=='published')throw new NewDesignError('目标表单尚未发布。',422);
-  const target={...targetHead,definition:targetVersion.definition as CardGroupFormDefinition,version:targetVersion.version};
+  const target={...targetHead,current_version_id:targetHead.current_version_id as string|null,form_key:String(targetHead.form_key),name:String(targetHead.name),description:String(targetHead.description),draft_definition:targetHead.draft_definition as CardGroupFormDefinition,is_system:Boolean(targetHead.is_system),definition:targetVersion.definition as CardGroupFormDefinition,version:Number(targetVersion.version)};
   const conflicts=formEvolutionConflicts(instance.definition as CardGroupFormDefinition,target.definition as CardGroupFormDefinition);
   if(String(instance.form_id)!==String(target.id))conflicts.push('升级须保留原表单身份；不同表单的实例分别保留。');if(String(instance.form_version_id)===targetFormVersionId)conflicts.push('此实例已使用所选版本。');
   for(const definition of [instance.definition,target.definition] as CardGroupFormDefinition[])for(const mapping of definition.installation?.relationMappings??[]){const actual=(await client.query(`SELECT * FROM new_design.relation_types WHERE id=$1 AND owner_space_id=$2 AND status='published' ${lock?'FOR UPDATE':''}`,[mapping.targetId,book.space_id])).rows[0];if(!actual||structureWriteHash(relationDefinition(actual))!==mapping.targetDefinitionHash)conflicts.push('已安装关系规格已改变，不能按原快照升级实例。');}

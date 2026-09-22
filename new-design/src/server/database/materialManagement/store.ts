@@ -121,9 +121,9 @@ async function tagPath(client:PoolClient,id:string):Promise<{ids:string[];names:
   const ids:string[]=[],names:string[]=[],seen=new Set<string>();let current:string|null=id;
   while(current){
     if(seen.has(current))throw new NewDesignError("标签树不能形成循环。",422);seen.add(current);
-    const tag=assertFound(await findRecordCard(client,current,'material_tag',{includeArchived:true}),"标签父节点不存在。");
+    const tag:RecordCardRow=assertFound(await findRecordCard(client,current,'material_tag',{includeArchived:true}),"标签父节点不存在。");
     const version=assertFound(await findRecordCard(client,String(tag.current_version_id),'material_tag_version'),"标签正式版本不存在。");
-    ids.unshift(tag.id);names.unshift(String(version.name));current=tag.parent_id??null;
+    ids.unshift(tag.id);names.unshift(String(version.name));current=tag.parent_id==null?null:String(tag.parent_id);
   }
   return{ids,names};
 }
@@ -209,7 +209,7 @@ async function changeMemberships(client:PoolClient,scope:Scope,kind:'tag'|'group
     const id=membership?.id??randomUUID(),revision=membership?membership.revision+1:1,versionId=randomUUID(),status=input.action==='add'?'active':'ended',now=new Date().toISOString();
     const values={...(membership??{}),id,space_id:scope.spaceId,[spec.owner]:subjectId,card_id:cardId,status,revision,current_version_id:versionId,...(kind==='group'?{is_primary:false,sort_order:membership?.sort_order??1000}:{}),updated_by:actor,updated_at:now};
     if(membership)await replaceRecordCard(client,{id,spaceId:membership.recordSpaceId,typeKey,values});
-    else await createRecordCard(client,{id,spaceId:scope.spaceId,typeKey,title:'资料组织引用',values:{created_by:actor,created_at:now,...values}});
+    else await createRecordCard(client,{id,spaceId:scope.spaceId,typeKey,title:'资料组织引用',values:{...values,created_by:actor,created_at:now}});
     await createRecordCard(client,{id:versionId,spaceId:scope.spaceId,typeKey:`${typeKey}_version`,title:'资料组织引用历史',values:{id:versionId,membership_id:id,revision,[`${kind}_version_id`]:subject.current_version_id,card_version_id:card.current_version_id,...(kind==='group'?{sort_order:membership?.sort_order??1000}:{}),status,created_by:actor,created_at:now}});
   }
 }

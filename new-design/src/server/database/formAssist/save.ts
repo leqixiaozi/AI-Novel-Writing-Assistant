@@ -15,7 +15,7 @@ export async function verifyFormAiSave(db:PoolClient,input:{cardId:string;spaceI
     const decision=await findRecordCard(db,id,'form_ai_draft_decision',{lock:true});
     const batch=decision?await findRecordCard(db,String(decision.batch_id),'ai_generation_batch'):null;
     const book=batch?(await db.query('SELECT space_id FROM new_design.books WHERE id=$1',[batch.book_id])).rows[0]:null;
-    const row=decision?.decision==='adopt'&&batch&&book?{...decision,book_id:batch.book_id,card_id:batch.card_id,input_payload:batch.input_payload,output_payload:batch.output_payload,space_id:book.space_id}:null;
+    const row=decision?.decision==='adopt'&&batch&&book?{...decision,candidate_id:String(decision.candidate_id),source_hash:String(decision.source_hash),book_id:batch.book_id,card_id:batch.card_id,input_payload:batch.input_payload,output_payload:batch.output_payload,space_id:book.space_id}:null;
     if(!row||row.space_id!==input.spaceId)throw new NewDesignError("AI 来源不属于本书的确认草稿。",422);
     const story=row.input_payload.contract==="story_workspace_ai_v1",slot=story?row.input_payload.snapshot.slots.find((slot:any)=>slot.id===row.candidate_id):null;
     if(story&&(!slot?.target||!["visible_prepare","visible_adjust"].includes(row.input_payload.snapshot.mode)))throw new NewDesignError("外显采用来源不完整。",409);
@@ -60,7 +60,7 @@ export async function saveFormDraftTags(db:PoolClient,cardId:string,versionId:st
   if(selected.length!==tagIds.length)throw new NewDesignError("标签已停用或不属于本书。",422);
   const bindings=await listRecordCards(db,'card_type_tag_binding',{where:{card_type_id:cardTypeId,status:'active'}});
   for(const binding of bindings){
-    const nodes=tags.filter(row=>row.dimension_id===binding.dimension_id).map(row=>({id:row.id,parentId:row.parent_id,status:row.status}));
+    const nodes=tags.filter(row=>row.dimension_id===binding.dimension_id).map(row=>({id:row.id,parentId:row.parent_id as string|null,status:row.status as 'active'|'archived'}));
     const ids=selected.filter(row=>row.dimension_id===binding.dimension_id).map(row=>row.id),checked=validateTreeSelection(nodes,binding.config.rule,ids);
     if(!checked.valid)throw new NewDesignError(`分类标签选择无效：${checked.message}`,422);
   }
@@ -72,7 +72,7 @@ export async function saveFormDraftTags(db:PoolClient,cardId:string,versionId:st
     const id=existing?.id??randomUUID(),revision=existing?existing.revision+1:1,membershipVersionId=randomUUID(),now=new Date().toISOString();
     const values={...(existing??{}),id,space_id:spaceId,tag_id:change.tagId,card_id:cardId,status:change.status,revision,current_version_id:membershipVersionId,updated_at:now};
     if(existing)await replaceRecordCard(db,{id,spaceId:existing.recordSpaceId,typeKey:'material_tag_membership',values});
-    else await createRecordCard(db,{id,spaceId,typeKey:'material_tag_membership',title:'资料标签',values:{created_at:now,created_by:'user',updated_by:'user',...values}});
+    else await createRecordCard(db,{id,spaceId,typeKey:'material_tag_membership',title:'资料标签',values:{...values,created_at:now,created_by:'user',updated_by:'user'}});
     await createRecordCard(db,{id:membershipVersionId,spaceId,typeKey:'material_tag_membership_version',title:'资料标签历史',values:{id:membershipVersionId,membership_id:id,revision,tag_version_id:tag.current_version_id,card_version_id:versionId,status:change.status,created_by:'user',created_at:now}});
   }
 }

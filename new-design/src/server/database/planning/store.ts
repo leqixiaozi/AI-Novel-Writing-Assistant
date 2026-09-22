@@ -1,4 +1,4 @@
-import {findRecordCard,listRecordCards,type RecordCardRow} from '../recordCards';
+import {findRecordCard,listRecordCards} from '../recordCards';
 import {planningRow,planningVersion,patchPlanningRecord,insertPlanningRecord,planningOperation,lockPlanningBook,newPlanningObject,validatePlanningReference,planningReferences} from './records';
 import {invalidatePlanningDownstream} from './invalidation';
 import {readStoryFormat} from "../../../common/storyFormat";
@@ -53,7 +53,7 @@ async function insertVersion(client:PoolClient,object:Record<string,unknown>,num
   if(input.content.title!==undefined&&(typeof input.content.title!=='string'||!input.content.title.trim()||input.content.title.trim().length>500))throw new NewDesignError('请填写有效规划名称。',422);
   if(input.content.storyFormat!==undefined&&(object.level!=='story'||!readStoryFormat(input.content.storyFormat)))throw new NewDesignError("\u4f5c\u54c1\u5f62\u5f0f\u53ea\u80fd\u4fdd\u5b58\u5728\u6545\u4e8b\u603b\u7eb2\uff0c\u8bf7\u6838\u5bf9\u957f\u77ed\u7bc7\u4e0e\u76ee\u6807\u5b57\u6570\u3002",422);
   if(input.content.storyFormatSourceId!==undefined){
-   const sourceRecord=await findRecordCard(client,String(input.content.storyFormatSourceId),'book_content_source'),source=sourceRecord?.book_id===object.book_id&&sourceRecord.confirmation_status==='confirmed'?{format:sourceRecord.source_payload?.storyFormat}:null;
+   const sourceRecord=await findRecordCard(client,String(input.content.storyFormatSourceId),'book_content_source'),source=sourceRecord&&sourceRecord.book_id===object.book_id&&sourceRecord.confirmation_status==='confirmed'?{format:sourceRecord.source_payload?.storyFormat}:null;
    if(object.level!=='story'||!source||JSON.stringify(readStoryFormat(source.format))!==JSON.stringify(readStoryFormat(input.content.storyFormat))||!readStoryFormat(input.content.storyFormat))throw new NewDesignError("\u5e26\u5165\u7684\u5f00\u4e66\u5f62\u5f0f\u4e0e\u539f\u786e\u8ba4\u6765\u6e90\u4e0d\u4e00\u81f4\uff1b\u4eba\u5de5\u4fee\u6539\u540e\u9700\u4f5c\u4e3a\u65b0\u5019\u9009\u6838\u5bf9\u3002",409);
   }
   const basis=await validateParentBasis(client,object,input.basedOnParentVersionId,allowDraftParent);

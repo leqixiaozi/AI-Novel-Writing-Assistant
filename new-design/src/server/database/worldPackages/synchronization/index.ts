@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {worldSyncInputSchema,worldSyncCommitSchema,type WorldSyncInput,type WorldSyncCommit,type WorldSyncReceipt,type WorldPushCandidate} from '../../../../common/worldPackages';
-import {NewDesignError} from '../../../domain/errors';
+import {NewDesignError,assertFound} from '../../../domain/errors';
 import {getNewDesignPool} from '../../runtime';
 import {formHash} from '../../formAssist';
 import {createAuthorMaterialInTransaction,updateAuthorMaterialInTransaction} from '../../authorMaterials';

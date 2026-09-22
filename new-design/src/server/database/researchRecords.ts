@@ -1,4 +1,5 @@
 import type {PoolClient} from 'pg';
+import type {ResearchCandidate} from '../../common/contracts';
 import {NewDesignError} from '../domain/errors';
 import {createRecordCard,listRecordCards,requireRecordCard,replaceRecordCard,type RecordCardDb} from './recordCards';
 import {DEFAULT_SPACE_ID} from './store';
@@ -7,7 +8,7 @@ export async function researchCandidate(db:RecordCardDb,id:string,recordId?:stri
   const candidate=await requireRecordCard(db,id,'research_candidate','研究候选不存在。',{lock}),batch=await requireRecordCard(db,candidate.batch_id,'research_candidate_batch','研究批次不存在。');
   const version=await requireRecordCard(db,batch.research_version_id,'research_record_version','研究版本不存在。');
   if(recordId&&version.record_id!==recordId)throw new NewDesignError('候选不属于本研究记录。',404);
-  return{...candidate,research_version_id:batch.research_version_id,record_id:version.record_id};
+  return{...candidate,batch_id:String(candidate.batch_id),target_type_key:String(candidate.target_type_key),title:String(candidate.title),values:candidate.values as ResearchCandidate['values'],relation_candidates:candidate.relation_candidates as ResearchCandidate['relationCandidates'],evidence_ids:candidate.evidence_ids as ResearchCandidate['evidenceIds'],merge_key:String(candidate.merge_key),confidence:candidate.confidence as ResearchCandidate['confidence'],status:candidate.status as ResearchCandidate['status'],research_version_id:String(batch.research_version_id),record_id:String(version.record_id)};
 }
 export async function patchResearchRecord(db:PoolClient,id:string,kind:string,patch:Record<string,unknown>){
   const row=await requireRecordCard(db,id,kind,'研究记录不存在。',{lock:true});

@@ -6,7 +6,7 @@ import {AsyncLocalStorage} from "node:async_hooks";
 import {randomUUID} from "node:crypto";
 import type {Pool,PoolClient} from "pg";
 import type {FieldDefinition} from "../../../common/contracts";
-import {PUBLIC_RESOURCE_KINDS,PROFESSIONAL_ROUTE,professionalCommandSchema,type ProfessionalCatalog,type ProfessionalCommand,type ProfessionalReceipt,type ProfessionalRecovery,type ProfessionalResource,type ProfessionalResourceKind} from "../../../common/professionalResources";
+import { PUBLIC_RESOURCE_KINDS, PROFESSIONAL_ROUTE, professionalCommandSchema, type ProfessionalCatalog, type ProfessionalReceipt, type ProfessionalRecovery, type ProfessionalResource, type ProfessionalResourceKind } from "../../../common/professionalResources";
 import {getNewDesignPool} from "../runtime";
 import {stableHash} from "../aiContracts";
 import {validateCardValues} from "../../domain/validation";

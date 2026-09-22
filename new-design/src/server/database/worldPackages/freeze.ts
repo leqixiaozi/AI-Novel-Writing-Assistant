@@ -5,7 +5,7 @@ import type {FieldDefinition} from '../../../common/contracts';
 import {assertFound,NewDesignError} from '../../domain/errors';
 import {formHash} from '../formAssist';
 import {requireWorldPackageCapability} from './capability';
-import {findRecordCardByValue,listRecordCards} from '../recordCards';
+import { listRecordCards } from '../recordCards';
 
 export async function freezeWorldPackage(db:PoolClient,input:WorldPackageInput,lock=false,sourceSpaceId:string=PUBLIC_WORLD_SPACE_ID){
  await requireWorldPackageCapability(db);

@@ -13,7 +13,7 @@ const SYSTEM_SPACE_ID='00000000-0000-4000-8000-000000000001';
 async function inspect(client:PoolClient,sourceTemplateVersionId:string,lock=false,kind:"profile"|"visible"|"resource"="profile"){
   const templateVersion=assertFound(await findRecordCard(client,sourceTemplateVersionId,'template_group_version',{includeArchived:true}),'请选择实际已发布的模板版本。');
   const templateHead=assertFound(await findRecordCard(client,String(templateVersion.template_id),'template_group',{includeArchived:true,lock}),'模板不存在。');
-  const template={...templateHead,payload:templateVersion.payload};
+  const template={...templateHead,current_version_id:templateHead.current_version_id as string|null,name:String(templateHead.name),payload:templateVersion.payload};
   if(template.current_version_id!==sourceTemplateVersionId)throw new NewDesignError("模板已有新版本，请重新预览当前发布版本。",409);
   const typeKey=kind==="resource"?"prop":"character";
   const payload=structuredClone(template.payload as TemplatePayload),type=assertFound(payload.cardTypes.find(item=>item.key===typeKey),"这个模板没有所选内容规格。");

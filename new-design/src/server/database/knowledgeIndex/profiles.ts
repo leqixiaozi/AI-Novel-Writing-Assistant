@@ -1,11 +1,11 @@
-import {createRecordCard,listRecordCards,replaceRecordCard,requireRecordCard} from "../recordCards";
+import { createRecordCard } from "../recordCards";
 import {DEFAULT_SPACE_ID} from "../store";
 import {randomUUID} from "node:crypto";
 import type {CreateKnowledgeProfileInput,KnowledgeProfileReceipt} from "../../../common/knowledgeIndex";
 import type {PoolClient} from "pg";
 import {readManagedEmbeddingConnectionVersion} from "../modelManagement";
 import {stableHash} from "../aiContracts";
-import {NewDesignError,assertFound} from "../../domain/errors";
+import { NewDesignError } from "../../domain/errors";
 import {indexTransaction,indexOriginalRead,OriginalKnowledgeRequestConflict} from "./repository";
 import {createKnowledgeProfileSchema} from "./policy";
 async function receipt(client:PoolClient,bookId:string,key:string,repeated=true):Promise<KnowledgeProfileReceipt|null>{const rows=(await client.query("SELECT * FROM (SELECT fields.* FROM new_design.cards record JOIN new_design.card_types record_type ON record_type.id=record.card_type_id AND record_type.type_key='embedding_profile_version' JOIN new_design.card_versions record_version ON record_version.id=record.current_version_id AND record_version.card_id=record.id CROSS JOIN LATERAL jsonb_to_record(record_version.values) AS fields(id uuid,profile_id uuid,version integer,provider_key text,model_key text,dimensions integer,distance_metric text,normalize boolean,chunker_key text,chunker_version text,max_chunk_chars integer,overlap_chars integer,allowed_source_kinds text[],content_hash text,created_by text,created_at timestamptz,connection_version_id uuid,knowledge_profile_key uuid,knowledge_profile_hash text,knowledge_profile_book_id uuid) WHERE record.status='active') embedding_profile_version_record WHERE knowledge_profile_key=$1 AND knowledge_profile_book_id=$2",[key,bookId])).rows;if(rows.length>1)throw new NewDesignError("原嵌入规格请求出现重复来源，请保留原标识核对。",409);const row=rows[0];return row?{requestKey:key,inputHash:String(row.knowledge_profile_hash),profileId:String(row.profile_id),profileVersionId:String(row.id),connectionVersionId:String(row.connection_version_id),repeated,mutationOutcome:"committed"}:null;}

@@ -57,7 +57,7 @@ export async function reorderPromptGroups(input:PromptReorderInput):Promise<Prom
     const event=(await client.query("SELECT payload->'detail' detail FROM new_design.card_version_actions WHERE action_key LIKE 'material.%' AND payload->>'space_id'=$1 AND payload->>'idempotency_key'=$2",[SPACE,input.idempotencyKey])).rows[0];
     if(event){if(event.detail.inputHash!==hash)throw new NewDesignError("排序请求标识已用于其他操作。",409);await client.query("COMMIT");return getPromptCatalog();}
     const heads=(await listRecordCards(client,"material_group",{spaceId:SPACE,where:{parent_id:input.parentId,status:"active"},lock:true})).sort((a,b)=>a.id.localeCompare(b.id)),siblings=[];
-    for(const row of heads){const version=await requireRecordCard(client,String(row.current_version_id),"material_group_version","分类版本不存在。");siblings.push({...row,name:version.name});}
+    for(const row of heads){const version=await requireRecordCard(client,String(row.current_version_id),"material_group_version","分类版本不存在。");siblings.push({...row,name:String(version.name),sort_order:Number(row.sort_order),parent_id:row.parent_id===null?null:String(row.parent_id)});}
     if(new Set(input.orderedIds).size!==siblings.length||input.orderedIds.length!==siblings.length||siblings.some(row=>!input.orderedIds.includes(String(row.id))||input.expectedRevisions[String(row.id)]!==Number(row.revision)))throw new NewDesignError("同级分类已更新，请重读分类并核对后再排序。",409);
     for(let i=0;i<input.orderedIds.length;i++){
       const row=siblings.find(row=>String(row.id)===input.orderedIds[i])!,order=(i+1)*1000;
