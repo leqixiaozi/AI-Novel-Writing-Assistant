@@ -2,6 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { preparePrompt, listPromptAssets, PROMPT_TASK_TYPES } = require("../dist/server/ai/prompts");
 
+test("opening materials support the approved 16384 output budget without raising unrelated task limits", () => {
+  const assets=listPromptAssets();
+  assert.equal(assets.find(item=>item.taskType==='initial_content').maxTokens,16384);
+  assert.equal(assets.find(item=>item.taskType==='initial_content').version,'v4');
+  assert.equal(assets.find(item=>item.taskType==='directions').maxTokens,5000);
+  assert.equal(assets.find(item=>item.taskType==='form_assist').maxTokens,7000);
+});
+
 const field = (key, type = "short_text", extra = {}) => ({ key, name: key === "__title" ? "资料名称" : "人物目标", description: "可执行的目标", type, required: true, options: [], ...extra });
 const type = { key: "character", name: "人物", description: "人物资料", fields: [field("goal")] };
 const direction = { id: "direction-1", title: "守脉者", premise: "少年守护灵脉", protagonist: "守山少年", centralConflict: "灵脉消失", readerPromise: "揭开失忆真相", styleKeywords: ["仙侠悬疑"] };

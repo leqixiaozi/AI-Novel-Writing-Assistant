@@ -91,14 +91,16 @@ test('the selected protocol, not the MiniMax model name, drives transport and re
   assert.deepEqual(outputs, [{suggestions: {name: '沈青'}}, {suggestions: {name: '沈青'}}]);
 });
 
-test('structured result channel rejects missing, foreign or multiple tool calls instead of using prose', () => {
+test('structured result channel rejects foreign or multiple tool calls instead of using prose', () => {
   const tool='submit_creative_result', fn={type:'function',function:{name:tool,arguments:content}};
-  for(const calls of [[],[{...fn,function:{...fn.function,name:'delete_book'}}],[fn,fn]]) {
+  for(const calls of [[{...fn,function:{...fn.function,name:'delete_book'}}],[fn,fn]]) {
     assert.equal(normalizeModelResponse('openai-compatible',{choices:[{message:{content,tool_calls:calls}}]},tool).content,null);
   }
   const block={type:'tool_use',name:tool,input:JSON.parse(content)};
-  for(const blocks of [[],[{...block,name:'delete_book'}],[block,block],[{...block,input:'not-an-object'}]]) {
+  for(const blocks of [[{...block,name:'delete_book'}],[block,block],[{...block,input:'not-an-object'}]]) {
     assert.equal(normalizeModelResponse('anthropic-compatible',{content:[{type:'text',text:content},...blocks]},tool).content,null);
   }
   assert.equal(normalizeModelResponse('openai-compatible',{choices:[{message:{tool_calls:[fn]}}]}).content,null,'unsolicited tools are never creative text');
+  assert.equal(normalizeModelResponse('openai-compatible',openai(),tool).content,content);
+  assert.equal(normalizeModelResponse('anthropic-compatible',anthropic(),tool).content,content);
 });

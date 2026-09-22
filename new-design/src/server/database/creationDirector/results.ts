@@ -6,6 +6,8 @@ import {stableHash} from "../aiContracts";
 import {lockCreationSession,updateCreationSession,updateGenerationBatch} from "../bookCreationProduction/repository";
 import {directorTransaction,CreationPreparationError,preparationFailure} from "./transaction";
 import {batchSessionId,readOwnedCreationBatch,creationPreparationReceipt,getCreationPreparationResult,type CreationPreparationClaim} from "./preparation";
+import type {PoolClient} from 'pg';
+import {hasRecoverableResponse,validateRetainedResponse} from './responseRecovery';
 
 export async function saveCreationPreparationGeneratedOutput(claim:CreationPreparationClaim,output:CreationPreparationOutput,execution:Record<string,unknown>):Promise<void>{
  await directorTransaction(claim.sessionId,async db=>{
@@ -17,7 +19,9 @@ export async function saveCreationPreparationGeneratedOutput(claim:CreationPrepa
 }
 
 export async function saveCreationPreparationOutput(claim:CreationPreparationClaim,output:CreationPreparationOutput,execution:Record<string,unknown>):Promise<CreationPreparationReceipt>{
- return directorTransaction(claim.sessionId,async db=>{
+ return directorTransaction(claim.sessionId,db=>saveOutputInTransaction(db,claim,output,execution));
+}
+async function saveOutputInTransaction(db:PoolClient,claim:CreationPreparationClaim,output:CreationPreparationOutput,execution:Record<string,unknown>):Promise<CreationPreparationReceipt>{
   const session=await lockCreationSession(db,claim.sessionId),batch=await readOwnedCreationBatch(db,claim.batchId,true);
   if(batch.preparation_terminal||batch.status!=="running"||batch.frozen_plan.inputHash!==claim.plan.inputHash)throw new NewDesignError("这次准备已被结束或接管，迟到模型结果没有覆盖开书表单。",409);
   if(batch.output_payload&&Array.isArray(batch.output_payload.candidates))throw new NewDesignError("原结果已经保存，请读取旧结果，不再生成。",409);
@@ -36,7 +40,6 @@ export async function saveCreationPreparationOutput(claim:CreationPreparationCla
    await updateCreationSession(db,session,{input_payload:{...session.input_payload,creationDirector:next},director_active_command_key:next.mode!=='automatic'||next.cursor>=CREATION_DIRECTOR_STAGES.length?null:session.director_active_command_key,status:'review',stage:next.cursor>=CREATION_DIRECTOR_STAGES.length?'review_initial_content':`director_${CREATION_DIRECTOR_STAGES[next.cursor].key}`,error_message:null,last_failed_stage:null});
   }else await updateCreationSession(db,session,{status:'review',stage:'review_initial_content',error_message:null,last_failed_stage:null});
   const current=await readOwnedCreationBatch(db,claim.batchId);return creationPreparationReceipt(current);
- });
 }
 export async function failCreationPreparation(claim:CreationPreparationClaim,failure:CreationPreparationFailure,execution:Record<string,unknown>|null):Promise<CreationPreparationReceipt>{
  return directorTransaction(claim.sessionId,async db=>{
@@ -79,8 +82,19 @@ export async function getCreationPreparationAdoptionReceipt(batchId:string,key:s
  const sessionId=await batchSessionId(batchId);return directorTransaction(sessionId,async db=>{const row=await readOwnedCreationBatch(db,batchId);return row.preparation_adoption_receipts?.find(item=>item.receipt.requestKey===key)?.receipt??null;},false,key);
 }
 export async function recoverSavedCreationPreparation(batchId:string):Promise<CreationPreparationReceipt>{
- const sessionId=await batchSessionId(batchId),saved=await directorTransaction(sessionId,db=>readOwnedCreationBatch(db,batchId));
- if(Array.isArray(saved.output_payload?.candidates))return creationPreparationReceipt(saved);
- if(!creationPreparationReceipt(saved).canRecoverSavedResult||!saved.preparation_generated_output)throw new NewDesignError("此批没有可恢复的已保存模型输出，请先读取原请求。",409);
- return saveCreationPreparationOutput({sessionId,batchId,requestKey:String(saved.preparation_request_key),stage:saved.frozen_plan.input.stage,plan:saved.frozen_plan},saved.preparation_generated_output,saved.preparation_execution??{});
+ const sessionId=await batchSessionId(batchId);
+ return directorTransaction(sessionId,async db=>{
+  const session=await lockCreationSession(db,sessionId),saved=await readOwnedCreationBatch(db,batchId,true);
+  if(Array.isArray(saved.output_payload?.candidates))return creationPreparationReceipt(saved);
+  const claim={sessionId,batchId,requestKey:String(saved.preparation_request_key),stage:saved.frozen_plan.input.stage,plan:saved.frozen_plan};
+  if(hasRecoverableResponse(saved)){
+    const {output,execution}=validateRetainedResponse(saved,session);
+    await updateGenerationBatch(db,batchId,{status:'running',preparation_generated_output:output,preparation_execution:execution});
+    const state=creationDirectorState(session.input_payload);
+    await updateCreationSession(db,session,{status:'generating',input_payload:state?{...session.input_payload,creationDirector:{...state,activeBatchId:batchId}}:session.input_payload});
+    return saveOutputInTransaction(db,claim,output,execution);
+  }
+  if(!creationPreparationReceipt(saved).canRecoverSavedResult||!saved.preparation_generated_output)throw new NewDesignError("此批没有可恢复的已保存模型输出，请先读取原请求。",409);
+  return saveOutputInTransaction(db,claim,saved.preparation_generated_output,saved.preparation_execution??{});
+ });
 }

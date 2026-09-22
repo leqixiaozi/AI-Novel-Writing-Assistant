@@ -92,6 +92,31 @@ test('missing delimiters from the observed failure are rejected without guessing
   assert.equal(error.executionSnapshot.failedResponseEvidence.content,malformed);
 });
 
+test('missing result envelope preserves final prose only as private failure evidence', async () => {
+  const fixture=setup(null);
+  fixture.dependencies.fetcher=async()=>new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content:'provider-final-text',reasoning_content:'hidden',tool_calls:[{type:'function',function:{name:'foreign_tool',arguments:'private-tool-args'}}]}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}));
+  await assert.rejects(()=>executeManagedPrompt('form_assist',prompt,fixture.dependencies),error=>{
+    assert.equal(error.executionSnapshot.failedResponseEvidence.content,'provider-final-text');
+    assert.equal(error.executionSnapshot.knownTokens,15);
+    assert.doesNotMatch(JSON.stringify(error.executionSnapshot.failedResponseEvidence),/hidden|private-tool-args/);
+    assert.equal(error.recovery.failedStep,'读取模型输出');
+    return true;
+  });
+});
+
+test('plain JSON and paired-quote normalization still pass the same business schema exactly once', async () => {
+  const fixture=setup(null);let calls=0;
+  const content=String.raw`{"suggestions":{"name":"称作\"夜班人"三个字"}}`;
+  fixture.dependencies.fetcher=async()=>{calls++;return new Response(JSON.stringify({choices:[{finish_reason:'stop',message:{content}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}));};
+  const result=await executeManagedPrompt('form_assist',prompt,fixture.dependencies);
+  assert.equal(calls,1);assert.equal(result.output.suggestions.name,'称作"夜班人"三个字');
+  assert.equal(result.modelSnapshot.outputRepair.kind,'paired_quote_escape');
+  assert.equal(result.modelSnapshot.failedResponseEvidence,undefined);
+  const invalid=setup('{"suggestions":{"name":42}}');
+  await assert.rejects(()=>executeManagedPrompt('form_assist',prompt,invalid.dependencies),error=>error.recovery.failedStep==='核对创作结果');
+  assert.equal(invalid.calls(),1);
+});
+
 test('missing final text does not retain reasoning or tool payload as a substitute', async () => {
   const error = await failure(null, {finish: 'tool_calls'});
   assert.equal(error.executionSnapshot.failedResponseEvidence.content, null);

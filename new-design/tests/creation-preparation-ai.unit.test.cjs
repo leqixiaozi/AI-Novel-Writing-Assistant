@@ -14,6 +14,8 @@ test('wire schema exposes the same stage boundaries as local validation',()=>{
  for(const stage of [null,'direction','project','world','characters','skeleton']){
   const i=input();i.stage=stage;
   const p=preparePrompt(stage==='direction'?'directions':'initial_content',i);
+  assert.equal(p.outputSchema.properties.candidates.minItems,i.targets.length);
+  assert.equal(p.outputSchema.properties.candidates.maxItems,i.targets.length);
   assert.equal(p.outputSchema.properties.plans.maxItems,stage==='skeleton'?300:0);
   assert.equal(p.outputSchema.properties.directions.maxItems,stage==='direction'?5:0);
   assert.equal(p.outputSchema.properties.relations.maxItems,stage===null?0:300);

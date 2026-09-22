@@ -2,6 +2,7 @@ import type { PreparedPrompt } from "../prompts";
 import type { ModelConfiguration } from "./configuration";
 import { AiExecutionError, type FailedModelResponseEvidence } from "./errors";
 import {createHash} from "node:crypto";
+import {decodeModelObject,type OutputSyntaxRepair} from './structuredResponse';
 
 export interface UnifiedModelRequest {model:string;messages:PreparedPrompt["messages"];outputSchema:PreparedPrompt["outputSchema"];taskType:PreparedPrompt["taskType"];temperature:number;maxOutputTokens:number;}
 export type ModelFinishReason="completed"|"output_limit"|"tool_calls"|"refused"|"other"|"unknown";
@@ -93,8 +94,10 @@ export function normalizeModelResponse(provider:ModelConfiguration["provider"],d
     const calls=provider==="anthropic-compatible"?(Array.isArray(data.content)?data.content.filter(block=>block&&typeof block==="object"&&(block as Record<string,unknown>).type==="tool_use"):[]):message&&typeof message==="object"?(message as Record<string,unknown>).tool_calls:undefined;
     const list=Array.isArray(calls)?calls:[];
     const call=list.length===1&&list[0]&&typeof list[0]==="object"?list[0] as Record<string,unknown>:null;
-    if(provider==="anthropic-compatible")rawContent=call?.name===resultTool&&call.input&&typeof call.input==="object"&&!Array.isArray(call.input)?JSON.stringify(call.input):null;
-    else {const fn=call?.type==="function"&&call.function&&typeof call.function==="object"?call.function as Record<string,unknown>:null;rawContent=fn?.name===resultTool&&typeof fn.arguments==="string"?fn.arguments:null;}
+    if(list.length||calls!==undefined&&!Array.isArray(calls)){
+      if(provider==="anthropic-compatible")rawContent=call?.name===resultTool&&call.input&&typeof call.input==="object"&&!Array.isArray(call.input)?JSON.stringify(call.input):null;
+      else {const fn=call?.type==="function"&&call.function&&typeof call.function==="object"?call.function as Record<string,unknown>:null;rawContent=fn?.name===resultTool&&typeof fn.arguments==="string"?fn.arguments:null;}
+    }
   }
   const metadata=(value:unknown)=>typeof value==="string"?value.slice(0,256):null;
   const rawFinishReason=metadata(provider==="anthropic-compatible"?data.stop_reason:provider==="ollama"?data.done_reason:first?.finish_reason);
@@ -148,17 +151,20 @@ function captureResponseEvidence(reply:UnifiedModelResponse,maxOutputTokens:numb
   return {content,contentSha256:bytes?createHash("sha256").update(bytes).digest("hex"):null,contentBytes:bytes?.length??0,retainedBytes:content===null?0:Buffer.byteLength(content,"utf8"),truncated:Boolean(bytes&&bytes.length>limit),finishReason:reply.rawFinishReason,responseId:reply.responseId,responseModel:reply.responseModel,maxOutputTokens,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,usedTokens:reply.usedTokens,usageReported:reply.usageReported,capturedAt:new Date().toISOString()};
 }
 
-export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch,retainFailedResponse=false):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null;responseEvidence?:FailedModelResponseEvidence}> {
+export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch,retainFailedResponse=false):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null;responseEvidence?:FailedModelResponseEvidence;outputRepair?:OutputSyntaxRepair}> {
   const wire=protocolRequest(config,createModelRequest(config,prompt));
   const data=await receive(config,destination(config,wire.path),{method:"POST",body:JSON.stringify(wire.body)},"生成创作候选",fetcher);
   const reply=normalizeModelResponse(config.provider,data,wire.resultTool);
-  const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(reply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
+  // A missing result envelope is still a received reply. Keep final prose for private
+  // diagnosis without accepting it as tool arguments or retaining unknown tool payloads.
+  const evidenceReply=retainFailedResponse&&wire.resultTool&&reply.content===null?{...reply,content:normalizeModelResponse(config.provider,data).content}:reply;
+  const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(evidenceReply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
   const receipt={responseReceived:true as const,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
   const outputFailure=(message:string,step:string)=>{const failure=new AiExecutionError(step,message);failure.transportReceipt=receipt;return failure;};
   if(reply.finishReason==="output_limit")throw outputFailure("模型输出达到长度上限，本次不接收不完整结果。请减少本次资料范围或调整输出预算。","读取模型输出");
   if(reply.finishReason==="refused")throw outputFailure("模型拒绝了本次生成，本次未产生可采用的候选。","读取模型输出");
   if(reply.content===null)throw outputFailure(wire.resultTool?"模型未返回唯一且匹配的结构化结果参数，本次回复未采用。":"模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");
-  let value:unknown;
-  try {value=JSON.parse(reply.content);}catch{throw outputFailure("模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。","解析创作结果");}
-  return {value,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
+  let decoded:ReturnType<typeof decodeModelObject>;
+  try {decoded=decodeModelObject(reply.content);}catch{throw outputFailure("模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。","解析创作结果");}
+  return {...decoded,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
 }

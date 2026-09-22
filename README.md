@@ -174,6 +174,7 @@ Open-source AI novel writing assistant and long-form production studio.
 #### 修复
 
 - MiniMax 开书改用明确的资料结果通道，并限制各阶段只生成本阶段内容；不完整或超出长度限制的回复会明确停止，保留已有草稿。
+- 开书可核验并恢复已有完整回复，无须重复生成；兼容模型直接返回的合法资料结果，并明确每个资料位置只能生成一项，减少重复候选。
 - 新版使用旧模板开书时，兼容未填写父级的字典根节点，避免 AI 准备在发送请求前被拦住；保留原模板和开书草稿，无需修改数据库。
 
 完整更新历史见[版本更新说明](docs/releases/release-notes.md)。新版各批交付与未完成项见[新设计交付记录](new-design/docs/releases.md)和[逐页进度](new-design/docs/legacy-page-replication-progress.md)。
