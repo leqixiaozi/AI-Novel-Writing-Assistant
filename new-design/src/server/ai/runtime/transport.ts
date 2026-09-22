@@ -1,6 +1,7 @@
 import type { PreparedPrompt } from "../prompts";
 import type { ModelConfiguration } from "./configuration";
-import { AiExecutionError } from "./errors";
+import { AiExecutionError, type FailedModelResponseEvidence } from "./errors";
+import {createHash} from "node:crypto";
 
 export interface UnifiedModelRequest {model:string;messages:PreparedPrompt["messages"];outputSchema:PreparedPrompt["outputSchema"];taskType:PreparedPrompt["taskType"];temperature:number;maxOutputTokens:number;}
 export interface UnifiedModelResponse {content:string|null;inputTokens:number|null;outputTokens:number|null;usedTokens:number;usageReported:boolean;}
@@ -118,14 +119,26 @@ export async function probeModelConnection(config:ModelConfiguration,fetcher:typ
   return {available:true,modelFound,models};
 }
 
-export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null}> {
+function captureResponseEvidence(config:ModelConfiguration,data:Record<string,unknown>,reply:UnifiedModelResponse,maxOutputTokens:number):FailedModelResponseEvidence {
+  // Only final text and allowlisted metadata. Exclude request headers, prompts and reasoning/tool blocks.
+  const bytes=reply.content===null?null:Buffer.from(reply.content,"utf8"),limit=2*1024*1024;
+  let content=reply.content;
+  if(bytes&&bytes.length>limit){let end=limit;while(end>0&&(bytes[end]!&0xc0)===0x80)end--;content=bytes.subarray(0,end).toString("utf8");}
+  const first=Array.isArray(data.choices)?data.choices[0]:null;
+  const reason=config.provider==="anthropic-compatible"?data.stop_reason:config.provider==="ollama"?data.done_reason:first&&typeof first==="object"?(first as Record<string,unknown>).finish_reason:null;
+  const metadata=(value:unknown)=>typeof value==="string"?value.slice(0,256):null;
+  return {content,contentSha256:bytes?createHash("sha256").update(bytes).digest("hex"):null,contentBytes:bytes?.length??0,retainedBytes:content===null?0:Buffer.byteLength(content,"utf8"),truncated:Boolean(bytes&&bytes.length>limit),finishReason:metadata(reason),responseId:metadata(data.id),responseModel:metadata(data.model),maxOutputTokens,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,usedTokens:reply.usedTokens,usageReported:reply.usageReported,capturedAt:new Date().toISOString()};
+}
+
+export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch,retainFailedResponse=false):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null;responseEvidence?:FailedModelResponseEvidence}> {
   const wire=protocolRequest(config,createModelRequest(config,prompt));
   const data=await receive(config,destination(config,wire.path),{method:"POST",body:JSON.stringify(wire.body)},"生成创作候选",fetcher);
   const reply=normalizeModelResponse(config.provider,data);
-  const receipt={responseReceived:true as const,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens};
+  const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(config,data,reply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
+  const receipt={responseReceived:true as const,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
   const outputFailure=(message:string,step:string)=>{const failure=new AiExecutionError(step,message);failure.transportReceipt=receipt;return failure;};
   if(reply.content===null)throw outputFailure("模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");
   let value:unknown;
   try {value=JSON.parse(reply.content);}catch{throw outputFailure("模型回复不是有效的结构化结果。本次回复未采用，请在来源页重新生成或切换支持结构化输出的模型。","解析创作结果");}
-  return {value,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens};
+  return {value,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
 }

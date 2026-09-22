@@ -14,13 +14,29 @@
 - 执行入口读取 PostgreSQL 中已生效的默认与任务路由，支持 Ollama、OpenAI 兼容与 Anthropic Messages 兼容接口。`NEW_DESIGN_AI_*` 仅用于专用凭据引用；环境模型配置只保留为显式注入的合同测试接口，不是生产备用。不读取旧根配置，不自动选择模型，不把密钥写进 PostgreSQL、提示词、日志或 Git。
 - 远程模型必须 HTTPS；地址不能嵌入用户名／密码／查询参数，传输禁止跳转。凭据只在服务进程内组装请求头，外部错误响应正文不进入错误或候选。
 - 超时、输出、总预算、重试和备用数量有明确数值范围。仅配置明确允许的技术失败可重试或切换备用，共用本次总预算；没有质量回退。不使用模板、关键词规则或静默取消严格输出以伪造成功。任务来源页负责明确发起下一次运行。
-- 兼容接口请求使用 JSON Schema 引导并保留可选字段，不强制把所有可选资料变成必填；服务端 Zod 白名单与规格校验始终严格执行。传输侧非 strict 不表示允许未知字段或跳过本地校验，接口能力需真实模型验证。
+- 任务通过提示词中的 JSON Schema 引导输出；接口级约束按供应商实际支持选择，不能把“OpenAI 兼容”理解为支持全部 OpenAI 参数。保留可选字段，不强制把所有可选资料变成必填；服务端 Zod 白名单与规格校验始终严格执行。传输侧非 strict 不表示允许未知字段或跳过本地校验，接口能力需真实模型验证。
 - 系统内固定统一请求、模型目录和回复对象：任务消息、输出合同、温度、输出预算先成为统一请求；适配层转换为各协议的路径、认证头和参数；回复先转成统一内容与实际用量，再走同一 JSON 解析和任务合同校验。OpenRouter 可选 OpenAI 兼容路径，其结构化请求要求下游端点支持所需参数；Anthropic Messages 使用顶层 system、max_tokens 和 text 内容块。MiniMax 的 OpenAI 兼容接口有独立的推理参数处理。不同协议仅在边界转换，不分叉业务对象、采用规则或运行账本。
 - Claude 官方结构化输出只接收 JSON Schema 子集；适配层仅向服务发送可表示的约束，复杂 Schema 超过官方语法上限时不发送 `output_config`。完整原合同仍保留在提示词与本地校验中，不能将宽松的服务端引导当作采用成功。模型列表只证明地址、凭据和模型名称可读取，不证明该模型支持本任务生成或结构化输出；官方 Anthropic 目录分页时会单独核对所填模型。
 - 调用前在已有模型快照事实中冻结真实来源版本；提示词资产快照和实际尝试参数随研究返回已有账本接口，不另建任务／正文事实。模型未报告用量或有失败尝试时 `usageReported=false`、`usageStatus=partial_or_unavailable`。数字接口只返回已知用量，0 不是实测零消耗，不可用作完整计费证明。
 - 模型页面持久编辑默认、备用和任务配置，可检查连接与明确模型名称，不生成资料、不写创作正本。凭据复用既有引用事实；不支持的旧引用保持不可用，不猜测密钥来源。集中用量展示等剩余工作仍按执行队列推进，不建立第二套表。详见 [模型执行与恢复](../model-route-runtime-review.md)。
 
 ## 失败动作
+
+### MiniMax 协议与结构化输出边界
+
+2026-09-23 核对官方文档：`MiniMax-M3` 同时支持 [OpenAI 兼容协议](https://platform.minimax.cn/docs/api-reference/text-openai-api) 与 [Anthropic 兼容协议](https://platform.minimax.io/docs/api-reference/text-anthropic-api)。OpenAI 中国区基址为 `https://api.minimax.cn/v1`，使用 `/chat/completions` 和 `choices[].message.content`；Anthropic 国际区基址为 `https://api.minimax.io/anthropic`，使用 `/v1/messages` 和文本内容块。切换协议不只是替换域名，也涉及认证头和消息结构；业务仍接收统一结果。
+
+M3 的 OpenAI 请求支持 `thinking` 和 `reasoning_split`。前者控制是否思考，后者仅分离思考和最终文本。本项目保留关闭 M3 thinking、分离 reasoning 的既有设置，不因诊断而更换模型、地址或作者路线。官网将 `max_tokens` 列为仍支持的旧长度参数，新接入建议 `max_completion_tokens`，这不构成既有请求出错的证据。
+
+MiniMax [官方兼容性验证仓库](https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/blob/main/m3_format_check/docs/m3_text_cases.md) 的 response_format 节明确将 M3 的 `json_object` 测试标记为暂不支持；不能直接强加该参数，也不能把第三方托管的能力等同于 MiniMax 官方入口的能力。JSON 解析失败只证明最终文本不符合 JSON 语法；没有原始文本和结束原因，不能确定是围栏、额外说明、截断还是别的原因。
+
+### 开书失败回复留存
+
+开书准备显式启用 `retainFailedResponse`。收到最终文本但 JSON 解析或字段规格校验失败时，证据随原批次的 `preparation_execution.failedResponseEvidence` 保存：最终文本、完整文本 SHA-256、结束原因、响应 ID／模型、实际输出限制、已报告用量和采集时间。复用卡片内核中的原批次，不新建表、文件日志或第二套运行账本；其他调用方默认不启用原文留存。
+
+最终文本最多保留 2 MiB UTF-8，超限明确标记截断，记录原始／留存字节数及完整文本哈希。不复制请求、认证头、凭据、独立 reasoning 内容或工具块，不保留非成功 HTTP 的供应商错误正文。原始最终文本可能包含作者创作内容，仅作本地私有诊断，不写入 Git、通用错误提示或公共开书回执。
+
+失败证据不是可采用候选，不自动修补 JSON，不猜补字段，不触发额外付费重试。成功候选不额外返回原始诊断文本。已发生且未留存原文的旧失败不能追补；新增逻辑只覆盖后续请求。
 
 | 步骤 | 作者看到的结果 | 可点击恢复位置 |
 | --- | --- | --- |

@@ -4,7 +4,7 @@ import {DEFAULT_MODEL_POLICY} from "../../../common/modelRouting";
 import {captureManagedModelSnapshot,getManagedCredentialSecret,resolveManagedTaskRoute} from "../../database/modelManagement";
 import type {PreparedPrompt} from "../prompts";
 import {readModelConfiguration,type ModelConfiguration} from "./configuration";
-import {AiExecutionError} from "./errors";
+import {AiExecutionError,type FailedModelResponseEvidence} from "./errors";
 import {invokeStructuredModel,probeModelConnection} from "./transport";
 
 export interface ExecutionDependencies {
@@ -15,6 +15,8 @@ export interface ExecutionDependencies {
   credentialResolver?:(id:string,provider:string)=>Promise<string|null>;
   /** Source workflows with an original unknown receipt must not issue a second provider request. */
   stopOnUnknownResponse?:boolean;
+  /** Opt in only for source workflows that persist private failure evidence and omit it from public receipts. */
+  retainFailedResponse?:boolean;
 }
 interface AttemptTrace {provider:string;model:string;kind:"primary"|"fallback";status:"succeeded"|"failed";category:TechnicalFallbackCategory|null;reservedTokens:number;usedTokens:number|null;durationMs:number;requestSent:boolean;responseReceived:boolean;}
 
@@ -62,8 +64,9 @@ export async function executeManagedPrompt<T>(taskType:ModelTaskKey,prompt:Prepa
   let remaining=route.policy.maxTotalTokens,retries=0,fallbackCount=0,knownUsage=0,unknownUsage=false,knownInput=0,knownOutput=0,breakdownUnknown=false;
   const traces:AttemptTrace[]=[],connections=[route.primary,...route.fallbacks];
   let current=0;
+  let failedResponseEvidence:FailedModelResponseEvidence|undefined;
   const attemptedFallbacks=new Set<number>();
-  const failureSnapshot=(failure:AiExecutionError)=>{const lastSent=[...traces].reverse().find(trace=>trace.requestSent);failure.executionSnapshot={provider:lastSent?.provider??"not_invoked",model:lastSent?.model??"not_invoked",routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,maxTotalTokens:route.policy.maxTotalTokens,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",knownTokens:knownUsage,inputTokens:!lastSent||breakdownUnknown?null:knownInput,outputTokens:!lastSent||breakdownUnknown?null:knownOutput,usageReported:Boolean(lastSent)&&!unknownUsage,usageStatus:!lastSent?"not_invoked":unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true};return failure;};
+  const failureSnapshot=(failure:AiExecutionError)=>{const lastSent=[...traces].reverse().find(trace=>trace.requestSent);failure.executionSnapshot={provider:lastSent?.provider??"not_invoked",model:lastSent?.model??"not_invoked",routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,maxTotalTokens:route.policy.maxTotalTokens,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",knownTokens:knownUsage,inputTokens:!lastSent||breakdownUnknown?null:knownInput,outputTokens:!lastSent||breakdownUnknown?null:knownOutput,usageReported:Boolean(lastSent)&&!unknownUsage,usageStatus:!lastSent?"not_invoked":unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true,...(failedResponseEvidence?{failedResponseEvidence}:{})};return failure;};
   for(;;){
     const connection=connections[current];
     let reservation:ReturnType<typeof reserveAttemptBudget>;
@@ -74,10 +77,12 @@ export async function executeManagedPrompt<T>(taskType:ModelTaskKey,prompt:Prepa
     let attemptUsage:number|null=null;
     let requestSent=false;
     let responseReceived=false;
+    let responseEvidence:FailedModelResponseEvidence|undefined;
     try {
       const configured=fixtureConfig??await configurationForConnection(connection,route.policy,dependencies);
       requestSent=true;
-      const result=await invokeStructuredModel({...configured,maxTokens:reservation.maxOutputTokens},prompt,dependencies.fetcher);
+      const result=await invokeStructuredModel({...configured,maxTokens:reservation.maxOutputTokens},prompt,dependencies.fetcher,dependencies.retainFailedResponse);
+      responseEvidence=result.responseEvidence;
       responseReceived=true;
       if(result.usageReported){knownUsage+=result.usedTokens;attemptUsage=result.usedTokens;}else unknownUsage=true;
       if(result.inputTokens!==null&&result.outputTokens!==null){knownInput+=result.inputTokens;knownOutput+=result.outputTokens;}else breakdownUnknown=true;
@@ -87,6 +92,8 @@ export async function executeManagedPrompt<T>(taskType:ModelTaskKey,prompt:Prepa
       return {output,usedTokens:knownUsage,modelSnapshot:{provider:connection.provider,model:connection.model,routeSnapshotId:snapshot?.id??null,routeSnapshotHash:snapshot?.snapshotHash??fixtureConfig?.identity,sourceLayers:route.sourceLayers,timeoutMs:route.policy.timeoutMs,maxTokens:reservation.maxOutputTokens,maxTotalTokens:route.policy.maxTotalTokens,knownTokens:knownUsage,inputTokens:breakdownUnknown?null:knownInput,outputTokens:breakdownUnknown?null:knownOutput,estimatedReservedTokens:route.policy.maxTotalTokens-remaining,budgetEstimateMethod:"utf8_bytes_plus_256",budgetExceeded:knownUsage>route.policy.maxTotalTokens,usageReported:!unknownUsage,usageStatus:unknownUsage?"partial_or_unavailable":"reported",retryCount:retries,fallbackCount,attempts:traces,independent:true,fixture:Boolean(fixtureConfig)}};
     }catch(error){
       const failure=error instanceof AiExecutionError?error:new AiExecutionError("生成创作候选","模型执行未完成确认，请检查模型设置后回来源页核对结果。");
+      responseEvidence??=failure.transportReceipt?.responseEvidence;
+      failedResponseEvidence=dependencies.retainFailedResponse?responseEvidence:undefined;
       if(!responseReceived&&failure.transportReceipt){const receipt=failure.transportReceipt;responseReceived=true;if(receipt.usageReported){knownUsage+=receipt.usedTokens;attemptUsage=receipt.usedTokens;}else unknownUsage=true;if(receipt.inputTokens!==null&&receipt.outputTokens!==null){knownInput+=receipt.inputTokens;knownOutput+=receipt.outputTokens;}else breakdownUnknown=true;}
       traces.push({provider:connection.provider,model:connection.model,kind:current===0?"primary":"fallback",status:"failed",category:failure.category,reservedTokens:reservation.reservedTokens,usedTokens:attemptUsage,durationMs:Date.now()-started,requestSent,responseReceived});
       if(requestSent&&attemptUsage===null){unknownUsage=true;breakdownUnknown=true;}
