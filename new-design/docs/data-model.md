@@ -555,6 +555,8 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 ## 统一开书与 AI 来源追踪
 
+开书读取不可变模板时，历史平面字典中省略的 `parentSourceId` 仅在运行时目录映射为 `parentId: null`，与显式根节点等价。已有父节点标识和层级路径保持不变，非法非空标识仍受校验；不回写模板快照、不回填数据库。这样旧模板可以继续进入受控 AI 准备，且不改变其来源哈希与历史内容。
+
 `inspiration_candidates` 保存可跨机器初始化的“没有想法”候选；`book_creation_sessions` 保存一次开书从来源理解、方向确认、初始资料预览到书籍安装的状态；`ai_generation_batches` 保存每次 AI 调用的阶段、输入、输出、提示词版本、模型、重试来源和错误；`book_content_sources` 把完成后的书籍关联到真实入口与来源；`card_field_origins` 记录 AI 初始值或表单建议对应的卡片字段、生成批次和确认状态。
 
 `book_creation_sessions.method` 支持 `blank`、`template`、`idea`、`inspiration`、`market`、`reference`、`continuation`。这些值只描述入口，不改变模板结构。会话通过 `template_version_id` 锁定同一个不可变模板版本，最终通过 `book_id` 指向统一的书籍聚合根。
