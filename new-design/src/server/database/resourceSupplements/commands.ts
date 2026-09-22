@@ -28,7 +28,7 @@ async function original(client: PoolClient, bookId: string, input: ResourceSuppl
 }
 async function storageContract(client: PoolClient): Promise<void> {
   await requireCardWorkflowTypes(client,['chapter_resource_supplement','chapter_adoption_preparation','chapter_adoption_session'],true);
-  if (!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+  if (!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')
     AND to_regprocedure('new_design.require_resource_supplement_closure()') IS NOT NULL
     AND to_regprocedure('new_design.validate_resource_supplement_origin()') IS NOT NULL
     AND position('NEW.source_snapshot->>''sourceHash''' IN pg_get_functiondef(to_regprocedure('new_design.validate_resource_supplement_origin()')))>0`)).rowCount)

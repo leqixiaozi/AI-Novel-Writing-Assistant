@@ -14,7 +14,7 @@ import {previewResourceSupplementCorrectionInTransaction} from '../integrity/cor
 const requestFrame=(bookId:string,input:ResourceSupplementCorrectionStartInput)=>({contract:'stable_resource_correction_start_v1',bookId,input});
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
   await requireCardWorkflowTypes(client,['resource_supplement_correction_origin','chapter_resource_supplement','chapter_adoption_preparation','chapter_adoption_session'],writing);
-  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')
     AND ($1::boolean=false OR position('stable_resource_correction_start_v1' IN coalesce(pg_get_functiondef(
       to_regprocedure('new_design.validate_resource_supplement_correction_origin()')),''))>0)`,[writing])).rowCount)
     throw new NewDesignError('修正请求的完整来源保存尚不可用，请保留原冲突与填写。',503);

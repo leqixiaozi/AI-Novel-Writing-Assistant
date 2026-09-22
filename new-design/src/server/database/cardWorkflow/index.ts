@@ -11,7 +11,7 @@ export async function readCardWorkflowCapability(db:WorkflowDb,capabilityKey:str
   const exists=(await db.query("SELECT to_regclass('new_design.system_capabilities') IS NOT NULL present")).rows[0]?.present===true;
   if(!exists)return{installed:false,operational:false};
   const row=(await db.query(`SELECT feature.installed,feature.operational,
-    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only') complete,
+    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')) complete,
     EXISTS(SELECT 1 FROM new_design.system_capabilities kernel WHERE kernel.capability_key='card_kernel_v2' AND kernel.installed AND kernel.operational AND kernel.details->>'storage'='tables_only') kernel_ready,
     (SELECT count(DISTINCT type_key) FROM new_design.card_types WHERE type_key=ANY($2::text[]) AND is_internal AND status='published' AND current_version_id IS NOT NULL) type_count,
     EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('new_design.card_version_actions') AND tgname='card_version_actions_immutable' AND tgenabled IN('O','A')) protected
@@ -23,10 +23,11 @@ export async function readCardWorkflowCapability(db:WorkflowDb,capabilityKey:str
 export async function requireCardWorkflowTypes(db:WorkflowDb,typeKeys:string[],write=false):Promise<void>{
   const cutover=(await db.query(`SELECT
     to_regclass('new_design.system_capabilities') IS NOT NULL capability_table,
-    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only') migration`)).rows[0]??{};
-  if(!cutover.capability_table||!cutover.migration)throw new NewDesignError('卡片内核纯表结构尚未完整安装，请到运行维护核对；普通启动不会自动重建数据库。',503);
+    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')) migration`)).rows[0]??{};
+  if(!cutover.capability_table||!cutover.migration)throw new NewDesignError('卡片内核纯表结构尚未就绪，请到运行维护核对开发库增量升级；普通启动不会自动迁移、重建或清空数据。',503);
   const capability=(await db.query("SELECT installed,operational,details FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2'")).rows[0]??{};
   if(!capability.installed||!capability.operational||capability.details?.storage!=='tables_only')throw new NewDesignError('卡片内核纯表结构正处于维护状态，写入已停用。',503);
+  if(Array.isArray(capability.details?.disabledTypeKeys)&&typeKeys.some(key=>capability.details.disabledTypeKeys.includes(key)))throw new NewDesignError('此功能保留了开发库原有的停用设置，请在运行维护中核对后再启用。',503);
   const row=(await db.query(`SELECT
     to_regclass('new_design.card_version_actions') IS NOT NULL actions,
     EXISTS(

@@ -9,7 +9,7 @@ export async function assertResourceSupplementCandidateContract(client:PoolClien
   if(session.adoption_kind!=="resource_supplement")return;
   if(operation==="commit"||operation==="initial")throw new NewDesignError("资源补充尚需完成下游复核，暂不可结算或回溯建立初始状态。原正文和确认记录保留。",503);
   const available=await client.query(`SELECT 1 FROM new_design.schema_migrations
-    WHERE id='132_card_kernel_tables_only' AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published')
+    WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade') AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published')
       AND position('stable_resource_supplement_candidates_v1' IN pg_get_functiondef(to_regprocedure('new_design.block_unavailable_resource_supplement_extraction()')))>0`);
   if(!available.rowCount)throw new NewDesignError("资源补充候选合同未开放，请保留原请求和来源核对。",503);
   if(!(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_stable_checkpoints},
@@ -32,7 +32,7 @@ SELECT source_snapshot FROM chapter_resource_supplements WHERE session_id=$1 AND
     ||stableHash(current.original.planningReferences)!==stableHash(saved.basis.original.planningReferences))
     throw new NewDesignError('原确认来源或正文所用计划已失效，请保留原补充请求核对。',409);
   if(saved.contract==='stable_resource_correction_preview_v1'){
-    if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only' AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published')
+    if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade') AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published')
       AND position('resource_correction_candidates_v1' IN coalesce(pg_get_functiondef(to_regprocedure('new_design.block_unavailable_resource_correction_candidates()')),''))>0`)).rowCount)
       throw new NewDesignError('修正候选的实际来源合同尚不可用，请保留原修正请求核对。',503);
     await owner.readFrozenResourceSupplementCorrectionInTransaction(client,session,current.bodyContentHash);

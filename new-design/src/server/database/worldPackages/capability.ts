@@ -4,7 +4,7 @@ type Db=Pick<PoolClient,'query'>;
 export async function worldPackageCapability(db:Db){
  const cutover=(await db.query(`SELECT
    to_regclass('new_design.system_capabilities') IS NOT NULL capability_table,
-   EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only') migration`)).rows[0]??{};
+   EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')) migration`)).rows[0]??{};
  if(!cutover.capability_table||!cutover.migration)return{installed:false,operational:false};
  const final=(await db.query(`SELECT
    EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') kernel,

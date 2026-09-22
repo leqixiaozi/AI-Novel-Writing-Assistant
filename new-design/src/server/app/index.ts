@@ -24,7 +24,7 @@ export function createIndependentApplication() {
     void getNewDesignPool().then(async pool=>{
       await requireTablesOnlyInstallation(pool);
       next();
-    }).catch(()=>response.status(503).json({success:false,error:'新版纯表结构尚未就绪或处于维护状态，业务写入已停用。',recovery:{failedStep:'核对纯表数据库能力',summary:'需要完整 132 结构与可用能力；服务不会自动执行重建。',savedResult:'已有作者数据和原请求保留；不要重复提交。',mutationOutcome:'not_written',sourceRoute:'/new-design/structure/maintenance',actionLabel:'打开运行维护'}}));
+    }).catch(()=>response.status(503).json({success:false,error:'新版纯表结构尚未就绪或处于维护状态，业务写入已停用。',recovery:{failedStep:'核对纯表数据库能力',summary:'需要完整纯表结构和可用能力；服务不会自动执行升级或重建。',savedResult:'已有作者数据和原请求保留；不要重复提交。',mutationOutcome:'not_written',sourceRoute:'/new-design/structure/maintenance',actionLabel:'打开运行维护'}}));
   });
   app.use("/api/new-design", createNewDesignRouter({ ai: createIndependentAiGateway() }));
   const clientRoot = path.resolve(__dirname, "../../client");

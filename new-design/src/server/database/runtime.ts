@@ -1,4 +1,4 @@
-import {requireTablesOnlyInstallation} from './tablesOnly';
+import {requireTablesOnlyInstallation,TABLES_ONLY_MIGRATION,TABLES_ONLY_UPGRADE_MIGRATION} from './tablesOnly';
 import path from "node:path";
 import { Pool } from "pg";
 import type { PrivateRuntimeDiagnostics, PrivateRuntimeStatus } from "../../common/contracts";
@@ -6,7 +6,6 @@ import { recordRuntimeFailure, recordRuntimeReady, recordRuntimeStopRequested, t
 import { getPrivateRuntimeManager, type PrivateRuntimeConnection } from "../runtime/manager";
 import { getDevelopmentDatabaseCredentialKey, getDevelopmentRuntimeDiagnostics, isDevelopmentDatabaseRuntimeEnabled, startDevelopmentDatabaseRuntime, stopDevelopmentDatabaseRuntime } from "./developmentRuntime";
 import { deriveModelCredentialKey } from "./credentialCrypto";
-import { migrations } from "./migrations";
 
 export interface DatabaseRuntimeStatus {mode:"bundled";postgresVersion:string;host:"127.0.0.1";port:number;dataLocator:string;runtimeId:string;manifestSha256:string;}
 let poolPromise:Promise<Pool>|null=null,runtimeStatus:DatabaseRuntimeStatus|null=null,auditIdentity:RuntimeAuditIdentity|null=null,shutdownRegistered=false,credentialKey:Buffer|null=null;
@@ -26,9 +25,8 @@ async function createPool():Promise<Pool>{
     await ensureApplicationDatabase(connection);
     pool=new Pool({host:connection.host,port:connection.port,user:connection.user,password:connection.password,database:connection.database,max:8,application_name:"ai_novel_new_design"});
     credentialKey=deriveModelCredentialKey(connection.password,connection.database);
-    await requireTablesOnlyInstallation(pool);await ensureLockedExtensions(pool,connection);
-    const versions=await pool.query<{server_version:string}>("SHOW server_version"),migrationCount=Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])",[migrations.map(item=>item.id)])).rows[0]?.value??0);
-    if(migrationCount!==migrations.length)throw new Error(`迁移登记数量不完整：预期 ${migrations.length}，实际 ${migrationCount}。`);
+    const migrationCount=await requireTablesOnlyInstallation(pool);await ensureLockedExtensions(pool,connection);
+    const versions=await pool.query<{server_version:string}>("SHOW server_version");
     await manager.markReady(migrationCount);
     auditIdentity={installationId:connection.installationId,dataGeneration:connection.dataGeneration,manifest:connection.manifest};await recordRuntimeReady(pool,auditIdentity);
     runtimeStatus={mode:"bundled",postgresVersion:versions.rows[0]?.server_version??"unknown",host:"127.0.0.1",port:connection.port,dataLocator:`database/generations/${path.basename(connection.dataDirectory)}`,runtimeId:connection.manifest.runtimeId,manifestSha256:connection.manifest.manifestSha256};registerShutdown();return pool;
@@ -62,10 +60,10 @@ export async function getDatabaseRuntimeStatus():Promise<DatabaseRuntimeStatus>{
 export async function getPrivateRuntimeDiagnostics():Promise<PrivateRuntimeDiagnostics>{
   if(isDevelopmentDatabaseRuntimeEnabled())return getDevelopmentRuntimeDiagnostics();
   const manager=getPrivateRuntimeManager(),diagnostics=await manager.doctor(),pool=poolPromise?await poolPromise.catch(()=>null):null;if(!pool)return diagnostics;
-  const [extensions,migrationsResult,queue,backup]=await Promise.all([pool.query<{extname:string;extversion:string}>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])",[["age","vector","pg_trgm"]]),pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])",[migrations.map(item=>item.id)]),pool.query("SELECT count(*) FILTER(WHERE status IN ('queued','leased','running','retry_scheduled','cancel_requested')) active,count(*) FILTER(WHERE status='dead_letter') dead FROM new_design.background_jobs"),pool.query("SELECT max(completed_at) latest FROM new_design.transfer_operations WHERE operation_kind='full_backup' AND status IN ('ready','archived')")]);
+  const [extensions,migrationsResult,queue,backup]=await Promise.all([pool.query<{extname:string;extversion:string}>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])",[["age","vector","pg_trgm"]]),pool.query("SELECT CASE WHEN EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id = ANY($1::text[])) THEN 1 ELSE 0 END value",[[TABLES_ONLY_MIGRATION,TABLES_ONLY_UPGRADE_MIGRATION]]),pool.query("SELECT count(*) FILTER(WHERE status IN ('queued','leased','running','retry_scheduled','cancel_requested')) active,count(*) FILTER(WHERE status='dead_letter') dead FROM new_design.background_jobs"),pool.query("SELECT max(completed_at) latest FROM new_design.transfer_operations WHERE operation_kind='full_backup' AND status IN ('ready','archived')")]);
   const replace=(key:string,status:"passed"|"warning"|"failed"|"unavailable",summary:string,action:string)=>{const index=diagnostics.checks.findIndex(item=>item.key===key),value={key,status,summary,action};if(index>=0)diagnostics.checks[index]=value;else diagnostics.checks.push(value);};
   replace("runtime.extensions",extensions.rowCount===3?"passed":"failed",extensions.rowCount===3?extensions.rows.map(row=>`${row.extname} ${row.extversion}`).join("，"):"扩展数量不完整。","重新校验运行包版本组合后停止可写启动。");
-  const applied=Number(migrationsResult.rows[0]?.value??0);replace("runtime.migrations",applied===migrations.length?"passed":"failed",`已登记默认迁移 ${applied}/${migrations.length} 项；手动迁移另行登记。`,"按顺序完成全部迁移，不允许跳号。");
+  const applied=Number(migrationsResult.rows[0]?.value??0);replace("runtime.migrations",applied===1?"passed":"failed",`纯表基线或原地升级登记 ${applied}/1；历史迁移记录保持原样。`,"执行明确授权的开发库增量升级，不伪造空库基线登记。");
   const queueRow=queue.rows[0];replace("runtime.queue",Number(queueRow?.dead??0)>0?"warning":"passed",`活动作业 ${Number(queueRow?.active??0)}，死信 ${Number(queueRow?.dead??0)}。`,`使用 030 运行记录处理积压与死信。`);
   replace("runtime.backup",backup.rows[0]?.latest?"passed":"warning",backup.rows[0]?.latest?`最近完整备份：${new Date(String(backup.rows[0].latest)).toISOString()}`:"尚无可验证完整备份。","升级或恢复前先完成 031 完整备份和兼容预检。");return diagnostics;
 }

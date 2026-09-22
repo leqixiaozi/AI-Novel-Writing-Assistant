@@ -28,7 +28,7 @@ async function original(client:PoolClient,bookId:string,sessionId:string,input:R
 }
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
   await requireCardWorkflowTypes(client,['resource_supplement_impact_review'],writing);
-  const result=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+  const result=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')
     AND ($1::boolean=false OR position('resource_supplement_impact_review_v1' IN coalesce(pg_get_functiondef(to_regprocedure('new_design.validate_resource_supplement_impact_review()')),''))>0)`,[writing]);
   if(!result.rowCount)throw new NewDesignError('结算影响确认尚不可用，请保留原候选与来源。',503);
 }

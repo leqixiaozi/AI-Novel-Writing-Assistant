@@ -11,7 +11,7 @@ import {stable,stableHash} from '../../aiContracts/integrity';
  * Journal, source fence, merged state and the full formal receipt must be atomic. */
 export async function recordResourceSupplementIntegrityInTransaction(client:PoolClient,bookId:string,merged:ResourceSupplementMergedWrite,impact:ResourceSupplementSettlementImpact):Promise<{settlementId:string;issueIds:string[]}>{
   await requireCardWorkflowTypes(client,['resource_supplement_integrity_journal','resource_supplement_integrity_issue'],true);
-  const marker=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+  const marker=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')
     AND position('resource_supplement_integrity_v1' IN coalesce(pg_get_functiondef(to_regprocedure('new_design.validate_resource_supplement_integrity_journal()')),''))>0`);
   if(!marker.rowCount)throw new NewDesignError('真实资源来源完整性存储尚不可用，请保留原补充清单。',503);
   if(impact.bookId!==bookId||merged.sessionId!==impact.sessionId||merged.impactHash!==impact.impactHash||merged.baseCheckpointId!==impact.baseCheckpointId)

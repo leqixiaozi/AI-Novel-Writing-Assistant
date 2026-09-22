@@ -28,7 +28,7 @@ SELECT session.*,body.content_hash AS body_hash FROM chapter_adoption_sessions s
   await assertResourceSupplementCandidateContract(client,session,'preview',false);
   const source=await readFrozenSupplementSource(client,session,String(session.body_hash));
   if(source.contract==='stable_resource_correction_preview_v1'&&!(await client.query(`SELECT id FROM new_design.schema_migrations
-    WHERE id='132_card_kernel_tables_only' AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published') AND position('resource_supplement_correction_commit_v1' IN coalesce(
+    WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade') AND EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only') AND EXISTS(SELECT 1 FROM new_design.card_types WHERE type_key='chapter_proposal_extraction_request' AND status='published') AND position('resource_supplement_correction_commit_v1' IN coalesce(
       pg_get_functiondef(to_regprocedure('new_design.reject_unavailable_resource_integrity_resolution()')),''))>0`)).rowCount)
     throw new NewDesignError('修正清单的正式来源证明解除尚不可用，请保留原确认和来源核对。',503);
   const catalog=await readEditingCatalog(client,session,false);

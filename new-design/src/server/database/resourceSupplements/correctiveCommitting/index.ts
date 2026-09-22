@@ -16,7 +16,7 @@ import {recordResourceSupplementIntegrityInTransaction} from '../integrity';
 const requestFrame=(bookId:string,sessionId:string,input:ResourceSupplementCommitInput)=>({contract:'resource_supplement_correction_commit_v1',bookId,sessionId,input});
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
   await requireCardWorkflowTypes(client,['resource_supplement_formal_commit','resource_supplement_integrity_resolution','resource_supplement_correction_origin'],writing);
-  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('132_card_kernel_tables_only','133_card_kernel_tables_only_upgrade')
     AND ($1::boolean=false OR (position('resource_supplement_correction_commit_v1' IN coalesce(pg_get_functiondef(
       to_regprocedure('new_design.reject_unavailable_resource_integrity_resolution()')),''))>0
       AND position('assert_resource_supplement_formal_closure' IN coalesce(pg_get_functiondef(
