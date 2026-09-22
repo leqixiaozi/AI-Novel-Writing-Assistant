@@ -4,7 +4,9 @@ import { AiExecutionError, type FailedModelResponseEvidence } from "./errors";
 import {createHash} from "node:crypto";
 
 export interface UnifiedModelRequest {model:string;messages:PreparedPrompt["messages"];outputSchema:PreparedPrompt["outputSchema"];taskType:PreparedPrompt["taskType"];temperature:number;maxOutputTokens:number;}
-export interface UnifiedModelResponse {content:string|null;inputTokens:number|null;outputTokens:number|null;usedTokens:number;usageReported:boolean;}
+export type ModelFinishReason="completed"|"output_limit"|"tool_calls"|"refused"|"other"|"unknown";
+/** Protocol fields stop here; execution and diagnostics consume this same object. */
+export interface UnifiedModelResponse {content:string|null;inputTokens:number|null;outputTokens:number|null;usedTokens:number;usageReported:boolean;responseId:string|null;responseModel:string|null;finishReason:ModelFinishReason;rawFinishReason:string|null;}
 export interface UnifiedModelCatalog {models:string[];hasMore:boolean;}
 
 export function createModelRequest(config:Pick<ModelConfiguration,"model"|"maxTokens">,prompt:Pick<PreparedPrompt,"messages"|"outputSchema"|"taskType"|"temperature"|"maxTokens">):UnifiedModelRequest {
@@ -79,9 +81,17 @@ export function normalizeModelResponse(provider:ModelConfiguration["provider"],d
   const outputTokens=measured(provider==="ollama"?data.eval_count:provider==="anthropic-compatible"?usage.output_tokens:usage.completion_tokens);
   const total=provider==="openai-compatible"?measured(usage.total_tokens):null;
   const tokens=total??(inputTokens!==null&&outputTokens!==null?inputTokens+outputTokens:null);
-  const message=provider==="ollama"?data.message:Array.isArray(data.choices)?(data.choices[0] as {message?:unknown}|undefined)?.message:undefined;
-  const rawContent=provider==="anthropic-compatible"?Array.isArray(data.content)?data.content.filter(block=>block&&typeof block==="object"&&(block as Record<string,unknown>).type==="text"&&typeof (block as Record<string,unknown>).text==="string").map(block=>(block as Record<string,string>).text).join(""):null:message&&typeof message==="object"?(message as Record<string,unknown>).content:null;
-  return {content:typeof rawContent==="string"?rawContent:null,inputTokens,outputTokens,usedTokens:tokens??0,usageReported:tokens!==null};
+  const first=Array.isArray(data.choices)&&data.choices[0]&&typeof data.choices[0]==="object"?data.choices[0] as Record<string,unknown>:null;
+  const message=provider==="ollama"?data.message:first?.message;
+  const blocks=Array.isArray(data.content)?data.content.filter(block=>block&&typeof block==="object"&&(block as Record<string,unknown>).type==="text"&&typeof (block as Record<string,unknown>).text==="string") as Array<{text:string}>:[];
+  const rawContent=provider==="anthropic-compatible"?blocks.length?blocks.map(block=>block.text).join(""):null:message&&typeof message==="object"?(message as Record<string,unknown>).content:null;
+  const metadata=(value:unknown)=>typeof value==="string"?value.slice(0,256):null;
+  const rawFinishReason=metadata(provider==="anthropic-compatible"?data.stop_reason:provider==="ollama"?data.done_reason:first?.finish_reason);
+  const reasons:Record<string,ModelFinishReason>=provider==="anthropic-compatible"
+    ?{end_turn:"completed",stop_sequence:"completed",max_tokens:"output_limit",tool_use:"tool_calls",refusal:"refused"}
+    :{stop:"completed",length:"output_limit",tool_calls:"tool_calls",content_filter:"refused"};
+  const finishReason:ModelFinishReason=rawFinishReason===null?"unknown":Object.hasOwn(reasons,rawFinishReason)?reasons[rawFinishReason]!:"other";
+  return {content:typeof rawContent==="string"?rawContent:null,inputTokens,outputTokens,usedTokens:tokens??0,usageReported:tokens!==null,responseId:metadata(data.id),responseModel:metadata(data.model),finishReason,rawFinishReason};
 }
 
 export function normalizeModelCatalog(provider:ModelConfiguration["provider"],data:Record<string,unknown>):UnifiedModelCatalog {
@@ -119,22 +129,19 @@ export async function probeModelConnection(config:ModelConfiguration,fetcher:typ
   return {available:true,modelFound,models};
 }
 
-function captureResponseEvidence(config:ModelConfiguration,data:Record<string,unknown>,reply:UnifiedModelResponse,maxOutputTokens:number):FailedModelResponseEvidence {
+function captureResponseEvidence(reply:UnifiedModelResponse,maxOutputTokens:number):FailedModelResponseEvidence {
   // Only final text and allowlisted metadata. Exclude request headers, prompts and reasoning/tool blocks.
   const bytes=reply.content===null?null:Buffer.from(reply.content,"utf8"),limit=2*1024*1024;
   let content=reply.content;
   if(bytes&&bytes.length>limit){let end=limit;while(end>0&&(bytes[end]!&0xc0)===0x80)end--;content=bytes.subarray(0,end).toString("utf8");}
-  const first=Array.isArray(data.choices)?data.choices[0]:null;
-  const reason=config.provider==="anthropic-compatible"?data.stop_reason:config.provider==="ollama"?data.done_reason:first&&typeof first==="object"?(first as Record<string,unknown>).finish_reason:null;
-  const metadata=(value:unknown)=>typeof value==="string"?value.slice(0,256):null;
-  return {content,contentSha256:bytes?createHash("sha256").update(bytes).digest("hex"):null,contentBytes:bytes?.length??0,retainedBytes:content===null?0:Buffer.byteLength(content,"utf8"),truncated:Boolean(bytes&&bytes.length>limit),finishReason:metadata(reason),responseId:metadata(data.id),responseModel:metadata(data.model),maxOutputTokens,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,usedTokens:reply.usedTokens,usageReported:reply.usageReported,capturedAt:new Date().toISOString()};
+  return {content,contentSha256:bytes?createHash("sha256").update(bytes).digest("hex"):null,contentBytes:bytes?.length??0,retainedBytes:content===null?0:Buffer.byteLength(content,"utf8"),truncated:Boolean(bytes&&bytes.length>limit),finishReason:reply.rawFinishReason,responseId:reply.responseId,responseModel:reply.responseModel,maxOutputTokens,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,usedTokens:reply.usedTokens,usageReported:reply.usageReported,capturedAt:new Date().toISOString()};
 }
 
 export async function invokeStructuredModel(config:ModelConfiguration,prompt:PreparedPrompt,fetcher:typeof fetch=fetch,retainFailedResponse=false):Promise<{value:unknown;usedTokens:number;usageReported:boolean;inputTokens:number|null;outputTokens:number|null;responseEvidence?:FailedModelResponseEvidence}> {
   const wire=protocolRequest(config,createModelRequest(config,prompt));
   const data=await receive(config,destination(config,wire.path),{method:"POST",body:JSON.stringify(wire.body)},"生成创作候选",fetcher);
   const reply=normalizeModelResponse(config.provider,data);
-  const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(config,data,reply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
+  const evidence=retainFailedResponse?{responseEvidence:captureResponseEvidence(reply,Math.min(config.maxTokens,prompt.maxTokens))}:{};
   const receipt={responseReceived:true as const,usedTokens:reply.usedTokens,usageReported:reply.usageReported,inputTokens:reply.inputTokens,outputTokens:reply.outputTokens,...evidence};
   const outputFailure=(message:string,step:string)=>{const failure=new AiExecutionError(step,message);failure.transportReceipt=receipt;return failure;};
   if(reply.content===null)throw outputFailure("模型未返回可核对的创作内容，请检查模型是否支持结构化输出。","读取模型输出");

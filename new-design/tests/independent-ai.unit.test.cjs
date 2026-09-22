@@ -116,7 +116,7 @@ test("all wire protocols become the same internal request and reply objects",()=
  const config={model:"model-id",maxTokens:256};
  assert.deepEqual(createModelRequest(config,prompt),{model:"model-id",messages:prompt.messages,outputSchema:prompt.outputSchema,taskType:"form_assist",temperature:0.2,maxOutputTokens:256});
  const text='{"suggestions":{"name":"沈青"}}';
- const expected={content:text,inputTokens:10,outputTokens:5,usedTokens:15,usageReported:true};
+ const expected={content:text,inputTokens:10,outputTokens:5,usedTokens:15,usageReported:true,responseId:null,responseModel:null,finishReason:"unknown",rawFinishReason:null};
  assert.deepEqual(normalizeModelResponse("ollama",{message:{content:text},prompt_eval_count:10,eval_count:5}),expected);
  assert.deepEqual(normalizeModelResponse("openai-compatible",{choices:[{message:{content:text}}],usage:{prompt_tokens:10,completion_tokens:5,total_tokens:15}}),expected);
  assert.deepEqual(normalizeModelResponse("anthropic-compatible",{content:[{type:"thinking",thinking:"hidden"},{type:"text",text}],usage:{input_tokens:10,output_tokens:5}}),expected);

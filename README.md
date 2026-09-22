@@ -168,6 +168,7 @@ Open-source AI novel writing assistant and long-form production studio.
 
 #### 优化
 
+- 新版可按所选的 OpenAI 或 Anthropic 兼容协议连接模型，两者的回复和结束状态统一处理；同名模型不自动切换协议。
 - 新版开书遇到模型回复格式异常时，可在原运行批次中保留私有诊断证据，便于定位问题；不自动重试或采用失败内容，不改变已配置模型。
 
 #### 修复
