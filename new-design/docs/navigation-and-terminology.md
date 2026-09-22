@@ -83,7 +83,7 @@
 
 ## 跨机器同步
 
-导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/`；普通启动的注册清单到 `083_character_dialogue.sql`，独立安装的手动迁移当前到 `122_drama_exports.sql`。数据归属、手动启用边界及权威清单见 [新设计数据模型](data-model.md)。
+导航与术语配置位于 `src/client/navigation.ts`，会随 Git 同步。数据库结构、内置数据和迁移 SQL 位于 `migrations/`；普通启动的注册清单到 `083_character_dialogue.sql`，独立安装的手动迁移当前到 `131_card_kernel_v2_cutover.sql`。数据归属、手动启用边界及权威清单见 [新设计数据模型](data-model.md)。
 
 作者实际填写的数据不进入 Git。换机器时应使用 PostgreSQL 逻辑备份，并连同受管附件和 manifest 一起迁移；不要复制正在运行的数据目录，也不要只同步代码后假定作品数据已经到位。完整流程见 `docs/transfer-backup-import-export.md` 与 `docs/private-runtime-runbook.md`。
 

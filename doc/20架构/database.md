@@ -6,6 +6,12 @@
 
 ## 数据归属
 
+`131_card_kernel_v2_cutover.sql` 是新版数据库的最终物理边界：完成后 `new_design` 固定为 79 张应用表，AGE 图 `new_design_projection` 固定为 4 张扩展投影表，总物理表数 83。页面和 API 继续使用原业务语言，但稳定对象、候选版本、采用／发布／归档动作以及结构关系分别统一进入 `cards`、`card_versions`、`card_version_actions` 与 `card_relations`。正文原文、二进制资产、模型执行、后台任务和传输恢复保留专用账本。
+
+截至 2026-09-22，本机作者库已在完整备份和独立恢复演练后安装到 128 项迁移，`card_kernel_v2` 能力为可运行，物理表数已达到 79+4。为保持现有页面、路由和 API 行为，数据库还保留 344 个 `new_design` 兼容视图和 324 个 `new_design_compat` 行类型；它们不是物理表，但说明业务仓储尚有旧对象名依赖。当前结论应写为“物理模型已收敛，业务仓储处于兼容迁移期”，不能仅凭 83 张物理表宣称运行源码已经全部切换到通用卡片仓储。
+
+`123`—`130` 只复制与核对，不删除旧表；`131` 只有在数量、主键、当前版本、动作外键和 AGE 投影全部通过后才切换。安装器把九份 SQL 和九条迁移登记置于一个 PostgreSQL 外层事务，任一步失败都回滚到 119 项迁移基线。普通服务启动不会自动执行这组破坏性收敛。`131` 删除重复物理表后建立兼容视图，把既有 SQL 写入转换为卡片版本和动作；后续真正的逻辑收敛应逐模块移除这些视图消费者，而不是长期把兼容层当作最终仓储接口。
+
 | 数据 | 正本与写入边界 | 辅助记录 |
 | --- | --- | --- |
 | 资料与书籍 | 卡片、类型、书籍及其不可变版本；公共资源与书内副本各有身份 | 表单、字典、关系、挂载和来源版本 |
@@ -28,7 +34,7 @@
 
 ## 迁移分层
 
-普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。当前漫画／短剧新增结构为 `117`—`122`，只完成源码合同，不代表已安装作者库。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`，与源码清单和能力状态分别核对。
+普通启动仅按 [`src/server/database/migrations.ts`](../../new-design/src/server/database/migrations.ts) 的注册顺序应用迁移；独立安装的手动迁移以 [`src/server/runtime/manifest.ts`](../../new-design/src/server/runtime/manifest.ts) 的清单和对应能力合同为准，不随普通启动自动应用。`123`—`131` 是一组不可拆分的卡片内核 v2 收敛迁移；安装必须使用 [`install-card-kernel-v2.cjs`](../../new-design/scripts/install-card-kernel-v2.cjs) 或等价的单事务流程。编号存在空缺，不能按文件名推断需补跑的迁移。实际已应用范围须读取目标库的 `new_design.schema_migrations`、`system_capabilities` 和物理表统计三类证据共同判断。
 
 新增或修改数据库能力时，同时维护 SQL、适用的注册或手动清单、[数据字典](../../new-design/docs/data-model.md)与受影响的业务读取／写入合同；不通过旧版表结构推导新版表。静态文件、服务接线、数据库安装、能力启用和作者页面验收是不同证据。
 

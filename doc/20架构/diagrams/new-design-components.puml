@@ -1,23 +1,74 @@
 @startuml
-title 新版底座组件边界
+title 新版底座：收敛后的核心组件与依赖方向
 left to right direction
 skinparam shadowing false
 
-package "new-design/" {
+package "交互层" {
   component "创作页面\nsrc/client" as client
   component "HTTP 接口\nsrc/server/http" as http
-  component "业务应用与领域\nsrc/server/application + domain" as business
-  component "AI 执行\nsrc/server/ai" as ai
-  component "后台任务\nsrc/server/app + aiTasks" as workers
-  component "持久化模块\nsrc/server/database" as persistence
-  database "PostgreSQL\nnew_design" as postgres
 }
 
-client --> http : /api/new-design
-http --> business
-business --> ai
-business --> persistence
-workers --> business
-workers --> persistence
-persistence --> postgres
+package "业务层" {
+  component "小说 / 漫画 / 短剧适配器\napplication + domain" as adapters
+  component "卡片内容服务\n身份、版本、关系、采用" as card_service
+  component "工作流服务\n任务、回执、恢复" as workflow
+  component "AI 执行器\n冻结上下文与模型路由" as ai
+}
+
+package "持久化层" {
+  component "卡片内核仓储\ncards / versions / relations" as card_repo
+  component "专用账本仓储\n正文、资产、任务、依赖" as ledger_repo
+  component "兼容视图适配器\n旧 SQL → 卡片版本 / 动作" as compat_repo
+  component "投影与检索构建器\nAGE / pgvector / read model" as projector
+  database "PostgreSQL\n79 张应用表 + 4 张 AGE 表" as postgres
+}
+
+client --> http : 查询状态、提交作者命令
+http --> adapters : 校验接口输入并选择领域适配器
+adapters --> card_service : 内容统一写入卡片内核
+adapters --> workflow : 创建候选、采用、发布或恢复操作
+adapters --> compat_repo : 尚未改写的业务仓储调用
+workflow --> ai : 仅执行已冻结的模型任务
+card_service --> card_repo : 保存稳定身份、不可变版本与关系
+workflow --> ledger_repo : 保存任务状态、操作回执与执行证据
+card_repo --> postgres : 正式内容写入
+ledger_repo --> postgres : 专用账本写入
+compat_repo --> postgres : 转换为卡片版本和动作
+postgres --> projector : Outbox / 失效请求触发重建
+projector --> postgres : 只写可重建投影
+
+note top of adapters
+  页面与 API 可以保留小说、漫画、短剧的业务语言，
+  但不再为每种业务复制一套“项目 / 候选 / 采用”表。
+end note
+
+note bottom of card_service
+  人物、世界、规划、漫画分集、短剧台本等内容都先判断：
+  能否表示为卡片、卡片版本或卡片关系。
+end note
+
+note bottom of ledger_repo
+  仅正文大文本、文件资产、AI 执行、依赖、Outbox 等
+  对性能或完整性有特殊要求的数据保留专用表。
+end note
+
+note bottom of projector
+  投影服务读取正本生成查询结果；
+  页面、AGE 和向量索引都不能反向修改正式内容。
+end note
+
+note bottom of compat_repo
+  兼容层只用于保持现有页面、路由和 API 行为。
+  它不增加物理表，但不是逻辑收敛的最终接口；
+  运行源码退出旧对象名后应逐步移除。
+end note
+
+legend right
+  |= 中文术语 |= 设计含义 |
+  | 正本 | 作者当前正式采用、可供后续流程读取的数据 |
+  | 候选 | 人工或 AI 新生成、尚未采用的版本 |
+  | 采用 | 把候选切换为正式版本的显式动作 |
+  | 回执 | 记录请求键、输入哈希和结果的不可变证明 |
+  | 投影 | 可从正本重新生成的查询加速数据 |
+endlegend
 @enduml

@@ -1,60 +1,108 @@
 @startuml
-title 新版 PostgreSQL：书籍规划与章节正文
+title 新版 PostgreSQL：卡片化规划与专用正文账本
 left to right direction
 skinparam shadowing false
 hide circle
 
-entity "books" as books {
-  * id : uuid <<PK>>
-}
-entity "planning_objects" as plan_objects {
+entity "作品\nbooks" as books {
   * id : uuid <<PK>>
   --
-  # book_id : uuid <<FK>>
-  parent_object_id : uuid
-  adopted_version_id : uuid
+  # space_id : uuid <<FK>>
+  status : text
 }
-entity "planning_versions" as plan_versions {
+entity "规划卡片\ncards" as plan_cards {
   * id : uuid <<PK>>
   --
-  # object_id : uuid <<FK>>
-  version : integer
+  # space_id : uuid <<FK>>
+  type_key : story_plan / volume_plan /
+             chapter_plan / scene_plan
+  current_version_id : uuid
 }
-entity "planning_adoptions" as plan_adoptions {
+entity "规划版本\ncard_versions" as plan_versions {
   * id : uuid <<PK>>
   --
-  # object_id : uuid <<FK>>
-  # to_version_id : uuid <<FK>>
+  # card_id : uuid <<FK>>
+  revision : integer
+  values : jsonb
 }
-entity "chapter_documents" as chapters {
+entity "规划层级与引用\ncard_relations" as plan_relations {
+  * id : uuid <<PK>>
+  --
+  relation_key : contains / references
+  # source_card_id : uuid <<FK>>
+  # target_card_id : uuid <<FK>>
+}
+entity "规划采用回执\ncard_version_actions" as plan_actions {
+  * id : uuid <<PK>>
+  --
+  # card_id : uuid <<FK>>
+  # card_version_id : uuid <<FK>>
+  action_key : plan.adopt / rollback
+  request_key : uuid
+}
+entity "章节稳定档案\nchapter_documents" as chapters {
   * id : uuid <<PK>>
   --
   # book_id : uuid <<FK>>
   # chapter_card_id : uuid <<FK>>
   adopted_version_id : uuid
 }
-entity "chapter_body_versions" as bodies {
+entity "正文不可变版本\nchapter_body_versions" as bodies {
   * id : uuid <<PK>>
   --
   # chapter_document_id : uuid <<FK>>
   version : integer
+  content : text
+  content_hash : char(64)
 }
-entity "chapter_body_adoptions" as body_adoptions {
+entity "正文采用与结算回执\nchapter_body_adoptions" as body_actions {
   * id : uuid <<PK>>
   --
   # chapter_document_id : uuid <<FK>>
   # to_version_id : uuid <<FK>>
+  request_key : uuid
 }
 
-books ||--o{ plan_objects
-plan_objects ||--o{ plan_versions
-plan_objects ||--o{ plan_adoptions
-plan_versions ||--o{ plan_adoptions
-plan_objects ..> plan_versions
+books ||--o{ plan_cards : 作品空间包含规划卡片
+plan_cards ||--o{ plan_versions : 规划编辑与 AI 候选
+plan_cards ||--o{ plan_relations : 组织故事、卷、章、场景层级
+plan_versions ||--o{ plan_actions : 明确采用或回退
+books ||--o{ chapters : 拥有章节档案
+plan_cards ||--o| chapters : chapter 类型卡片对应章节
+chapters ||--o{ bodies : 正文只追加版本
+bodies ||--o{ body_actions : 采用确切正文版本
+chapters ..> bodies : adopted_version_id
 
-books ||--o{ chapters
-chapters ||--o{ bodies
-chapters ||--o{ body_adoptions
-bodies ||--o{ body_adoptions
-chapters ..> bodies
+note left of plan_cards
+  规划不再维护 planning_objects 专用身份表。
+  故事、卷、章、场景由卡片类型区分，
+  上下级与资料引用由卡片关系表达。
+  当前旧规划 SQL 仍可经兼容视图访问，
+  后续需逐模块改为直接调用卡片工作流。
+end note
+
+note bottom of plan_actions
+  候选是否生效不靠“最新一条”推断。
+  只有 adopt / rollback 回执明确指向的版本
+  才能进入章节执行和后续生成。
+end note
+
+note right of bodies
+  正文体量大、锚点和质量引用多，
+  因此继续使用专用不可变正文表，
+  不把整篇正文塞入 card_versions.values。
+end note
+
+note bottom of body_actions
+  正文采用是事实提取、状态结算、质量检查的正式边界。
+  未采用正文候选不会污染后续正式计算。
+end note
+
+legend right
+  |= 数据类别 |= 收敛策略 |
+  | 规划、设定、人物、剧情节点 | 使用卡片、版本、关系、动作回执 |
+  | 章节正文 | 保留专用正文版本表 |
+  | 采用/回退 | 必须追加不可变回执 |
+  | 页面汇总 | 从正本读取或重建，不建立第二份可写正本 |
+endlegend
 @enduml
