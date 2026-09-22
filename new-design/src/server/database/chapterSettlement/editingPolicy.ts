@@ -1,3 +1,4 @@
+import {settlementRecordCtes,lockedSettlementQuery} from './recordStorage';
 import type { PoolClient } from "pg";
 import type { FieldDefinition, ChapterSettlementDraft } from "../../../common/contracts";
 import type { SettlementBaseline, SettlementEditingDraft, SettlementFieldChoice, SettlementSubjectChoice } from "../../../common/chapterSettlementEditing";
@@ -33,22 +34,28 @@ export function displaySettlementValue(field:FieldDefinition,value:unknown,nodes
   return Array.isArray(value)?value.map(one).join("、"):one(value);
 }
 export async function readBaseline(client:PoolClient,session:EditingRow,kind:"card"|"relation",id:string,key:string,field:FieldDefinition,nodes:SettlementFieldChoice["dictionaryNodes"],lock=false):Promise<SettlementBaseline>{
-  let row=(await client.query("SELECT * FROM new_design.current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4",[session.book_id,kind,id,key])).rows[0];
+  let row=(await client.query(`WITH ${settlementRecordCtes.current_state_projections}
+SELECT * FROM current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4`,[session.book_id,kind,id,key])).rows[0];
   const sourceKind=row?.source_state_change_id?"state_change":row?.source_initial_version_id?"initial_state":"unknown";
   let validSource=false;
   // Source facts are locked before their cache row, matching initial-state and
   // revert writers. Locking the projection first would permit a stale source or
   // deadlock with a source update waiting to rebuild that same projection.
   if(sourceKind==="state_change"){
-    if(lock)await client.query(`SELECT document.id FROM new_design.state_changes change JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id JOIN new_design.chapter_documents document ON document.id=settlement.chapter_document_id WHERE change.id=$1 FOR SHARE OF document`,[row.source_state_change_id]);
-    validSource=Boolean((await client.query(`SELECT change.id FROM new_design.state_changes change JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id AND settlement.status='committed'
+    if(lock)await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_changes}
+SELECT document.id FROM state_changes change JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id JOIN new_design.chapter_documents document ON document.id=settlement.chapter_document_id WHERE change.id=$1`,[row.source_state_change_id]);
+    validSource=Boolean((await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_changes}
+SELECT change.id FROM state_changes change JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id AND settlement.status='committed'
       JOIN new_design.chapter_documents document ON document.id=settlement.chapter_document_id AND document.book_id=settlement.book_id AND document.status='active' AND document.adopted_version_id=settlement.body_version_id
       JOIN new_design.chapter_body_versions body ON body.id=settlement.body_version_id AND body.chapter_document_id=document.id AND body.archived_at IS NULL
-      WHERE change.id=$1 AND change.book_id=$2 AND change.subject_kind=$3 AND change.subject_id=$4 AND change.state_key=$5 AND change.status='active' AND change.after_json=$6::jsonb ${lock?"FOR SHARE OF change,settlement":""}`,[row.source_state_change_id,session.book_id,kind,id,key,JSON.stringify(row.value_json)])).rowCount);
+      WHERE change.id=$1 AND change.book_id=$2 AND change.subject_kind=$3 AND change.subject_id=$4 AND change.state_key=$5 AND change.status='active' AND change.after_json=$6::jsonb ${lock?" FOR SHARE OF settlement":""}`,[row.source_state_change_id,session.book_id,kind,id,key,JSON.stringify(row.value_json)],lock)).rowCount);
   }
-  if(sourceKind==="initial_state")validSource=Boolean((await client.query(`SELECT state.id FROM new_design.entity_initial_states state JOIN new_design.entity_initial_state_versions version ON version.id=state.current_version_id WHERE version.id=$1 AND state.book_id=$2 AND state.subject_kind=$3 AND state.subject_id=$4 AND state.state_key=$5 AND version.value_json=$6::jsonb ${lock?"FOR SHARE OF state":""}`,[row.source_initial_version_id,session.book_id,kind,id,key,JSON.stringify(row.value_json)])).rowCount);
+  if(sourceKind==="initial_state")validSource=Boolean((await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.entity_initial_states},
+${settlementRecordCtes.entity_initial_state_versions}
+SELECT state.id FROM entity_initial_states state JOIN entity_initial_state_versions version ON version.id=state.current_version_id WHERE version.id=$1 AND state.book_id=$2 AND state.subject_kind=$3 AND state.subject_id=$4 AND state.state_key=$5 AND version.value_json=$6::jsonb `,[row.source_initial_version_id,session.book_id,kind,id,key,JSON.stringify(row.value_json)],lock)).rowCount);
   if(lock){
-    const current=(await client.query("SELECT * FROM new_design.current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4 FOR UPDATE",[session.book_id,kind,id,key])).rows[0];
+    const current=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.current_state_projections}
+SELECT * FROM current_state_projections WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4`,[session.book_id,kind,id,key])).rows[0];
     if(stableHash(row?JSON.parse(JSON.stringify(row)):null)!==stableHash(current?JSON.parse(JSON.stringify(current)):null))validSource=false;
     row=current;
   }
@@ -96,7 +103,7 @@ export async function validateEditingDraft(client:PoolClient,session:EditingRow,
   if(draft.category==="knowledge"){
     if(draft.holderKind==="character"){
       const holder=subjects.find(subject=>subject.id===draft.holderCardId&&subject.typeKey==="character"&&subject.subjectKind==="card");
-      const published=holder?await client.query("SELECT 1 FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.id=$1 AND card.status='active' AND card.current_version_id IS NOT NULL AND type.status='published'",[holder.id]):null;
+      const published=holder?await client.query("SELECT 1 FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND NOT type.is_internal WHERE card.id=$1 AND card.status='active' AND card.current_version_id IS NOT NULL AND type.status='published'",[holder.id]):null;
       if(!holder||!published?.rowCount)fail(session,"知识持有者必须是本书正式可用人物。",422,"draft.holderCardId");
     }else if(draft.holderCardId)fail(session,"读者知识不能指定人物持有者。",422,"draft.holderCardId");
   }

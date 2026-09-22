@@ -5,6 +5,8 @@ import type {CardGroupFormSummary,TemplateGroupSummary} from "../../../common/co
 import type {StructureWriteKind,StructureWriteOperation,StructureWriteReceipt} from "../../../common/structureWrites";
 import {NewDesignError} from "../../domain/errors";
 import {getNewDesignPool} from "../runtime";
+import {findRecordCard} from '../recordCards';
+import {recordWorkflowAction} from '../cardWorkflow';
 export {strictFormInputSchema} from "./formSchema";
 
 export const structureRequestKeySchema=z.string().uuid();
@@ -33,10 +35,19 @@ export function parseStructureWriteInput<S extends z.ZodType>(kind:StructureWrit
 }
 async function lock(client:PoolClient,kind:StructureWriteKind,key:string){await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`structure-write:${kind}:${key}`]);}
 function mapReceipt(row:Record<string,unknown>):StructureWriteReceipt{return{kind:row.kind as StructureWriteKind,operation:row.operation as StructureWriteOperation,requestKey:String(row.request_key),inputHash:String(row.input_hash),result:row.result_summary as StructureWriteReceipt["result"]};}
+function actionRequestKey(kind:StructureWriteKind,key:string):string{
+  const hash=createHash('sha256').update(`structure-write:${kind}:${key}`).digest('hex').slice(0,32);
+  return `${hash.slice(0,8)}-${hash.slice(8,12)}-5${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20)}`;
+}
+async function storedReceipt(client:PoolClient,kind:StructureWriteKind,key:string){
+  const row=(await client.query(`SELECT payload,receipt,input_hash FROM new_design.card_version_actions
+    WHERE request_key=$1 AND action_key=ANY($2::text[])`,[actionRequestKey(kind,key),[`structure.${kind}.save`,`structure.${kind}.publish`]])).rows[0];
+  return row?{kind:row.payload.kind,operation:row.payload.operation,request_key:row.payload.requestKey,input_hash:row.input_hash,result_summary:row.receipt}:null;
+}
 export async function readStructureWriteReceipt(kind:StructureWriteKind,key:string):Promise<StructureWriteReceipt|null>{
   structureRequestKeySchema.parse(key);
   const client=await(await getNewDesignPool()).connect();
-  try{await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");await lock(client,kind,key);const row=(await client.query("SELECT * FROM new_design.structure_write_receipts WHERE kind=$1 AND request_key=$2",[kind,key])).rows[0];const result=row?mapReceipt(row):null;await client.query("COMMIT");return result;}
+  try{await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");await lock(client,kind,key);const row=await storedReceipt(client,kind,key);const result=row?mapReceipt(row):null;await client.query("COMMIT");return result;}
   catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 export async function executeStructureWrite<T extends CardGroupFormSummary|TemplateGroupSummary>(kind:StructureWriteKind,operation:StructureWriteOperation,key:string|undefined,input:unknown,write:(client:PoolClient)=>Promise<T>):Promise<T>{
@@ -44,9 +55,13 @@ export async function executeStructureWrite<T extends CardGroupFormSummary|Templ
   const hash=structureWriteHash({kind,operation,input}),client=await(await getNewDesignPool()).connect();let committing=false,rolledBack=false,priorConflict=false;
   try{
     await client.query("BEGIN");
-    if(key){await lock(client,kind,key);const prior=(await client.query("SELECT * FROM new_design.structure_write_receipts WHERE kind=$1 AND request_key=$2",[kind,key])).rows[0];if(prior){if(prior.input_hash!==hash||prior.operation!==operation){priorConflict=true;throw new NewDesignError("原请求已有另一输入的回执；请保留原凭证核对，不会覆盖已有草稿或追加版本。",409);}committing=true;await client.query("COMMIT");return mapReceipt(prior).result as T;}}
+    if(key){await lock(client,kind,key);const prior=await storedReceipt(client,kind,key);if(prior){if(prior.input_hash!==hash||prior.operation!==operation){priorConflict=true;throw new NewDesignError("原请求已有另一输入的回执；请保留原凭证核对，不会覆盖已有草稿或追加版本。",409);}committing=true;await client.query("COMMIT");return mapReceipt(prior).result as T;}}
     const result=await write(client);
-    if(key)await client.query("INSERT INTO new_design.structure_write_receipts(kind,request_key,operation,input_hash,result_summary) VALUES($1,$2,$3,$4,$5::jsonb)",[kind,key,operation,hash,JSON.stringify(result)]);
+    if(key){
+      const subject=await findRecordCard(client,result.id,kind==='form'?'card_group_form':'template_group',{includeArchived:true});
+      if(!subject)throw new NewDesignError('保存结果缺少对应的结构对象。',409);
+      await recordWorkflowAction(client,{cardId:subject.recordCardId,actionKey:`structure.${kind}.${operation}`,requestKey:actionRequestKey(kind,key),inputHash:hash,payload:{kind,operation,requestKey:key},receipt:result as unknown as Record<string,unknown>});
+    }
     committing=true;await client.query("COMMIT");return result;
   }catch(error){try{await client.query("ROLLBACK");rolledBack=true;}catch{rolledBack=false;}
     const proven=!committing&&rolledBack;

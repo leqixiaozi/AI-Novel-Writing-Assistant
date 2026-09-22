@@ -13,6 +13,7 @@ import {
   type StoryTimeInput,
 } from "./bookViewStore";
 import { getNewDesignPool } from "./runtime";
+import {createRecordCard,replaceRecordCard,requireRecordCard} from "./recordCards";
 
 export type BookChangeInput =
   | { operationKey:"story_time";input:StoryTimeInput }
@@ -49,17 +50,19 @@ function previewImpacts(workspace:BookViewWorkspace,change:BookChangeInput):{imp
 }
 
 export async function previewBookChangeSet(bookId:string,change:BookChangeInput):Promise<BookChangeSet>{
-  const workspace=await getBookViewWorkspace(bookId);const preview=previewImpacts(workspace,change);const pool=await getNewDesignPool();const result=await pool.query(`INSERT INTO new_design.book_change_sets(id,book_id,operation_key,input,impacts,base_revisions) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb) RETURNING *`,[randomUUID(),bookId,change.operationKey,JSON.stringify(change.input),JSON.stringify(preview.impacts),JSON.stringify(preview.baseRevisions)]);return mapChangeSet(result.rows[0]);
+  const workspace=await getBookViewWorkspace(bookId),preview=previewImpacts(workspace,change),client=await(await getNewDesignPool()).connect();
+  try{await client.query('BEGIN');const result=await createRecordCard(client,{id:randomUUID(),spaceId:workspace.spaceId,typeKey:'book_change_set',title:'书内变更预览',values:{book_id:bookId,operation_key:change.operationKey,input:change.input,impacts:preview.impacts,base_revisions:preview.baseRevisions,status:'previewed',applied_at:null}});await client.query('COMMIT');return mapChangeSet(result);}
+  catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 
 export async function applyBookChangeSet(id:string):Promise<BookChangeSet>{
   const pool=await getNewDesignPool();const client=await pool.connect();
-  try{await client.query("BEGIN");const row=assertFound((await client.query("SELECT * FROM new_design.book_change_sets WHERE id=$1 FOR UPDATE",[id])).rows[0],"影响预览不存在。");if(row.status!=="previewed")throw new NewDesignError("这份影响预览已经处理，不能重复应用。",409);const bookId=String(row.book_id);const input=row.input as Record<string,unknown>;
+  try{await client.query("BEGIN");const row=await requireRecordCard(client,id,'book_change_set',"影响预览不存在。",{lock:true});if(row.status!=="previewed")throw new NewDesignError("这份影响预览已经处理，不能重复应用。",409);const bookId=String(row.book_id);const input=row.input as Record<string,unknown>;
     if(row.operation_key==="story_time")await applyStoryTimePosition(client,bookId,input as unknown as StoryTimeInput);
     else if(row.operation_key==="narrative_placement")await applyNarrativePlacement(client,bookId,input as unknown as NarrativePlacementInput);
     else if(row.operation_key==="character_relation")await applyCharacterRelation(client,bookId,input as unknown as CharacterRelationInput);
     else if(row.operation_key==="clue_lifecycle")await applyClueLifecycle(client,bookId,input as unknown as ClueLifecycleInput);
     else throw new NewDesignError("这份影响预览包含未知操作。",422);
-    const applied=await client.query("UPDATE new_design.book_change_sets SET status='applied',applied_at=now() WHERE id=$1 RETURNING *",[id]);await client.query("COMMIT");return mapChangeSet(applied.rows[0]);
+    const applied=await replaceRecordCard(client,{id:row.recordCardId,spaceId:row.recordSpaceId,typeKey:'book_change_set',values:{...row,status:'applied',applied_at:new Date().toISOString()}});await client.query("COMMIT");return mapChangeSet(applied);
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }

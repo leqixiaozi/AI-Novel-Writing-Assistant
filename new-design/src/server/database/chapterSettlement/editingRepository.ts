@@ -1,3 +1,4 @@
+import {insertSettlementRecords,settlementRecordCtes,lockedSettlementQuery} from './recordStorage';
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { ChapterSettlementItem,ChapterSettlementDraft } from "../../../common/contracts";
@@ -19,7 +20,8 @@ export interface FrozenItemContract {
   bodyVersionId:string;
 }
 export async function lockEditingSession(client:PoolClient,id:string):Promise<EditingRow>{
-  const session=(await client.query("SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1 FOR UPDATE",[id])).rows[0];
+  const session=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT * FROM chapter_adoption_sessions WHERE id=$1`,[id])).rows[0];
   if(!session)fail(null,"章节结果确认会话不存在。",404);
   const document=(await client.query("SELECT * FROM new_design.chapter_documents WHERE id=$1 AND book_id=$2 FOR UPDATE",[session.chapter_document_id,session.book_id])).rows[0];
   if(!document)fail(session,"章节正文档案不存在。",404);
@@ -34,36 +36,43 @@ export function assertEditingSession(session:EditingRow,revision:number,candidat
   if(!["adopted_pending_proposals","pending_review","partially_confirmed","failed"].includes(String(session.status)))fail(session,"本章结果已稳定或正在处理，不能覆盖；请重新读取已保存结果。",409,"sessionId");
 }
 export async function readDomain(client:PoolClient,session:EditingRow,item:EditingRow,lock=false):Promise<{hash:string;revision:number;data:EditingRow;status:string}>{
-  const suffix=lock?" FOR UPDATE":"";let data:EditingRow;
+  let data:EditingRow;
   if(item.canonical_fact_id){
-    const row=(await client.query("SELECT * FROM new_design.canonical_facts WHERE id=$1"+suffix,[item.canonical_fact_id])).rows[0];
+    const row=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.canonical_facts}
+SELECT * FROM canonical_facts WHERE id=$1`,[item.canonical_fact_id],lock)).rows[0];
     if(!row||row.book_id!==session.book_id)fail(session,"事实提案不属于本章书籍。",409,"itemId");
     data={fact:row};
   }else if(item.state_proposal_id){
-    const row=(await client.query("SELECT * FROM new_design.state_change_proposals WHERE id=$1"+suffix,[item.state_proposal_id])).rows[0];
+    const row=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_change_proposals}
+SELECT * FROM state_change_proposals WHERE id=$1`,[item.state_proposal_id],lock)).rows[0];
     if(!row||row.book_id!==session.book_id||row.chapter_document_id!==session.chapter_document_id||row.body_version_id!==session.body_version_id||row.text_anchor_id!==item.evidence_anchor_id)
       fail(session,"状态提案的正文来源与本章确认清单不一致。",409,"itemId");
     data={state:row};
   }else if(item.knowledge_proposal_id){
-    const row=(await client.query("SELECT * FROM new_design.knowledge_state_proposals WHERE id=$1"+suffix,[item.knowledge_proposal_id])).rows[0];
+    const row=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.knowledge_state_proposals}
+SELECT * FROM knowledge_state_proposals WHERE id=$1`,[item.knowledge_proposal_id],lock)).rows[0];
     if(!row||row.book_id!==session.book_id)fail(session,"知识提案不属于本章书籍。",409,"itemId");
-    const version=(await client.query("SELECT * FROM new_design.knowledge_state_proposal_versions WHERE id=$1 AND proposal_id=$2",[row.current_version_id,row.id])).rows[0];
-    const claim=(await client.query("SELECT * FROM new_design.epistemic_claims WHERE id=$1",[row.claim_id])).rows[0];
+    const version=(await client.query(`WITH ${settlementRecordCtes.knowledge_state_proposal_versions}
+SELECT * FROM knowledge_state_proposal_versions WHERE id=$1 AND proposal_id=$2`,[row.current_version_id,row.id])).rows[0];
+    const claim=(await client.query(`WITH ${settlementRecordCtes.epistemic_claims}
+SELECT * FROM epistemic_claims WHERE id=$1`,[row.claim_id])).rows[0];
     if(!version||version.chapter_document_id!==session.chapter_document_id||version.body_version_id!==session.body_version_id||version.text_anchor_id!==item.evidence_anchor_id||!claim||claim.book_id!==session.book_id)
       fail(session,"知识提案的当前版本或正文证据与本章清单不一致。",409,"itemId");
     data={knowledge:row,version,claim};
   }else fail(session,"变化清单缺少正式领域提案。",409,"itemId");
-  const anchor=(await client.query("SELECT * FROM new_design.chapter_text_anchors WHERE id=$1",[item.evidence_anchor_id])).rows[0];
+  const anchor=(await client.query(`SELECT * FROM new_design.text_anchors WHERE id=$1`,[item.evidence_anchor_id])).rows[0];
   if(!anchor||anchor.book_id!==session.book_id||anchor.chapter_document_id!==session.chapter_document_id||anchor.body_version_id!==session.body_version_id||anchor.status!=="active")
     fail(session,"变化提案的正文证据已失效，请重新选择本章证据。",409,"evidenceStart");
-  if(item.canonical_fact_id&&!Boolean((await client.query("SELECT 1 FROM new_design.canonical_fact_evidence WHERE fact_id=$1 AND chapter_text_anchor_id=$2 AND stale_at IS NULL",[item.canonical_fact_id,item.evidence_anchor_id])).rowCount))fail(session,"事实提案缺少本章有效证据。",409,"evidenceStart");
+  if(item.canonical_fact_id&&!Boolean((await client.query(`WITH ${settlementRecordCtes.canonical_fact_evidence}
+SELECT 1 FROM canonical_fact_evidence WHERE fact_id=$1 AND chapter_text_anchor_id=$2 AND stale_at IS NULL`,[item.canonical_fact_id,item.evidence_anchor_id])).rowCount))fail(session,"事实提案缺少本章有效证据。",409,"evidenceStart");
   const record=(data.fact??data.state??data.knowledge) as EditingRow;
   // Date objects are normalized before hashing so persisted JSON and live PG rows agree.
   const normalized=JSON.parse(JSON.stringify({...data,anchor})) as EditingRow;
   return{hash:stableHash(normalized),revision:Number(record.revision),data,status:String(record.status)};
 }
 export async function frozenItemContract(client:PoolClient,sessionId:string,itemId:string):Promise<FrozenItemContract|null>{
-  const row=(await client.query("SELECT detail FROM new_design.chapter_settlement_events WHERE session_id=$1 AND item_id=$2 AND detail->>'editingKind'='contract' ORDER BY (detail->>'itemRevision')::int DESC,created_at DESC LIMIT 1",[sessionId,itemId])).rows[0];
+  const row=(await client.query(`WITH ${settlementRecordCtes.chapter_settlement_events}
+SELECT detail FROM chapter_settlement_events WHERE session_id=$1 AND item_id=$2 AND detail->>'editingKind'='contract' ORDER BY (detail->>'itemRevision')::int DESC,created_at DESC LIMIT 1`,[sessionId,itemId])).rows[0];
   return row?(row.detail as FrozenItemContract):null;
 }
 export async function freezeEditingItem(client:PoolClient,session:EditingRow,itemId:string,draft:SettlementEditingDraft,field:SettlementFieldChoice,actor:string):Promise<void>{
@@ -71,7 +80,7 @@ export async function freezeEditingItem(client:PoolClient,session:EditingRow,ite
   if(!item)fail(session,"保存的变化提案不属于当前清单。",409);
   const domain=await readDomain(client,session,item,true);
   const contract:FrozenItemContract={editingKind:"contract",itemRevision:Number(item.revision),draft,field,domainHash:domain.hash,domainRevision:domain.revision,bodyVersionId:String(session.body_version_id)};
-  await client.query("INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,to_status,item_id,actor,detail) VALUES($1,$2,'proposal_edited',$3,$4,$5,$6::jsonb)",[randomUUID(),session.id,session.status,itemId,actor,JSON.stringify(contract)]);
+  await insertSettlementRecords(client,"chapter_settlement_event",`SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('proposal_edited')::text AS event_kind,($3)::text AS to_status,($4)::uuid AS item_id,($5)::text AS actor,($6::jsonb)::jsonb AS detail`,[randomUUID(),session.id,session.status,itemId,actor,JSON.stringify(contract)]);
 }
 async function itemMetadata(client:PoolClient,session:EditingRow,item:ChapterSettlementItem,catalog:ChapterSettlementEditingWorkspace["catalog"]):Promise<SettlementItemEditingMetadata>{
   const contract=await frozenItemContract(client,String(session.id),item.id),field=catalog.subjects.find(subject=>subject.id===item.subjectId&&subject.subjectKind===item.subjectKind)?.fields.find(field=>field.key===item.stateKey);
@@ -91,7 +100,8 @@ async function itemMetadata(client:PoolClient,session:EditingRow,item:ChapterSet
   return{itemId:item.id,editable:!reason,unavailableReason:reason,specificationHash:contract?.field.specificationHash??null,fieldLabel:historical?.label??"历史字段需核对",beforeDisplay:historical?displaySettlementValue(historical.field,item.beforeValue,historical.dictionaryNodes):"历史值需核对",afterDisplay:historical?displaySettlementValue(historical.field,item.afterValue,historical.dictionaryNodes):"历史值需核对",baseline:field?.baseline??null,domainRevision,knowledge};
 }
 export async function readEditingWorkspace(client:PoolClient,sessionId:string):Promise<ChapterSettlementEditingWorkspace>{
-  const base=await getChapterSettlementWorkspace(sessionId),session=(await client.query("SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1",[sessionId])).rows[0];
+  const base=await getChapterSettlementWorkspace(sessionId),session=(await client.query(`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT * FROM chapter_adoption_sessions WHERE id=$1`,[sessionId])).rows[0];
   const catalog=session.adoption_kind==="resource_supplement"?await readFrozenSupplementCatalog(client,session,base.candidate.contentHash):await readEditingCatalog(client,session);
   const itemSpecifications:SettlementItemEditingMetadata[]=[];
   for(const item of base.items)itemSpecifications.push(await itemMetadata(client,session,item,catalog));
@@ -99,9 +109,10 @@ export async function readEditingWorkspace(client:PoolClient,sessionId:string):P
   return{...base,catalog,itemSpecifications,blockedReason:session.adoption_kind==="resource_supplement"?"本章资源补充暂不可提交；请查看原结算和资源来源。原正文与确认记录保留。":session.status==="impact_review_required"?"候选正文需要先核对切换影响；当前会话仅供查看，不能提交变化。":!base.candidate.isAdopted?"本章采用正文已切换，旧清单不能覆盖当前正文；请回到当前正文重新准备结果确认。":null,aiCapability:{configured:false,taskKey:null,taskContractVersionId:null,message:"正文变化提取需专属受控执行能力；正式清单可手工填写并核对。"},aiDisabled:{reason:"正文变化提取尚未接入专属受控执行链。",sourceRoute:"/new-design/structure/models",actionLabel:"打开模型设置"}};
 }
 export async function receiptByKey(client:PoolClient,sessionId:string,key:string):Promise<{inputHash:string;receipt:SettlementEditingReceipt}|null>{
-  const row=(await client.query("SELECT editing_input_hash,editing_receipt FROM new_design.chapter_settlement_events WHERE session_id=$1 AND editing_request_key=$2",[sessionId,key])).rows[0];
+  const row=(await client.query(`WITH ${settlementRecordCtes.chapter_settlement_events}
+SELECT editing_input_hash,editing_receipt FROM chapter_settlement_events WHERE session_id=$1 AND editing_request_key=$2`,[sessionId,key])).rows[0];
   return row?{inputHash:String(row.editing_input_hash),receipt:row.editing_receipt as SettlementEditingReceipt}:null;
 }
 export async function appendEditingReceipt(client:PoolClient,session:EditingRow,key:string,hash:string,receipt:SettlementEditingReceipt,actor:string):Promise<void>{
-  await client.query("INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,to_status,actor,detail,editing_request_key,editing_input_hash,editing_receipt) VALUES($1,$2,'decision_recorded',$3,$4,$5::jsonb,$6,$7,$8::jsonb)",[randomUUID(),session.id,receipt.workspace.session.status,actor,JSON.stringify({editingKind:"receipt",operation:receipt.operation}),key,hash,JSON.stringify(receipt)]);
+  await insertSettlementRecords(client,"chapter_settlement_event",`SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('decision_recorded')::text AS event_kind,($3)::text AS to_status,($4)::text AS actor,($5::jsonb)::jsonb AS detail,($6)::text AS editing_request_key,($7)::char(64) AS editing_input_hash,($8::jsonb)::jsonb AS editing_receipt`,[randomUUID(),session.id,receipt.workspace.session.status,actor,JSON.stringify({editingKind:"receipt",operation:receipt.operation}),key,hash,JSON.stringify(receipt)]);
 }

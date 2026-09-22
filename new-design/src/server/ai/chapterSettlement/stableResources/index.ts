@@ -1,3 +1,4 @@
+import {settlementRecordCtes} from '../../../database/chapterSettlement/recordStorage';
 import { z } from "zod";
 import { getNewDesignPool } from "../../../database/runtime";
 import { readFrozenSupplementSource } from "../../../database/chapterSettlement";
@@ -10,8 +11,9 @@ export async function prepareStableResourceSupplementPrompt(sessionId: string): 
   const pool = await getNewDesignPool(), client = await pool.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    const row = assertFound((await client.query(`SELECT session.*,body.content_hash AS body_hash
-      FROM new_design.chapter_adoption_sessions session
+    const row = assertFound((await client.query(`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT session.*,body.content_hash AS body_hash
+      FROM chapter_adoption_sessions session
       JOIN new_design.books book ON book.id=session.book_id AND book.status='active'
       JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id
         AND document.book_id=book.id AND document.status='active' AND document.adopted_version_id=session.body_version_id

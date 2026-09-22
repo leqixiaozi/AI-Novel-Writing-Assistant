@@ -5,6 +5,7 @@ import { NewDesignError, assertFound } from "../domain/errors";
 import { validateCardValues } from "../domain/validation";
 import { getNewDesignPool } from "./runtime";
 import { getCard } from "./store";
+import {createRecordCard} from "./recordCards";
 
 export const STRATEGY_RESOURCE_SPACE_ID = "60000000-0000-4000-8000-000000000001";
 
@@ -112,10 +113,10 @@ export async function installStrategyResource(bookId: string, resourceId: string
     await client.query(`INSERT INTO new_design.card_versions (id,card_id,revision,type_version_id,title,values,source) VALUES ($1,$2,1,$3,$4,$5::jsonb,'create')`, [targetVersionId, targetCardId, targetType.target_version_id, resourceRow.title, JSON.stringify(validated.values)]);
     await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1", [targetCardId, targetVersionId]);
     for (const [fieldKey, value] of [["$title", resourceRow.title] as const, ...Object.entries(validated.values)]) {
-      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,'resource',$4,'confirmed',$5::jsonb,$5::jsonb)`, [randomUUID(), targetCardId, fieldKey, resourceId, JSON.stringify(value)]);
+      await createRecordCard(client,{spaceId:String(book.space_id),typeKey:'card_field_origin',title:fieldKey,values:{card_id:targetCardId,field_key:fieldKey,source_kind:'resource',source_id:resourceId,source_card_id:null,source_card_version_id:null,source_detail:{},confirmation_status:'confirmed',original_value:value,current_value:value}});
     }
     const snapshot = { typeKey: resourceRow.type_key as StrategyResourceTypeKey, title: String(resourceRow.title), values: validated.values };
-    await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [adoptionId, resourceId, resourceRow.current_version_id, bookId, targetCardId, JSON.stringify(snapshot)]);
+    await createRecordCard(client,{id:adoptionId,spaceId:String(book.space_id),typeKey:'resource_adoption',title:'采用创作策略',values:{id:adoptionId,resource_card_id:resourceId,resource_version_id:resourceRow.current_version_id,book_id:bookId,target_card_id:targetCardId,action:'install_snapshot',snapshot}});
     await client.query("COMMIT");
     return {
       resource: mapResource(resourceRow),

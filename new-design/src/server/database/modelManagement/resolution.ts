@@ -1,3 +1,5 @@
+import {listRecordCards} from '../recordCards';
+import {hasContractPublication,insertContractRecord} from "../aiContracts/records";
 import {verifyFrozenResourceBackfillScope} from '../characterResources';
 import { randomUUID } from "node:crypto";
 import type { ManagedModelSnapshot, ManagedTaskRoute, ModelTaskKey } from "../../../common/modelRouting";
@@ -60,7 +62,7 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
       const composition=taskType!=="quality_audit"&&taskType!=="chapter_settlement"&&taskType!=="chapter_generation"&&taskType!=="world_consistency"&&taskType!=="creative_extraction"&&taskType!=="character_dialogue"&&contract?.task_key===`prompt_composition_${contract.recipe_id}_${taskType}`;
       if(!book||!contract||!(settlement||chapter||quality||world||creative||dialogue||characterAuthor||imagePreparation||composition))throw new NewDesignError("模型快照必须引用真实书籍与本任务精确受控合同版本。",422);
       if(dialogue){
-        const session=(await client.query("SELECT frozen_sources,input_payload FROM new_design.character_dialogue_sessions WHERE id=$1 AND book_id=$2",[dialogueMarker.sessionId,scope.bookId])).rows[0];
+        const session=(await listRecordCards(client,'character_dialogue_session',{where:{id:dialogueMarker.sessionId,book_id:scope.bookId}}))[0];
         const sources=session?.frozen_sources;
         const actor=sources?.actors?.find((value:Record<string,unknown>)=>value.cardId===input.actor?.cardId);
         if(!sources||sources.hash!==dialogueMarker.sourceHash||stableHash(sources.checkpoint)!==stableHash(input.checkpoint)||!actor||stableHash(actor)!==stableHash(input.actor)||!Array.isArray(input.knowledge)||input.knowledge.some((value:Record<string,unknown>)=>value.holderCardId!==input.actor.cardId))throw new NewDesignError("人物模拟快照必须使用本书原会话、精确截至章及本人私有历史来源。",422);
@@ -69,11 +71,11 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
         const privateStates=sources.states.filter((value:Record<string,unknown>)=>value.subjectKind==="card"?value.subjectId===actor.cardId:privateRelations.some((relation:Record<string,unknown>)=>relation.id===value.subjectId));
         const publicParticipants=sources.actors.filter((value:Record<string,unknown>)=>value.cardId!==actor.cardId).map((value:Record<string,unknown>)=>({cardId:value.cardId,label:value.label}));
         if(stableHash(privateKnowledge)!==stableHash(input.knowledge)||stableHash(privateRelations)!==stableHash(input.relations)||stableHash(privateStates)!==stableHash(input.states)||stableHash(publicParticipants)!==stableHash(input.otherParticipants))throw new NewDesignError("人物模拟不能替换或扩大原会话中的私有历史来源。",422);
-        const rounds=(await client.query("SELECT id,input_payload,generated_output FROM new_design.character_dialogue_rounds WHERE session_id=$1 AND book_id=$2 AND status='succeeded' AND generated_output IS NOT NULL ORDER BY round_number",[dialogueMarker.sessionId,scope.bookId])).rows;
+        const rounds=(await listRecordCards(client,'character_dialogue_round',{where:{session_id:dialogueMarker.sessionId,book_id:scope.bookId,status:'succeeded'}})).filter(row=>row.generated_output!==null).sort((a,b)=>Number(a.round_number)-Number(b.round_number));
         const publicRounds=rounds.map(row=>({id:row.id,actorCardId:row.input_payload.actorCardId,actorLabel:sources.actors.find((value:Record<string,unknown>)=>value.cardId===row.input_payload.actorCardId)?.label??"原参与对象",utterance:row.generated_output.utterance}));
         if(input.situation!==session.input_payload?.situation||stableHash(publicRounds)!==stableHash(input.publicRounds))throw new NewDesignError("人物模拟只能使用原会话情境和此前成功回合的真实公开发言。",422);
       }
-      if(chapter){const input=contract.input_schema?.const;if(input?.bookId!==scope.bookId||stableHash(input)!==stableHash(contract.variables_schema.const)||!(await client.query("SELECT id FROM new_design.planning_objects WHERE book_id=$1 AND card_id=$2 AND level='chapter' AND status='active' AND adopted_version_id=ANY($3::uuid[])",[scope.bookId,input.chapterCardId,input.plans.filter((plan:Record<string,unknown>)=>plan.level==="chapter").map((plan:Record<string,unknown>)=>plan.versionId)])).rowCount)throw new NewDesignError("正文生成快照缺少本书已采用章计划与精确输入合同。",422);}
+      if(chapter){const input=contract.input_schema?.const;if(input?.bookId!==scope.bookId||stableHash(input)!==stableHash(contract.variables_schema.const)||!(await listRecordCards(client,'planning_object',{where:{book_id:scope.bookId,card_id:input.chapterCardId,level:'chapter',status:'active'}})).some(object=>input.plans.some((plan:Record<string,unknown>)=>plan.level==='chapter'&&plan.versionId===object.adopted_version_id)))throw new NewDesignError("正文生成快照缺少本书已采用章计划与精确输入合同。",422);}
       if(settlement){
         const corrective=contract.budget_policy.assetId==='new_design.character.stable_resource_correction';
         const stable=corrective||contract.budget_policy.assetId==="new_design.character.stable_resource_supplement";
@@ -81,7 +83,7 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
         if(resource!==Boolean(input?.resourceScope)||contract.variables_schema["x-chapter-settlement"].assetId!==contract.budget_policy.assetId||contract.variables_schema["x-chapter-settlement"].assetVersion!=="v1")throw new NewDesignError("资源回填必须引用自身受控合同和冻结资源范围。",422);
         if(stable){
           const owner=await import('../chapterSettlement');
-          const actual=(await client.query('SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1 AND book_id=$2',[input.sessionId,scope.bookId])).rows[0];
+          const actual=(await listRecordCards(client,'chapter_adoption_session',{where:{id:input.sessionId,book_id:scope.bookId}}))[0];
           if(!actual||actual.adoption_kind!=='resource_supplement')throw new NewDesignError('稳定章补充快照必须使用本书真实补充会话。',422);
           await owner.assertResourceSupplementCandidateContract(client,actual,'extract');
           const source=await owner.readFrozenSupplementSource(client,actual,input.bodyContentHash),catalog=await owner.getChapterSettlementEditingCatalogInTransaction(client,actual,true);
@@ -90,17 +92,17 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
             ||Boolean(input.stableSupplement)===corrective||stableHash(source)!==stableHash(frame?.source)||frame?.sessionRevision!==Number(actual.revision)
             ||stableHash(catalog)!==stableHash(input.catalog)||input.bodyContent!==source.basis.bodyContent||stableHash(input.resourceScope)!==stableHash(source.resourceScope)
             ||stableHash(input.expectedChanges)!==stableHash([]))throw new NewDesignError('稳定章补充模型快照不能替换原清单、计划或历史前值。',422);
-          const anchors=(await client.query('SELECT * FROM new_design.chapter_text_anchors WHERE book_id=$1 AND body_version_id=$2 AND status=\'active\' AND id=ANY($3::uuid[])',[scope.bookId,input.bodyVersionId,source.resourceScope.anchors.map(anchor=>anchor.id)])).rows;
+          const anchors=(await client.query('SELECT * FROM new_design.text_anchors WHERE book_id=$1 AND body_version_id=$2 AND status=\'active\' AND id=ANY($3::uuid[])',[scope.bookId,input.bodyVersionId,source.resourceScope.anchors.map(anchor=>anchor.id)])).rows;
           if(source.resourceScope.anchors.some(anchor=>!anchors.some(row=>row.id===anchor.id&&row.subject_card_id===anchor.subjectCardId&&Number(row.start_offset)===anchor.start&&Number(row.end_offset)===anchor.end&&row.excerpt===anchor.excerpt)))throw new NewDesignError('稳定章补充原正文锚点已失效，不能领取模型。',422);
         }else if(resource)await verifyFrozenResourceBackfillScope(client,scope.bookId,input.bodyVersionId,input.bodyContent,input.resourceScope);
-        const session=(await client.query("SELECT id,body_version_id FROM new_design.chapter_adoption_sessions WHERE id=$1 AND book_id=$2",[contract.variables_schema["x-chapter-settlement"].sessionId,scope.bookId])).rows[0];
+        const session=(await listRecordCards(client,'chapter_adoption_session',{where:{id:contract.variables_schema['x-chapter-settlement'].sessionId,book_id:scope.bookId}}))[0];
         if(!session||contract.input_schema?.const?.sessionId!==session.id||contract.input_schema?.const?.bodyVersionId!==session.body_version_id||stableHash(contract.input_schema.const)!==stableHash(contract.variables_schema.const))throw new NewDesignError("章节提取模型快照缺少本书真实会话、正文与精确输入合同。",422);
       }
     }
     const layers: DbRow[] = [];
     for (const layer of route.sourceLayers) {
-      const row = (await client.query("SELECT version.*,config.scope,config.task_key FROM new_design.model_route_versions version JOIN new_design.model_route_configs config ON config.id=version.config_id WHERE version.id=$1 AND config.id=$2 AND (version.status IN ('published','superseded') OR EXISTS(SELECT 1 FROM new_design.ai_contract_publications receipt WHERE receipt.entity_kind='model_route' AND receipt.entity_id=config.id AND receipt.to_version_id=version.id))", [layer.versionId, layer.configId])).rows[0];
-      if (!row || row.scope !== layer.scope || row.scope === "task" && row.task_key !== taskType) throw new NewDesignError("模型快照引用的生效版本来源无效。请刷新模型设置后重试。", 422);
+      const row = (await client.query("SELECT version.*,config.scope,config.task_key FROM new_design.model_route_versions version JOIN new_design.model_route_configs config ON config.id=version.config_id WHERE version.id=$1 AND config.id=$2", [layer.versionId, layer.configId])).rows[0];
+      if (!row || (!["published","superseded"].includes(row.status)&&!await hasContractPublication(client,"model_route",String(row.id))) || row.scope !== layer.scope || row.scope === "task" && row.task_key !== taskType) throw new NewDesignError("模型快照引用的生效版本来源无效。请刷新模型设置后重试。", 422);
       layers.push(row);
     }
     // Reconstruct exact historical settings, not the currently enabled route, to handle legitimate publish races.
@@ -121,7 +123,7 @@ export async function captureManagedModelSnapshot(taskType: ModelTaskKey, route:
     if (stableHash({ primary, policy, fallbacks }) !== stableHash(settings)) throw new NewDesignError("模型快照内容与来源版本不一致，请重新准备本次任务。", 422);
     const id = randomUUID(), snapshotHash = stableHash({ taskType, ...settings, sourceLayers: route.sourceLayers,...(scope?{scope}:{}) });
     await client.query("INSERT INTO new_design.model_route_snapshots(id,book_id,task_contract_version_id,managed_task_key,node_key,provider,model,parameters,required_capabilities,credential_ref_id,budget_policy,timeout_ms,retry_policy,source_layers,policy_version,snapshot_hash) VALUES($1,$12,$13,$2,NULL,$3,$4,$5::jsonb,'{}',$6,$7::jsonb,$8,$9::jsonb,$10::jsonb,'managed-model-v1',$11)", [id, scope?null:taskType, primary.provider, primary.model, JSON.stringify({ baseUrl: primary.endpoint }), primary.credentialId, JSON.stringify({ maxTokens: policy.maxTotalTokens, maxOutputTokens: policy.maxOutputTokens }), policy.timeoutMs, JSON.stringify({ maxRetries: policy.maxRetries, retryDelayMs: policy.retryDelayMs }), JSON.stringify(route.sourceLayers), snapshotHash,scope?.bookId??null,scope?.taskContractVersionId??null]);
-    for (const [index, fallback] of fallbacks.entries()) await client.query("INSERT INTO new_design.model_route_snapshot_fallbacks(id,snapshot_id,sort_order,provider,model,parameters,credential_ref_id,technical_failure_categories) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8)", [randomUUID(), id, index, fallback.provider, fallback.model, JSON.stringify({ baseUrl: fallback.endpoint }), fallback.credentialId, fallback.failureCategories]);
+    for (const [index, fallback] of fallbacks.entries()) await insertContractRecord(client,"model_route_snapshot_fallback",{id:randomUUID(),snapshot_id:id,sort_order:index,provider:fallback.provider,model:fallback.model,parameters:{baseUrl:fallback.endpoint},credential_ref_id:fallback.credentialId,technical_failure_categories:fallback.failureCategories});
     return { id, snapshotHash, taskType, route: { ...settings, sourceLayers: route.sourceLayers.map(layer => ({ ...layer })) } };
   }, true);
 }

@@ -1,3 +1,6 @@
+import {runRows,readRunPreview,insertRunRecord,transitionRunPreview} from "../aiRunOrchestration/records";
+import {readManifestSlots} from "../aiContracts/contextStore";
+import {readSnapshotFallbacks} from "../aiContracts/records";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
@@ -15,14 +18,15 @@ type Row=Record<string,any>;
 const STEP="execute_prompt_composition_debug";
 const requestSchema=z.object({id:z.string().uuid(),expectedRevision:z.number().int().positive(),key:z.string().trim().min(8).max(160)}).strict();
 async function resultFromSubmission(client:PoolClient,previewId:string,repeated:boolean):Promise<CompositionDebugResult>{
-  const row=assertFound((await client.query("SELECT task.id AS task_id,attempt.status,attempt.debug_result,attempt.debug_execution,attempt.debug_failure,EXISTS(SELECT 1 FROM new_design.ai_attempt_usage usage WHERE usage.attempt_id=attempt.id) AS usage_recorded FROM new_design.ai_run_submissions submission JOIN new_design.ai_tasks task ON task.id=submission.ai_task_id JOIN new_design.ai_task_steps step ON step.task_id=task.id AND step.step_key=$2 JOIN new_design.ai_task_attempts attempt ON attempt.id=step.current_attempt_id WHERE submission.preview_id=$1 AND task.source_kind=$3",[previewId,STEP,DEBUG_KIND])).rows[0],"试运行记录尚不存在，请先生成预览并点击试运行。");
+  const submission=(await runRows(client,"ai_run_submission",{preview_id:previewId}))[0];if(!submission)throw new NewDesignError("试运行记录尚不存在，请先生成预览并点击试运行。",404);
+  const row=assertFound((await client.query("SELECT task.id AS task_id,attempt.status,attempt.debug_result,attempt.debug_execution,attempt.debug_failure,EXISTS(SELECT 1 FROM new_design.ai_attempt_usage usage WHERE usage.attempt_id=attempt.id) AS usage_recorded FROM new_design.ai_tasks task JOIN new_design.ai_task_steps step ON step.task_id=task.id AND step.step_key=$2 JOIN new_design.ai_task_attempts attempt ON attempt.id=step.current_attempt_id WHERE task.id=$1 AND task.source_kind=$3",[submission.ai_task_id,STEP,DEBUG_KIND])).rows[0],"试运行记录尚不存在，请先生成预览并点击试运行。");
   return {previewId,taskId:row.task_id,status:row.status==="succeeded"?"succeeded":row.status==="running"||row.status==="queued"?"running":"failed",output:row.debug_result??null,modelSnapshot:row.debug_execution??null,failure:row.debug_failure??(row.status==="running"?{failedStep:"等待试运行回执",summary:"试运行已领取，请刷新核对原结果；不会自动再次调用模型。若进程中断，请确认旧运行后新建预览进行新的试验。",savedResult:"原预览、精确合同、上下文和运行领取记录已保留；书内正本未修改。",actionLabel:"返回提示词组合",sourceRoute:`${COMPOSITION_ROUTE}?previewId=${previewId}`} : null),usageRecorded:row.usage_recorded===true,repeated};
 }
 export async function readDebugResult(previewId:string,context?:CompositionDatabaseContext):Promise<CompositionDebugResult|null>{
-  z.string().uuid().parse(previewId);return database(context,async client=>{await readPreviewRow(client,previewId);if(!(await client.query("SELECT id FROM new_design.ai_run_submissions WHERE preview_id=$1",[previewId])).rows.length)return null;return resultFromSubmission(client,previewId,false);});
+  z.string().uuid().parse(previewId);return database(context,async client=>{await readPreviewRow(client,previewId);if(!(await runRows(client,"ai_run_submission",{preview_id:previewId})).length)return null;return resultFromSubmission(client,previewId,false);});
 }
 async function appendEvent(client:PoolClient,refs:{taskId:string;stepId:string;attemptId:string},kind:"task"|"step"|"attempt",from:string|null,to:string,reason:string,revision:number|null=null):Promise<void>{
-  await client.query("INSERT INTO new_design.ai_task_state_events(id,task_id,step_id,attempt_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor,entity_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'组合调试单次领取与终止；不采用正本','user','prompt_composition',$10)",[randomUUID(),refs.taskId,kind==="task"?null:refs.stepId,kind==="attempt"?refs.attemptId:null,kind,from,to,STEP,reason,revision]);
+  await client.query("INSERT INTO new_design.ai_task_events(id,task_id,step_id,attempt_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor,entity_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'组合调试单次领取与终止；不采用正本','user','prompt_composition',$10)",[randomUUID(),refs.taskId,kind==="task"?null:refs.stepId,kind==="attempt"?refs.attemptId:null,kind,from,to,STEP,reason,revision]);
 }
 async function validateFrozen(client:PoolClient,row:Row):Promise<{plan:DebugFrozenPlan;snapshot:ManagedModelSnapshot}>{
   const plan=row.prompt_plan as DebugFrozenPlan;
@@ -34,7 +38,8 @@ async function validateFrozen(client:PoolClient,row:Row):Promise<{plan:DebugFroz
   const manifest=assertFound((await client.query("SELECT * FROM new_design.context_manifests WHERE id=$1",[row.context_manifest_id])).rows[0],"冻结上下文清单不存在。");
   if(manifest.book_id!==row.book_id||manifest.task_contract_version_id!==row.task_contract_version_id||manifest.prompt_recipe_version_id!==row.prompt_recipe_version_id||manifest.model_route_snapshot_id!==row.model_route_snapshot_id||manifest.status!=="complete")throw new NewDesignError("冻结上下文清单范围不一致，请重新生成预览。",409);
   const expectedReferences=compositionFrozenReferences(plan);
-  const storedEntries=(await client.query("SELECT entry.*,version.revision AS exact_revision,version.type_version_id AS exact_type_version_id,version.title AS exact_title,version.values AS exact_values,card.space_id AS exact_space_id,slot.slot_key FROM new_design.context_manifest_entries entry JOIN new_design.context_manifest_slots slot ON slot.id=entry.slot_id LEFT JOIN new_design.card_versions version ON entry.source_type IN ('card_version','prompt_component') AND version.id=entry.exact_version_id AND version.card_id=entry.stable_object_id LEFT JOIN new_design.cards card ON card.id=version.card_id WHERE entry.manifest_id=$1 ORDER BY slot.sort_order,entry.sort_order,entry.id",[manifest.id])).rows;
+  const slots=await readManifestSlots(client,String(manifest.id)),slotById=new Map(slots.map(slot=>[slot.id,slot]));
+  const storedEntries=(await client.query("SELECT entry.*,version.revision AS exact_revision,version.type_version_id AS exact_type_version_id,version.title AS exact_title,version.values AS exact_values,card.space_id AS exact_space_id FROM new_design.context_manifest_items entry LEFT JOIN new_design.card_versions version ON entry.source_type IN ('card_version','prompt_component') AND version.id=entry.exact_version_id AND version.card_id=entry.stable_object_id LEFT JOIN new_design.cards card ON card.id=version.card_id WHERE entry.manifest_id=$1 ORDER BY entry.sort_order,entry.id",[manifest.id])).rows.filter(entry=>slotById.has(entry.slot_id)).map(entry=>({...entry,slot_key:slotById.get(entry.slot_id)!.slot_key,slot_order:Number(slotById.get(entry.slot_id)!.sort_order)})).sort((a,b)=>a.slot_order-b.slot_order||Number(a.sort_order)-Number(b.sort_order)||String(a.id).localeCompare(String(b.id)));
   if(storedEntries.length!==expectedReferences.length)throw new NewDesignError("冻结上下文条目数量不一致，请重新生成预览。",409);
   const reconstructed=[];
   for(const [index,entry]of storedEntries.entries()){
@@ -47,7 +52,7 @@ async function validateFrozen(client:PoolClient,row:Row):Promise<{plan:DebugFroz
   }
   if(stableHash({bookId:plan.recipe.context.bookId,recipeVersionId:plan.recipe.versionId,entries:reconstructed})!==manifest.manifest_hash||stableHash(reconstructed)!==manifest.source_set_hash)throw new NewDesignError("上下文冻结哈希不一致，请重新生成预览。",409);
   const stored=assertFound((await client.query("SELECT * FROM new_design.model_route_snapshots WHERE id=$1",[row.model_route_snapshot_id])).rows[0],"冻结模型快照不存在。");
-  const fallbacks=(await client.query("SELECT * FROM new_design.model_route_snapshot_fallbacks WHERE snapshot_id=$1 ORDER BY sort_order,id",[stored.id])).rows.map(item=>({provider:item.provider,model:item.model,endpoint:item.parameters?.baseUrl,credentialId:item.credential_ref_id??null,failureCategories:item.technical_failure_categories}));
+  const fallbacks=(await readSnapshotFallbacks(client,String(stored.id))).map(item=>({provider:item.provider,model:item.model,endpoint:item.parameters?.baseUrl,credentialId:item.credential_ref_id??null,failureCategories:item.technical_failure_categories}));
   const route={primary:{provider:stored.provider,model:stored.model,endpoint:stored.parameters?.baseUrl,credentialId:stored.credential_ref_id??null},policy:{maxOutputTokens:Number(stored.budget_policy.maxOutputTokens),maxTotalTokens:Number(stored.budget_policy.maxTokens),timeoutMs:Number(stored.timeout_ms),maxRetries:Number(stored.retry_policy.maxRetries),retryDelayMs:Number(stored.retry_policy.retryDelayMs)},fallbacks,sourceLayers:stored.source_layers};
   const hash=stableHash({taskType:plan.recipe.taskType,...route,scope:{bookId:row.book_id,taskContractVersionId:row.task_contract_version_id}});
   if(stored.book_id!==row.book_id||stored.task_contract_version_id!==row.task_contract_version_id||stored.managed_task_key!==null||stableHash(route)!==stableHash(plan.route)||hash!==stored.snapshot_hash)throw new NewDesignError("冻结模型快照与真实版本来源不一致，请重新生成预览。",409);
@@ -57,8 +62,8 @@ export async function claimDebugRun(id:string,expectedRevision:number,key:string
   const input=requestSchema.parse({id,expectedRevision,key});
   return database(context,async client=>{
     await lock(client,`run-key:${input.key}`);await lock(client,`run-preview:${id}`);
-    const row=assertFound((await client.query("SELECT * FROM new_design.ai_run_previews WHERE id=$1 AND source_kind=$2 FOR UPDATE",[id,DEBUG_KIND])).rows[0],"组合预览不存在。");
-    const receipt=(await client.query("SELECT * FROM new_design.ai_run_submissions WHERE idempotency_key=$1 OR preview_id=$2",[input.key,id])).rows[0];
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`ai-run-submission:${input.key}`]);const row=await readRunPreview(client,id,true);if(row.source_kind!==DEBUG_KIND)throw new NewDesignError("组合预览不存在。",404);
+    const receipt=[...await runRows(client,"ai_run_submission",{idempotency_key:input.key}),...await runRows(client,"ai_run_submission",{preview_id:id})][0];
     const requestHash=stableHash({previewId:id,expectedRevision:input.expectedRevision,previewHash:row.preview_hash});
     if(receipt){if(receipt.preview_id!==id||receipt.idempotency_key!==input.key||Number(receipt.submitted_revision)!==input.expectedRevision)throw new NewDesignError("此预览已由不同试运行请求领取，请核对原结果；旧预览不会再次执行。",409);const task=(await client.query("SELECT request_hash FROM new_design.ai_tasks WHERE id=$1",[receipt.ai_task_id])).rows[0];if(task?.request_hash!==requestHash)throw new NewDesignError("原试运行请求内容不一致，请核对服务器结果。",409);return {priorResult:await resultFromSubmission(client,id,true)};}
     if(row.status!=="ready"||Number(row.revision)!==input.expectedRevision)throw new NewDesignError(row.status==="blocked"?"预览被阻止，模型尚未执行。请处理标出的阻止原因后生成新预览。":"预览已更新或领取，请核对服务器结果后生成新预览。",409);
@@ -71,8 +76,8 @@ export async function claimDebugRun(id:string,expectedRevision:number,key:string
     await client.query("UPDATE new_design.ai_task_steps SET status='running',current_attempt_id=$2,checkpoint_key=$3,lease_owner='prompt_composition_http',lease_token=$4,lease_expires_at=now()+interval '15 minutes',heartbeat_at=now(),revision=revision+1,updated_at=now() WHERE id=$1",[refs.stepId,refs.attemptId,STEP,leaseToken]);
     await client.query("UPDATE new_design.ai_tasks SET status='running',current_step_key=$2,current_checkpoint=$2,revision=revision+1,updated_at=now() WHERE id=$1",[refs.taskId,STEP]);
     for(const kind of ["task","step","attempt"]as const)await appendEvent(client,refs,kind,kind==="attempt"?null:"queued","running","debug_run_claimed",kind==="attempt"?null:2);
-    const submitted=(await client.query("UPDATE new_design.ai_run_previews SET status='submitted',revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$2 AND status='ready' RETURNING *",[id,input.expectedRevision])).rows[0];if(!submitted)throw new NewDesignError("试运行预览领取冲突，请核对服务器结果。",409);
-    await client.query("INSERT INTO new_design.ai_run_submissions(id,preview_id,ai_task_id,submitted_revision,idempotency_key,submitted_by) VALUES($1,$2,$3,$4,$5,'prompt_composition')",[randomUUID(),id,refs.taskId,input.expectedRevision,input.key]);
+    const submitted=await transitionRunPreview(client,id,"submitted",input.expectedRevision);if(!submitted)throw new NewDesignError("试运行预览领取冲突，请核对服务器结果。",409);
+    await insertRunRecord(client,"ai_run_submission",{id:randomUUID(),preview_id:id,ai_task_id:refs.taskId,submitted_revision:input.expectedRevision,idempotency_key:input.key,submitted_by:"prompt_composition"});
     return {preview:previewFromRow(submitted,refs.taskId),taskInput:plan.taskInput,snapshot,frozenBundle:plan,...refs,leaseToken};
   },true);
 }

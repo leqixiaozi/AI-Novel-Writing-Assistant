@@ -9,6 +9,7 @@ import { getNewDesignPool } from "./runtime";
 import { snapshotDictionaryTreeValues, validateDictionaryTreeBindings, validateDictionaryTreeValues } from "./treeResources";
 import { verifyFormAiSave, recordFormAiSave, saveFormDraftTags, type FormAiSaveExtras } from "./formAssist";
 import {claimAuthorMaterialWrite,persistAuthorMaterialReceipt,rethrowAuthorMaterialWrite,prepareAuthorMaterialConnection,type AuthorWriteExtras,type AuthorSavedCard} from "./authorMaterials/ledger";
+import {createRecordCard,findRecordCard,listRecordCards} from './recordCards';
 
 export const DEFAULT_SPACE_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -59,14 +60,16 @@ function mapCard(row: Record<string, unknown>): CardSummary {
 
 async function findCardType(queryable: Queryable, id: string, lock = false): Promise<CardTypeSummary | null> {
   const result = await queryable.query(`
-    SELECT ct.*, ctv.version AS current_version, category.category_key
+    SELECT ct.*, ctv.version AS current_version
     FROM new_design.card_types ct
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
-    LEFT JOIN new_design.card_type_categories category ON category.id = ct.category_id
-    WHERE ct.id = $1
+    WHERE ct.id = $1 AND NOT ct.is_internal
     ${lock ? "FOR UPDATE OF ct" : ""}
   `, [id]);
-  return result.rows[0] ? mapCardType(result.rows[0]) : null;
+  const row=result.rows[0];
+  if(!row)return null;
+  const category=row.category_id?await findRecordCard(queryable,String(row.category_id),'card_type_category',{includeArchived:true}):null;
+  return mapCardType({...row,category_key:category?.category_key??null});
 }
 
 async function findCurrentTypeFields(queryable: Queryable, cardTypeId: string): Promise<{ id: string; version: number; fields: FieldDefinition[] }> {
@@ -74,7 +77,7 @@ async function findCurrentTypeFields(queryable: Queryable, cardTypeId: string): 
     SELECT ctv.id, ctv.version, ctv.fields
     FROM new_design.card_types ct
     JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
-    WHERE ct.id = $1 AND ct.status = 'published'
+    WHERE ct.id = $1 AND ct.status = 'published' AND NOT ct.is_internal
   `, [cardTypeId]);
   const row = assertFound(result.rows[0], "内容类型尚未发布，不能创建或保存资料。");
   return { id: String(row.id), version: Number(row.version), fields: row.fields as FieldDefinition[] };
@@ -94,29 +97,24 @@ async function validateFormProvenance(queryable: Queryable, input: {
   if (!input.formVersionId) throw new NewDesignError("缺少本次填写采用的创作表单版本。", 422);
   const selected=input.requireCurrent?await resolveBookFormVersion(queryable,input.spaceId,input.typeKey):null;
   if(input.requireCurrent&&selected?.id!==input.formVersionId)throw new NewDesignError("本次表单版本与本书明确选择不同，请核对原填写后选择表单。",409);
-  const result = await queryable.query(`
-    SELECT 1
-    FROM new_design.card_group_form_versions version
-    JOIN new_design.card_group_forms form ON form.id=version.form_id
-    WHERE version.id=$1
-      AND form.space_id=$2
-      AND ($4::boolean=false OR form.status='published')
-      AND version.definition->>'primaryTypeKey'=$3
-  `, [input.formVersionId, input.spaceId, input.typeKey, input.requireCurrent]);
-  if (!result.rows[0]) throw new NewDesignError("本次填写引用的创作表单版本不属于当前书籍、内容类型或已发布版本。", 422);
+  const version=await findRecordCard(queryable,input.formVersionId,'card_group_form_version',{includeArchived:true});
+  const form=version?await findRecordCard(queryable,String(version.form_id),'card_group_form',{spaceId:input.spaceId,includeArchived:true}):null;
+  if(!version||!form||input.requireCurrent&&form.status!=='published'||version.definition?.primaryTypeKey!==input.typeKey)throw new NewDesignError("本次填写引用的创作表单版本不属于当前书籍、内容类型或已发布版本。",422);
 }
 
 export async function listCardTypes(spaceId = DEFAULT_SPACE_ID): Promise<CardTypeSummary[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
-    SELECT ct.*, ctv.version AS current_version, category.category_key
+    SELECT ct.*, ctv.version AS current_version
     FROM new_design.card_types ct
     LEFT JOIN new_design.card_type_versions ctv ON ctv.id = ct.current_version_id
-    LEFT JOIN new_design.card_type_categories category ON category.id = ct.category_id
-    WHERE ct.space_id = $1 AND ct.status <> 'archived'
-    ORDER BY ct.is_system DESC, category.sort_order ASC NULLS LAST, ct.sort_order ASC, ct.updated_at DESC
+    WHERE ct.space_id = $1 AND ct.status <> 'archived' AND NOT ct.is_internal
   `, [spaceId]);
-  return result.rows.map(mapCardType);
+  const categories=new Map((await listRecordCards(pool,'card_type_category',{includeArchived:true})).map(row=>[row.id,row]));
+  return result.rows.sort((a,b)=>Number(b.is_system)-Number(a.is_system)
+    ||Number(categories.get(String(a.category_id))?.sort_order??Infinity)-Number(categories.get(String(b.category_id))?.sort_order??Infinity)
+    ||Number(a.sort_order)-Number(b.sort_order)||asDate(b.updated_at).localeCompare(asDate(a.updated_at)))
+    .map(row=>mapCardType({...row,category_key:categories.get(String(row.category_id))?.category_key??null}));
 }
 
 export async function getCardType(id: string): Promise<CardTypeSummary> {
@@ -230,7 +228,7 @@ export async function listCardTypeVersions(cardTypeId: string): Promise<CardType
   const result = await pool.query(`
     SELECT id, version, fields, created_at
     FROM new_design.card_type_versions
-    WHERE card_type_id = $1
+    WHERE card_type_id = $1 AND EXISTS(SELECT 1 FROM new_design.card_types type WHERE type.id=$1 AND NOT type.is_internal)
     ORDER BY version DESC
   `, [cardTypeId]);
   return result.rows.map((row) => ({
@@ -248,7 +246,7 @@ export async function listCards(input: { cardTypeId?: string; archived?: boolean
     FROM new_design.cards c
     JOIN new_design.card_types ct ON ct.id = c.card_type_id
     JOIN new_design.card_type_versions ctv ON ctv.id = c.type_version_id
-    WHERE c.space_id = $1 AND c.status = $2 ${typeFilter}
+    WHERE c.space_id = $1 AND c.status = $2 AND NOT ct.is_internal ${typeFilter}
     ORDER BY c.updated_at DESC
   `, values);
   return result.rows.map(mapCard);
@@ -260,7 +258,7 @@ async function findCard(queryable: Queryable, id: string, lock = false): Promise
     FROM new_design.cards c
     JOIN new_design.card_types ct ON ct.id = c.card_type_id
     JOIN new_design.card_type_versions ctv ON ctv.id = c.type_version_id
-    WHERE c.id = $1
+    WHERE c.id = $1 AND NOT ct.is_internal
     ${lock ? "FOR UPDATE OF c" : ""}
   `, [id]);
   return result.rows[0] ? mapCard(result.rows[0]) : null;
@@ -286,6 +284,7 @@ export async function createCardInTransaction(client:PoolClient,input:CardCreate
       FROM new_design.card_types type
       JOIN new_design.card_spaces target_space ON target_space.id=$2
       WHERE type.id=$1
+        AND NOT type.is_internal
         AND (type.space_id=$2 OR (type.space_id=$3 AND target_space.space_key LIKE 'resource_%'))
     `, [input.cardTypeId, spaceId, DEFAULT_SPACE_ID]);
     if (!typeSpace.rows[0]) throw new NewDesignError("内容类型不属于当前书籍空间。", 422);
@@ -344,10 +343,10 @@ async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotU
     const localDefinitions=await client.query(`SELECT definition.id,definition.field_key,definition.current_version_id,version.field_schema
       FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id
       WHERE definition.card_id=$1 AND definition.scope='card' AND definition.status='active'`,[id]);
-    const previousLocalRows=await client.query(`SELECT definition.field_key,local.value FROM new_design.cards card
-      JOIN new_design.card_version_local_values local ON local.card_version_id=card.current_version_id
-      JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE card.id=$1`,[id]);
-    const previousLocalValues=Object.fromEntries(previousLocalRows.rows.map((row)=>[String(row.field_key),row.value]));
+    const priorVersion=(await client.query('SELECT current_version_id FROM new_design.cards WHERE id=$1',[id])).rows[0];
+    const previousLocalRows=await listRecordCards(client,'card_version_local_value',{where:{card_version_id:priorVersion.current_version_id}});
+    const definitionKeys=new Map((await client.query('SELECT id,field_key FROM new_design.field_definitions WHERE card_id=$1',[id])).rows.map(row=>[String(row.id),String(row.field_key)]));
+    const previousLocalValues=Object.fromEntries(previousLocalRows.filter(row=>definitionKeys.has(String(row.field_definition_id))).map(row=>[definitionKeys.get(String(row.field_definition_id))!,row.value]));
     const incomingLocalValues=input.localValues??previousLocalValues;
     const localByKey=new Map(localDefinitions.rows.map((row)=>[String(row.field_key),row]));
     const localIssues:Record<string,string>={};
@@ -363,7 +362,7 @@ async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotU
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
     `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source, formVersionId, formResolutionKind]);
     await snapshotDictionaryTreeValues(client,typeVersion.fields,validated.values,versionId);
-    for(const [key,row] of localByKey){const value=incomingLocalValues[key];if(value===undefined||value===null||value===""||(Array.isArray(value)&&value.length===0))continue;await client.query(`INSERT INTO new_design.card_version_local_values(card_version_id,field_definition_id,field_definition_version_id,value) VALUES($1,$2,$3,$4::jsonb)`,[versionId,row.id,row.current_version_id,JSON.stringify(value)]);}
+    for(const [key,row] of localByKey){const value=incomingLocalValues[key];if(value===undefined||value===null||value===""||(Array.isArray(value)&&value.length===0))continue;const snapshotId=randomUUID();await createRecordCard(client,{id:snapshotId,spaceId:String(cardContext.space_id),typeKey:'card_version_local_value',title:key,values:{id:snapshotId,card_version_id:versionId,field_definition_id:row.id,field_definition_version_id:row.current_version_id,value}});}
     await client.query(`
       UPDATE new_design.cards
       SET title = $2, values = $3::jsonb, status = $4, revision = $5, type_version_id = $6,
@@ -401,14 +400,19 @@ export async function restoreCard(id: string, revision: number): Promise<CardSum
 export async function listCardVersions(cardId: string): Promise<CardVersion[]> {
   const pool = await getNewDesignPool();
   const result = await pool.query(`
-    SELECT cv.*, ctv.version AS type_version, form_version.version AS form_version,
-      COALESCE((SELECT jsonb_object_agg(definition.field_key,local.value) FROM new_design.card_version_local_values local JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE local.card_version_id=cv.id),'{}'::jsonb) AS local_values
+    SELECT cv.*, ctv.version AS type_version
     FROM new_design.card_versions cv
     JOIN new_design.card_type_versions ctv ON ctv.id = cv.type_version_id
-    LEFT JOIN new_design.card_group_form_versions form_version ON form_version.id=cv.form_version_id
-    WHERE cv.card_id = $1
+    WHERE cv.card_id = $1 AND EXISTS(SELECT 1 FROM new_design.card_types type WHERE type.id=ctv.card_type_id AND NOT type.is_internal)
     ORDER BY cv.revision DESC
   `, [cardId]);
+  const definitions=new Map((await pool.query('SELECT id,field_key FROM new_design.field_definitions WHERE card_id=$1',[cardId])).rows.map(row=>[String(row.id),String(row.field_key)]));
+  const forms=new Map((await listRecordCards(pool,'card_group_form_version',{includeArchived:true})).map(row=>[row.id,row]));
+  for(const row of result.rows){
+    const local=await listRecordCards(pool,'card_version_local_value',{where:{card_version_id:row.id}});
+    row.local_values=Object.fromEntries(local.filter(value=>definitions.has(String(value.field_definition_id))).map(value=>[definitions.get(String(value.field_definition_id))!,value.value]));
+    row.form_version=forms.get(String(row.form_version_id))?.version??null;
+  }
   return result.rows.map((row) => ({
     id: String(row.id),
     revision: Number(row.revision),

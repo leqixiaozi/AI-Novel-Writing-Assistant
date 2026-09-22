@@ -13,9 +13,14 @@ exports.isolatedDatabase=async function(t,extraMigrations=[]){
  t.diagnostic?.(`Fresh isolated database created and retained: ${database}`);
  const pool=new Pool({...config,host:'127.0.0.1',database,max:8,application_name:'reference_parity_isolated_test'});
  t.after(()=>pool.end());
- await pool.query("CREATE EXTENSION age; LOAD 'age'; CREATE EXTENSION vector; CREATE EXTENSION pg_trgm; CREATE SCHEMA new_design; CREATE TABLE new_design.schema_migrations(id text PRIMARY KEY,applied_at timestamptz DEFAULT now())");
+ await pool.query("CREATE EXTENSION age; LOAD 'age'; CREATE EXTENSION vector; CREATE EXTENSION pg_trgm");
  const {migrations}=exports.compiled('server/database/migrations');
- for(const migration of [...migrations,...extraMigrations]){
+ // The empty 132 baseline already contains historical feature contracts. Never replay
+ // old CREATE/ALTER/cutover SQL on it merely because an older fixture names that feature.
+ for(const migration of extraMigrations){
+  if(!/^\d{3}_[a-z0-9_]+\.sql$/.test(migration.fileName)||Number(migration.fileName.slice(0,3))>131||!fs.existsSync(path.join(__dirname,'../../migrations',migration.fileName)))throw new Error('Unknown extra migration for pure-table fixture');
+ }
+ for(const migration of migrations){
   const client=await pool.connect();try{await client.query('BEGIN');await client.query(fs.readFileSync(path.join(__dirname,'../../migrations',migration.fileName),'utf8'));await client.query('INSERT INTO new_design.schema_migrations(id) VALUES($1) ON CONFLICT DO NOTHING',[migration.id]);await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw new Error(`Isolated migration ${migration.id}: ${error.message}`);}finally{client.release();}
  }
  const runtimePath=require.resolve(path.join(buildRoot,'server/database/runtime'));

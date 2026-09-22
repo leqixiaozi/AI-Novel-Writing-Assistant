@@ -1,3 +1,4 @@
+import {readCardLocalSnapshot} from '../fieldExtensions/localValues';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import type {ExperienceWorkspace,ExperienceSnapshot,ExperienceActorSource,ExperienceRequest,ExperienceSeriesInput,ExperienceSeriesSources} from '../../../common/characterExperiences';
@@ -10,7 +11,7 @@ import {formAiFieldVisible} from '../../../common/formAssist';
 async function bookSource(db:PoolClient,bookId:string){return assertFound((await db.query("SELECT id,space_id,name FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'本书不存在或已归档。');}
 export async function actorSource(db:PoolClient,bookId:string,characterId:string,fieldKey?:string):Promise<ExperienceActorSource>{
  const book=await bookSource(db,bookId),card=assertFound((await db.query("SELECT card.*,type.current_version_id type_version_id FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='character' AND type.status='published' WHERE card.id=$1 AND card.space_id=$2 AND card.status='active' AND card.current_version_id IS NOT NULL",[characterId,book.space_id])).rows[0],'人物不属于本书正式档案。');
- const resolution=await resolveBookFormVersion(db,book.space_id,'character'),locals=(await db.query("SELECT definition.field_key,local.value FROM new_design.card_version_local_values local JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE local.card_version_id=$1 AND definition.scope='card' AND definition.status='active'",[card.current_version_id])).rows,values={...card.values,...Object.fromEntries(locals.map(row=>[row.field_key,row.value]))};
+ const resolution=await resolveBookFormVersion(db,book.space_id,'character'),locals=await readCardLocalSnapshot(db,String(card.current_version_id)),values={...card.values,...Object.fromEntries(locals.map(row=>[row.field_key,row.value]))};
  const form=await freezeFormContext(db,{bookId,cardTypeId:card.card_type_id,cardId:characterId,typeVersionId:card.type_version_id,cardRevision:Number(card.revision),formVersionId:resolution?.id??null,title:String(card.title)},values,[]),field=fieldKey?form.fields.find(field=>field.key===fieldKey&&!field.hidden&&['short_text','long_text'].includes(field.type)&&formAiFieldVisible(field,values)):null;
  if(fieldKey&&(!field||typeof values[fieldKey]!=='string'||!String(values[fieldKey]).trim()))throw new NewDesignError('选择的小传字段不是本书可见的已填写文本；原填写保留，未发送模型请求。',422);
  return{id:characterId,title:String(card.title),versionId:String(card.current_version_id),revision:Number(card.revision),fieldKey:field?.key??'',fieldLabel:field?.name??'',text:field?String(values[field.key]):'',form,slotIds:[]};

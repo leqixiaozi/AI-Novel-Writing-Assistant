@@ -14,11 +14,13 @@ import {readWorldOriginal,writeWorldOriginal} from './receipts';
 import {previewPackageRelation,createPackageRelation} from './relations';
 import {prepareWorldCard} from './mapping';
 import {requireWorldCatalogActive} from './availability';
+import {recordWorkflowAction} from '../cardWorkflow';
+import {createRecordCard,findRecordCardByValue} from '../recordCards';
 
 async function installationPreview(db:PoolClient,bookId:string,input:WorldInstallInput,lock=false):Promise<WorldInstallPreview>{
  await requireWorldPackageCapability(db);
  const book=assertFound((await db.query("SELECT * FROM new_design.books WHERE id=$1 AND status='active'"+(lock?' FOR SHARE':''),[bookId])).rows[0],'书籍不存在或已归档。');
- const row=assertFound((await db.query('SELECT receipt FROM new_design.world_package_versions WHERE id=$1'+(lock?' FOR SHARE':''),[input.packageId])).rows[0],'所选公共世界包版本不存在。'),published=row.receipt.package as PublishedWorldPackage;
+ const row=assertFound(await findRecordCardByValue(db,'world_package_snapshot','id',input.packageId,{lock}),'所选公共世界包版本不存在。'),published=row.receipt.package as PublishedWorldPackage;
  if(lock)await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`world-package-root:${published.rootCardId}`]);
  await requireWorldCatalogActive(db,published.rootCardId);
  const expected=published.frame.cards.map(card=>card.cardId);
@@ -43,9 +45,7 @@ export function installWorldPackage(bookId:string,input:WorldInstallCommit):Prom
  const relations:WorldInstallReceipt['relations']=[],spaceId=(await db.query('SELECT space_id FROM new_design.books WHERE id=$1',[bookId])).rows[0].space_id;
  for(const item of parsed.input.relations){const source=current.package.frame.relations.find(row=>row.relationId===item.sourceRelationId)!,created=await createPackageRelation(db,spaceId,item.targetTypeId,cards.find(card=>card.sourceCardId===source.sourceCardId)!.targetCardId,cards.find(card=>card.sourceCardId===source.targetCardId)!.targetCardId,item.properties);relations.push({sourceRelationId:source.relationId,sourceVersionId:source.versionId,targetRelationId:created.id,targetVersionId:created.versionId,targetTypeId:item.targetTypeId});}
  const installationId=randomUUID(),root=assertFound(cards.find(card=>card.sourceCardId===current.package.rootCardId),'安装缺少本书独立世界根。'),inputHash=formHash({scope:bookId,input:parsed}),receipt:WorldInstallReceipt={bookId,installationId,origin:'import',requestKey:parsed.input.requestKey,inputHash,input:parsed,packageId:parsed.input.packageId,cards,relations,sourceRoute:`/new-design/books/${bookId}/story-setting?tab=world&selected=${root.targetCardId}&detail=sync`,repeated:false};
- await db.query('INSERT INTO new_design.world_package_installations(id,book_id,package_id,root_card_id,sync_enabled,request_key,input_hash,input,receipt) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)',[installationId,bookId,parsed.input.packageId,root.targetCardId,parsed.input.syncEnabled,parsed.input.requestKey,inputHash,JSON.stringify(parsed),JSON.stringify(receipt)]);
- for(const card of cards)await db.query('INSERT INTO new_design.world_package_install_card_refs(installation_id,source_card_id,source_version_id,target_card_id,target_version_id,target_type_version_id,mapping) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',[installationId,card.sourceCardId,card.sourceVersionId,card.targetCardId,card.targetVersionId,card.targetTypeVersionId,JSON.stringify(card.mapping)]);
- for(const relation of relations)await db.query('INSERT INTO new_design.world_package_install_relation_refs(installation_id,source_relation_id,source_version_id,target_relation_id,target_version_id,target_type_id) VALUES($1,$2,$3,$4,$5,$6)',[installationId,relation.sourceRelationId,relation.sourceVersionId,relation.targetRelationId,relation.targetVersionId,relation.targetTypeId]);
- for(const card of cards)await db.query("INSERT INTO new_design.resource_adoptions(id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)",[randomUUID(),card.sourceCardId,card.sourceVersionId,bookId,card.targetCardId,JSON.stringify({contract:'world_package_import_v1',installationId,mapping:card.mapping})]);
+ const book=assertFound((await db.query('SELECT space_id FROM new_design.books WHERE id=$1',[bookId])).rows[0],'书籍不存在。'),saved=await createRecordCard(db,{spaceId:String(book.space_id),typeKey:'world_package_installation',title:'公共世界包安装',values:{id:installationId,book_id:bookId,package_id:parsed.input.packageId,root_card_id:root.targetCardId,sync_enabled:parsed.input.syncEnabled,request_key:parsed.input.requestKey,input_hash:inputHash,input:parsed,receipt,cards,relations,origin:'import'}});
+ await recordWorkflowAction(db,{cardId:saved.recordCardId,actionKey:'world_package.install',requestKey:parsed.input.requestKey,inputHash,payload:{bookId,installationId,packageId:parsed.input.packageId,cards,relations}});
  return receipt;
  });}

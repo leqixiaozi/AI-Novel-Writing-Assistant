@@ -1,4 +1,6 @@
+import {chapterAdoptionSessionRows,chapterResourceSupplementRows,chapterStableCheckpointRows,insertRevisionRecords,resourceSupplementFormalCommitRows,resourceSupplementImpactReviewRows,resourceSupplementIntegrityIssueRows,resourceSupplementIntegrityJournalRows,resourceSupplementIntegrityResolutionRows,stateChangeProposalRows,stateChangeRows} from '../persistence';
 import type {PoolClient} from 'pg';
+import {requireCardWorkflowTypes} from '../persistence';
 import {z} from 'zod';
 import {randomUUID} from 'node:crypto';
 import {resourceSupplementCommitInputSchema,resourceSupplementCorrectionCommitReceiptSchema,type ResourceSupplementCommitInput,type ResourceSupplementCorrectionCommitReceipt} from '../../../../common/resourceSupplements/correctionCommit';
@@ -13,9 +15,9 @@ import {recordResourceSupplementIntegrityInTransaction} from '../integrity';
 
 const requestFrame=(bookId:string,sessionId:string,input:ResourceSupplementCommitInput)=>({contract:'resource_supplement_correction_commit_v1',bookId,sessionId,input});
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
-  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id IN ('092_resource_supplement_formal_commits','094_resource_supplement_correction_commits')
-    AND to_regclass('new_design.resource_supplement_formal_commits') IS NOT NULL
-    AND ($1::boolean=false OR (id='094_resource_supplement_correction_commits' AND position('resource_supplement_correction_commit_v1' IN coalesce(pg_get_functiondef(
+  await requireCardWorkflowTypes(client,['resource_supplement_formal_commit','resource_supplement_integrity_resolution','resource_supplement_correction_origin'],writing);
+  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
+    AND ($1::boolean=false OR (position('resource_supplement_correction_commit_v1' IN coalesce(pg_get_functiondef(
       to_regprocedure('new_design.reject_unavailable_resource_integrity_resolution()')),''))>0
       AND position('assert_resource_supplement_formal_closure' IN coalesce(pg_get_functiondef(
         to_regprocedure('new_design.require_resource_supplement_closure()')),''))>0))`,[writing])).rowCount)
@@ -23,7 +25,7 @@ async function storage(client:PoolClient,writing:boolean):Promise<void>{
 }
 async function original(client:PoolClient,bookId:string,sessionId:string,input:ResourceSupplementCommitInput):Promise<ResourceSupplementCorrectionCommitReceipt|null>{
   const row=(await client.query(`SELECT session_id,full_input,input_hash,canonical_input,original_receipt,receipt_hash,canonical_receipt
-    FROM new_design.resource_supplement_formal_commits WHERE book_id=$1 AND request_key=$2`,[bookId,input.requestKey])).rows[0];
+    FROM ${resourceSupplementFormalCommitRows} resource_supplement_formal_commit_record WHERE book_id=$1 AND request_key=$2`,[bookId,input.requestKey])).rows[0];
   if(!row)return null;
   const parsed=resourceSupplementCorrectionCommitReceiptSchema.safeParse(row.original_receipt);
   if(!parsed.success||row.session_id!==sessionId||row.input_hash!==stableHash(requestFrame(bookId,sessionId,input))
@@ -56,7 +58,7 @@ export async function commitResourceSupplementCorrection(bookId:string,sessionId
     await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');await storage(client,false);
     const saved=await original(client,bookId,sessionId,input);readingOriginal=false;if(saved){await client.query('ROLLBACK');return saved;}await storage(client,true);
     await client.query('SELECT id FROM new_design.books WHERE id=$1 FOR SHARE',[bookId]);
-    await client.query(`SELECT session.id FROM new_design.chapter_adoption_sessions session JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id
+    await client.query(`SELECT session.id FROM ${chapterAdoptionSessionRows} session JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id
       WHERE session.id=$1 AND session.book_id=$2 FOR UPDATE OF session,document`,[sessionId,bookId]);
     const impact=await previewResourceSupplementSettlementInTransaction(client,bookId,sessionId);
     if(impact.sessionRevision!==input.expectedSessionRevision||impact.impactHash!==input.expectedImpactHash)throw new NewDesignError('原清单或下游实际来源已变化，请重新核对并确认结算影响。',409);
@@ -66,15 +68,15 @@ export async function commitResourceSupplementCorrection(bookId:string,sessionId
     await recordResolutions(client,bookId,merged.checkpointId,input);
     for(const change of impact.changes)await rebuildStateProjectionInTransaction(client,{bookId,subjectKind:change.subjectKind,subjectId:change.subjectId,stateKey:change.stateKey});
     const sources=(await client.query(`SELECT origin.original_receipt original_start,review.original_receipt original_review
-      FROM new_design.chapter_resource_supplements origin JOIN new_design.resource_supplement_impact_reviews review ON review.session_id=origin.session_id AND review.book_id=origin.book_id
+      FROM ${chapterResourceSupplementRows} origin JOIN ${resourceSupplementImpactReviewRows} review ON review.session_id=origin.session_id AND review.book_id=origin.book_id
       WHERE origin.book_id=$1 AND origin.session_id=$2 AND review.review_id=$3`,[bookId,sessionId,input.reviewId])).rows[0];
-    const issues=(await client.query('SELECT to_jsonb(issue) issue FROM new_design.resource_supplement_integrity_issues issue WHERE settlement_id=$1 AND book_id=$2 ORDER BY issue_id',[merged.settlementId,bookId])).rows.map(row=>row.issue);
-    const resolutions=(await client.query('SELECT to_jsonb(proof) proof FROM new_design.resource_supplement_integrity_resolutions proof WHERE book_id=$1 AND correction_checkpoint_id=$2 ORDER BY issue_id',[bookId,merged.checkpointId])).rows.map(row=>row.proof);
+    const issues=(await client.query(`SELECT to_jsonb(issue) issue FROM ${resourceSupplementIntegrityIssueRows} issue WHERE settlement_id=$1 AND book_id=$2 ORDER BY issue_id`,[merged.settlementId,bookId])).rows.map(row=>row.issue);
+    const resolutions=(await client.query(`SELECT to_jsonb(proof) proof FROM ${resourceSupplementIntegrityResolutionRows} proof WHERE book_id=$1 AND correction_checkpoint_id=$2 ORDER BY issue_id`,[bookId,merged.checkpointId])).rows.map(row=>row.proof);
     const chapterDocumentId=sources?.original_start?.chapterDocumentId,inputHash=stableHash(requestFrame(bookId,sessionId,input));
     const receipt=resourceSupplementCorrectionCommitReceiptSchema.parse({contract:'resource_supplement_correction_commit_v1',bookId,sessionId,chapterDocumentId,input,inputHash,merged,
       originalStart:sources?.original_start,originalReview:sources?.original_review,issues,resolutions,sourceRoute:`/new-design/books/${bookId}/writing?chapterDocument=${chapterDocumentId}&session=${sessionId}`,repeated:false});
-    await client.query(`INSERT INTO new_design.resource_supplement_formal_commits(book_id,session_id,settlement_id,request_key,full_input,input_hash,canonical_input,original_receipt,receipt_hash,canonical_receipt)
-      VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb,$9,$10)`,[bookId,sessionId,merged.settlementId,input.requestKey,JSON.stringify(input),inputHash,stable(requestFrame(bookId,sessionId,input)),JSON.stringify(receipt),stableHash(receipt),stable(receipt)]);
+    await insertRevisionRecords(client, 'resource_supplement_formal_commit', `SELECT ($1)::uuid AS book_id,($2)::uuid AS session_id,($3)::uuid AS settlement_id,($4)::uuid AS request_key,($5::jsonb)::jsonb AS full_input,($6)::char(64) AS input_hash,($7)::text AS canonical_input,($8::jsonb)::jsonb AS original_receipt,($9)::char(64) AS receipt_hash,($10)::text AS canonical_receipt,(now())::timestamptz AS created_at`, [bookId,sessionId,merged.settlementId,input.requestKey,JSON.stringify(input),inputHash,stable(requestFrame(bookId,sessionId,input)),JSON.stringify(receipt),stableHash(receipt),stable(receipt)], [["session_id"],["settlement_id"],["book_id","request_key"]]);
+    await client.query('SELECT new_design.assert_resource_supplement_formal_closure($1::uuid)',[merged.settlementId]);
     committing=true;await client.query('COMMIT');return receipt;
   }catch(error){let rolledBack=false;try{await client.query('ROLLBACK');rolledBack=true;}catch{/* Keep unknown. */}
     if(error instanceof ResourceSupplementError)throw error;
@@ -89,16 +91,16 @@ async function recordResolutions(client:PoolClient,bookId:string,checkpointId:st
   const rows=(await client.query(`SELECT to_jsonb(issue) issue,origin.original_receipt original_start,review.original_receipt original_review,journal.merged_write,
     origin.source_snapshot correction_source,to_jsonb(change) corrected_state,to_jsonb(proposal) proposal,to_jsonb(anchor) anchor,to_jsonb(body) body,
     to_jsonb(checkpoint) checkpoint,to_jsonb(settlement) settlement
-    FROM new_design.chapter_stable_checkpoints checkpoint
-    JOIN new_design.chapter_resource_supplements origin ON origin.session_id=checkpoint.session_id AND origin.book_id=checkpoint.book_id
-    JOIN new_design.resource_supplement_integrity_journals journal ON journal.checkpoint_id=checkpoint.id AND journal.book_id=checkpoint.book_id
-    JOIN new_design.resource_supplement_impact_reviews review ON review.review_id=journal.review_id AND review.session_id=checkpoint.session_id
-    JOIN new_design.state_changes change ON change.settlement_id=checkpoint.settlement_id AND change.book_id=checkpoint.book_id AND change.status='active'
-    JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id
-    JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
+    FROM ${chapterStableCheckpointRows} checkpoint
+    JOIN ${chapterResourceSupplementRows} origin ON origin.session_id=checkpoint.session_id AND origin.book_id=checkpoint.book_id
+    JOIN ${resourceSupplementIntegrityJournalRows} journal ON journal.checkpoint_id=checkpoint.id AND journal.book_id=checkpoint.book_id
+    JOIN ${resourceSupplementImpactReviewRows} review ON review.review_id=journal.review_id AND review.session_id=checkpoint.session_id
+    JOIN ${stateChangeRows} change ON change.settlement_id=checkpoint.settlement_id AND change.book_id=checkpoint.book_id AND change.status='active'
+    JOIN ${stateChangeProposalRows} proposal ON proposal.id=change.proposal_id
+    JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
     JOIN new_design.chapter_body_versions body ON body.id=checkpoint.body_version_id
     JOIN new_design.chapter_settlements settlement ON settlement.id=checkpoint.settlement_id
-    JOIN new_design.resource_supplement_integrity_issues issue ON issue.book_id=checkpoint.book_id AND (origin.original_receipt->'relatedIssueIds') ? issue.issue_id::text
+    JOIN ${resourceSupplementIntegrityIssueRows} issue ON issue.book_id=checkpoint.book_id AND (origin.original_receipt->'relatedIssueIds') ? issue.issue_id::text
     WHERE checkpoint.id=$1 AND checkpoint.book_id=$2 ORDER BY issue.issue_id`,[checkpointId,bookId])).rows;
   if(!rows.length||rows.length!==rows[0].original_start.relatedIssueIds.length||new Set(rows.map(row=>row.issue.issue_id)).size!==rows.length)
     throw new NewDesignError('实际修正缺少完整关联冲突或唯一正式状态，不能解除来源阻断。',409);
@@ -108,7 +110,6 @@ async function recordResolutions(client:PoolClient,bookId:string,checkpointId:st
       correctedState:row.corrected_state,proposal:row.proposal,anchor:row.anchor,body:row.body,checkpoint:row.checkpoint,settlement:row.settlement};
     const proofHash=stableHash(proof),receipt={contract:'resource_supplement_correction_resolution_v1',resolutionId,requestKey,bookId,issueId:row.issue.issue_id,
       correctionCheckpointId:checkpointId,proofHash,sourceRoute:`/new-design/books/${bookId}/writing?chapterDocument=${row.checkpoint.chapter_document_id}&session=${row.checkpoint.session_id}&resourceIssue=${row.issue.issue_id}`};
-    await client.query(`INSERT INTO new_design.resource_supplement_integrity_resolutions(resolution_id,issue_id,book_id,correction_checkpoint_id,request_key,full_proof,proof_hash,canonical_proof,original_receipt)
-      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb)`,[resolutionId,row.issue.issue_id,bookId,checkpointId,requestKey,JSON.stringify(proof),proofHash,stable(proof),JSON.stringify(receipt)]);
+    await insertRevisionRecords(client, 'resource_supplement_integrity_resolution', `SELECT ($1)::uuid AS resolution_id,($2)::uuid AS issue_id,($3)::uuid AS book_id,($4)::uuid AS correction_checkpoint_id,($5)::uuid AS request_key,($6::jsonb)::jsonb AS full_proof,($7)::char(64) AS proof_hash,($9::jsonb)::jsonb AS original_receipt,(now())::timestamptz AS created_at,($8)::text AS canonical_proof`, [resolutionId,row.issue.issue_id,bookId,checkpointId,requestKey,JSON.stringify(proof),proofHash,stable(proof),JSON.stringify(receipt)], [["resolution_id"],["issue_id"],["book_id","request_key"]]);
   }
 }

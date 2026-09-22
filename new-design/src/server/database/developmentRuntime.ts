@@ -1,3 +1,4 @@
+import {requireTablesOnlyInstallation} from './tablesOnly';
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import net from "node:net";
@@ -137,38 +138,13 @@ async function waitForDatabase(config: DevelopmentRuntimeConfig): Promise<Pool> 
 }
 
 async function ensureExtensions(pool: Pool): Promise<{ age: string; vector: string; pgTrgm: string }> {
-  await pool.query("CREATE EXTENSION IF NOT EXISTS age");
   await pool.query("LOAD 'age'");
-  await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
-  await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
   const result = await pool.query<{ extname: string; extversion: string }>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])", [["age", "vector", "pg_trgm"]]);
   const versions = new Map(result.rows.map((row) => [row.extname, row.extversion]));
   if (!versions.get("age") || !versions.get("vector") || !versions.get("pg_trgm")) throw new Error("开发数据库没有完整加载 AGE、pgvector 和 pg_trgm。");
   return { age: versions.get("age")!, vector: versions.get("vector")!, pgTrgm: versions.get("pg_trgm")! };
 }
 
-async function applyMigrations(pool: Pool): Promise<number> {
-  await pool.query("CREATE SCHEMA IF NOT EXISTS new_design");
-  await pool.query("CREATE TABLE IF NOT EXISTS new_design.schema_migrations(id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
-  for (const migration of migrations) {
-    const found = await pool.query("SELECT 1 FROM new_design.schema_migrations WHERE id=$1", [migration.id]);
-    if (found.rowCount) continue;
-    const sql = await fs.readFile(path.resolve(__dirname, "../../../migrations", migration.fileName), "utf8");
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(sql);
-      await client.query("INSERT INTO new_design.schema_migrations(id) VALUES($1) ON CONFLICT(id) DO NOTHING", [migration.id]);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-  return Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])", [migrations.map(item => item.id)])).rows[0]?.value ?? 0);
-}
 
 async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDatabaseRuntime> {
   if (process.env.NEW_DESIGN_DATABASE_URL?.trim()) throw new Error("开发态不接受系统 PostgreSQL 连接串；只使用项目定义的 AGE + pgvector 数据库容器。");
@@ -176,8 +152,8 @@ async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDataba
   await startCompose(config);
   const pool = await waitForDatabase(config);
   try {
+    const migrationCount = await requireTablesOnlyInstallation(pool);
     const extensions = await ensureExtensions(pool);
-    const migrationCount = await applyMigrations(pool);
     const version = await pool.query<{ server_version: string }>("SHOW server_version");
     activeRuntime = { pool, postgresVersion: version.rows[0]?.server_version ?? "unknown", ageVersion: extensions.age, vectorVersion: extensions.vector, pgTrgmVersion: extensions.pgTrgm, port: config.port, migrationCount };
     return activeRuntime;

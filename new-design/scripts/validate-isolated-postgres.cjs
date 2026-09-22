@@ -15,10 +15,12 @@ async function main(){
     console.log(`Verified isolated target: ${identity.container} / ${identity.database} / 127.0.0.1:${identity.port} / tmpfs`);
     await pool.query('CREATE EXTENSION IF NOT EXISTS age');await pool.query("LOAD 'age'");
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');await pool.query('CREATE EXTENSION IF NOT EXISTS pg_trgm');
-    await pool.query('CREATE SCHEMA IF NOT EXISTS new_design');
-    await pool.query('CREATE TABLE IF NOT EXISTS new_design.schema_migrations(id text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())');
+    if(installedBefore.rows[0].ledger){
+      const actual=(await pool.query('SELECT id FROM new_design.schema_migrations ORDER BY id')).rows.map(row=>row.id);
+      if(JSON.stringify(actual)!==JSON.stringify(migrations.map(item=>item.id).sort()))throw new Error('Existing isolated database has a different baseline; retain it and explicitly choose a fresh target, never auto-rebuild');
+    }
     for(const migration of migrations){
-      if((await pool.query('SELECT 1 FROM new_design.schema_migrations WHERE id=$1',[migration.id])).rowCount)continue;
+      if(installedBefore.rows[0].ledger)continue;
       const client=await pool.connect();
       try{
         const sql=await fs.readFile(path.join(__dirname,'../migrations',migration.fileName),'utf8');

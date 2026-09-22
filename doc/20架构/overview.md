@@ -10,9 +10,11 @@
 
 数据与状态的依赖方向是：作者操作／AI 候选 → 专业命令校验 → PostgreSQL 正本及不可变版本／采用记录 → 可重建投影与检索。查询投影不能反向改写正本；后台任务记录执行过程，不复制另一套小说事实。数据库隔离、迁移分层和数据保全见[数据库架构](database.md)，具体表关系与字段以[数据模型](../../new-design/docs/data-model.md)及 SQL 为准。
 
-![新版底座组件图](diagrams/new-design-components.svg)
+[新版底座组件图 PlantUML 源码](diagrams/new-design-components.puml)按 `new-design/src/` 的主要职责画出逻辑依赖，箭头不等于逐文件调用图；图中仅包含新版组件。本轮只更新图稿，不生成 SVG／PNG，既有渲染图不代表 `132` 模型。
 
-[PlantUML 源码](diagrams/new-design-components.puml)按 `new-design/src/` 的主要职责画出逻辑依赖，箭头不等于逐文件调用图；图中仅包含新版组件。
+`132` 源码通过通用记录仓储、领域动作与专用账本直接访问最终物理表：79 张应用表加 4 张 AGE 投影表，无持久业务视图、无兼容 schema。内部类型以 `is_internal=true` 隔离作者资料；查询内 CTE 只是语句级投影，不是常驻适配层。大正文、研究原文、文件字节和向量分块保留专用正本，不能为卡片统一而全部装入 JSON。
+
+这一结论仅描述源码：本轮尚未编译、测试或安装 `132`。作者库仍保留历史已安装的 `131` 兼容模型；其服务或表数证据不能代替纯表模型验收。
 
 ## 关键边界
 
@@ -22,9 +24,11 @@
 | 规划与正文 | AI 结果先是可追溯候选；正式采用指针、事实与后续影响应在明确的结算边界维护 | [章节创作](../../new-design/docs/chapter-writing-workspace.md)、[采用结算](../../new-design/docs/chapter-adoption-settlement.md) |
 | 事实、状态与认知 | 正文、书内事实、人物变化及角色知道什么不是同一个对象；后续生成只能读取适用位置的有效版本 | [数据模型](../../new-design/docs/data-model.md)、[章节结算](../../new-design/docs/chapter-adoption-settlement.md) |
 | AI 运行 | 任务合同、上下文来源和模型路由在运行前冻结；失败与重入沿原业务请求恢复，不用假生成掩盖失败 | [上下文管理](../../new-design/docs/context-management-and-assembly.md)、[模型运行](../../new-design/docs/model-route-runtime-review.md)、[Outbox](../../new-design/docs/outbox-runtime.md) |
-| 派生索引 | AGE 关系图、pgvector 语义索引与视图都服务读取，须能由关系正本重建并遵守书籍范围 | [数据模型](../../new-design/docs/data-model.md)、[检索边界](../../docs/wiki/rag/new-design-semantic-retrieval.md) |
+| 派生索引 | AGE、pgvector 和页面查询投影服务读取，须能由正本重建并遵守书籍范围；不引入持久业务 SQL 视图 | [数据模型](../../new-design/docs/data-model.md)、[检索边界](../../docs/wiki/rag/new-design-semantic-retrieval.md) |
 | 数据可移植性 | Git 保存源码与迁移，不保存用户作品数据；迁移作品时同时考虑数据库逻辑备份、受管附件及清单 | [开发交付与跨机器数据](../../new-design/docs/development-delivery.md)、[传输与恢复](../../new-design/docs/transfer-backup-import-export.md) |
 
 ## 修改与验收边界
 
 新增能力先定位其专业模块和现有命令，明确正本、候选、采用、回执与下游失效关系；不得在页面、通用 job 或查询投影另造写入规则。涉及旧版兼容时，逐项核对旧作品、深链和用户操作，不把“同仓”理解为共享数据库。改变结构或运行合同须分别证明迁移可用、服务接线和适用业务行为；HTTP 健康或静态构建不能替代整条创作链验收。执行检查时遵守[开发规范](../30规范/development.md)。
+
+数据库日常演进遵守[增量门禁](../../new-design/AGENTS.md#数据库增量门禁)：本次独立空库基线不是未来反复重建或恢复作者库的依据。文档更新和源码提交均不等于实际安装。

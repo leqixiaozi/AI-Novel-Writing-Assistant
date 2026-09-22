@@ -1,5 +1,7 @@
+import {chapterAdoptionSessionRows,chapterStableCheckpointRows,resourceSupplementIntegrityIssueRows,resourceSupplementIntegrityResolutionRows,stateChangeProposalRows,stateChangeRows} from '../persistence';
 import {createHash} from 'node:crypto';
 import type {PoolClient} from 'pg';
+import {requireCardWorkflowTypes} from '../persistence';
 import {z} from 'zod';
 import {NewDesignError} from '../../../domain/errors';
 import {stableHash} from '../../aiContracts';
@@ -11,17 +13,15 @@ import {assertResourceSupplementHistoricalSourceAvailableInTransaction} from './
  * END-of-chapter v1 contract; no arbitrary before-value or latest initial fallback. */
 export async function readResourceSupplementCorrectionBasisInTransaction(client:PoolClient,bookId:string,issueId:string):Promise<ResourceSupplementCorrectionBasis>{
   z.string().uuid().parse(bookId);z.string().uuid().parse(issueId);
-  const installed=(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='090_resource_supplement_integrity'
-    AND to_regclass('new_design.resource_supplement_integrity_issues') IS NOT NULL AND to_regclass('new_design.resource_supplement_integrity_resolutions') IS NOT NULL`)).rowCount;
-  if(!installed)throw new NewDesignError('真实资源冲突来源尚不可读取，请保留原请求核对。',503);
+  await requireCardWorkflowTypes(client,['resource_supplement_integrity_issue','resource_supplement_integrity_resolution']);
   const issue=(await client.query(`SELECT to_jsonb(issue)||jsonb_build_object('current_checkpoint',to_jsonb(checkpoint)) full_issue
-    FROM new_design.resource_supplement_integrity_issues issue
+    FROM ${resourceSupplementIntegrityIssueRows} issue
     JOIN new_design.chapter_documents document ON document.id=issue.chapter_document_id AND document.book_id=issue.book_id
       AND document.status='active' AND document.adopted_version_id=issue.body_version_id
-    LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.book_id=issue.book_id AND checkpoint.chapter_document_id=document.id
+    LEFT JOIN ${chapterStableCheckpointRows} checkpoint ON checkpoint.book_id=issue.book_id AND checkpoint.chapter_document_id=document.id
       AND checkpoint.body_version_id=issue.body_version_id AND checkpoint.status='stable'
     WHERE issue.issue_id=$1 AND issue.book_id=$2 AND NOT EXISTS(
-      SELECT 1 FROM new_design.resource_supplement_integrity_resolutions resolution WHERE resolution.issue_id=issue.issue_id)`,[issueId,bookId])).rows[0]?.full_issue;
+      SELECT 1 FROM ${resourceSupplementIntegrityResolutionRows} resolution WHERE resolution.issue_id=issue.issue_id)`,[issueId,bookId])).rows[0]?.full_issue;
   if(!issue||!issue.current_checkpoint?.summary?.confirmed?.states?.includes(issue.state_change_id))throw new NewDesignError('请选择本书仍有原确认来源的真实资源冲突；原正文或确认状态已变化时不能套用修正。',409);
   const basis=await readStableResourceSupplementBasisInTransaction(client,bookId,String(issue.current_checkpoint.id));
   // Select the actual latest row first, then validate its proof. Invalid proof
@@ -29,16 +29,16 @@ export async function readResourceSupplementCorrectionBasisInTransaction(client:
   const row=(await client.query(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal,to_jsonb(settlement) settlement,
     to_jsonb(anchor) anchor,to_jsonb(document) document,to_jsonb(body) body,to_jsonb(checkpoint) checkpoint,
     to_jsonb(checkpoint_commit) checkpoint_commit,to_jsonb(checkpoint_session) checkpoint_session
-    FROM new_design.state_changes change
+    FROM ${stateChangeRows} change
     JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id AND document.book_id=change.book_id
       AND document.status='active' AND document.adopted_version_id=change.body_version_id
     LEFT JOIN new_design.chapter_body_versions body ON body.id=change.body_version_id AND body.chapter_document_id=document.id
-    LEFT JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id
+    LEFT JOIN ${stateChangeProposalRows} proposal ON proposal.id=change.proposal_id
     LEFT JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id
-    LEFT JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
-    LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.book_id=change.book_id AND checkpoint.chapter_document_id=document.id AND checkpoint.body_version_id=change.body_version_id AND checkpoint.status='stable'
+    LEFT JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
+    LEFT JOIN ${chapterStableCheckpointRows} checkpoint ON checkpoint.book_id=change.book_id AND checkpoint.chapter_document_id=document.id AND checkpoint.body_version_id=change.body_version_id AND checkpoint.status='stable'
     LEFT JOIN new_design.chapter_settlements checkpoint_commit ON checkpoint_commit.id=checkpoint.settlement_id
-    LEFT JOIN new_design.chapter_adoption_sessions checkpoint_session ON checkpoint_session.id=checkpoint.session_id
+    LEFT JOIN ${chapterAdoptionSessionRows} checkpoint_session ON checkpoint_session.id=checkpoint.session_id
     WHERE change.book_id=$1 AND change.subject_kind=$2 AND change.subject_id=$3 AND change.state_key=$4 AND change.status='active'
       AND document.logical_order<$5 AND coalesce(change.effective_story_order,document.logical_order)<$5
     ORDER BY coalesce(change.effective_story_order,document.logical_order) DESC,document.logical_order DESC,change.sequence DESC LIMIT 1`,

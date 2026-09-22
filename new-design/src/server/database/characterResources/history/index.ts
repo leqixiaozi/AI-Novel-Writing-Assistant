@@ -1,3 +1,5 @@
+import {settlementRecordCtes} from '../../chapterSettlement/recordStorage';
+import {stateChangeRows,chapterStableCheckpointRows} from '../../chapterProduction/persistence/queries';
 import type {PoolClient} from 'pg';
 import type {CharacterResourceHistory,ResourceHistoryChange,ResourceHistoryItem} from '../../../../common/characterResources/history';
 import type {ResourceLedgerSelection} from '../../../../common/characterResources';
@@ -14,7 +16,7 @@ const json=(value:unknown):Record<string,unknown>|null=>value==null?null:JSON.pa
 export async function readCharacterResourceHistoryInTransaction(db:PoolClient,bookId:string,characterId:string,selection:ResourceLedgerSelection):Promise<CharacterResourceHistory>{
  const current=await readCharacterResourcesInTransaction(db,bookId,characterId,resourceLedgerQuerySchema.parse(selection));
  if(!current.selection)throw new NewDesignError('请选择完整的原持有维度核对资源历史。',422);
- const rows=(await db.query(`SELECT relation.id relation_id,relation.status relation_status,target.id resource_id,target.title,target.status resource_status,
+ const rows=(await db.query(`WITH ${settlementRecordCtes.chapter_settlement_events} SELECT relation.id relation_id,relation.status relation_status,target.id resource_id,target.title,target.status resource_status,
   change.id change_id,to_jsonb(original_relation) relation_version,to_jsonb(original_resource) resource_version,
   to_jsonb(anchor) anchor,to_jsonb(original_character) character_version,contract.detail editing_contract,
   document.logical_order,checkpoint.id checkpoint_id,checkpoint.session_id
@@ -22,10 +24,10 @@ export async function readCharacterResourceHistoryInTransaction(db:PoolClient,bo
  JOIN new_design.card_relations relation ON relation.space_id=book.space_id AND relation.source_card_id=$2 AND relation.relation_type_id=$3
  JOIN new_design.cards target ON target.id=relation.target_card_id AND target.space_id=book.space_id
  JOIN new_design.card_types target_type ON target_type.id=target.card_type_id AND target_type.type_key='prop'
- JOIN new_design.state_changes change ON change.book_id=book.id
+ JOIN ${stateChangeRows} change ON change.book_id=book.id
   AND ((change.subject_kind='relation' AND change.subject_id=relation.id) OR (change.subject_kind='card' AND change.subject_id=target.id))
  JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id AND document.book_id=book.id
- LEFT JOIN LATERAL(SELECT checkpoint.* FROM new_design.chapter_stable_checkpoints checkpoint
+ LEFT JOIN LATERAL(SELECT checkpoint.* FROM ${chapterStableCheckpointRows} checkpoint
   WHERE checkpoint.book_id=book.id AND checkpoint.chapter_document_id=document.id AND checkpoint.body_version_id=change.body_version_id
   ORDER BY checkpoint.created_at DESC,checkpoint.id DESC LIMIT 1) checkpoint ON true
  LEFT JOIN LATERAL(SELECT version.* FROM new_design.card_relation_versions version
@@ -33,13 +35,13 @@ export async function readCharacterResourceHistoryInTransaction(db:PoolClient,bo
  LEFT JOIN new_design.card_versions original_resource ON original_resource.id=original_relation.target_card_version_id AND original_resource.card_id=target.id
  LEFT JOIN new_design.card_versions original_character ON original_character.id=original_relation.source_card_version_id AND original_character.card_id=relation.source_card_id
  LEFT JOIN LATERAL(SELECT event.detail FROM new_design.chapter_settlement_items item
-  JOIN new_design.chapter_settlement_events event ON event.session_id=item.session_id AND event.item_id=item.id AND event.detail->>'editingKind'='contract'
+  JOIN chapter_settlement_events event ON event.session_id=item.session_id AND event.item_id=item.id AND event.detail->>'editingKind'='contract'
   WHERE item.state_proposal_id=change.proposal_id AND item.decision='confirm'
   ORDER BY (event.detail->>'itemRevision')::int DESC,event.created_at DESC,event.id DESC LIMIT 1) contract ON true
- LEFT JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
+ LEFT JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
  WHERE book.id=$1 AND book.status='active'
  ORDER BY COALESCE(change.effective_story_order,document.logical_order) DESC,document.logical_order DESC,change.sequence DESC,relation.id LIMIT 201`,[bookId,characterId,selection.relationTypeId])).rows as Row[];
- const fullChanges=(await db.query('SELECT change.* FROM new_design.state_changes change WHERE change.book_id=$1 AND change.id=ANY($2::uuid[])',[bookId,[...new Set(rows.slice(0,200).map(row=>String(row.change_id)))]] )).rows as Row[];
+ const fullChanges=(await db.query(`SELECT change.* FROM ${stateChangeRows} change WHERE change.book_id=$1 AND change.id=ANY($2::uuid[])`,[bookId,[...new Set(rows.slice(0,200).map(row=>String(row.change_id)))]] )).rows as Row[];
  const changesById=new Map(fullChanges.map(change=>[String(change.id),json(change)! as Row]));
  const chapters:CharacterResourceHistory['chapters']=[],byCheckpoint=new Map<string,CharacterResourceHistory['chapters'][number]>(),items=new Map<string,ResourceHistoryItem>();
  for(const row of rows.slice(0,200)){

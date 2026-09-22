@@ -6,13 +6,27 @@ import {DEFAULT_SPACE_ID} from '../store';
 export type WorkflowDb=Pick<PoolClient,'query'>|Pick<Pool,'query'>;
 export type WorkflowRow=Record<string,any>;
 
+/** Read-only capability probe for the pure-table installation; never bootstraps it. */
+export async function readCardWorkflowCapability(db:WorkflowDb,capabilityKey:string,typeKeys:string[]){
+  const exists=(await db.query("SELECT to_regclass('new_design.system_capabilities') IS NOT NULL present")).rows[0]?.present===true;
+  if(!exists)return{installed:false,operational:false};
+  const row=(await db.query(`SELECT feature.installed,feature.operational,
+    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only') complete,
+    EXISTS(SELECT 1 FROM new_design.system_capabilities kernel WHERE kernel.capability_key='card_kernel_v2' AND kernel.installed AND kernel.operational AND kernel.details->>'storage'='tables_only') kernel_ready,
+    (SELECT count(DISTINCT type_key) FROM new_design.card_types WHERE type_key=ANY($2::text[]) AND is_internal AND status='published' AND current_version_id IS NOT NULL) type_count,
+    EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('new_design.card_version_actions') AND tgname='card_version_actions_immutable' AND tgenabled IN('O','A')) protected
+    FROM new_design.system_capabilities feature WHERE feature.capability_key=$1`,[capabilityKey,[...new Set(typeKeys)]])).rows[0];
+  const installed=row?.installed===true&&row.complete===true&&Number(row.type_count)===new Set(typeKeys).size;
+  return{installed,operational:installed&&row.operational===true&&row.kernel_ready===true&&row.protected===true};
+}
+
 export async function requireCardWorkflowTypes(db:WorkflowDb,typeKeys:string[],write=false):Promise<void>{
   const cutover=(await db.query(`SELECT
     to_regclass('new_design.system_capabilities') IS NOT NULL capability_table,
-    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='131_card_kernel_v2_cutover') migration`)).rows[0]??{};
-  if(!cutover.capability_table||!cutover.migration)throw new NewDesignError('卡片内核 v2 最终收敛迁移尚未完整启用。',503);
-  const capability=(await db.query("SELECT installed,operational FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2'")).rows[0]??{};
-  if(!capability.installed||!capability.operational)throw new NewDesignError('卡片内核 v2 正处于维护状态，写入已停用。',503);
+    EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only') migration`)).rows[0]??{};
+  if(!cutover.capability_table||!cutover.migration)throw new NewDesignError('卡片内核纯表结构尚未完整安装，请到运行维护核对；普通启动不会自动重建数据库。',503);
+  const capability=(await db.query("SELECT installed,operational,details FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2'")).rows[0]??{};
+  if(!capability.installed||!capability.operational||capability.details?.storage!=='tables_only')throw new NewDesignError('卡片内核纯表结构正处于维护状态，写入已停用。',503);
   const row=(await db.query(`SELECT
     to_regclass('new_design.card_version_actions') IS NOT NULL actions,
     EXISTS(
@@ -89,8 +103,8 @@ export async function appendWorkflowVersion(db:WorkflowDb,input:{
     ) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) RETURNING *`,
     [versionId,input.cardId,revision,card.type_version_id,input.title??card.title,JSON.stringify(input.values),input.source??'edit'])).rows[0];
   await db.query(`UPDATE new_design.cards
-    SET revision=revision+1,current_version_id=$2,values=$3::jsonb,updated_at=now() WHERE id=$1`,
-    [input.cardId,versionId,JSON.stringify(input.values)]);
+    SET revision=revision+1,current_version_id=$2,values=$3::jsonb,title=$4,updated_at=now() WHERE id=$1`,
+    [input.cardId,versionId,JSON.stringify(input.values),input.title??card.title]);
   return row;
 }
 

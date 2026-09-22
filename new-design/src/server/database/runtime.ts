@@ -1,3 +1,4 @@
+import {requireTablesOnlyInstallation} from './tablesOnly';
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
@@ -26,7 +27,7 @@ async function createPool():Promise<Pool>{
     await ensureApplicationDatabase(connection);
     pool=new Pool({host:connection.host,port:connection.port,user:connection.user,password:connection.password,database:connection.database,max:8,application_name:"ai_novel_new_design"});
     credentialKey=deriveModelCredentialKey(connection.password,connection.database);
-    await ensureLockedExtensions(pool,connection);await applyMigrations(pool,connection);
+    await requireTablesOnlyInstallation(pool);await ensureLockedExtensions(pool,connection);
     const versions=await pool.query<{server_version:string}>("SHOW server_version"),migrationCount=Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations WHERE id = ANY($1::text[])",[migrations.map(item=>item.id)])).rows[0]?.value??0);
     if(migrationCount!==migrations.length)throw new Error(`迁移登记数量不完整：预期 ${migrations.length}，实际 ${migrationCount}。`);
     await manager.markReady(migrationCount);
@@ -38,21 +39,17 @@ async function createPool():Promise<Pool>{
 async function ensureApplicationDatabase(connection:PrivateRuntimeConnection):Promise<void>{
   if(!/^ndb_[a-f0-9]{16}$/.test(connection.database))throw new Error("私有数据库名称不符合固定格式。");
   const admin=new Pool({host:connection.host,port:connection.port,user:connection.user,password:connection.password,database:"postgres",max:1,application_name:"ai_novel_bootstrap"});
-  try{const exists=await admin.query<{exists:boolean}>("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1) exists",[connection.database]);if(!exists.rows[0]?.exists)await admin.query(`CREATE DATABASE "${connection.database}" TEMPLATE template0 ENCODING 'UTF8'`);}finally{await admin.end();}
+  try{const exists=await admin.query<{exists:boolean}>("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1) exists",[connection.database]);if(!exists.rows[0]?.exists)throw new Error('应用数据库尚未显式初始化；普通服务启动不会创建或重建数据库。');}finally{await admin.end();}
 }
 
 async function ensureLockedExtensions(pool:Pool,connection:PrivateRuntimeConnection):Promise<void>{
   const expected={age:connection.manifest.components.age.version,vector:connection.manifest.components.pgvector.version,pg_trgm:connection.manifest.components.pgTrgm.version},names=Object.keys(expected);
   const available=await pool.query<{name:string;default_version:string}>("SELECT name,default_version FROM pg_available_extensions WHERE name=ANY($1::text[])",[names]),versions=new Map(available.rows.map(row=>[row.name,row.default_version]));
   for(const [name,version] of Object.entries(expected))if(versions.get(name)!==version)throw new Error(`扩展 ${name} 可用版本不是锁定版本 ${version}。`);
-  await pool.query("CREATE EXTENSION IF NOT EXISTS age");await pool.query("LOAD 'age'");await pool.query("CREATE EXTENSION IF NOT EXISTS vector");await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+  await pool.query("LOAD 'age'");
   const installed=await pool.query<{extname:string;extversion:string}>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])",[names]);for(const row of installed.rows)if(expected[row.extname as keyof typeof expected]!==row.extversion)throw new Error(`扩展 ${row.extname} 已安装版本与运行包不一致。`);if(installed.rowCount!==3)throw new Error("AGE、pgvector 或 pg_trgm 没有完整安装。");
 }
 
-async function applyMigrations(pool:Pool,connection:PrivateRuntimeConnection):Promise<void>{
-  await pool.query("CREATE SCHEMA IF NOT EXISTS new_design");await pool.query("CREATE TABLE IF NOT EXISTS new_design.schema_migrations(id text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now())");
-  for(const migration of migrations){const found=await pool.query("SELECT 1 FROM new_design.schema_migrations WHERE id=$1",[migration.id]);if(found.rowCount)continue;const client=await pool.connect();try{const migrationPath=path.join(connection.packageRoot,"app","migrations",migration.fileName),sql=await fs.readFile(migrationPath,"utf8");await client.query("BEGIN");await client.query(sql);await client.query("INSERT INTO new_design.schema_migrations(id) VALUES($1) ON CONFLICT(id) DO NOTHING",[migration.id]);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
-}
 
 export async function getNewDesignPool():Promise<Pool>{poolPromise??=createPool().catch(error=>{poolPromise=null;throw error;});return poolPromise;}
 export async function getNewDesignCredentialKey():Promise<Buffer>{await getNewDesignPool();if(!credentialKey)throw new Error("新版数据库凭据解密材料不可用。");return credentialKey;}

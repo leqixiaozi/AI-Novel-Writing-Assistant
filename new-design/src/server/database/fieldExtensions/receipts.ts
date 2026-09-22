@@ -4,6 +4,7 @@ import type {ScopedFieldDefinition} from "../../../common/contracts";
 import {NewDesignError} from "../../domain/errors";
 import {structureWriteHash} from "../structureWrites";
 import type {FieldWriteReceipt} from "../../../common/referenceParity";
+import {createRecordCard,listRecordCards} from '../recordCards';
 export type {FieldWriteReceipt} from "../../../common/referenceParity";
 export class FieldWriteError extends NewDesignError {
   readonly recovery;
@@ -23,9 +24,11 @@ function receipt(row:Record<string,unknown>|undefined,bookId:string,key:string):
   return saved;
 }
 async function read(client:PoolClient,bookId:string,key:string){
-  return receipt((await client.query(`SELECT adoption.field_definition_id,adoption.to_version_id,adoption.impact,book.id book_id
-    FROM new_design.field_scope_adoptions adoption JOIN new_design.field_definitions definition ON definition.id=adoption.field_definition_id
-    JOIN new_design.books book ON book.space_id=definition.space_id WHERE adoption.idempotency_key=$1`,[key])).rows[0],bookId,key);
+  const rows=await listRecordCards(client,'field_scope_adoption',{where:{idempotency_key:key}});
+  if(rows.length>1)throw new FieldWriteError(bookId,'原请求对应多份记录，请保留原凭证核对。',409,'unknown');
+  const adoption=rows[0];if(!adoption)return null;
+  const book=(await client.query('SELECT book.id FROM new_design.books book JOIN new_design.field_definitions definition ON definition.space_id=book.space_id WHERE definition.id=$1',[adoption.field_definition_id])).rows[0];
+  return receipt({...adoption,book_id:book?.id},bookId,key);
 }
 export async function readFieldWriteReceipt(bookId:string,key:string,expected?:{operation:string;input:unknown}):Promise<FieldWriteReceipt|null>{
   const {getNewDesignPool}=await import("../runtime"),client=await(await getNewDesignPool()).connect();
@@ -50,8 +53,8 @@ export class FieldWriteSession {
   }
   async record(result:ScopedFieldDefinition,adoption:{action:"create"|"revise"|"archive";fromVersionId?:string|null;expectedTypeRevision?:number;expectedSubjectRevision?:number;createdBy:string;impact?:Record<string,unknown>}){
     const saved:FieldWriteReceipt={bookId:this.bookId,operation:this.operation,requestKey:this.key,inputHash:this.inputHash,result};
-    await this.client.query(`INSERT INTO new_design.field_scope_adoptions(id,field_definition_id,action,idempotency_key,from_version_id,to_version_id,expected_type_revision,expected_subject_revision,impact,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)`,[randomUUID(),result.id,adoption.action,this.key,adoption.fromVersionId??null,result.currentVersion.id,adoption.expectedTypeRevision??null,adoption.expectedSubjectRevision??null,JSON.stringify({...adoption.impact,originalInput:this.input,receipt:saved}),adoption.createdBy]);
+    const id=randomUUID();
+    await createRecordCard(this.client,{id,spaceId:result.spaceId,typeKey:'field_scope_adoption',title:'补充信息操作回执',values:{id,field_definition_id:result.id,action:adoption.action,idempotency_key:this.key,from_version_id:adoption.fromVersionId??null,to_version_id:result.currentVersion.id,expected_type_revision:adoption.expectedTypeRevision??null,expected_subject_revision:adoption.expectedSubjectRevision??null,impact:{...adoption.impact,originalInput:this.input,receipt:saved},created_by:adoption.createdBy,created_at:new Date().toISOString()}});
   }
   async commit(result:ScopedFieldDefinition){this.committing=true;await this.client.query("COMMIT");return result;}
   async fail(error:unknown):Promise<never>{

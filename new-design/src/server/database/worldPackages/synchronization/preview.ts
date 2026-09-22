@@ -6,13 +6,14 @@ import {formHash} from '../../formAssist';
 import {readSyncWorkspace} from '../workspace';
 import {prepareWorldCard} from '../mapping';
 import {previewPackageRelation} from '../relations';
+import {findRecordCardByValue,listRecordCards} from '../../recordCards';
 
 export function patchWorldValue(values:Record<string,unknown>,key:string,value:WorldValue){if(value.present)values[key]=value.value;else delete values[key];}
 
 export async function candidateSource(db:PoolClient,bookId:string,input:WorldSyncInput,workspace:WorldSyncWorkspace){
- const candidate=assertFound((await db.query('SELECT snapshot FROM new_design.world_package_push_candidates WHERE id=$1 AND book_id=$2 AND installation_id=$3 AND package_id=$4',[input.candidateId,bookId,input.installationId,input.packageId])).rows[0],'原公共候选不属于本书世界或固定版本。').snapshot as WorldPushCandidate;
+ const stored=await findRecordCardByValue(db,'world_package_push_candidate','id',String(input.candidateId)),candidate=assertFound(stored&&stored.book_id===bookId&&stored.installation_id===input.installationId&&stored.package_id===input.packageId?stored.snapshot:null,'原公共候选不属于本书世界或固定版本。') as WorldPushCandidate;
  if(candidate.workspaceHash!==workspace.workspaceHash)throw new NewDesignError('本书或公共来源在候选准备后变化，原候选保留，请核对新差异再准备。',409);
- if((await db.query("SELECT 1 FROM new_design.world_package_sync_commands WHERE installation_id=$1 AND operation='publish' AND input->>'candidateId'=$2",[input.installationId,candidate.id])).rowCount)throw new NewDesignError('原候选已发布，请只读核对原发布结果。',409);
+ if((await listRecordCards(db,'world_package_sync_command')).some(row=>row.installation_id===input.installationId&&row.operation==='publish'&&row.input?.candidateId===candidate.id))throw new NewDesignError('原候选已发布，请只读核对原发布结果。',409);
  for(const live of workspace.publicLive)if(!workspace.upstream.frame.cards.some(card=>card.cardId===live.cardId&&card.versionId===live.versionId))throw new NewDesignError('公共档案已产生包外更新，请先选择对应固定公共版本。',409);
  return candidate;
 }

@@ -1,3 +1,4 @@
+import {createRecordCard,listRecordCards,requireRecordCard,replaceRecordCard} from '../recordCards';
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { BookResearchAdoptionBatch, FieldDefinition } from "../../../common/contracts";
@@ -16,11 +17,10 @@ async function dictionarySources(client: PoolClient, fields: FieldDefinition[], 
   for (const field of fields) {
     const source = field.optionSource;
     if (source?.kind !== "dictionary_tree") continue;
-    const dictionary = assertFound((await client.query("SELECT id,name,revision,owner_space_id,status FROM new_design.dictionary_definitions WHERE id=$1 FOR SHARE", [source.dictionaryId])).rows[0], "选项字典不存在。");
+    const dictionary = await requireRecordCard(client,source.dictionaryId,'dictionary_definition','选项字典不存在。',{lock:true});
     if (dictionary.status === "archived" || dictionary.owner_space_id && String(dictionary.owner_space_id) !== spaceId) throw new NewDesignError("提案的选项字典不属于本书或公共资源，或已停用。", 422, {[field.key]: "请重新选择本书可用字典。"});
-    const nodes = (await client.query(`SELECT item.id,item.parent_id,item.status,item.revision,item.current_version_id,version.path_labels
-      FROM new_design.dictionary_items item JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id
-      WHERE item.dictionary_id=$1 ORDER BY item.id FOR SHARE OF item`, [source.dictionaryId])).rows;
+    const nodes:Record<string,any>[]=[];
+    for(const item of (await listRecordCards(client,'dictionary_item',{where:{dictionary_id:source.dictionaryId},lock:true})).sort((a,b)=>a.id.localeCompare(b.id))){const version=await requireRecordCard(client,item.current_version_id,'dictionary_item_version','选项版本不存在。');nodes.push({...item,path_labels:version.path_labels});}
     sources.push({fieldKey:field.key,dictionaryId:dictionary.id,dictionaryName:dictionary.name,dictionaryRevision:Number(dictionary.revision),rule:source.rule,
       nodes:nodes.map(node => ({id:node.id,parentId:node.parent_id,status:node.status,revision:Number(node.revision),versionId:node.current_version_id,path:node.path_labels}))});
   }
@@ -32,10 +32,10 @@ export async function adoptBookResearchBatch(id: string, input: {bookId: string;
   const requestHash = stableHash({bookId:input.bookId,expectedRevision:input.expectedRevision,actor:input.actor ?? "user"});
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
-    const batch = assertFound((await client.query(`SELECT batch.*,book.space_id,book.status book_status FROM new_design.book_research_adoption_batches batch
-      JOIN new_design.books book ON book.id=batch.book_id WHERE batch.id=$1 FOR UPDATE OF batch FOR SHARE OF book`, [id])).rows[0], "研究采用预览不存在。");
-    if (String(batch.book_id) !== input.bookId) throw new NewDesignError("研究采用预览不属于当前书籍。", 404);
-    const repeated = (await client.query("SELECT detail FROM new_design.book_research_adoption_events WHERE batch_id=$1 AND action='adopt' AND idempotency_key=$2", [id,input.idempotencyKey])).rows[0];
+    const savedBatch=await requireRecordCard(client,id,'book_research_adoption_batch','研究采用预览不存在。',{lock:true});
+    const book=assertFound((await client.query('SELECT space_id,status FROM new_design.books WHERE id=$1 FOR SHARE',[savedBatch.book_id])).rows[0],'书籍不存在。'),batch={...savedBatch,space_id:String(book.space_id),book_status:book.status};
+    if(batch.book_id!==input.bookId)throw new NewDesignError('研究采用预览不属于当前书籍。',404);
+    const repeated=(await listRecordCards(client,'book_research_adoption_event',{where:{batch_id:id,action:'adopt',idempotency_key:input.idempotencyKey}}))[0];
     if (repeated) {
       const priorHash = object(repeated.detail).requestHash;
       if (priorHash && priorHash !== requestHash) throw new NewDesignError("此请求标识已用于另一份采用请求。",409);
@@ -44,11 +44,11 @@ export async function adoptBookResearchBatch(id: string, input: {bookId: string;
     }
     if (batch.book_status !== "active") throw new NewDesignError("归档书籍不能采用研究提案。",422);
     if (batch.status !== "draft" || Number(batch.revision) !== input.expectedRevision) throw new NewDesignError("研究采用预览已变化，请复核后重试，当前填写内容保留。",409);
-    const items: Row[] = (await client.query(`SELECT item.*,candidate.batch_id candidate_batch_id,candidate.revision candidate_revision,
-      research_batch.research_version_id FROM new_design.book_research_adoption_items item
-      JOIN new_design.research_candidates candidate ON candidate.id=item.source_candidate_id
-      JOIN new_design.research_candidate_batches research_batch ON research_batch.id=candidate.batch_id
-      WHERE item.batch_id=$1 ORDER BY item.sort_order FOR UPDATE OF item`, [id])).rows;
+    const items:Row[]=[];
+    for(const item of (await listRecordCards(client,'book_research_adoption_item',{where:{batch_id:id},lock:true})).sort((a,b)=>Number(a.sort_order)-Number(b.sort_order))){
+      const candidate=await requireRecordCard(client,item.source_candidate_id,'research_candidate','原研究提案不存在。'),researchBatch=await requireRecordCard(client,candidate.batch_id,'research_candidate_batch','原研究批次不存在。');
+      items.push({...item,candidate_batch_id:candidate.batch_id,candidate_revision:candidate.revision,research_version_id:researchBatch.research_version_id});
+    }
     const selected = items.filter(item => item.decision === "adopt");
     if (!selected.length) throw new NewDesignError("请至少选择一条研究提案。",422);
     const adoptedItems: unknown[] = [];
@@ -71,19 +71,18 @@ export async function adoptBookResearchBatch(id: string, input: {bookId: string;
       await snapshotDictionaryTreeValues(client,fields,validated.values,versionId);
       await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1",[cardId,versionId]);
       for (const [key,value] of [["$title",item.title],...Object.entries(validated.values)] as Array<[string,unknown]>) {
-        await client.query(`INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value)
-          VALUES($1,$2,$3,'research',$4,'confirmed',$5::jsonb,$5::jsonb)`,[randomUUID(),cardId,key,item.research_version_id,JSON.stringify(value)]);
+        await createRecordCard(client,{spaceId:batch.space_id,typeKey:'card_field_origin',title:key,values:{card_id:cardId,field_key:key,source_kind:'research',source_id:item.research_version_id,confirmation_status:'confirmed',original_value:value,current_value:value}});
       }
-      await client.query("UPDATE new_design.book_research_adoption_items SET target_card_id=$2,revision=revision+1,updated_by=$3,updated_at=now() WHERE id=$1",[item.id,cardId,input.actor??"user"]);
+      const currentItem=await requireRecordCard(client,String(item.id),'book_research_adoption_item','研究提案不存在。',{lock:true});
+      await replaceRecordCard(client,{id:currentItem.id,spaceId:currentItem.recordSpaceId,typeKey:'book_research_adoption_item',values:{...currentItem,target_card_id:cardId,revision:currentItem.revision+1,updated_by:input.actor??'user',updated_at:new Date().toISOString()}});
       const snapshot={adoptionBatchId:id,sourceCandidateId:item.source_candidate_id,sourceCandidateRevision:Number(item.candidate_revision),itemRevision:Number(item.revision),
         researchVersionId:item.research_version_id,cardId,cardVersionId:versionId,typeVersionId:type.version_id,values:validated.values,title:item.title,dictionaries:sources};
       adoptedItems.push(snapshot);
-      await client.query(`INSERT INTO new_design.book_research_references(id,book_id,research_version_id,purpose,compiled_snapshot)
-        VALUES($1,$2,$3,'book_adoption',$4::jsonb) ON CONFLICT(book_id,research_version_id) WHERE research_version_id IS NOT NULL DO NOTHING`,[randomUUID(),batch.book_id,item.research_version_id,JSON.stringify(snapshot)]);
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`research-reference:${batch.book_id}:${item.research_version_id}`]);
+      if(!(await listRecordCards(client,'book_research_reference',{where:{book_id:batch.book_id,research_version_id:item.research_version_id}})).length)await createRecordCard(client,{spaceId:batch.space_id,typeKey:'book_research_reference',title:'本书研究采用',values:{book_id:batch.book_id,research_version_id:item.research_version_id,pack_version_id:null,purpose:'book_adoption',compiled_snapshot:snapshot}});
     }
-    await client.query("UPDATE new_design.book_research_adoption_batches SET status='adopted',revision=revision+1,updated_at=now() WHERE id=$1",[id]);
-    await client.query(`INSERT INTO new_design.book_research_adoption_events(id,batch_id,action,detail,idempotency_key,actor)
-      VALUES($1,$2,'adopt',$3::jsonb,$4,$5)`,[randomUUID(),id,JSON.stringify({requestHash,adoptedCount:selected.length,rejectedCount:items.filter(item=>item.decision==="reject").length,adoptedItems}),input.idempotencyKey,input.actor??"user"]);
+    await replaceRecordCard(client,{id,spaceId:savedBatch.recordSpaceId,typeKey:'book_research_adoption_batch',values:{...savedBatch,status:'adopted',revision:savedBatch.revision+1,updated_at:new Date().toISOString()}});
+    await createRecordCard(client,{spaceId:batch.space_id,typeKey:'book_research_adoption_event',title:'采用研究提案',values:{batch_id:id,action:'adopt',detail:{requestHash,adoptedCount:selected.length,rejectedCount:items.filter(item=>item.decision==='reject').length,adoptedItems},idempotency_key:input.idempotencyKey,actor:input.actor??'user'}});
     await client.query("COMMIT");
     return getBookResearchAdoptionBatch(id,input.bookId);
   } catch (error) {

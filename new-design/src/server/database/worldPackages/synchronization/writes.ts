@@ -6,6 +6,7 @@ import {freezeWorldPackage} from '../freeze';
 import {publishWorldPackageInTransaction} from '../publication';
 import {createPackageRelation,revisePackageRelation} from '../relations';
 import {candidateSource,patchWorldValue} from './preview';
+import {findRecordCardByValue} from '../../recordCards';
 
 export async function pullRelations(db:PoolClient,bookId:string,input:WorldSyncInput,workspace:WorldSyncWorkspace,added:WorldSyncReceipt['addedCards']){
  const spaceId=String((await db.query('SELECT space_id FROM new_design.books WHERE id=$1',[bookId])).rows[0].space_id),mappings=[...workspace.objects.map(object=>({sourceCardId:object.sourceCardId,targetCardId:object.targetCardId})),...added],versions:WorldSyncReceipt['relationVersions']=[];
@@ -33,7 +34,7 @@ export async function pullRelations(db:PoolClient,bookId:string,input:WorldSyncI
 
 export async function publishCandidate(db:PoolClient,bookId:string,input:WorldSyncInput,workspace:WorldSyncWorkspace){
  const candidate=await candidateSource(db,bookId,input,workspace);
- if((await db.query('SELECT 1 FROM new_design.world_package_versions WHERE request_key=$1',[input.publicRequestKey])).rowCount)throw new NewDesignError('公共发布原键已有其他结果，请保留原键核对。',409);
+ if(await findRecordCardByValue(db,'world_package_snapshot','request_key',String(input.publicRequestKey)))throw new NewDesignError('公共发布原键已有其他结果，请保留原键核对。',409);
  const versions=new Map(workspace.upstream.frame.cards.map(card=>[card.cardId,card.versionId])),affected=new Map<string,WorldSyncInput['choices']>();
  for(const choice of candidate.input.choices.filter(choice=>choice.decision==='take'))affected.set(choice.sourceCardId,[...(affected.get(choice.sourceCardId)??[]),choice]);
  for(const [cardId,choices] of affected){

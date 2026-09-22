@@ -1,3 +1,4 @@
+import {settlementRecordCtes,lockedSettlementQuery} from '../recordStorage';
 import {z} from "zod";
 import type {PoolClient} from "pg";
 import type {SettlementRelationDefinition} from "../../../../common/chapterSettlementEditing";
@@ -34,13 +35,15 @@ export function relationError(bookId:string,message:string,status=422,issues?:Re
   throw error;
 }
 export async function validateDefinition(client:PoolClient,bookId:string,spaceId:string,definition:SettlementRelationDefinition):Promise<void>{
-  const types=(await client.query("SELECT id,type_key FROM new_design.card_types WHERE status='published' AND current_version_id IS NOT NULL AND space_id IN ($1,'00000000-0000-4000-8000-000000000001') FOR SHARE",[spaceId])).rows;
+  const types=(await client.query("SELECT id,type_key FROM new_design.card_types WHERE NOT is_internal AND status='published' AND current_version_id IS NOT NULL AND space_id IN ($1,'00000000-0000-4000-8000-000000000001') FOR SHARE",[spaceId])).rows;
   for(const key of [...definition.sourceTypeKeys,...definition.targetTypeKeys])if(!types.some(row=>row.type_key===key))relationError(bookId,"允许的内容类型已失效，请重新选择。",409);
   for(const field of definition.fields){
     if(field.optionSource?.kind==="dictionary_tree"){
-      const dictionary=(await client.query("SELECT id FROM new_design.dictionary_definitions WHERE id=$1 AND status='published' AND (owner_space_id=$2 OR owner_space_id IS NULL) FOR SHARE",[field.optionSource.dictionaryId,spaceId])).rows[0];
+      const dictionary=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.dictionary_definitions}
+SELECT id FROM dictionary_definitions WHERE id=$1 AND status='published' AND (owner_space_id=$2 OR owner_space_id IS NULL)`,[field.optionSource.dictionaryId,spaceId])).rows[0];
       if(!dictionary)relationError(bookId,`${field.name}的字典不是本书可用的正式字典。`,422,{[field.key]:"请选择正式字典。"});
-      await client.query("SELECT id FROM new_design.dictionary_items WHERE dictionary_id=$1 FOR SHARE",[field.optionSource.dictionaryId]);
+      await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.dictionary_items}
+SELECT id FROM dictionary_items WHERE dictionary_id=$1`,[field.optionSource.dictionaryId]);
     }
     if(field.defaultValue!==undefined&&field.defaultValue!==null){const message=validateFieldValue(field,field.defaultValue);if(message)relationError(bookId,message,422,{[field.key]:message});}
   }

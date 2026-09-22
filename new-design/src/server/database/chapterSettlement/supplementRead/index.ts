@@ -1,3 +1,4 @@
+import {settlementRecordCtes} from '../recordStorage';
 import type { PoolClient } from "pg";
 import type { SettlementEditingCatalog } from "../../../../common/chapterSettlementEditing";
 import { resourceSupplementStartReceiptSchema, type ResourceSupplementPreview } from "../../../../common/resourceSupplements";
@@ -8,7 +9,8 @@ export {assertResourceSupplementCandidateContract} from "./candidates";
 
 /** Settlement owns its read view. No dependency on supplement creation commands. */
 export async function readFrozenSupplementSource(client: PoolClient, session: Record<string,unknown>, bodyHash: string): Promise<ResourceSupplementFrozenSource> {
-  const row = (await client.query("SELECT * FROM new_design.chapter_resource_supplements WHERE session_id=$1 AND book_id=$2", [session.id,session.book_id])).rows[0];
+  const row = (await client.query(`WITH ${settlementRecordCtes.chapter_resource_supplements}
+SELECT * FROM chapter_resource_supplements WHERE session_id=$1 AND book_id=$2`, [session.id,session.book_id])).rows[0];
   const unavailable = (): never => { throw new NewDesignError("原补充清单来源不完整，请保留原请求和记录核对，不能按当前状态补全。",409); };
   if (!row) return unavailable();
   if(row.source_snapshot?.contract==='stable_resource_correction_preview_v1'){

@@ -1,3 +1,4 @@
+import {chapterAdoptionSessionRows,chapterStableCheckpointRows,planningObjectRows,planningVersionReferenceRows,planningVersionRows,stateChangeProposalRows,stateChangeRows} from '../persistence';
 import type {PoolClient} from 'pg';
 import {z} from 'zod';
 import type {ResourceSupplementSettlementImpact,ResourceSupplementStateChainImpact} from '../../../../common/resourceSupplements';
@@ -16,10 +17,10 @@ export async function previewResourceSupplementSettlementInTransaction(client:Po
     to_jsonb(object) planning_object,to_jsonb(plan) adopted_plan,to_jsonb(body_plan) body_plan,to_jsonb(checkpoint) checkpoint
     FROM new_design.chapter_documents document
     LEFT JOIN new_design.chapter_body_versions body ON body.id=document.adopted_version_id AND body.chapter_document_id=document.id AND body.archived_at IS NULL
-    LEFT JOIN new_design.planning_objects object ON object.book_id=document.book_id AND object.card_id=document.chapter_card_id AND object.level='chapter' AND object.status='active'
-    LEFT JOIN new_design.planning_versions plan ON plan.id=object.adopted_version_id AND plan.object_id=object.id
-    LEFT JOIN new_design.planning_versions body_plan ON body_plan.id=body.planning_version_id AND body_plan.book_id=document.book_id
-    LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.chapter_document_id=document.id AND checkpoint.book_id=document.book_id AND checkpoint.body_version_id=body.id AND checkpoint.status='stable'
+    LEFT JOIN ${planningObjectRows} object ON object.book_id=document.book_id AND object.card_id=document.chapter_card_id AND object.level='chapter' AND object.status='active'
+    LEFT JOIN ${planningVersionRows} plan ON plan.id=object.adopted_version_id AND plan.object_id=object.id
+    LEFT JOIN ${planningVersionRows} body_plan ON body_plan.id=body.planning_version_id AND body_plan.book_id=document.book_id
+    LEFT JOIN ${chapterStableCheckpointRows} checkpoint ON checkpoint.chapter_document_id=document.id AND checkpoint.book_id=document.book_id AND checkpoint.body_version_id=body.id AND checkpoint.status='stable'
     WHERE document.book_id=$1 AND document.status='active' AND document.logical_order>$2
     ORDER BY document.logical_order,document.id LIMIT 1001`,[bookId,basis.chapterOrder])).rows as Row[];
   if(chapters.length>1000||new Set(chapters.map(row=>row.document.id)).size!==chapters.length)throw new NewDesignError('下游章节范围超过单次核对范围或存在重复来源，请保留当前补充清单。',409);
@@ -27,16 +28,16 @@ export async function previewResourceSupplementSettlementInTransaction(client:Po
   const keys=input.changes.map(change=>({subject_kind:change.subjectKind,subject_id:change.subjectId,state_key:change.stateKey}));
   const states=(await client.query(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal,to_jsonb(settlement) settlement,
     to_jsonb(anchor) anchor,to_jsonb(checkpoint) checkpoint,to_jsonb(checkpoint_commit) checkpoint_commit,to_jsonb(checkpoint_session) checkpoint_session,document.logical_order chapter_order
-    FROM new_design.state_changes change
+    FROM ${stateChangeRows} change
     JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id AND document.book_id=change.book_id AND document.status='active' AND document.adopted_version_id=change.body_version_id
     JOIN jsonb_to_recordset($3::jsonb) scope(subject_kind text,subject_id uuid,state_key text)
       ON scope.subject_kind=change.subject_kind AND scope.subject_id=change.subject_id AND scope.state_key=change.state_key
     LEFT JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id
-    LEFT JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id
-    LEFT JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
-    LEFT JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.chapter_document_id=document.id AND checkpoint.book_id=change.book_id AND checkpoint.body_version_id=change.body_version_id AND checkpoint.status='stable'
+    LEFT JOIN ${stateChangeProposalRows} proposal ON proposal.id=change.proposal_id
+    LEFT JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
+    LEFT JOIN ${chapterStableCheckpointRows} checkpoint ON checkpoint.chapter_document_id=document.id AND checkpoint.book_id=change.book_id AND checkpoint.body_version_id=change.body_version_id AND checkpoint.status='stable'
     LEFT JOIN new_design.chapter_settlements checkpoint_commit ON checkpoint_commit.id=checkpoint.settlement_id AND checkpoint_commit.book_id=change.book_id AND checkpoint_commit.chapter_document_id=document.id AND checkpoint_commit.body_version_id=change.body_version_id
-    LEFT JOIN new_design.chapter_adoption_sessions checkpoint_session ON checkpoint_session.id=checkpoint.session_id AND checkpoint_session.book_id=change.book_id AND checkpoint_session.chapter_document_id=document.id AND checkpoint_session.body_version_id=change.body_version_id AND checkpoint_session.settlement_id=checkpoint.settlement_id
+    LEFT JOIN ${chapterAdoptionSessionRows} checkpoint_session ON checkpoint_session.id=checkpoint.session_id AND checkpoint_session.book_id=change.book_id AND checkpoint_session.chapter_document_id=document.id AND checkpoint_session.body_version_id=change.body_version_id AND checkpoint_session.settlement_id=checkpoint.settlement_id
     WHERE change.book_id=$1 AND change.status='active' AND document.logical_order>$2
     ORDER BY document.logical_order,change.sequence LIMIT 5001`,[bookId,basis.chapterOrder,JSON.stringify(keys)])).rows as Row[];
   if(states.length>5000)throw new NewDesignError('下游状态来源超过单次核对范围，请保留原记录分段核对。',409);
@@ -68,7 +69,7 @@ export async function previewResourceSupplementSettlementInTransaction(client:Po
   }
   const planIds=[...new Set(chapters.flatMap(row=>[row.adopted_plan?.id,row.body?.planning_version_id]).filter(Boolean))];
   // Keep native persisted JSON timestamps as well as the complete version row.
-  const planningReferences=(await client.query("SELECT to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) full_reference FROM new_design.planning_version_references reference LEFT JOIN new_design.card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id WHERE reference.book_id=$1 AND reference.planning_version_id=ANY($2::uuid[]) ORDER BY reference.id",[bookId,planIds])).rows.map(row=>row.full_reference);
+  const planningReferences=(await client.query(`SELECT to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) full_reference FROM ${planningVersionReferenceRows} reference LEFT JOIN new_design.card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id WHERE reference.book_id=$1 AND reference.planning_version_id=ANY($2::uuid[]) ORDER BY reference.id`,[bookId,planIds])).rows.map(row=>row.full_reference);
   if(planningReferences.some(row=>!row.source_version))throw new NewDesignError('后续计划引用缺少确切资料版本，请核对原来源。',409);
   const frame:Omit<ResourceSupplementSettlementImpact,'impactHash'>={contract:'resource_supplement_settlement_impact_v1',bookId,sessionId,sessionRevision:Number(input.session.revision),baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,sourceHash:input.source.sourceHash,
     changes:input.changes.map(change=>({itemId:change.itemId,proposalId:change.proposalId,subjectKind:change.subjectKind,subjectId:change.subjectId,stateKey:change.stateKey,before:change.beforeValue,after:change.afterValue})),stateChain,

@@ -1,3 +1,4 @@
+import {storyRecordCtes,insertStoryRecords,updateStoryRecords,lockedStoryRecordQuery} from '../storyTimeline/persistence';
 import {createHash,randomUUID} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import type {EntityInitialState,EntityInitialStateVersion} from '../../../common/contracts';
@@ -14,7 +15,9 @@ function receipt(row:Record<string,any>):InitialStateWriteReceipt{
  const input=initialWriteInput({bookId:row.book_id,requestKey:row.id,subjectKind:row.subject_kind,subjectId:row.subject_id,stateKey:row.state_key,value:row.value_json,sourceFactId:row.source_fact_id,expectedRevision:Number(row.version)-1,actor:row.actor,note:row.note});
  return {requestKey:row.id,bookId:row.book_id,inputHash:hash(input),stateId:row.initial_state_id,resultRevision:Number(row.version),input,version};
 }
-async function read(db:Pick<PoolClient,'query'>,key:string){const row=(await db.query(`SELECT version.*,state.book_id,state.subject_kind,state.subject_id,state.state_key FROM new_design.entity_initial_state_versions version JOIN new_design.entity_initial_states state ON state.id=version.initial_state_id WHERE version.id=$1`,[key])).rows[0];return row?receipt(row):null;}
+async function read(db:Pick<PoolClient,'query'>,key:string){const row=(await db.query(`WITH ${storyRecordCtes.entity_initial_state_versions},
+${storyRecordCtes.entity_initial_states}
+SELECT version.*,state.book_id,state.subject_kind,state.subject_id,state.state_key FROM entity_initial_state_versions version JOIN entity_initial_states state ON state.id=version.initial_state_id WHERE version.id=$1`,[key])).rows[0];return row?receipt(row):null;}
 export async function readInitialStateWriteReceipt(bookId:string,key:string):Promise<InitialStateWriteReceipt|null>{
  const db=await (await getNewDesignPool()).connect();
  try{await db.query('BEGIN READ ONLY');await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`initial-request:${key}`]);const result=await read(db,key);await db.query('COMMIT');return result?.bookId===bookId?result:null;}catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
@@ -31,18 +34,22 @@ export async function saveInitialStateWithReceipt(pool:Pool,input:InitialStateWr
   }
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`initial-subject:${input.bookId}:${input.subjectKind}:${input.subjectId}:${input.stateKey}`]);
   await sources.requireStateKey(db,input.bookId,input.subjectKind,input.subjectId,input.stateKey);
-  let state=(await db.query('SELECT * FROM new_design.entity_initial_states WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4 FOR UPDATE',[input.bookId,input.subjectKind,input.subjectId,input.stateKey])).rows[0];
+  let state=(await lockedStoryRecordQuery(db,`WITH ${storyRecordCtes.entity_initial_states}
+SELECT * FROM entity_initial_states WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4`,[input.bookId,input.subjectKind,input.subjectId,input.stateKey])).rows[0];
   if(state&&input.expectedRevision!==Number(state.revision))throw new NewDesignError('初始状态已更新，请刷新后核对；填写保留。',409);
   if(!state&&input.requestKey&&(input.expectedRevision??0)!==0)throw new NewDesignError('初始状态来源修订不匹配，请核对后保存。',409);
-  if(input.sourceFactId&&!((await db.query("SELECT 1 FROM new_design.canonical_facts WHERE id=$1 AND book_id=$2 AND status='confirmed'",[input.sourceFactId,input.bookId])).rowCount))throw new NewDesignError('初始状态只能引用本书已确认事实。',422);
-  if(!state)state=(await db.query('INSERT INTO new_design.entity_initial_states(id,book_id,subject_kind,subject_id,state_key) VALUES($1,$2,$3,$4,$5) RETURNING *',[randomUUID(),input.bookId,input.subjectKind,input.subjectId,input.stateKey])).rows[0];
-  const number=Number((await db.query('SELECT COALESCE(max(version),0)+1 AS version FROM new_design.entity_initial_state_versions WHERE initial_state_id=$1',[state.id])).rows[0].version);
+  if(input.sourceFactId&&!((await db.query(`WITH ${storyRecordCtes.canonical_facts}
+SELECT 1 FROM canonical_facts WHERE id=$1 AND book_id=$2 AND status='confirmed'`,[input.sourceFactId,input.bookId])).rowCount))throw new NewDesignError('初始状态只能引用本书已确认事实。',422);
+  if(!state)state=(await insertStoryRecords(db,"entity_initial_state",`SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::text AS subject_kind,($4)::uuid AS subject_id,($5)::text AS state_key`,[randomUUID(),input.bookId,input.subjectKind,input.subjectId,input.stateKey])).rows[0];
+  const number=Number((await db.query(`WITH ${storyRecordCtes.entity_initial_state_versions}
+SELECT COALESCE(max(version),0)+1 AS version FROM entity_initial_state_versions WHERE initial_state_id=$1`,[state.id])).rows[0].version);
   // For receipt-bearing writes the original monotonic revision/version invariant is verified,
   // rather than guessing a previous revision from a mutable current value.
   if(input.requestKey&&(number!==Number(state.revision)+(state.current_version_id?1:0)||number-1!==(input.expectedRevision??0)))throw new NewDesignError('初始值版本与修订记录不一致，请在运行维护核对；未追加版本。',409);
   const id=input.requestKey??randomUUID();
-  await db.query('INSERT INTO new_design.entity_initial_state_versions(id,initial_state_id,version,value_json,value_hash,source_fact_id,actor,note) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8)',[id,state.id,number,canonicalWriteInput(input.value),hash(input.value),input.sourceFactId??null,input.actor??'user',input.note??'']);
-  await db.query('UPDATE new_design.entity_initial_states SET current_version_id=$2,revision=CASE WHEN current_version_id IS NULL THEN revision ELSE revision+1 END,updated_at=now() WHERE id=$1',[state.id,id]);
+  await insertStoryRecords(db,"entity_initial_state_version",`SELECT ($1)::uuid AS id,($2)::uuid AS initial_state_id,($3)::integer AS version,($4::jsonb)::jsonb AS value_json,($5)::char(64) AS value_hash,($6)::uuid AS source_fact_id,($7)::text AS actor,($8)::text AS note`,[id,state.id,number,canonicalWriteInput(input.value),hash(input.value),input.sourceFactId??null,input.actor??'user',input.note??'']);
+  await updateStoryRecords(db,"entity_initial_state",`WITH ${storyRecordCtes.entity_initial_states}
+SELECT entity_initial_states.*,($2)::uuid AS current_version_id,(CASE WHEN current_version_id IS NULL THEN revision ELSE revision+1 END)::integer AS revision,(now())::timestamptz AS updated_at FROM entity_initial_states WHERE id=$1`,[state.id,id]);
   await sources.rebuildProjectionKey(db,input);committing=true;await db.query('COMMIT');return await sources.getInitialState(state.id);
  }catch(error){let rolledBack=false;try{await db.query('ROLLBACK');rolledBack=true;}catch{}if(!input.requestKey)throw error;const problem=new AiExecutionError('保存初始状态',error instanceof NewDesignError?error.message:'初始值保存结果待核对，原填写和请求保留。',error instanceof NewDesignError?error.status:503);problem.recovery.mutationOutcome=!committing&&rolledBack?'not_written':'unknown';problem.recovery.sourceRoute=`/new-design/books/${input.bookId}/story-setting?selected=${input.subjectId}&detail=initial`;throw problem;}finally{db.release();}
 }

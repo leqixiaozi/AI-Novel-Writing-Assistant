@@ -1,3 +1,4 @@
+import {readRouteFallbacks,readContractPublication,insertContractRecord} from "../aiContracts/records";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { ManagedCredentialChoice, ManagedRouteSummary, ModelRouteCenterCatalog, SaveManagedModelRouteInput, SaveManagedModelRouteResult } from "../../../common/modelRouting";
@@ -22,7 +23,7 @@ export async function withClient<T>(context: ManagedDatabaseContext | undefined,
   catch (error) { if (transactional) await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
-export async function readFallbacks(client: PoolClient, versionId: string): Promise<DbRow[]> { return (await client.query("SELECT * FROM new_design.model_route_fallbacks WHERE route_version_id=$1 ORDER BY sort_order,id", [versionId])).rows; }
+export async function readFallbacks(client: PoolClient, versionId: string): Promise<DbRow[]> { return await readRouteFallbacks(client,versionId); }
 export async function readSummary(client: PoolClient, config: DbRow): Promise<ManagedRouteSummary> {
   const current = assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.current_version_id, config.id])).rows[0], "路由当前版本不存在。"), currentFallbacks = await readFallbacks(client, current.id);
   const published = config.published_version_id ? assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.published_version_id, config.id])).rows[0], "路由生效版本不存在。") : null;
@@ -101,9 +102,9 @@ export async function createManagedCredential(input: { name: string; provider: s
 export async function saveManagedModelRoute(value: SaveManagedModelRouteInput & { replaceUnsupported?: boolean }, context?: ManagedDatabaseContext): Promise<SaveManagedModelRouteResult> {
   const input = saveSchema.parse(value);
   return withClient(context, async client => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`managed-route-key:${input.idempotencyKey}`]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`contract-publication:${input.idempotencyKey}`]);
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`managed-route-scope:${input.scope}:${input.taskType ?? ""}`]);
-    const receipt = (await client.query("SELECT * FROM new_design.ai_contract_publications WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
+    const receipt = await readContractPublication(client,input.idempotencyKey);
     if (receipt) {
       if (receipt.entity_kind !== "model_route") throw new NewDesignError("此请求标识已用于其他操作。", 409);
       const config = assertFound((await client.query("SELECT * FROM new_design.model_route_configs WHERE id=$1", [receipt.entity_id])).rows[0], "保存回执的模型路由不存在。"), version = assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [receipt.to_version_id, config.id])).rows[0], "保存回执的模型版本不存在。");
@@ -126,11 +127,11 @@ export async function saveManagedModelRoute(value: SaveManagedModelRouteInput & 
     const fromVersionId = config.published_version_id ?? null;
     const version = Number((await client.query("SELECT COALESCE(max(version),0)+1 AS version FROM new_design.model_route_versions WHERE config_id=$1", [config.id])).rows[0].version), versionId = randomUUID(), revision = Number(config.revision) + (config.current_version_id ? 2 : 1), contentHash = stableHash(input);
     await client.query("INSERT INTO new_design.model_route_versions(id,config_id,version,base_version_id,source,status,provider,model,parameters,required_capabilities,credential_ref_id,budget_policy,timeout_ms,retry_policy,fallback_mode,content_hash,created_by) VALUES($1,$2,$3,$4,'manual','draft',$5,$6,$7::jsonb,'{}',$8,$9::jsonb,$10,$11::jsonb,'replace',$12,$13)", [versionId, config.id, version, config.current_version_id, input.primary.provider, input.primary.model, JSON.stringify({ baseUrl: input.primary.endpoint }), input.primary.credentialId, JSON.stringify({ maxTokens: input.policy.maxTotalTokens, maxOutputTokens: input.policy.maxOutputTokens }), input.policy.timeoutMs, JSON.stringify({ maxRetries: input.policy.maxRetries, retryDelayMs: input.policy.retryDelayMs }), contentHash, `managed:${input.replaceUnsupported ? "replace" : "preserve"}`]);
-    for (const [index, fallback] of input.fallbacks.entries()) await client.query("INSERT INTO new_design.model_route_fallbacks(id,route_version_id,sort_order,provider,model,parameters,credential_ref_id,technical_failure_categories) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8)", [randomUUID(), versionId, index, fallback.provider, fallback.model, JSON.stringify({ baseUrl: fallback.endpoint }), fallback.credentialId, fallback.failureCategories]);
+    for (const [index, fallback] of input.fallbacks.entries()) await insertContractRecord(client,"model_route_fallback",{id:randomUUID(),route_version_id:versionId,sort_order:index,provider:fallback.provider,model:fallback.model,parameters:{baseUrl:fallback.endpoint},credential_ref_id:fallback.credentialId,technical_failure_categories:fallback.failureCategories});
     if (config.published_version_id) await client.query("UPDATE new_design.model_route_versions SET status='superseded' WHERE id=$1", [config.published_version_id]);
     await client.query("UPDATE new_design.model_route_versions SET status='published' WHERE id=$1", [versionId]);
     config = (await client.query("UPDATE new_design.model_route_configs SET current_version_id=$2,published_version_id=$2,revision=$3,updated_at=now() WHERE id=$1 RETURNING *", [config.id, versionId, revision])).rows[0];
-    await client.query("INSERT INTO new_design.ai_contract_publications(id,entity_kind,entity_id,from_version_id,to_version_id,entity_revision,action,actor,idempotency_key) VALUES($1,'model_route',$2,$3,$4,$5,'publish','managed-user',$6)", [randomUUID(), config.id, fromVersionId, versionId, revision, input.idempotencyKey]);
+    await insertContractRecord(client,"ai_contract_publication",{id:randomUUID(),entity_kind:"model_route",entity_id:config.id,from_version_id:fromVersionId,to_version_id:versionId,entity_revision:revision,action:"publish",actor:"managed-user",idempotency_key:input.idempotencyKey});
     return { route: await readSummary(client, config), savedVersionId: versionId, savedVersion: version, active: true, repeated: false };
   }, true);
 }

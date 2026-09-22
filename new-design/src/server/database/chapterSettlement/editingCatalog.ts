@@ -1,3 +1,4 @@
+import {settlementRecordCtes,lockedSettlementQuery} from './recordStorage';
 import type { PoolClient } from "pg";
 import type { FieldDefinition, ChapterSettlementDraft } from "../../../common/contracts";
 import type { SettlementEditingCatalog, SettlementFieldChoice, SettlementSubjectChoice } from "../../../common/chapterSettlementEditing";
@@ -21,9 +22,12 @@ function stateCategory(typeKey:string):ChapterSettlementDraft["category"]|null {
 }
 async function dictionaryNodes(client:PoolClient,field:FieldDefinition,lock:boolean):Promise<SettlementFieldChoice["dictionaryNodes"]>{
   if(field.optionSource?.kind!=="dictionary_tree")return[];
-  await client.query(`SELECT id FROM new_design.dictionary_definitions WHERE id=$1 ${lock?"FOR SHARE":""}`,[field.optionSource.dictionaryId]);
-  const rows=await client.query(`SELECT item.id,item.parent_id,item.status,version.id version_id,version.label,version.path_labels FROM new_design.dictionary_items item
-    JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id WHERE item.dictionary_id=$1 ORDER BY item.sort_order,item.id ${lock?"FOR SHARE OF item":""}`,[field.optionSource.dictionaryId]);
+  await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.dictionary_definitions}
+SELECT id FROM dictionary_definitions WHERE id=$1 `,[field.optionSource.dictionaryId],lock);
+  const rows=await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.dictionary_items},
+${settlementRecordCtes.dictionary_item_versions}
+SELECT item.id,item.parent_id,item.status,version.id version_id,version.label,version.path_labels FROM dictionary_items item
+    JOIN dictionary_item_versions version ON version.id=item.current_version_id WHERE item.dictionary_id=$1 ORDER BY item.sort_order,item.id `,[field.optionSource.dictionaryId],lock);
   return rows.rows.map(row=>({id:String(row.id),parentId:row.parent_id?String(row.parent_id):null,label:String(row.label),path:Array.isArray(row.path_labels)?row.path_labels.map(String):[],versionId:String(row.version_id),status:row.status as "active"|"archived"}));
 }
 export async function readEditingCatalog(client:PoolClient,session:EditingRow,lock=false):Promise<SettlementEditingCatalog>{
@@ -48,14 +52,18 @@ export async function readEditingCatalog(client:PoolClient,session:EditingRow,lo
   const body=(await client.query("SELECT content_hash FROM new_design.chapter_body_versions WHERE id=$1",[session.body_version_id])).rows[0];
   const cards=(await client.query(`SELECT card.id,card.card_type_id,card.current_version_id,card.type_version_id,card.revision card_revision,
     type.type_key,type.status type_status,type.revision type_revision,type.current_version_id published_version_id,version.fields,COALESCE(current.title,card.title) title
-    FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id
+    FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND NOT type.is_internal
     LEFT JOIN new_design.card_type_versions version ON version.id=type.current_version_id AND version.card_type_id=type.id
     LEFT JOIN new_design.card_versions current ON current.id=card.current_version_id
     WHERE card.space_id=$1 AND card.status='active' ORDER BY type.type_key,card.title,card.id ${lock?"FOR SHARE OF card,type":""}`,[spaceId])).rows;
-  const types=(await client.query(`SELECT * FROM new_design.state_type_capabilities WHERE space_id=ANY($1::uuid[]) ${lock?"FOR SHARE":""}`,[[SYSTEM,spaceId]])).rows;
-  const policies=(await client.query(`SELECT * FROM new_design.state_field_policies WHERE space_id=ANY($1::uuid[]) ${lock?"FOR SHARE":""}`,[[SYSTEM,spaceId]])).rows;
-  const relationCaps=(await client.query(`SELECT * FROM new_design.state_relation_capabilities WHERE space_id=ANY($1::uuid[]) ${lock?"FOR SHARE":""}`,[[SYSTEM,spaceId]])).rows;
-  const dimensions=(await client.query(`SELECT * FROM new_design.state_relation_dimensions WHERE space_id=ANY($1::uuid[]) ${lock?"FOR SHARE":""}`,[[SYSTEM,spaceId]])).rows;
+  const types=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_type_capabilities}
+SELECT * FROM state_type_capabilities WHERE space_id=ANY($1::uuid[]) `,[[SYSTEM,spaceId]],lock)).rows;
+  const policies=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_field_policies}
+SELECT * FROM state_field_policies WHERE space_id=ANY($1::uuid[]) `,[[SYSTEM,spaceId]],lock)).rows;
+  const relationCaps=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_relation_capabilities}
+SELECT * FROM state_relation_capabilities WHERE space_id=ANY($1::uuid[]) `,[[SYSTEM,spaceId]],lock)).rows;
+  const dimensions=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_relation_dimensions}
+SELECT * FROM state_relation_dimensions WHERE space_id=ANY($1::uuid[]) `,[[SYSTEM,spaceId]],lock)).rows;
   const scoped=(await client.query(`SELECT definition.id,definition.card_id,definition.card_type_id,definition.scope,definition.field_key,definition.revision,version.id version_id,version.field_schema
     FROM new_design.field_definitions definition JOIN new_design.field_definition_versions version ON version.id=definition.current_version_id
     WHERE definition.space_id=$1 AND definition.status='active' AND definition.scope IN ('book_type','card') ORDER BY definition.created_at,definition.id ${lock?"FOR SHARE OF definition":""}`,[spaceId])).rows;

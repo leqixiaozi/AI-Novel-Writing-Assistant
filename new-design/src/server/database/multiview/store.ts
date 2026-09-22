@@ -1,8 +1,10 @@
+import {qualityReportBodyVersionRows,qualityAuditReportRows,qualityIssueRows,stateChangeProposalRows,knowledgeStateProposalVersionRows,knowledgeStateProposalRows,chapterStableCheckpointRows,canonicalFactRows,stateChangeRows,qualityIssueEvidenceRows,qualityFixCandidateRows,qualityIssueVersionRows} from '../chapterProduction/persistence/queries';
 import type {PoolClient} from "pg";
 import type {BookInsightChapter,BookInsightFact,BookInsightQualityItem,BookInsightStateChange,BookMultiviewWorkspace,QualityIssueStatus,QualitySeverity} from "../../../common/contracts";
 import {assertFound} from "../../domain/errors";
 import {getNewDesignPool} from "../runtime";
 
+const narrativePlacementRows=`(SELECT data.* FROM new_design.cards record JOIN new_design.card_types type ON type.id=record.card_type_id AND type.type_key='narrative_placement' JOIN new_design.card_versions version ON version.id=record.current_version_id AND version.card_id=record.id CROSS JOIN LATERAL jsonb_to_record(version.values) data(id uuid,space_id uuid,subject_card_id uuid,chapter_card_id uuid,role text,status text))`;
 type Row=Record<string,unknown>;
 const objectiveCategories=new Set(["continuity","plan_obligation","fact","knowledge","character_state","relationship","prop","event","timeline","foreshadow","world_rule","planning","structure"]);
 const date=(value:unknown)=>value instanceof Date?value.toISOString():new Date(String(value)).toISOString();
@@ -27,40 +29,40 @@ async function readChapters(client:PoolClient,bookId:string):Promise<BookInsight
   const rows=await client.query(`SELECT document.id AS chapter_document_id,document.chapter_card_id,document.title,document.logical_order,document.revision AS document_revision,document.adopted_version_id AS adopted_body_version_id,body.version AS adopted_body_version,document.updated_at,
     (SELECT count(*) FROM new_design.chapter_body_versions candidate WHERE candidate.chapter_document_id=document.id AND candidate.archived_at IS NULL) AS candidate_count,
     stable.id AS stable_checkpoint_id,stale.id AS stale_checkpoint_id,
-    (SELECT count(DISTINCT issue.id) FROM new_design.quality_report_body_versions binding JOIN new_design.quality_audit_reports report ON report.id=binding.report_id AND report.stale_at IS NULL JOIN new_design.quality_issues issue ON issue.report_id=report.id WHERE binding.chapter_document_id=document.id AND issue.current_status IN ('open','acknowledged','deferred','fix_proposed','fixed')) AS open_issue_count,
-    ((SELECT count(*) FROM new_design.state_change_proposals proposal WHERE proposal.chapter_document_id=document.id AND proposal.status='proposed')+(SELECT count(*) FROM new_design.knowledge_state_proposal_versions version JOIN new_design.knowledge_state_proposals proposal ON proposal.current_version_id=version.id WHERE version.chapter_document_id=document.id AND proposal.status='proposed')) AS pending_proposal_count
+    (SELECT count(DISTINCT issue.id) FROM ${qualityReportBodyVersionRows} binding JOIN ${qualityAuditReportRows} report ON report.id=binding.report_id AND report.stale_at IS NULL JOIN ${qualityIssueRows} issue ON issue.report_id=report.id WHERE binding.chapter_document_id=document.id AND issue.current_status IN ('open','acknowledged','deferred','fix_proposed','fixed')) AS open_issue_count,
+    ((SELECT count(*) FROM ${stateChangeProposalRows} proposal WHERE proposal.chapter_document_id=document.id AND proposal.status='proposed')+(SELECT count(*) FROM ${knowledgeStateProposalVersionRows} version JOIN ${knowledgeStateProposalRows} proposal ON proposal.current_version_id=version.id WHERE version.chapter_document_id=document.id AND proposal.status='proposed')) AS pending_proposal_count
     FROM new_design.chapter_documents document
     LEFT JOIN new_design.chapter_body_versions body ON body.id=document.adopted_version_id
-    LEFT JOIN LATERAL (SELECT checkpoint.id FROM new_design.chapter_stable_checkpoints checkpoint WHERE checkpoint.chapter_document_id=document.id AND checkpoint.status='stable' ORDER BY checkpoint.created_at DESC LIMIT 1) stable ON true
-    LEFT JOIN LATERAL (SELECT checkpoint.id FROM new_design.chapter_stable_checkpoints checkpoint WHERE checkpoint.chapter_document_id=document.id AND checkpoint.status='stale' ORDER BY checkpoint.created_at DESC LIMIT 1) stale ON true
+    LEFT JOIN LATERAL (SELECT checkpoint.id FROM ${chapterStableCheckpointRows} checkpoint WHERE checkpoint.chapter_document_id=document.id AND checkpoint.status='stable' ORDER BY checkpoint.created_at DESC LIMIT 1) stable ON true
+    LEFT JOIN LATERAL (SELECT checkpoint.id FROM ${chapterStableCheckpointRows} checkpoint WHERE checkpoint.chapter_document_id=document.id AND checkpoint.status='stale' ORDER BY checkpoint.created_at DESC LIMIT 1) stale ON true
     WHERE document.book_id=$1 AND document.status='active' ORDER BY document.logical_order`,[bookId]);
   return rows.rows.map(mapChapter);
 }
 
 async function readFacts(client:PoolClient,bookId:string):Promise<BookInsightFact[]>{
-  const rows=await client.query(`SELECT fact.*,card.title AS subject_title,type.type_key AS subject_type_key FROM new_design.canonical_facts fact JOIN new_design.cards card ON card.id=fact.subject_card_id JOIN new_design.card_types type ON type.id=card.card_type_id WHERE fact.book_id=$1 ORDER BY card.title,fact.predicate,fact.updated_at DESC`,[bookId]);
+  const rows=await client.query(`SELECT fact.*,card.title AS subject_title,type.type_key AS subject_type_key FROM ${canonicalFactRows} fact JOIN new_design.cards card ON card.id=fact.subject_card_id JOIN new_design.card_types type ON type.id=card.card_type_id WHERE fact.book_id=$1 ORDER BY card.title,fact.predicate,fact.updated_at DESC`,[bookId]);
   return rows.rows.map(mapFact);
 }
 
 async function readStateChanges(client:PoolClient,bookId:string):Promise<BookInsightStateChange[]>{
   const rows=await client.query(`SELECT change.*,COALESCE(card.title,relation_type.name||'关系') AS subject_title,type.type_key AS subject_type_key,document.title AS chapter_title,anchor.label AS anchor_label
-    FROM new_design.state_changes change
+    FROM ${stateChangeRows} change
     JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id
     LEFT JOIN new_design.cards card ON change.subject_kind='card' AND card.id=change.subject_id
     LEFT JOIN new_design.card_types type ON type.id=card.card_type_id
     LEFT JOIN new_design.card_relations relation ON change.subject_kind='relation' AND relation.id=change.subject_id
     LEFT JOIN new_design.relation_types relation_type ON relation_type.id=relation.relation_type_id
-    LEFT JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
+    LEFT JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
     WHERE change.book_id=$1 ORDER BY change.effective_story_order NULLS LAST,change.sequence`,[bookId]);
   return rows.rows.map(mapStateChange);
 }
 
 async function readQuality(client:PoolClient,bookId:string):Promise<BookInsightQualityItem[]>{
   const rows=await client.query(`SELECT issue.id AS issue_id,issue.report_id,issue.current_status,issue.is_quality_debt,issue.revision,issue.updated_at,version.category_key,version.severity,version.confidence,version.title,version.description,version.suggested_action,report.stale_at,report.stale_reason,binding.chapter_document_id,binding.body_version_id,document.title AS chapter_title,
-    (SELECT count(*) FROM new_design.quality_issue_evidence evidence WHERE evidence.issue_version_id=version.id) AS evidence_count,
-    (SELECT count(*) FROM new_design.quality_fix_candidates candidate WHERE candidate.issue_id=issue.id) AS fix_candidate_count
-    FROM new_design.quality_issues issue JOIN new_design.quality_issue_versions version ON version.id=issue.current_version_id JOIN new_design.quality_audit_reports report ON report.id=issue.report_id
-    LEFT JOIN LATERAL (SELECT body.chapter_document_id,body.body_version_id FROM new_design.quality_report_body_versions body WHERE body.report_id=report.id ORDER BY body.chapter_document_id LIMIT 1) binding ON true
+    (SELECT count(*) FROM ${qualityIssueEvidenceRows} evidence WHERE evidence.issue_version_id=version.id) AS evidence_count,
+    (SELECT count(*) FROM ${qualityFixCandidateRows} candidate WHERE candidate.issue_id=issue.id) AS fix_candidate_count
+    FROM ${qualityIssueRows} issue JOIN ${qualityIssueVersionRows} version ON version.id=issue.current_version_id JOIN ${qualityAuditReportRows} report ON report.id=issue.report_id
+    LEFT JOIN LATERAL (SELECT body.chapter_document_id,body.body_version_id FROM ${qualityReportBodyVersionRows} body WHERE body.report_id=report.id ORDER BY body.chapter_document_id LIMIT 1) binding ON true
     LEFT JOIN new_design.chapter_documents document ON document.id=binding.chapter_document_id
     WHERE issue.book_id=$1 ORDER BY report.stale_at NULLS FIRST,CASE version.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,issue.updated_at DESC`,[bookId]);
   return rows.rows.map(mapQuality);
@@ -72,7 +74,7 @@ export async function getBookMultiviewWorkspace(bookId:string):Promise<BookMulti
     assertFound((await client.query("SELECT id FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],"书籍不存在或已归档。");
     const [chapters,facts,stateChanges,qualityItems,clueRows,failedRows]=await Promise.all([
       readChapters(client,bookId),readFacts(client,bookId),readStateChanges(client,bookId),readQuality(client,bookId),
-      client.query(`SELECT card.id,card.title,plant.chapter_card_id AS plant_chapter_id,reveal.chapter_card_id AS reveal_chapter_id FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id AND card.status='active' JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key IN ('clue_evidence','foreshadow') LEFT JOIN new_design.narrative_placements plant ON plant.space_id=book.space_id AND plant.subject_card_id=card.id AND plant.role='plant' AND plant.status='active' LEFT JOIN new_design.narrative_placements reveal ON reveal.space_id=book.space_id AND reveal.subject_card_id=card.id AND reveal.role='reveal' AND reveal.status='active' WHERE book.id=$1 AND reveal.id IS NULL ORDER BY card.title`,[bookId]),
+      client.query(`SELECT card.id,card.title,plant.chapter_card_id AS plant_chapter_id,reveal.chapter_card_id AS reveal_chapter_id FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id AND card.status='active' JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key IN ('clue_evidence','foreshadow') LEFT JOIN ${narrativePlacementRows} plant ON plant.space_id=book.space_id AND plant.subject_card_id=card.id AND plant.role='plant' AND plant.status='active' LEFT JOIN ${narrativePlacementRows} reveal ON reveal.space_id=book.space_id AND reveal.subject_card_id=card.id AND reveal.role='reveal' AND reveal.status='active' WHERE book.id=$1 AND reveal.id IS NULL ORDER BY card.title`,[bookId]),
       client.query("SELECT id,task_key,source_route,updated_at FROM new_design.ai_tasks WHERE book_id=$1 AND status='failed' ORDER BY updated_at DESC LIMIT 100",[bookId]),
     ]);
     let throughChapterOrder=0,checkpointId:string|null=null,chapterDocumentId:string|null=null;

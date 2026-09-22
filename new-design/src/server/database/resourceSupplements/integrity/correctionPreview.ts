@@ -1,3 +1,4 @@
+import {resourceSupplementIntegrityIssueRows,resourceSupplementIntegrityResolutionRows} from '../persistence';
 import type {PoolClient} from 'pg';
 import {resourceSupplementCorrectionPreviewInputSchema,type ResourceSupplementCorrectionPreviewInput,type ResourceSupplementCorrectionPreview} from '../../../../common/resourceSupplements/correction';
 import {NewDesignError} from '../../../domain/errors';
@@ -13,11 +14,11 @@ export async function previewResourceSupplementCorrectionInTransaction(client:Po
   const input=resourceSupplementCorrectionPreviewInputSchema.parse(raw),correction=await readResourceSupplementCorrectionBasisInTransaction(client,bookId,input.issueId),basis=correction.chapterEndBasis;
   const subjects=[...input.resourceScope.resourceIds.map(id=>({subject_kind:'card',subject_id:id})),...input.resourceScope.relationIds.map(id=>({subject_kind:'relation',subject_id:id}))];
   if(!subjects.some(subject=>subject.subject_kind===correction.subjectKind&&subject.subject_id===correction.subjectId))throw new NewDesignError('所选资源范围不包含本次真实冲突字段，请保留原选择核对。',422);
-  const issues=(await client.query(`SELECT to_jsonb(issue) issue FROM new_design.resource_supplement_integrity_issues issue
+  const issues=(await client.query(`SELECT to_jsonb(issue) issue FROM ${resourceSupplementIntegrityIssueRows} issue
     JOIN new_design.chapter_documents document ON document.id=issue.chapter_document_id AND document.book_id=issue.book_id
     JOIN jsonb_to_recordset($2::jsonb) scope(subject_kind text,subject_id uuid) ON scope.subject_kind=issue.subject_kind AND scope.subject_id=issue.subject_id
     WHERE issue.book_id=$1 AND document.logical_order<=$3 AND NOT EXISTS(
-      SELECT 1 FROM new_design.resource_supplement_integrity_resolutions resolution WHERE resolution.issue_id=issue.issue_id)
+      SELECT 1 FROM ${resourceSupplementIntegrityResolutionRows} resolution WHERE resolution.issue_id=issue.issue_id)
     ORDER BY document.logical_order,issue.issue_id LIMIT 5001`,[bookId,JSON.stringify(subjects),basis.chapterOrder])).rows.map(row=>row.issue);
   if(issues.length>5000)throw new NewDesignError('当前修正的关联来源超出单次核对范围，请保留全部原记录分范围核对。',409);
   if(!issues.some(issue=>issue.issue_id===input.issueId)||issues.some(issue=>issue.subject_kind!==correction.subjectKind||issue.subject_id!==correction.subjectId||issue.state_key!==correction.stateKey

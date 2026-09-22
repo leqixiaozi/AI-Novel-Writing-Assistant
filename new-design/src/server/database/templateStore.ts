@@ -9,6 +9,10 @@ import { getNewDesignPool } from "./runtime";
 import { snapshotDictionaryTreeValues, validateDictionaryTreeValues } from "./treeResources";
 import {structureWriteHash,executeStructureWrite} from "./structureWrites";
 import {initializeProjectRuleInTransaction} from './bookshelf/initialize';
+import {createRecordCard,findRecordCard,listRecordCards,replaceRecordCard,type RecordCardDb,type RecordCardRow} from './recordCards';
+import {recordWorkflowAction} from './cardWorkflow';
+
+const SYSTEM_SPACE_ID='00000000-0000-4000-8000-000000000001';
 
 interface PayloadType { sourceId:string;sourceVersionId:string;key:string;name:string;description:string;categoryKey?:string;capabilities:string[];fields:FieldDefinition[];sortOrder:number; }
 interface PayloadDictionary { sourceId:string;key:string;name:string;description:string;items:Array<{sourceId:string;parentSourceId:string|null;key:string;label:string;description:string;value:Record<string,unknown>;sortOrder:number}>; }
@@ -40,48 +44,98 @@ function completeViewConfigs(viewConfigs:PayloadViewConfig[]|undefined):PayloadV
 function remapDictionaryTreeFields(fields:FieldDefinition[],dictionaryIds:Map<string,string>,itemIds:Map<string,string>):FieldDefinition[]{return fields.map(field=>field.optionSource?.kind==="dictionary_tree"?{...field,optionSource:{...field.optionSource,dictionaryId:dictionaryIds.get(field.optionSource.dictionaryId)??field.optionSource.dictionaryId,rule:{...field.optionSource.rule,rootNodeId:field.optionSource.rule.rootNodeId?(itemIds.get(field.optionSource.rule.rootNodeId)??field.optionSource.rule.rootNodeId):null}}}:field);}
 function remapTagBindingConfig(config:Record<string,unknown>,tagIds:Map<string,string>):Record<string,unknown>{const rule=config.rule&&typeof config.rule==="object"?config.rule as Record<string,unknown>:null;if(!rule||typeof rule.rootNodeId!=="string")return config;return{...config,rule:{...rule,rootNodeId:tagIds.get(rule.rootNodeId)??rule.rootNodeId}};}
 
-export async function listTemplates():Promise<TemplateGroupSummary[]>{const result=await(await getNewDesignPool()).query(`SELECT template.*,version.version AS current_version FROM new_design.template_groups template LEFT JOIN new_design.template_group_versions version ON version.id=template.current_version_id WHERE template.status<>'archived' ORDER BY template.updated_at DESC`);return result.rows.map(mapTemplate);}
-export async function listTemplateVersions(templateId:string):Promise<TemplateGroupVersion[]>{const result=await(await getNewDesignPool()).query("SELECT * FROM new_design.template_group_versions WHERE template_id=$1 ORDER BY version DESC",[templateId]);return result.rows.map((row)=>({id:String(row.id),version:Number(row.version),payload:row.payload as Record<string,unknown>,createdAt:asDate(row.created_at)}));}
+export async function listTemplates():Promise<TemplateGroupSummary[]>{
+  const db=await getNewDesignPool();
+  const [templates,versions]=await Promise.all([listRecordCards(db,'template_group'),listRecordCards(db,'template_group_version')]);
+  const byId=new Map(versions.map(row=>[row.id,row]));
+  return templates.filter(row=>row.status!=='archived').sort((a,b)=>asDate(b.updated_at).localeCompare(asDate(a.updated_at)))
+    .map(row=>mapTemplate({...row,current_version:byId.get(String(row.current_version_id))?.version??null}));
+}
+export async function listTemplateVersions(templateId:string):Promise<TemplateGroupVersion[]>{
+  const rows=await listRecordCards(await getNewDesignPool(),'template_group_version',{where:{template_id:templateId}});
+  return rows.sort((a,b)=>Number(b.version)-Number(a.version)).map(row=>({id:row.id,version:Number(row.version),payload:row.payload,createdAt:asDate(row.created_at)}));
+}
 
 export async function saveTemplate(input:{id?:string;key:string;name:string;description:string;draftConfig:Record<string,unknown>;revision?:number;requestKey?:string}):Promise<TemplateGroupSummary>{
   const {requestKey,...payload}=input;
   return executeStructureWrite("template","save",requestKey,payload,async(client)=>{
-    const id=input.id??randomUUID();
-    if(input.id){const updated=await client.query(`UPDATE new_design.template_groups SET name=$2,description=$3,draft_config=$4::jsonb,revision=revision+1,updated_at=now() WHERE id=$1 AND revision=$5 AND status<>'archived' RETURNING id`,[id,input.name,input.description,JSON.stringify(input.draftConfig),input.revision]);if(!updated.rows[0])throw new NewDesignError("模板组已在其他页面更新；当前草稿保留，请重新读取目录后核对正式修订。",409);}
-    else await client.query(`INSERT INTO new_design.template_groups(id,template_key,name,description,draft_config,status) VALUES($1,$2,$3,$4,$5::jsonb,'draft')`,[id,input.key,input.name,input.description,JSON.stringify(input.draftConfig)]);
-    return mapTemplate(assertFound((await client.query(`SELECT template.*,version.version AS current_version FROM new_design.template_groups template LEFT JOIN new_design.template_group_versions version ON version.id=template.current_version_id WHERE template.id=$1`,[id])).rows[0],"无法核对本次模板保存结果。"));
+    const id=input.id??randomUUID(),now=new Date().toISOString();
+    let row:RecordCardRow;
+    if(input.id){
+      const prior=await findRecordCard(client,id,'template_group',{lock:true});
+      if(!prior||prior.status==='archived'||Number(prior.revision)!==input.revision)throw new NewDesignError("模板组已在其他页面更新；当前草稿保留，请重新读取目录后核对正式修订。",409);
+      row=await replaceRecordCard(client,{id,spaceId:prior.recordSpaceId,typeKey:'template_group',title:input.name,values:{...prior,name:input.name,description:input.description,draft_config:input.draftConfig,revision:prior.revision+1,updated_at:now}});
+    }else{
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`template-key:${input.key}`]);
+      if((await listRecordCards(client,'template_group',{includeArchived:true,where:{template_key:input.key}})).length)throw new NewDesignError("模板标识已存在。",409);
+      row=await createRecordCard(client,{id,spaceId:SYSTEM_SPACE_ID,typeKey:'template_group',title:input.name,values:{id,template_key:input.key,name:input.name,description:input.description,draft_config:input.draftConfig,status:'draft',revision:1,current_version_id:null,created_at:now,updated_at:now}});
+    }
+    const version=row.current_version_id?await findRecordCard(client,String(row.current_version_id),'template_group_version'):null;
+    return mapTemplate({...row,current_version:version?.version??null});
   });
 }
 
 async function buildPayload(client:PoolClient,config:Record<string,unknown>):Promise<TemplatePayload>{
   const requested=Array.isArray(config.cardTypeIds)?config.cardTypeIds.filter((id):id is string=>typeof id==="string"):[];
-  const typeResult=await client.query(`SELECT type.*,version.id AS source_version_id,version.fields,category.category_key FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id LEFT JOIN new_design.card_type_categories category ON category.id=type.category_id WHERE type.space_id='00000000-0000-4000-8000-000000000001' AND type.status='published' ${requested.length?"AND type.id=ANY($1::uuid[])":"AND type.is_system"} ORDER BY type.sort_order`,requested.length?[requested]:[]);
-  const dictionaryResult=await client.query("SELECT * FROM new_design.dictionary_definitions WHERE scope='system' AND status='published' ORDER BY name");
+  const typeResult=await client.query(`SELECT type.*,version.id AS source_version_id,version.fields
+    FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id
+    WHERE type.space_id=$1 AND type.status='published' AND NOT type.is_internal ${requested.length?"AND type.id=ANY($2::uuid[])":"AND type.is_system"} ORDER BY type.sort_order`,requested.length?[SYSTEM_SPACE_ID,requested]:[SYSTEM_SPACE_ID]);
+  const categories=new Map((await listRecordCards(client,'card_type_category')).map(row=>[row.id,row]));
+  const dictionaryRows=await listRecordCards(client,'dictionary_definition',{where:{scope:'system',status:'published'}});
   const relationResult=await client.query("SELECT * FROM new_design.relation_types WHERE scope='system' AND status='published' ORDER BY name");
-  const formResult=await client.query(`SELECT form.*,version.id AS source_version_id,version.definition FROM new_design.card_group_forms form JOIN new_design.card_group_form_versions version ON version.id=form.current_version_id WHERE form.space_id IS NULL AND form.status='published' ORDER BY form.name`);
+  const forms=await listRecordCards(client,'card_group_form',{where:{space_id:null,status:'published'}});
+  const formVersions=new Map((await listRecordCards(client,'card_group_form_version')).map(row=>[row.id,row]));
   const dictionaries:PayloadDictionary[]=[];
-  for(const dictionary of dictionaryResult.rows){const items=await client.query("SELECT * FROM new_design.dictionary_items WHERE dictionary_id=$1 AND status='active' ORDER BY sort_order",[dictionary.id]);dictionaries.push({sourceId:String(dictionary.id),key:String(dictionary.dictionary_key),name:String(dictionary.name),description:String(dictionary.description??""),items:items.rows.map(item=>({sourceId:String(item.id),parentSourceId:item.parent_id?String(item.parent_id):null,key:String(item.item_key),label:String(item.label),description:String(item.description??""),value:item.value as Record<string,unknown>,sortOrder:Number(item.sort_order)}))});}
-  const dimensionResult=await client.query("SELECT * FROM new_design.material_tag_dimensions WHERE status='active' AND scope IN ('system','template') ORDER BY name"),tagDimensions:PayloadTagDimension[]=[];
-  for(const dimension of dimensionResult.rows){const nodes=await client.query(`SELECT tag.*,version.name,version.aliases,version.color,version.metadata FROM new_design.material_tags tag JOIN new_design.material_tag_versions version ON version.id=tag.current_version_id WHERE tag.dimension_id=$1 AND tag.status='active' ORDER BY tag.sort_order`,[dimension.id]);tagDimensions.push({sourceId:String(dimension.id),key:String(dimension.dimension_key),name:String(dimension.name),description:String(dimension.description??""),nodes:nodes.rows.map(node=>({sourceId:String(node.id),parentSourceId:node.parent_id?String(node.parent_id):null,key:String(node.tag_key),name:String(node.name),description:String((node.metadata as Record<string,unknown>)?.description??""),aliases:node.aliases as string[],color:node.color?String(node.color):null,metadata:node.metadata as Record<string,unknown>,sortOrder:Number(node.sort_order)}))});}
-  const bindingResult=await client.query("SELECT binding.*,type.id source_type_id FROM new_design.card_type_tag_bindings binding JOIN new_design.card_types type ON type.id=binding.card_type_id WHERE binding.status='active' AND type.id=ANY($1::uuid[])",[typeResult.rows.map(type=>type.id)]),tagBindings=bindingResult.rows.map(row=>({sourceTypeId:String(row.source_type_id),sourceDimensionId:String(row.dimension_id),config:row.config as Record<string,unknown>}));
-  let seedCards:PayloadCard[]=[];if(typeof config.seedSpaceId==="string"){const cards=await client.query(`SELECT card.*,type.type_key FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active'`,[config.seedSpaceId]);seedCards=cards.rows.map(card=>({sourceId:String(card.id),typeKey:String(card.type_key),title:String(card.title),values:card.values as Record<string,unknown>}));}
-  return{cardTypes:typeResult.rows.map(type=>({sourceId:String(type.id),sourceVersionId:String(type.source_version_id),key:String(type.type_key),name:String(type.name),description:String(type.description??""),categoryKey:type.category_key?String(type.category_key):undefined,capabilities:type.semantic_capabilities as string[],fields:type.fields as FieldDefinition[],sortOrder:Number(type.sort_order)})),dictionaries,tagDimensions,tagBindings,relationTypes:relationResult.rows.map(relation=>({sourceId:String(relation.id),key:String(relation.relation_key),name:String(relation.name),description:String(relation.description??""),direction:relation.direction,sourceTypeKeys:relation.source_type_keys,targetTypeKeys:relation.target_type_keys,sourceMax:relation.source_max==null?null:Number(relation.source_max),targetMax:relation.target_max==null?null:Number(relation.target_max),propertiesSchema:relation.properties_schema})),forms:formResult.rows.map(form=>({sourceId:String(form.id),sourceVersionId:String(form.source_version_id),key:String(form.form_key),name:String(form.name),description:String(form.description??""),definition:form.definition as CardGroupFormDefinition})),seedCards,viewConfigs:DEFAULT_VIEW_CONFIGS,menu:{defaultPage:"creative-forms",pages:["creative-forms","all-cards","book-views"]}};
+  for(const dictionary of dictionaryRows.sort((a,b)=>String(a.name).localeCompare(String(b.name)))){
+    const items=await listRecordCards(client,'dictionary_item',{where:{dictionary_id:dictionary.id,status:'active'}});
+    dictionaries.push({sourceId:dictionary.id,key:dictionary.dictionary_key,name:dictionary.name,description:dictionary.description??"",items:items.sort((a,b)=>Number(a.sort_order)-Number(b.sort_order)).map(item=>({sourceId:item.id,parentSourceId:item.parent_id??null,key:item.item_key,label:item.label,description:item.description??"",value:item.value,sortOrder:Number(item.sort_order)}))});
+  }
+  const dimensions=(await listRecordCards(client,'material_tag_dimension',{where:{status:'active'}})).filter(row=>['system','template'].includes(row.scope));
+  const tagVersions=new Map((await listRecordCards(client,'material_tag_version')).map(row=>[row.id,row])),tagDimensions:PayloadTagDimension[]=[];
+  for(const dimension of dimensions.sort((a,b)=>String(a.name).localeCompare(String(b.name)))){
+    const nodes=await listRecordCards(client,'material_tag',{where:{dimension_id:dimension.id,status:'active'}});
+    tagDimensions.push({sourceId:dimension.id,key:dimension.dimension_key,name:dimension.name,description:dimension.description??"",nodes:nodes.sort((a,b)=>Number(a.sort_order)-Number(b.sort_order)).map(node=>{
+      const version=assertFound(tagVersions.get(String(node.current_version_id)),"标签正式版本不存在。");
+      return{sourceId:node.id,parentSourceId:node.parent_id??null,key:node.tag_key,name:version.name,description:version.metadata?.description??"",aliases:version.aliases??[],color:version.color??null,metadata:version.metadata??{},sortOrder:Number(node.sort_order)};
+    })});
+  }
+  const typeIds=new Set(typeResult.rows.map(row=>String(row.id)));
+  const tagBindings=(await listRecordCards(client,'card_type_tag_binding',{where:{status:'active'}})).filter(row=>typeIds.has(String(row.card_type_id))).map(row=>({sourceTypeId:String(row.card_type_id),sourceDimensionId:String(row.dimension_id),config:row.config as Record<string,unknown>}));
+  let seedCards:PayloadCard[]=[];
+  if(typeof config.seedSpaceId==="string"){
+    const cards=await client.query(`SELECT card.*,type.type_key FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active' AND NOT type.is_internal`,[config.seedSpaceId]);
+    seedCards=cards.rows.map(card=>({sourceId:String(card.id),typeKey:String(card.type_key),title:String(card.title),values:card.values}));
+  }
+  return{
+    cardTypes:typeResult.rows.map(type=>({sourceId:String(type.id),sourceVersionId:String(type.source_version_id),key:String(type.type_key),name:String(type.name),description:String(type.description??""),categoryKey:categories.get(String(type.category_id))?.category_key,capabilities:type.semantic_capabilities,fields:type.fields,sortOrder:Number(type.sort_order)})),
+    dictionaries,tagDimensions,tagBindings,
+    relationTypes:relationResult.rows.map(relation=>({sourceId:String(relation.id),key:String(relation.relation_key),name:String(relation.name),description:String(relation.description??""),direction:relation.direction,sourceTypeKeys:relation.source_type_keys,targetTypeKeys:relation.target_type_keys,sourceMax:relation.source_max==null?null:Number(relation.source_max),targetMax:relation.target_max==null?null:Number(relation.target_max),propertiesSchema:relation.properties_schema})),
+    forms:forms.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(form=>{const version=assertFound(formVersions.get(String(form.current_version_id)),"表单正式版本不存在。");return{sourceId:form.id,sourceVersionId:version.id,key:form.form_key,name:form.name,description:form.description??"",definition:version.definition as CardGroupFormDefinition};}),
+    seedCards,viewConfigs:DEFAULT_VIEW_CONFIGS,menu:{defaultPage:"creative-forms",pages:["creative-forms","all-cards","book-views"]},
+  };
 }
 
 export async function publishTemplate(id:string,revision:number,requestKey?:string):Promise<TemplateGroupSummary>{
   return executeStructureWrite("template","publish",requestKey,{id,revision},async(client)=>{
-    const template=assertFound((await client.query("SELECT * FROM new_design.template_groups WHERE id=$1 AND status<>'archived' FOR UPDATE",[id])).rows[0],"模板组不存在。");
-    if(Number(template.revision)!==revision)throw new NewDesignError("模板组已在其他页面更新；当前草稿保留，请重新读取目录后核对正式修订。",409);
-    const payload=await buildPayload(client,template.draft_config as Record<string,unknown>),version=Number((await client.query("SELECT COALESCE(MAX(version),0)+1 AS version FROM new_design.template_group_versions WHERE template_id=$1",[id])).rows[0].version),versionId=randomUUID();
-    await client.query("INSERT INTO new_design.template_group_versions(id,template_id,version,payload) VALUES($1,$2,$3,$4::jsonb)",[versionId,id,version,JSON.stringify(payload)]);
-    const row=assertFound((await client.query("UPDATE new_design.template_groups SET status='published',current_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *",[id,versionId])).rows[0],"无法核对模板发布结果。");
+    const template=assertFound(await findRecordCard(client,id,'template_group',{lock:true}),"模板组不存在。");
+    if(template.status==='archived'||template.revision!==revision)throw new NewDesignError("模板组已在其他页面更新；当前草稿保留，请重新读取目录后核对正式修订。",409);
+    const payload=await buildPayload(client,template.draft_config),versions=await listRecordCards(client,'template_group_version',{where:{template_id:id}});
+    const version=Math.max(0,...versions.map(row=>Number(row.version)))+1,versionId=randomUUID(),now=new Date().toISOString();
+    await createRecordCard(client,{id:versionId,spaceId:template.recordSpaceId,typeKey:'template_group_version',title:template.name,values:{id:versionId,template_id:id,version,payload,created_at:now}});
+    const row=await replaceRecordCard(client,{id,spaceId:template.recordSpaceId,typeKey:'template_group',values:{...template,status:'published',current_version_id:versionId,revision:revision+1,updated_at:now}});
     return mapTemplate({...row,current_version:version});
   });
 }
 
 function mapBook(row:Record<string,unknown>):BookSummary{return{id:String(row.id),spaceId:String(row.space_id),key:String(row.book_key),name:String(row.name),description:String(row.description??""),status:row.status as BookSummary["status"],templateId:String(row.template_id),templateName:String(row.template_name),templateVersionId:String(row.template_version_id),templateVersion:Number(row.template_version),revision:Number(row.revision),cardCount:Number(row.card_count??0),formCount:Number(row.form_count??0),createdAt:asDate(row.created_at),updatedAt:asDate(row.updated_at)};}
-export async function listBooks():Promise<BookSummary[]>{const result=await(await getNewDesignPool()).query(`SELECT book.*,template.name AS template_name,version.version AS template_version,(SELECT count(*) FROM new_design.cards card WHERE card.space_id=book.space_id AND card.status='active') AS card_count,(SELECT count(*) FROM new_design.card_group_forms form WHERE form.space_id=book.space_id AND form.status='published') AS form_count FROM new_design.books book JOIN new_design.template_groups template ON template.id=book.template_id JOIN new_design.template_group_versions version ON version.id=book.template_version_id WHERE book.status='active' ORDER BY book.updated_at DESC`);return result.rows.map(mapBook);}
-export async function getBook(id:string):Promise<BookSummary>{return assertFound((await listBooks()).find((book)=>book.id===id),"书籍不存在。");}
+export async function bookSummaries(db:RecordCardDb,id?:string):Promise<BookSummary[]>{
+  const books=await db.query(`SELECT book.*,(SELECT count(*) FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=book.space_id AND card.status='active' AND NOT type.is_internal) card_count FROM new_design.books book WHERE ($1::uuid IS NULL AND book.status='active') OR book.id=$1 ORDER BY book.updated_at DESC`,[id??null]);
+  const [templates,versions,forms]=await Promise.all([listRecordCards(db,'template_group',{includeArchived:true}),listRecordCards(db,'template_group_version'),listRecordCards(db,'card_group_form',{where:{status:'published'}})]);
+  const templateById=new Map(templates.map(row=>[row.id,row])),versionById=new Map(versions.map(row=>[row.id,row]));
+  return books.rows.map(book=>mapBook({...book,template_name:assertFound(templateById.get(String(book.template_id)),"书籍模板不存在。").name,template_version:assertFound(versionById.get(String(book.template_version_id)),"书籍模板版本不存在。").version,form_count:forms.filter(form=>form.space_id===book.space_id).length}));
+}
+export async function listBooks():Promise<BookSummary[]>{return bookSummaries(await getNewDesignPool());}
+export async function getBook(id:string):Promise<BookSummary>{return assertFound((await listBooks()).find(book=>book.id===id),"书籍不存在。");}
 
 interface CreateBookOrigin {
   sessionId?: string;
@@ -116,21 +170,18 @@ async function installPayload(
 ): Promise<InstalledBookPayload> {
   const reviewCardIds=new Map<string,{cardId:string;cardVersionId:string}>(),relationTypeIds=new Map<string,string>();
   const dictionaryIds=new Map<string,string>(),dictionaryItemIds=new Map<string,string>();
-  for(const dictionary of payload.dictionaries){
-    const dictionaryId=randomUUID();dictionaryIds.set(dictionary.sourceId,dictionaryId);
-    await client.query(`INSERT INTO new_design.dictionary_definitions (id,dictionary_key,name,description,scope,owner_space_id,status,source_dictionary_id) VALUES ($1,$2,$3,$4,'book',$5,'published',$6)`,[dictionaryId,dictionary.key,dictionary.name,dictionary.description,spaceId,dictionary.sourceId]);
-    const itemIds=new Map(dictionary.items.map(item=>[item.sourceId,randomUUID()]));
-    for(const [sourceId,itemId] of itemIds)dictionaryItemIds.set(sourceId,itemId);
-    for(const item of dictionary.items)await client.query(`INSERT INTO new_design.dictionary_items(id,dictionary_id,item_key,label,description,value,sort_order,status,source_item_id) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,'active',$8)`,[itemIds.get(item.sourceId),dictionaryId,item.key,item.label,item.description??"",JSON.stringify(item.value??{}),item.sortOrder,item.sourceId]);
-    for(const item of dictionary.items)if(item.parentSourceId)await client.query("UPDATE new_design.dictionary_items SET parent_id=$2 WHERE id=$1",[itemIds.get(item.sourceId),itemIds.get(item.parentSourceId)]);
-    for(const item of dictionary.items){const itemId=itemIds.get(item.sourceId)!,versionId=randomUUID(),path=(await client.query(`WITH RECURSIVE parents AS (SELECT id,parent_id,label,ARRAY[id]::uuid[] ids,ARRAY[label]::text[] labels FROM new_design.dictionary_items WHERE id=$1 UNION ALL SELECT parent.id,parent.parent_id,parent.label,ARRAY[parent.id]::uuid[]||child.ids,ARRAY[parent.label]::text[]||child.labels FROM new_design.dictionary_items parent JOIN parents child ON child.parent_id=parent.id) SELECT ids,labels FROM parents WHERE parent_id IS NULL`,[itemId])).rows[0];await client.query("INSERT INTO new_design.dictionary_item_versions(id,item_id,version,label,description,parent_id,sort_order,value,status,path_node_ids,path_labels,created_by) SELECT $1,id,1,label,description,parent_id,sort_order,value,status,$3,$4,'template_install' FROM new_design.dictionary_items WHERE id=$2",[versionId,itemId,path.ids,path.labels]);await client.query("UPDATE new_design.dictionary_items SET current_version_id=$2 WHERE id=$1",[itemId,versionId]);}
+  await applyTreeAdditions(client,spaceId,{dictionaries:payload.dictionaries,tagDimensions:payload.tagDimensions??[],tagBindings:[]},'template_install');
+  const installedDictionaries=await listRecordCards(client,'dictionary_definition',{where:{owner_space_id:spaceId}});
+  for(const dictionary of installedDictionaries){
+    if(dictionary.source_dictionary_id)dictionaryIds.set(String(dictionary.source_dictionary_id),dictionary.id);
+    for(const item of await listRecordCards(client,'dictionary_item',{where:{dictionary_id:dictionary.id}}))if(item.source_item_id)dictionaryItemIds.set(String(item.source_item_id),item.id);
   }
   const typeIds = new Map<string, { typeId: string; versionId: string }>(),installedFieldsByType=new Map<string,FieldDefinition[]>();
   for (const type of payload.cardTypes) {
     const typeId = randomUUID();
     const versionId = randomUUID();
     typeIds.set(type.key, { typeId, versionId });
-    const category = type.categoryKey ? (await client.query("SELECT id FROM new_design.card_type_categories WHERE category_key=$1 AND status='active'", [type.categoryKey])).rows[0] : null;
+    const category=type.categoryKey?(await listRecordCards(client,'card_type_category',{where:{category_key:type.categoryKey,status:'active'}}))[0]:null;
     const fields=remapDictionaryTreeFields(type.fields,dictionaryIds,dictionaryItemIds);
     installedFieldsByType.set(type.key,fields);
     await client.query(`INSERT INTO new_design.card_types (id,space_id,type_key,name,description,status,revision,current_version_id,draft_fields,is_system,sort_order,semantic_capabilities,source_card_type_id,source_type_version_id,category_id) VALUES ($1,$2,$3,$4,$5,'published',1,NULL,$6::jsonb,false,$7,$8::jsonb,$9,$10,$11)`, [typeId, spaceId, type.key, type.name, type.description, JSON.stringify(fields), type.sortOrder, JSON.stringify(type.capabilities), type.sourceId, type.sourceVersionId, category?.id ?? null]);
@@ -138,12 +189,17 @@ async function installPayload(
     await client.query("UPDATE new_design.card_types SET current_version_id=$2 WHERE id=$1", [typeId, versionId]);
     await installNonSettlementFields(client,spaceId,type.key,fields);
   }
-  const dimensionIds=new Map<string,string>(),tagIds=new Map<string,string>();
-  for(const dimension of payload.tagDimensions??[]){const dimensionId=randomUUID(),dimensionVersionId=randomUUID(),nodeById=new Map(dimension.nodes.map(node=>[node.sourceId,node]));dimensionIds.set(dimension.sourceId,dimensionId);await client.query("INSERT INTO new_design.material_tag_dimensions(id,dimension_key,name,description,scope,owner_space_id,source_dimension_id,current_version_id,created_by,updated_by) VALUES($1,$2,$3,$4,'book',$5,$6,NULL,'template_install','template_install')",[dimensionId,dimension.key,dimension.name,dimension.description??"",spaceId,dimension.sourceId]);await client.query("INSERT INTO new_design.material_tag_dimension_versions(id,dimension_id,version,name,description,status,created_by) VALUES($1,$2,1,$3,$4,'active','template_install')",[dimensionVersionId,dimensionId,dimension.name,dimension.description??""]);await client.query("UPDATE new_design.material_tag_dimensions SET current_version_id=$2 WHERE id=$1",[dimensionId,dimensionVersionId]);for(const node of dimension.nodes)tagIds.set(node.sourceId,randomUUID());for(const node of dimension.nodes)await client.query("INSERT INTO new_design.material_tags(id,space_id,tag_key,dimension_id,parent_id,sort_order,visibility,source_tag_id,created_by,updated_by) VALUES($1,$2,$3,$4,NULL,$5,'space',$6,'template_install','template_install')",[tagIds.get(node.sourceId),spaceId,node.key,dimensionId,node.sortOrder,node.sourceId]);for(const node of dimension.nodes)if(node.parentSourceId)await client.query("UPDATE new_design.material_tags SET parent_id=$2 WHERE id=$1",[tagIds.get(node.sourceId),tagIds.get(node.parentSourceId)]);for(const node of dimension.nodes){const nodeId=tagIds.get(node.sourceId)!,versionId=randomUUID(),sourcePath:PayloadTagDimension["nodes"]=[];let current:PayloadTagDimension["nodes"][number]|undefined=node;while(current){sourcePath.unshift(current);current=current.parentSourceId?nodeById.get(current.parentSourceId):undefined;}await client.query("INSERT INTO new_design.material_tag_versions(id,tag_id,version,name,aliases,color,metadata,status,parent_id,sort_order,path_node_ids,path_names,created_by) VALUES($1,$2,1,$3,$4,$5,$6::jsonb,'active',$7,$8,$9,$10,'template_install')",[versionId,nodeId,node.name,node.aliases??[],node.color??null,JSON.stringify({...node.metadata,description:node.description??""}),node.parentSourceId?tagIds.get(node.parentSourceId):null,node.sortOrder,sourcePath.map(item=>tagIds.get(item.sourceId)),sourcePath.map(item=>item.name)]);await client.query("UPDATE new_design.material_tags SET current_version_id=$2 WHERE id=$1",[nodeId,versionId]);}}
-  for(const binding of payload.tagBindings??[]){const targetType=payload.cardTypes.find(item=>item.sourceId===binding.sourceTypeId),mappedType=targetType?typeIds.get(targetType.key):undefined,dimensionId=dimensionIds.get(binding.sourceDimensionId);if(!mappedType||!dimensionId)continue;const bindingId=randomUUID(),versionId=randomUUID(),config=remapTagBindingConfig(binding.config,tagIds);await client.query("INSERT INTO new_design.card_type_tag_bindings(id,card_type_id,dimension_id,config,current_version_id) VALUES($1,$2,$3,$4::jsonb,NULL)",[bindingId,mappedType.typeId,dimensionId,JSON.stringify(config)]);await client.query("INSERT INTO new_design.card_type_tag_binding_versions(id,binding_id,version,config,status,created_by) VALUES($1,$2,1,$3::jsonb,'active','template_install')",[versionId,bindingId,JSON.stringify(config)]);await client.query("UPDATE new_design.card_type_tag_bindings SET current_version_id=$2 WHERE id=$1",[bindingId,versionId]);}
+  await applyTreeAdditions(client,spaceId,{dictionaries:[],tagDimensions:[],tagBindings:payload.tagBindings??[]},'template_install');
   for (const relation of payload.relationTypes) {const relationId=randomUUID();relationTypeIds.set(relation.sourceId,relationId);if(!Array.isArray(relation.propertiesSchema))throw new NewDesignError(`模板关系“${relation.name}”缺少完整正式字段规格，请选择已完善的模板版本。`,422,{[`relationTypes.${relation.sourceId}`]:"请核对正式模板关系规格。"});const fields:FieldDefinition[]=[];for(const [index,value] of relation.propertiesSchema.entries()){const raw=value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:null,result=raw?fieldDefinitionSchema.strict().safeParse({...raw,order:raw.order??index}):null;if(!result?.success)throw new NewDesignError(`模板关系“${relation.name}”含未知字段，不会自动发布；请核对正式模板规格。`,422,{[`relationTypes.${relation.sourceId}`]:"请完善真实字段规格后重新选择模板版本。"});fields.push({...result.data,defaultValue:result.data.defaultValue??null} as FieldDefinition);}const propertiesSchema=remapDictionaryTreeFields(fields,dictionaryIds,dictionaryItemIds);await client.query(`INSERT INTO new_design.relation_types (id,relation_key,name,description,direction,source_type_keys,target_type_keys,source_max,target_max,scope,owner_space_id,properties_schema,status,source_relation_type_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'book',$10,$11::jsonb,'published',$12)`, [relationId, relation.key, relation.name, relation.description, relation.direction, relation.sourceTypeKeys, relation.targetTypeKeys, relation.sourceMax, relation.targetMax, spaceId, JSON.stringify(propertiesSchema), relation.sourceId]);}
-  for(const relation of payload.relationTypes)if(relation.statePolicy?.settlementCapability==="disabled"&&relation.statePolicy.stateMode==="none")await client.query("INSERT INTO new_design.state_relation_capabilities(space_id,relation_key,settlement_capability,state_mode) VALUES($1,$2,'disabled','none') ON CONFLICT DO NOTHING",[spaceId,relation.key]);
-  for(const view of completeViewConfigs(payload.viewConfigs))await client.query("INSERT INTO new_design.book_view_configs(id,book_id,view_key,config) VALUES($1,$2,$3,$4::jsonb)",[randomUUID(),bookId,view.key,JSON.stringify(view.config)]);
+  for(const relation of payload.relationTypes)if(relation.statePolicy?.settlementCapability==="disabled"&&relation.statePolicy.stateMode==="none"){
+    if(!(await listRecordCards(client,'state_relation_capability',{where:{space_id:spaceId,relation_key:relation.key}})).length){
+      const id=randomUUID();await createRecordCard(client,{id,spaceId,typeKey:'state_relation_capability',title:relation.name,values:{id,space_id:spaceId,relation_key:relation.key,settlement_capability:'disabled',state_mode:'none'}});
+    }
+  }
+  for(const view of completeViewConfigs(payload.viewConfigs)){
+    const id=randomUUID(),now=new Date().toISOString();
+    await createRecordCard(client,{id,spaceId,typeKey:'book_view_config',title:view.name,values:{id,book_id:bookId,view_key:view.key,config:view.config,revision:1,created_at:now,updated_at:now}});
+  }
   const activeForms:Record<string,string>={};
   const sourceTemplateVersionId=String((await client.query("SELECT template_version_id FROM new_design.books WHERE id=$1",[bookId])).rows[0].template_version_id);
   for (const form of payload.forms) {
@@ -154,16 +210,16 @@ async function installPayload(
     for(const slot of formSlots(definition)){
       const bindings=slot.localFields.filter(field=>field.optionSource?.kind==='dictionary_tree');
       for(const field of bindings){const binding=field.optionSource!;if(binding.kind!=='dictionary_tree')continue;const origin=payload.dictionaries.find(item=>item.sourceId===binding.dictionaryId);if(!origin)throw new NewDesignError('表单字典来源不在冻结模板中。',422);
-        if(!dictionaryMappings.some(mapping=>mapping.sourceId===origin.sourceId)){const targetId=dictionaryIds.get(origin.sourceId)!;const nodes=(await client.query("SELECT id,source_item_id,current_version_id FROM new_design.dictionary_items WHERE dictionary_id=$1 AND status='active'",[targetId])).rows;
+        if(!dictionaryMappings.some(mapping=>mapping.sourceId===origin.sourceId)){const targetId=dictionaryIds.get(origin.sourceId)!;const nodes=await listRecordCards(client,'dictionary_item',{where:{dictionary_id:targetId,status:'active'}});
           dictionaryMappings.push({sourceId:origin.sourceId,sourceVersion:{kind:'template_snapshot',versionId:sourceTemplateVersionId,definitionHash:structureWriteHash(origin)},targetId,nodes:nodes.map(node=>({sourceId:String(node.source_item_id),targetId:String(node.id),targetVersionId:String(node.current_version_id)}))});}}
       slot.localFields=remapDictionaryTreeFields(slot.localFields.map((field,index)=>({...field,description:field.description??"",options:field.options??[],group:field.group??"",order:field.order??index,defaultValue:field.defaultValue??null})),dictionaryIds,dictionaryItemIds);
     }
     const relationMappings:NonNullable<CardGroupFormDefinition['installation']>['relationMappings']=[];
     for(const key of [...new Set(formSlots(definition).map(slot=>slot.relationTypeKey).filter((key):key is string=>!!key))]){const origin=payload.relationTypes.find(item=>item.key===key),targetId=origin?relationTypeIds.get(origin.sourceId):undefined;if(!origin||!targetId)throw new NewDesignError('表单关系来源不在冻结模板中。',422);const rule=relationDefinition((await client.query('SELECT * FROM new_design.relation_types WHERE id=$1',[targetId])).rows[0]);const sourceRule={key:origin.key,name:origin.name,description:origin.description,direction:origin.direction,sourceTypeKeys:origin.sourceTypeKeys,targetTypeKeys:origin.targetTypeKeys,sourceMax:origin.sourceMax,targetMax:origin.targetMax,propertiesSchema:origin.propertiesSchema};relationMappings.push({key,targetKey:key,sourceId:origin.sourceId,sourceVersion:{kind:'template_snapshot',versionId:sourceTemplateVersionId,definitionHash:structureWriteHash(sourceRule)},targetId,targetDefinitionHash:structureWriteHash(rule)});}
     definition.installation={sourceTemplateVersionId,sourceFormId:form.sourceId,sourceFormVersionId:form.sourceVersionId,sourceDefinitionHash:structureWriteHash(form.definition),previousFormVersionId:null,typeMappings:[...new Set(formSlots(definition).flatMap(slot=>slot.allowedTypeKeys))].map(key=>{const origin=payload.cardTypes.find(type=>type.key===key),target=typeIds.get(key);if(!origin||!target)throw new NewDesignError('表单类型来源不在冻结模板中。',422);return{key,sourceId:origin.sourceId,sourceVersionId:origin.sourceVersionId,targetId:target.typeId,targetVersionId:target.versionId};}),relationMappings,dictionaryMappings};
-    await client.query(`INSERT INTO new_design.card_group_forms (id,space_id,form_key,name,description,status,revision,current_version_id,draft_definition,is_system,source_form_id,source_form_version_id) VALUES ($1,$2,$3,$4,$5,'published',1,NULL,$6::jsonb,false,$7,$8)`, [formId, spaceId, form.key, form.name, form.description, JSON.stringify(definition), form.sourceId, form.sourceVersionId]);
-    await client.query("INSERT INTO new_design.card_group_form_versions (id,form_id,version,definition) VALUES ($1,$2,1,$3::jsonb)", [versionId, formId, JSON.stringify(definition)]);
-    await client.query("UPDATE new_design.card_group_forms SET current_version_id=$2 WHERE id=$1", [formId, versionId]);
+    const now=new Date().toISOString();
+    await createRecordCard(client,{id:formId,spaceId,typeKey:'card_group_form',title:form.name,values:{id:formId,space_id:spaceId,form_key:form.key,name:form.name,description:form.description,status:'published',revision:1,current_version_id:versionId,draft_definition:definition,is_system:false,source_form_id:form.sourceId,source_form_version_id:form.sourceVersionId,created_at:now,updated_at:now}});
+    await createRecordCard(client,{id:versionId,spaceId,typeKey:'card_group_form_version',title:form.name,values:{id:versionId,form_id:formId,version:1,definition,created_at:now}});
     if(payload.defaultFormKeys?.[form.definition.primaryTypeKey]===form.key)activeForms[form.definition.primaryTypeKey]=versionId;
   }
   if(Object.keys(activeForms).length)await client.query("UPDATE new_design.books SET installed_payload=$2::jsonb WHERE id=$1",[bookId,JSON.stringify({...payload,activeForms})]);
@@ -208,40 +264,51 @@ async function installPayload(
     for (const [fieldKey, value] of [["$title", card.title] as const, ...Object.entries(values)]) {
       const originalValue=fieldKey==="$title"?prepared.originalTitle:prepared.originalValues[fieldKey];
       const fieldBatchId=(card as BookCreationReviewCard).aiFieldBatchIds?.[fieldKey];
-      if(fieldBatchId&&!(await client.query(`SELECT 1 FROM new_design.ai_generation_batches batch
-        WHERE batch.id=$1 AND batch.session_id=$2 AND (batch.status='review' OR (
-          batch.status='applied' AND batch.stage='review_adopted' AND EXISTS (
-            SELECT 1 FROM jsonb_array_elements(batch.preparation_adoption_receipts) adoption
-            CROSS JOIN LATERAL jsonb_array_elements(adoption->'receipt'->'session'->'reviewCards') reviewed
-            WHERE adoption->'receipt'->>'batchId'=batch.id::text
-              AND reviewed->>'id'=$3 AND reviewed->>'typeKey'=$4
-              AND reviewed->'aiFieldBatchIds'->>$5=batch.id::text
-              AND (CASE WHEN $5='$title' THEN reviewed->'title' ELSE reviewed->'values'->$5 END)=$6::jsonb
-          )))`,[fieldBatchId,options.origin?.sessionId??null,(card as BookCreationReviewCard).id??null,card.typeKey,fieldKey,JSON.stringify(fieldKey==="$title"?card.title:card.values[fieldKey]??null)])).rowCount)throw new NewDesignError("开书 AI 来源不属于当前创建会话，未创建书籍。",409);
-      await client.query(`INSERT INTO new_design.card_field_origins (id,card_id,field_key,source_kind,source_id,generation_batch_id,confirmation_status,original_value,current_value) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`, [randomUUID(), cardId, fieldKey, fieldBatchId?"ai":sourceKind, fieldBatchId?null:prepared.sourceId, fieldBatchId??(sourceKind === "ai" ? options.origin?.generationBatchId ?? null : null), confirmation, JSON.stringify(originalValue??null),JSON.stringify(value)]);
+      if(fieldBatchId){
+        const batch=await findRecordCard(client,fieldBatchId,'ai_generation_batch');
+        const approvedValue=fieldKey==="$title"?card.title:card.values[fieldKey]??null;
+        const adopted=batch?.status==='applied'&&batch.stage==='review_adopted'&&(batch.preparation_adoption_receipts??[]).some((adoption:Record<string,any>)=>
+          adoption.receipt?.batchId===batch.id&&(adoption.receipt?.session?.reviewCards??[]).some((reviewed:Record<string,any>)=>
+            reviewed.id===(card as BookCreationReviewCard).id&&reviewed.typeKey===card.typeKey&&reviewed.aiFieldBatchIds?.[fieldKey]===batch.id&&structureWriteHash(fieldKey==="$title"?reviewed.title:reviewed.values?.[fieldKey]??null)===structureWriteHash(approvedValue)));
+        if(!batch||batch.session_id!==(options.origin?.sessionId??null)||(batch.status!=='review'&&!adopted))throw new NewDesignError("开书 AI 来源不属于当前创建会话，未创建书籍。",409);
+      }
+      await saveFieldOrigin(client,spaceId,cardId,fieldKey,{source_kind:fieldBatchId?"ai":sourceKind,source_id:fieldBatchId?null:prepared.sourceId,generation_batch_id:fieldBatchId??(sourceKind==="ai"?options.origin?.generationBatchId??null:null),confirmation_status:confirmation,original_value:originalValue??null,current_value:value});
     }
     if (sourceKind === "resource" && prepared.sourceId && prepared.sourceVersionId) {
-      await client.query(`INSERT INTO new_design.resource_adoptions (id,resource_card_id,resource_version_id,book_id,target_card_id,action,snapshot) VALUES ($1,$2,$3,$4,$5,'install_snapshot',$6::jsonb)`, [randomUUID(), prepared.sourceId, prepared.sourceVersionId, bookId, cardId, JSON.stringify({ typeKey: card.typeKey, title: card.title, values })]);
+      await recordWorkflowAction(client,{cardId,cardVersionId:versionId,actionKey:'resource.install_snapshot',payload:{resource_card_id:prepared.sourceId,resource_version_id:prepared.sourceVersionId,book_id:bookId,target_card_id:cardId,action:'install_snapshot',snapshot:{typeKey:card.typeKey,title:card.title,values}}});
     }
   }
   for(const card of options.researchCards??[]){
     const type=assertFound(typeIds.get(card.typeKey),`模板缺少卡片类型 ${card.typeKey}。`),fields=assertFound(installedFieldsByType.get(card.typeKey),`模板缺少类型定义 ${card.typeKey}。`),allowedKeys=new Set(fields.map((field)=>field.key)),suggested=remapTreeValues(fields,Object.fromEntries(Object.entries(card.values).filter(([key])=>allowedKeys.has(key)))),key=`${card.typeKey}\u0000${card.title}`,existing=installedCards.get(key);
-    if(existing){const values={...existing.values};const adopted:string[]=[];for(const [fieldKey,value] of Object.entries(suggested))if(values[fieldKey]===null||values[fieldKey]===undefined||values[fieldKey]===""||(Array.isArray(values[fieldKey])&&values[fieldKey].length===0)){values[fieldKey]=value;adopted.push(fieldKey);}if(!adopted.length)continue;const treeIssues=await validateDictionaryTreeValues(client,fields,values);if(Object.keys(treeIssues).length)throw new NewDesignError(`研究建议“${card.title}”引用了不可用的字典项。`,422,treeIssues);const nextRevision=existing.revision+1,versionId=randomUUID();await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,$3,$4,$5,$6::jsonb,'edit')",[versionId,existing.id,nextRevision,existing.typeVersionId,existing.title,JSON.stringify(values)]);await snapshotDictionaryTreeValues(client,fields,values,versionId);await client.query("UPDATE new_design.cards SET values=$2::jsonb,revision=$3,current_version_id=$4,updated_at=now() WHERE id=$1",[existing.id,JSON.stringify(values),nextRevision,versionId]);for(const fieldKey of adopted)await client.query("INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value) VALUES($1,$2,$3,'research',$4,'confirmed',$5::jsonb,$5::jsonb) ON CONFLICT(card_id,field_key) DO UPDATE SET source_kind='research',source_id=EXCLUDED.source_id,confirmation_status='confirmed',original_value=EXCLUDED.original_value,current_value=EXCLUDED.current_value,updated_at=now()",[randomUUID(),existing.id,fieldKey,card.researchVersionId,JSON.stringify(values[fieldKey])]);installedCards.set(key,{...existing,values,revision:nextRevision});continue;}
-    const validated=validateCardValues(fields,suggested);if(Object.keys(validated.issues).length)throw new NewDesignError(`研究建议“${card.title}”未满足模板字段要求。`,422,validated.issues);const treeIssues=await validateDictionaryTreeValues(client,fields,validated.values);if(Object.keys(treeIssues).length)throw new NewDesignError(`研究建议“${card.title}”引用了不可用的字典项。`,422,treeIssues);const cardId=randomUUID(),versionId=randomUUID();await client.query("INSERT INTO new_design.cards(id,space_id,card_type_id,title,status,revision,type_version_id,current_version_id,values) VALUES($1,$2,$3,$4,'active',1,$5,NULL,$6::jsonb)",[cardId,spaceId,type.typeId,card.title,type.versionId,JSON.stringify(validated.values)]);await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,1,$3,$4,$5::jsonb,'create')",[versionId,cardId,type.versionId,card.title,JSON.stringify(validated.values)]);await snapshotDictionaryTreeValues(client,fields,validated.values,versionId);await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1",[cardId,versionId]);for(const [fieldKey,value]of [["$title",card.title],...Object.entries(validated.values)])await client.query("INSERT INTO new_design.card_field_origins(id,card_id,field_key,source_kind,source_id,confirmation_status,original_value,current_value) VALUES($1,$2,$3,'research',$4,'confirmed',$5::jsonb,$5::jsonb)",[randomUUID(),cardId,fieldKey,card.researchVersionId,JSON.stringify(value)]);installedCards.set(key,{id:cardId,typeVersionId:type.versionId,title:card.title,values:validated.values,revision:1});
+    if(existing){const values={...existing.values};const adopted:string[]=[];for(const [fieldKey,value] of Object.entries(suggested))if(values[fieldKey]===null||values[fieldKey]===undefined||values[fieldKey]===""||(Array.isArray(values[fieldKey])&&values[fieldKey].length===0)){values[fieldKey]=value;adopted.push(fieldKey);}if(!adopted.length)continue;const treeIssues=await validateDictionaryTreeValues(client,fields,values);if(Object.keys(treeIssues).length)throw new NewDesignError(`研究建议“${card.title}”引用了不可用的字典项。`,422,treeIssues);const nextRevision=existing.revision+1,versionId=randomUUID();await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,$3,$4,$5,$6::jsonb,'edit')",[versionId,existing.id,nextRevision,existing.typeVersionId,existing.title,JSON.stringify(values)]);await snapshotDictionaryTreeValues(client,fields,values,versionId);await client.query("UPDATE new_design.cards SET values=$2::jsonb,revision=$3,current_version_id=$4,updated_at=now() WHERE id=$1",[existing.id,JSON.stringify(values),nextRevision,versionId]);for(const fieldKey of adopted)await saveFieldOrigin(client,spaceId,existing.id,fieldKey,{source_kind:'research',source_id:card.researchVersionId,confirmation_status:'confirmed',original_value:values[fieldKey],current_value:values[fieldKey]});installedCards.set(key,{...existing,values,revision:nextRevision});continue;}
+    const validated=validateCardValues(fields,suggested);if(Object.keys(validated.issues).length)throw new NewDesignError(`研究建议“${card.title}”未满足模板字段要求。`,422,validated.issues);const treeIssues=await validateDictionaryTreeValues(client,fields,validated.values);if(Object.keys(treeIssues).length)throw new NewDesignError(`研究建议“${card.title}”引用了不可用的字典项。`,422,treeIssues);const cardId=randomUUID(),versionId=randomUUID();await client.query("INSERT INTO new_design.cards(id,space_id,card_type_id,title,status,revision,type_version_id,current_version_id,values) VALUES($1,$2,$3,$4,'active',1,$5,NULL,$6::jsonb)",[cardId,spaceId,type.typeId,card.title,type.versionId,JSON.stringify(validated.values)]);await client.query("INSERT INTO new_design.card_versions(id,card_id,revision,type_version_id,title,values,source) VALUES($1,$2,1,$3,$4,$5::jsonb,'create')",[versionId,cardId,type.versionId,card.title,JSON.stringify(validated.values)]);await snapshotDictionaryTreeValues(client,fields,validated.values,versionId);await client.query("UPDATE new_design.cards SET current_version_id=$2 WHERE id=$1",[cardId,versionId]);for(const [fieldKey,value]of [["$title",card.title],...Object.entries(validated.values)])await saveFieldOrigin(client,spaceId,cardId,String(fieldKey),{source_kind:'research',source_id:card.researchVersionId,confirmation_status:'confirmed',original_value:value,current_value:value});installedCards.set(key,{id:cardId,typeVersionId:type.versionId,title:card.title,values:validated.values,revision:1});
   }
   return{cards:reviewCardIds,dictionaryIds,dictionaryItemIds,relationTypeIds};
 }
 
-export async function getBookInTransaction(client:PoolClient,id:string):Promise<BookSummary>{const row=(await client.query(`SELECT book.*,template.name template_name,version.version template_version,(SELECT count(*) FROM new_design.cards card WHERE card.space_id=book.space_id AND card.status='active') card_count,(SELECT count(*) FROM new_design.card_group_forms form WHERE form.space_id=book.space_id AND form.status='published') form_count FROM new_design.books book JOIN new_design.template_groups template ON template.id=book.template_id JOIN new_design.template_group_versions version ON version.id=book.template_version_id WHERE book.id=$1`,[id])).rows[0];return mapBook(assertFound(row,"书籍不可用。"));}
+async function saveFieldOrigin(client:PoolClient,spaceId:string,cardId:string,fieldKey:string,values:Record<string,unknown>):Promise<void>{
+  const prior=(await listRecordCards(client,'card_field_origin',{where:{card_id:cardId,field_key:fieldKey},lock:true}))[0],now=new Date().toISOString();
+  if(prior)await replaceRecordCard(client,{id:prior.id,spaceId:prior.recordSpaceId,typeKey:'card_field_origin',values:{...prior,...values,updated_at:now}});
+  else{const id=randomUUID();await createRecordCard(client,{id,spaceId,typeKey:'card_field_origin',title:fieldKey,values:{id,card_id:cardId,field_key:fieldKey,generation_batch_id:null,...values,created_at:now,updated_at:now}});}
+}
+
+async function saveBookSources(client:PoolClient,bookId:string,spaceId:string,options:CreateBookOptions):Promise<void>{
+  const now=new Date().toISOString();
+  for(const reference of options.researchReferences??[]){
+    const id=randomUUID();await createRecordCard(client,{id,spaceId,typeKey:'book_research_reference',title:reference.purpose,values:{id,book_id:bookId,research_version_id:reference.researchVersionId,pack_version_id:reference.packVersionId,purpose:reference.purpose,compiled_snapshot:reference.compiledSnapshot,created_at:now}});
+  }
+  if(options.origin){const id=randomUUID();await createRecordCard(client,{id,spaceId,typeKey:'book_content_source',title:options.origin.method,values:{id,book_id:bookId,session_id:options.origin.sessionId??null,method:options.origin.method,source_reference:options.origin.sourceReference,source_payload:options.origin.sourcePayload,confirmation_status:'confirmed',created_at:now}});}
+}
+
+export async function getBookInTransaction(client:PoolClient,id:string):Promise<BookSummary>{return assertFound((await bookSummaries(client,id))[0],"书籍不可用。");}
 
 export async function createBookInTransaction(client:PoolClient,input:{key:string;name:string;description:string;templateVersionId:string},options:CreateBookOptions={}):Promise<{book:BookSummary;installed:InstalledBookPayload;payload:TemplatePayload}>{
- const id=randomUUID(),spaceId=randomUUID(),version=assertFound((await client.query("SELECT * FROM new_design.template_group_versions WHERE id=$1",[input.templateVersionId])).rows[0],"模板版本不存在。"),template=assertFound((await client.query("SELECT * FROM new_design.template_groups WHERE id=$1",[version.template_id])).rows[0],"模板组不存在。"),payload=version.payload as TemplatePayload;
+ const id=randomUUID(),spaceId=randomUUID(),version=assertFound(await findRecordCard(client,input.templateVersionId,'template_group_version'),"模板版本不存在。"),template=assertFound(await findRecordCard(client,String(version.template_id),'template_group'),"模板组不存在。"),payload=version.payload as TemplatePayload;
  await client.query("INSERT INTO new_design.card_spaces(id,space_key,name) VALUES($1,$2,$3)",[spaceId,`book_${input.key}`,input.name]);
  await client.query("INSERT INTO new_design.books(id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[id,spaceId,input.key,input.name,input.description,template.id,version.id,JSON.stringify(payload)]);
  const installed=await installPayload(client,id,spaceId,payload,options);
  await initializeProjectRuleInTransaction(client,id,randomUUID());
- for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
- if(options.origin)await client.query("INSERT INTO new_design.book_content_sources(id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES($1,$2,$3,$4,$5,$6::jsonb,'confirmed')",[randomUUID(),id,options.origin.sessionId??null,options.origin.method,options.origin.sourceReference,JSON.stringify(options.origin.sourcePayload)]);
+ await saveBookSources(client,id,spaceId,options);
  return{book:await getBookInTransaction(client,id),installed,payload};
 }
 
@@ -255,21 +322,22 @@ export async function createBook(
   const spaceId = randomUUID();
   try {
     await client.query("BEGIN");
-    const version = assertFound((await client.query("SELECT * FROM new_design.template_group_versions WHERE id=$1", [input.templateVersionId])).rows[0], "模板版本不存在。");
-    const template = assertFound((await client.query("SELECT * FROM new_design.template_groups WHERE id=$1", [version.template_id])).rows[0], "模板组不存在。");
+    const version=assertFound(await findRecordCard(client,input.templateVersionId,'template_group_version'),"模板版本不存在。");
+    const template=assertFound(await findRecordCard(client,String(version.template_id),'template_group'),"模板组不存在。");
     const payload = version.payload as TemplatePayload;
     await client.query("INSERT INTO new_design.card_spaces (id,space_key,name) VALUES ($1,$2,$3)", [spaceId, `book_${input.key}`, input.name]);
     await client.query(`INSERT INTO new_design.books (id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [id, spaceId, input.key, input.name, input.description, template.id, version.id, JSON.stringify(payload)]);
     await installPayload(client, id, spaceId, payload, options);
     await initializeProjectRuleInTransaction(client,id,randomUUID());
-    for(const reference of options.researchReferences??[])await client.query("INSERT INTO new_design.book_research_references(id,book_id,research_version_id,pack_version_id,purpose,compiled_snapshot) VALUES($1,$2,$3,$4,$5,$6::jsonb)",[randomUUID(),id,reference.researchVersionId,reference.packVersionId,reference.purpose,JSON.stringify(reference.compiledSnapshot)]);
-    if (options.origin) {
-      await client.query(`INSERT INTO new_design.book_content_sources (id,book_id,session_id,method,source_reference,source_payload,confirmation_status) VALUES ($1,$2,$3,$4,$5,$6::jsonb,'confirmed')`, [randomUUID(), id, options.origin.sessionId ?? null, options.origin.method, options.origin.sourceReference, JSON.stringify(options.origin.sourcePayload)]);
-      if(options.origin.sessionId){
-        const published=await client.query("UPDATE new_design.book_creation_sessions SET status='completed',stage='ready',progress=100,book_id=$2,error_message=NULL,revision=revision+1,updated_at=now() WHERE id=$1 AND status='creating' AND book_id IS NULL RETURNING id",[options.origin.sessionId,id]);
-        if(!published.rowCount)throw new NewDesignError("当前开书会话已变化，书籍未重复创建。",409);
-        const usedBatches=[...new Set([options.origin.generationBatchId,...(options.reviewCards??[]).flatMap(card=>Object.values(card.aiFieldBatchIds??{}))].filter((id):id is string=>Boolean(id)))];
-        if(usedBatches.length)await client.query("UPDATE new_design.ai_generation_batches SET status='applied',updated_at=now() WHERE id=ANY($1::uuid[]) AND session_id=$2 AND status='review'",[usedBatches,options.origin.sessionId]);
+    await saveBookSources(client,id,spaceId,options);
+    if(options.origin?.sessionId){
+      const session=await findRecordCard(client,options.origin.sessionId,'book_creation_session',{lock:true});
+      if(!session||session.status!=='creating'||session.book_id)throw new NewDesignError("当前开书会话已变化，书籍未重复创建。",409);
+      await replaceRecordCard(client,{id:session.id,spaceId:session.recordSpaceId,typeKey:'book_creation_session',values:{...session,status:'completed',stage:'ready',progress:100,book_id:id,error_message:null,revision:session.revision+1,updated_at:new Date().toISOString()}});
+      const usedBatches=[...new Set([options.origin.generationBatchId,...(options.reviewCards??[]).flatMap(card=>Object.values(card.aiFieldBatchIds??{}))].filter((id):id is string=>Boolean(id)))];
+      for(const batchId of usedBatches){
+        const batch=await findRecordCard(client,batchId,'ai_generation_batch',{lock:true});
+        if(batch?.session_id===session.id&&batch.status==='review')await replaceRecordCard(client,{id:batch.id,spaceId:batch.recordSpaceId,typeKey:'ai_generation_batch',values:{...batch,status:'applied',updated_at:new Date().toISOString()}});
       }
     }
     await client.query("COMMIT");
@@ -299,46 +367,116 @@ function compareTrees(installed:TemplatePayload,target:TemplatePayload,conflicts
 export async function previewBookSync(bookId:string,targetVersionId:string):Promise<TemplateSyncPreview>{
   const pool=await getNewDesignPool();
   const book=assertFound((await pool.query("SELECT * FROM new_design.books WHERE id=$1",[bookId])).rows[0],"书籍不存在。");
-  const target=assertFound((await pool.query("SELECT * FROM new_design.template_group_versions WHERE id=$1 AND template_id=$2",[targetVersionId,book.template_id])).rows[0],"目标模板版本不存在。");
+  const target=assertFound(await findRecordCard(pool,targetVersionId,'template_group_version'),"目标模板版本不存在。");
+  if(target.template_id!==book.template_id)throw new NewDesignError("目标模板版本不属于当前模板。",404);
   const types=await pool.query("SELECT type.id,type.current_version_id,type.revision,type.type_key,version.fields FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id WHERE type.space_id=$1",[book.space_id]);
   const installed=book.installed_payload as TemplatePayload,next=target.payload as TemplatePayload;
   const comparison=compareFields(installed,next,types.rows.map((row)=>({key:String(row.type_key),fields:row.fields as FieldDefinition[]})));
   const treeAdditions=compareTrees(installed,next,comparison.conflicts),id=randomUUID();
-  await pool.query(`INSERT INTO new_design.book_template_syncs (id,book_id,from_template_version_id,to_template_version_id,additions,tree_additions,conflicts,status) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,'previewed')`,[id,bookId,book.template_version_id,targetVersionId,JSON.stringify(comparison.additions),JSON.stringify({...treeAdditions,preconditions:syncPreconditions(book,types.rows,targetVersionId,comparison.additions,treeAdditions,comparison.conflicts)}),JSON.stringify(comparison.conflicts)]);
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    await createRecordCard(client,{id,spaceId:String(book.space_id),typeKey:'book_template_sync',title:'模板增量同步',values:{id,book_id:bookId,from_template_version_id:book.template_version_id,to_template_version_id:targetVersionId,additions:comparison.additions,tree_additions:{...treeAdditions,preconditions:syncPreconditions(book,types.rows,targetVersionId,comparison.additions,treeAdditions,comparison.conflicts)},conflicts:comparison.conflicts,status:'previewed',created_at:new Date().toISOString(),applied_at:null}});
+    await client.query("COMMIT");
+  }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
   return{id,bookId,fromTemplateVersionId:String(book.template_version_id),toTemplateVersionId:targetVersionId,...comparison,treeAdditions,status:"previewed"};
 }
 
 export async function readBookTemplateSync(syncId:string):Promise<TemplateSyncPreview|null>{
-  const row=(await(await getNewDesignPool()).query("SELECT * FROM new_design.book_template_syncs WHERE id=$1",[syncId])).rows[0];
+  const row=await findRecordCard(await getNewDesignPool(),syncId,'book_template_sync');
   return row?{id:String(row.id),bookId:String(row.book_id),fromTemplateVersionId:String(row.from_template_version_id),toTemplateVersionId:String(row.to_template_version_id),additions:row.additions as TemplateSyncPreview["additions"],treeAdditions:row.tree_additions as TemplateSyncPreview["treeAdditions"],conflicts:row.conflicts as TemplateSyncPreview["conflicts"],status:row.status as TemplateSyncPreview["status"]}:null;
 }
 
-async function applyTreeAdditions(client:PoolClient,spaceId:string,treeAdditions:NonNullable<TemplateSyncPreview["treeAdditions"]>):Promise<void>{
+function installedTreePath(nodes:Map<string,{id:string;parent_id:string|null;name:string}>,id:string):Array<{id:string;name:string}>{
+  const path:Array<{id:string;name:string}>=[],seen=new Set<string>();
+  let current:string|null=id;
+  while(current){
+    if(seen.has(current))throw new NewDesignError("模板树存在循环，未安装任何内容。",422);
+    seen.add(current);
+    const node=assertFound(nodes.get(current),"模板树引用了缺失的父节点。");
+    path.unshift({id:node.id,name:node.name});current=node.parent_id;
+  }
+  return path;
+}
+
+async function applyTreeAdditions(client:PoolClient,spaceId:string,treeAdditions:NonNullable<TemplateSyncPreview["treeAdditions"]>,actor='template_sync'):Promise<void>{
+  const now=new Date().toISOString();
   for(const dictionary of treeAdditions.dictionaries){
-    let definition=(await client.query("SELECT id FROM new_design.dictionary_definitions WHERE owner_space_id=$1 AND source_dictionary_id=$2 FOR UPDATE",[spaceId,dictionary.sourceId])).rows[0];
-    if(!definition){definition={id:randomUUID()};await client.query("INSERT INTO new_design.dictionary_definitions(id,dictionary_key,name,description,scope,owner_space_id,status,source_dictionary_id) VALUES($1,$2,$3,$4,'book',$5,'published',$6)",[definition.id,dictionary.key,dictionary.name,dictionary.description,spaceId,dictionary.sourceId]);}
-    const existing=await client.query("SELECT id,source_item_id FROM new_design.dictionary_items WHERE dictionary_id=$1",[definition.id]),itemIds=new Map(existing.rows.filter(row=>row.source_item_id).map(row=>[String(row.source_item_id),String(row.id)]));
-    for(const item of dictionary.items)if(!itemIds.has(item.sourceId))itemIds.set(item.sourceId,randomUUID());
-    for(const item of dictionary.items){const itemId=itemIds.get(item.sourceId)!;if((await client.query("SELECT 1 FROM new_design.dictionary_items WHERE id=$1",[itemId])).rowCount)continue;await client.query("INSERT INTO new_design.dictionary_items(id,dictionary_id,item_key,label,description,value,sort_order,status,source_item_id) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,'active',$8)",[itemId,definition.id,item.key,item.label,item.description??"",JSON.stringify(item.value??{}),item.sortOrder,item.sourceId]);}
-    for(const item of dictionary.items)if(item.parentSourceId)await client.query("UPDATE new_design.dictionary_items SET parent_id=$2 WHERE id=$1",[itemIds.get(item.sourceId),itemIds.get(item.parentSourceId)]);
-    for(const item of dictionary.items){const itemId=itemIds.get(item.sourceId)!,hasVersion=await client.query("SELECT 1 FROM new_design.dictionary_items WHERE id=$1 AND current_version_id IS NOT NULL",[itemId]);if(hasVersion.rowCount)continue;const path=(await client.query(`WITH RECURSIVE parents AS (SELECT id,parent_id,label,ARRAY[id]::uuid[] ids,ARRAY[label]::text[] labels FROM new_design.dictionary_items WHERE id=$1 UNION ALL SELECT parent.id,parent.parent_id,parent.label,ARRAY[parent.id]::uuid[]||child.ids,ARRAY[parent.label]::text[]||child.labels FROM new_design.dictionary_items parent JOIN parents child ON child.parent_id=parent.id) SELECT ids,labels FROM parents WHERE parent_id IS NULL`,[itemId])).rows[0],versionId=randomUUID();await client.query("INSERT INTO new_design.dictionary_item_versions(id,item_id,version,label,description,parent_id,sort_order,value,status,path_node_ids,path_labels,created_by) SELECT $1,id,1,label,description,parent_id,sort_order,value,status,$3,$4,'template_sync' FROM new_design.dictionary_items WHERE id=$2",[versionId,itemId,path.ids,path.labels]);await client.query("UPDATE new_design.dictionary_items SET current_version_id=$2 WHERE id=$1",[itemId,versionId]);}
+    let definition=(await listRecordCards(client,'dictionary_definition',{where:{owner_space_id:spaceId,source_dictionary_id:dictionary.sourceId},lock:true}))[0];
+    if(!definition){
+      if((await listRecordCards(client,'dictionary_definition',{where:{owner_space_id:spaceId,dictionary_key:dictionary.key}})).length)throw new NewDesignError("书内已有同名但来源不同的字典，未自动覆盖。",409);
+      const id=randomUUID();
+      definition=await createRecordCard(client,{id,spaceId,typeKey:'dictionary_definition',title:dictionary.name,values:{id,dictionary_key:dictionary.key,name:dictionary.name,description:dictionary.description,scope:'book',owner_space_id:spaceId,status:'published',read_only:false,source_dictionary_id:dictionary.sourceId,revision:1,created_at:now,updated_at:now}});
+    }
+    const existing=await listRecordCards(client,'dictionary_item',{where:{dictionary_id:definition.id},includeArchived:true});
+    const bySource=new Map(existing.filter(row=>row.source_item_id).map(row=>[String(row.source_item_id),row.id]));
+    const keys=new Set(existing.map(row=>String(row.item_key)));
+    const pending=dictionary.items.filter(item=>!bySource.has(item.sourceId));
+    for(const item of pending){
+      if(bySource.has(item.sourceId)||keys.has(item.key))throw new NewDesignError("字典新增项的标识与已有节点重复。",409);
+      bySource.set(item.sourceId,randomUUID());keys.add(item.key);
+    }
+    const nodes=new Map(existing.map(row=>[row.id,{id:row.id,parent_id:row.parent_id as string|null,name:String(row.label)}]));
+    for(const item of pending){
+      const id=bySource.get(item.sourceId)!;
+      const parentId=item.parentSourceId?assertFound(bySource.get(item.parentSourceId),"字典新增节点缺少父节点。"):null;
+      nodes.set(id,{id,parent_id:parentId,name:item.label});
+    }
+    for(const item of pending){
+      const id=bySource.get(item.sourceId)!,versionId=randomUUID(),node=nodes.get(id)!,path=installedTreePath(nodes,id);
+      const values={id,dictionary_id:definition.id,item_key:item.key,label:item.label,description:item.description??"",value:item.value??{},sort_order:item.sortOrder,status:'active',source_item_id:item.sourceId,parent_id:node.parent_id,current_version_id:versionId,revision:1,created_at:now,updated_at:now};
+      await createRecordCard(client,{id,spaceId,typeKey:'dictionary_item',title:item.label,values});
+      await createRecordCard(client,{id:versionId,spaceId,typeKey:'dictionary_item_version',title:item.label,values:{id:versionId,item_id:id,version:1,label:item.label,description:values.description,parent_id:node.parent_id,sort_order:item.sortOrder,value:values.value,status:'active',path_node_ids:path.map(row=>row.id),path_labels:path.map(row=>row.name),created_by:actor,created_at:now}});
+    }
   }
   for(const dimension of treeAdditions.tagDimensions){
-    let target=(await client.query("SELECT id FROM new_design.material_tag_dimensions WHERE owner_space_id=$1 AND source_dimension_id=$2 FOR UPDATE",[spaceId,dimension.sourceId])).rows[0];
-    if(!target){const dimensionId=randomUUID(),versionId=randomUUID();target={id:dimensionId};await client.query("INSERT INTO new_design.material_tag_dimensions(id,dimension_key,name,description,scope,owner_space_id,source_dimension_id,created_by,updated_by) VALUES($1,$2,$3,$4,'book',$5,$6,'template_sync','template_sync')",[dimensionId,dimension.key,dimension.name,dimension.description,spaceId,dimension.sourceId]);await client.query("INSERT INTO new_design.material_tag_dimension_versions(id,dimension_id,version,name,description,status,created_by) VALUES($1,$2,1,$3,$4,'active','template_sync')",[versionId,dimensionId,dimension.name,dimension.description]);await client.query("UPDATE new_design.material_tag_dimensions SET current_version_id=$2 WHERE id=$1",[dimensionId,versionId]);}
-    const existing=await client.query("SELECT id,source_tag_id FROM new_design.material_tags WHERE dimension_id=$1",[target.id]),tagIds=new Map(existing.rows.filter(row=>row.source_tag_id).map(row=>[String(row.source_tag_id),String(row.id)])),nodeById=new Map(dimension.nodes.map(node=>[node.sourceId,node]));
-    for(const node of dimension.nodes)if(!tagIds.has(node.sourceId))tagIds.set(node.sourceId,randomUUID());
-    const insertedTagIds=new Set<string>();
-    for(const node of dimension.nodes){const nodeId=tagIds.get(node.sourceId)!;if((await client.query("SELECT 1 FROM new_design.material_tags WHERE id=$1",[nodeId])).rowCount)continue;insertedTagIds.add(nodeId);await client.query("INSERT INTO new_design.material_tags(id,space_id,tag_key,dimension_id,sort_order,visibility,source_tag_id,created_by,updated_by) VALUES($1,$2,$3,$4,$5,'space',$6,'template_sync','template_sync')",[nodeId,spaceId,node.key,target.id,node.sortOrder,node.sourceId]);}
-    for(const node of dimension.nodes)if(node.parentSourceId&&insertedTagIds.has(tagIds.get(node.sourceId)!))await client.query("UPDATE new_design.material_tags SET parent_id=$2 WHERE id=$1",[tagIds.get(node.sourceId),tagIds.get(node.parentSourceId)]);
-    for(const node of dimension.nodes){const nodeId=tagIds.get(node.sourceId)!,hasVersion=await client.query("SELECT 1 FROM new_design.material_tags WHERE id=$1 AND current_version_id IS NOT NULL",[nodeId]);if(hasVersion.rowCount)continue;const sourcePath:PayloadTagDimension["nodes"]=[];let current:PayloadTagDimension["nodes"][number]|undefined=node;while(current){sourcePath.unshift(current);current=current.parentSourceId?nodeById.get(current.parentSourceId):undefined;}const versionId=randomUUID();await client.query("INSERT INTO new_design.material_tag_versions(id,tag_id,version,name,aliases,color,metadata,status,parent_id,sort_order,path_node_ids,path_names,created_by) VALUES($1,$2,1,$3,$4,$5,$6::jsonb,'active',$7,$8,$9,$10,'template_sync')",[versionId,nodeId,node.name,node.aliases,node.color,JSON.stringify({...node.metadata,description:node.description}),node.parentSourceId?tagIds.get(node.parentSourceId):null,node.sortOrder,sourcePath.map(item=>tagIds.get(item.sourceId)),sourcePath.map(item=>item.name)]);await client.query("UPDATE new_design.material_tags SET current_version_id=$2 WHERE id=$1",[nodeId,versionId]);}
+    let target=(await listRecordCards(client,'material_tag_dimension',{where:{owner_space_id:spaceId,source_dimension_id:dimension.sourceId},lock:true}))[0];
+    if(!target){
+      if((await listRecordCards(client,'material_tag_dimension',{where:{owner_space_id:spaceId,dimension_key:dimension.key}})).length)throw new NewDesignError("书内已有同名但来源不同的标签维度，未自动覆盖。",409);
+      const id=randomUUID(),versionId=randomUUID();
+      target=await createRecordCard(client,{id,spaceId,typeKey:'material_tag_dimension',title:dimension.name,values:{id,dimension_key:dimension.key,name:dimension.name,description:dimension.description??"",scope:'book',owner_space_id:spaceId,status:'active',read_only:false,source_dimension_id:dimension.sourceId,current_version_id:versionId,revision:1,created_by:actor,updated_by:actor,created_at:now,updated_at:now}});
+      await createRecordCard(client,{id:versionId,spaceId,typeKey:'material_tag_dimension_version',title:dimension.name,values:{id:versionId,dimension_id:id,version:1,name:dimension.name,description:dimension.description??"",status:'active',created_by:actor,created_at:now}});
+    }
+    const existing=await listRecordCards(client,'material_tag',{where:{dimension_id:target.id},includeArchived:true});
+    const bySource=new Map(existing.filter(row=>row.source_tag_id).map(row=>[String(row.source_tag_id),row.id]));
+    const keys=new Set(existing.map(row=>String(row.tag_key))),pending=dimension.nodes.filter(node=>!bySource.has(node.sourceId));
+    for(const node of pending){
+      if(bySource.has(node.sourceId)||keys.has(node.key))throw new NewDesignError("标签新增项的标识与已有节点重复。",409);
+      bySource.set(node.sourceId,randomUUID());keys.add(node.key);
+    }
+    const nodes=new Map<string,{id:string;parent_id:string|null;name:string}>();
+    for(const node of existing){
+      const version=assertFound(await findRecordCard(client,String(node.current_version_id),'material_tag_version'),"现有标签的正式版本不存在。");
+      nodes.set(node.id,{id:node.id,parent_id:node.parent_id,name:String(version.name)});
+    }
+    for(const node of pending){
+      const id=bySource.get(node.sourceId)!,parentId=node.parentSourceId?assertFound(bySource.get(node.parentSourceId),"标签新增节点缺少父节点。"):null;
+      nodes.set(id,{id,parent_id:parentId,name:node.name});
+    }
+    for(const node of pending){
+      const id=bySource.get(node.sourceId)!,versionId=randomUUID(),parentId=nodes.get(id)!.parent_id,path=installedTreePath(nodes,id);
+      await createRecordCard(client,{id,spaceId,typeKey:'material_tag',title:node.name,values:{id,space_id:spaceId,tag_key:node.key,dimension_id:target.id,parent_id:parentId,sort_order:node.sortOrder,visibility:'space',source_tag_id:node.sourceId,status:'active',revision:1,current_version_id:versionId,created_by:actor,updated_by:actor,created_at:now,updated_at:now}});
+      await createRecordCard(client,{id:versionId,spaceId,typeKey:'material_tag_version',title:node.name,values:{id:versionId,tag_id:id,version:1,name:node.name,aliases:node.aliases??[],color:node.color??null,metadata:{...node.metadata,description:node.description??""},status:'active',parent_id:parentId,sort_order:node.sortOrder,path_node_ids:path.map(row=>row.id),path_names:path.map(row=>row.name),created_by:actor,created_at:now}});
+    }
   }
-  for(const binding of treeAdditions.tagBindings){const targetType=(await client.query("SELECT id FROM new_design.card_types WHERE space_id=$1 AND source_card_type_id=$2",[spaceId,binding.sourceTypeId])).rows[0],targetDimension=(await client.query("SELECT id FROM new_design.material_tag_dimensions WHERE owner_space_id=$1 AND source_dimension_id=$2",[spaceId,binding.sourceDimensionId])).rows[0];if(!targetType||!targetDimension)continue;if((await client.query("SELECT 1 FROM new_design.card_type_tag_bindings WHERE card_type_id=$1 AND dimension_id=$2 AND status='active'",[targetType.id,targetDimension.id])).rowCount)continue;const mappedTags=await client.query("SELECT id,source_tag_id FROM new_design.material_tags WHERE dimension_id=$1 AND source_tag_id IS NOT NULL",[targetDimension.id]),tagIds=new Map(mappedTags.rows.map(row=>[String(row.source_tag_id),String(row.id)])),config=remapTagBindingConfig(binding.config,tagIds),bindingId=randomUUID(),versionId=randomUUID();await client.query("INSERT INTO new_design.card_type_tag_bindings(id,card_type_id,dimension_id,config) VALUES($1,$2,$3,$4::jsonb)",[bindingId,targetType.id,targetDimension.id,JSON.stringify(config)]);await client.query("INSERT INTO new_design.card_type_tag_binding_versions(id,binding_id,version,config,status,created_by) VALUES($1,$2,1,$3::jsonb,'active','template_sync')",[versionId,bindingId,JSON.stringify(config)]);await client.query("UPDATE new_design.card_type_tag_bindings SET current_version_id=$2 WHERE id=$1",[bindingId,versionId]);}
+  for(const binding of treeAdditions.tagBindings){
+    const targetType=(await client.query("SELECT id FROM new_design.card_types WHERE space_id=$1 AND source_card_type_id=$2",[spaceId,binding.sourceTypeId])).rows[0];
+    const targetDimension=(await listRecordCards(client,'material_tag_dimension',{where:{owner_space_id:spaceId,source_dimension_id:binding.sourceDimensionId}}))[0];
+    if(!targetType||!targetDimension)continue;
+    if((await listRecordCards(client,'card_type_tag_binding',{where:{card_type_id:targetType.id,dimension_id:targetDimension.id,status:'active'}})).length)continue;
+    const tags=await listRecordCards(client,'material_tag',{where:{dimension_id:targetDimension.id}});
+    const tagIds=new Map(tags.filter(row=>row.source_tag_id).map(row=>[String(row.source_tag_id),row.id]));
+    const id=randomUUID(),versionId=randomUUID(),config=remapTagBindingConfig(binding.config,tagIds);
+    await createRecordCard(client,{id,spaceId,typeKey:'card_type_tag_binding',title:'类型标签规则',values:{id,card_type_id:targetType.id,dimension_id:targetDimension.id,config,status:'active',current_version_id:versionId,revision:1,created_at:now,updated_at:now}});
+    await createRecordCard(client,{id:versionId,spaceId,typeKey:'card_type_tag_binding_version',title:'类型标签规则',values:{id:versionId,binding_id:id,version:1,config,status:'active',created_by:actor,created_at:now}});
+  }
 }
 
 async function remapTreeFieldsForBook(client:PoolClient,spaceId:string,fields:FieldDefinition[]):Promise<FieldDefinition[]>{
-  const dictionaryRows=await client.query("SELECT id,source_dictionary_id FROM new_design.dictionary_definitions WHERE owner_space_id=$1 AND source_dictionary_id IS NOT NULL",[spaceId]),dictionaryIds=new Map(dictionaryRows.rows.map(row=>[String(row.source_dictionary_id),String(row.id)]));
-  const itemRows=await client.query("SELECT item.id,item.source_item_id FROM new_design.dictionary_items item JOIN new_design.dictionary_definitions dictionary ON dictionary.id=item.dictionary_id WHERE dictionary.owner_space_id=$1 AND item.source_item_id IS NOT NULL",[spaceId]),itemIds=new Map(itemRows.rows.map(row=>[String(row.source_item_id),String(row.id)]));
+  const dictionaries=await listRecordCards(client,'dictionary_definition',{where:{owner_space_id:spaceId}});
+  const dictionaryIds=new Map(dictionaries.filter(row=>row.source_dictionary_id).map(row=>[String(row.source_dictionary_id),row.id]));
+  const itemIds=new Map<string,string>();
+  for(const dictionary of dictionaries)for(const row of await listRecordCards(client,'dictionary_item',{where:{dictionary_id:dictionary.id}}))if(row.source_item_id)itemIds.set(String(row.source_item_id),row.id);
   return remapDictionaryTreeFields(fields,dictionaryIds,itemIds);
 }
 
@@ -346,7 +484,7 @@ export async function applyBookSync(syncId:string):Promise<TemplateSyncPreview>{
   const pool=await getNewDesignPool(),client=await pool.connect();
   try{
     await client.query("BEGIN");
-    const sync=assertFound((await client.query("SELECT * FROM new_design.book_template_syncs WHERE id=$1 FOR UPDATE",[syncId])).rows[0],"同步建议不存在。");
+    const sync=assertFound(await findRecordCard(client,syncId,'book_template_sync',{lock:true}),"同步建议不存在。");
     if(sync.status==='applied'){const saved=sync.tree_additions?.receipt;if(!saved)throw new NewDesignError("原升级缺少当次结果回执，请保留原凭证核对。",409);await client.query("COMMIT");return saved as TemplateSyncPreview;}
     if(sync.status!=="previewed")throw new NewDesignError("此同步建议已经处理。",409);
     const book=assertFound((await client.query("SELECT * FROM new_design.books WHERE id=$1 FOR UPDATE",[sync.book_id])).rows[0],"书籍不存在。");
@@ -364,10 +502,11 @@ export async function applyBookSync(syncId:string):Promise<TemplateSyncPreview>{
       await client.query("UPDATE new_design.card_types SET draft_fields=$2::jsonb,current_version_id=$3,revision=revision+1,updated_at=now() WHERE id=$1",[type.id,JSON.stringify(fields),versionId]);
       await installNonSettlementFields(client,String(book.space_id),String(type.type_key),mappedFields);
     }
-    const target=assertFound((await client.query("SELECT * FROM new_design.template_group_versions WHERE id=$1",[sync.to_template_version_id])).rows[0],"目标模板版本不存在。");
+    const target=assertFound(await findRecordCard(client,String(sync.to_template_version_id),'template_group_version'),"目标模板版本不存在。");
+    if(target.template_id!==book.template_id)throw new NewDesignError("目标模板版本不属于当前模板。",409);
     await client.query("UPDATE new_design.books SET template_version_id=$2,installed_payload=$3::jsonb,revision=revision+1,updated_at=now() WHERE id=$1",[book.id,target.id,JSON.stringify(installedSyncPayload(book.installed_payload as TemplatePayload,sync.additions as TemplateSyncPreview["additions"],treeAdditions))]);
     const result:TemplateSyncPreview={id:syncId,bookId:String(sync.book_id),fromTemplateVersionId:String(sync.from_template_version_id),toTemplateVersionId:String(sync.to_template_version_id),additions:sync.additions as TemplateSyncPreview["additions"],treeAdditions:{dictionaries:treeAdditions.dictionaries,tagDimensions:treeAdditions.tagDimensions,tagBindings:treeAdditions.tagBindings},conflicts:sync.conflicts as TemplateSyncPreview["conflicts"],status:"applied"};
-    await client.query("UPDATE new_design.book_template_syncs SET status='applied',applied_at=now(),tree_additions=$2::jsonb WHERE id=$1",[syncId,JSON.stringify({...treeAdditions,receipt:result})]);
+    await replaceRecordCard(client,{id:syncId,spaceId:sync.recordSpaceId,typeKey:'book_template_sync',values:{...sync,status:'applied',applied_at:new Date().toISOString(),tree_additions:{...treeAdditions,receipt:result}}});
     await client.query("COMMIT");return result;
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }

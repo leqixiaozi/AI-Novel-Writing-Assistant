@@ -1,3 +1,5 @@
+import {findRecordCard,listRecordCards} from '../recordCards';
+import {readCardLocalSnapshot} from '../fieldExtensions/localValues';
 import {fieldInCharacterSection} from "../../../common/formPresentation";
 import {resolveBookFormVersion} from "../referenceParity";
 import {randomUUID} from 'node:crypto';
@@ -12,12 +14,19 @@ import {worldUsageCreativeScopes} from '../../../common/worldUsage';
 
 export async function freezeStoryBatch(db:PoolClient,bookId:string,request:StoryBatchRequest):Promise<StoryBatchPromptInput>{
  const book=assertFound((await db.query("SELECT id,space_id,name,description FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],'书籍不存在或已归档。');
- const materials=(await db.query(`SELECT card.id,card.current_version_id,card.card_type_id,card.revision,card.title,card.values,type.type_key FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active' AND type.type_key<>'character_author_guidance' AND card.current_version_id IS NOT NULL ORDER BY card.id LIMIT 301`,[book.space_id])).rows;
+ const materials=(await db.query(`SELECT card.id,card.current_version_id,card.card_type_id,card.revision,card.title,card.values,type.type_key FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id WHERE card.space_id=$1 AND card.status='active' AND NOT type.is_internal AND type.type_key<>'character_author_guidance' AND card.current_version_id IS NOT NULL ORDER BY card.id LIMIT 301`,[book.space_id])).rows;
  if(materials.length>300)throw new NewDesignError('本书资料超过单次准备范围，请缩小资料数量后再准备候选。',422);
- const plans=(await db.query(`SELECT object.*,version.content,parent.adopted_version_id parent_version_id FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.current_version_id LEFT JOIN new_design.planning_objects parent ON parent.id=object.parent_object_id WHERE object.book_id=$1 AND object.status='active' ORDER BY object.sort_order,object.id`,[bookId])).rows;
- const adoptedPlans=(await db.query(`SELECT object.id,object.title,version.id version_id,version.content FROM new_design.planning_objects object JOIN new_design.planning_versions version ON version.id=object.adopted_version_id WHERE object.book_id=$1 AND object.status='active' ORDER BY object.id LIMIT 301`,[bookId])).rows;
+ const objects=(await listRecordCards(db,'planning_object',{where:{book_id:bookId,status:'active'}})).sort((a,b)=>Number(a.sort_order)-Number(b.sort_order)||a.id.localeCompare(b.id));
+ const plans:Record<string,any>[]=[],adoptedPlans:Record<string,any>[]=[];
+ for(const object of objects){
+  const version=object.current_version_id?await findRecordCard(db,object.current_version_id,'planning_version'):null,parent=object.parent_object_id?objects.find(item=>item.id===object.parent_object_id):null;
+  if(version)plans.push({...object,content:version.content,parent_version_id:parent?.adopted_version_id??null});
+  const adopted=object.adopted_version_id?await findRecordCard(db,object.adopted_version_id,'planning_version'):null;
+  if(adopted)adoptedPlans.push({id:object.id,title:object.title,version_id:adopted.id,content:adopted.content});
+ }
+ adoptedPlans.sort((a,b)=>String(a.id).localeCompare(String(b.id)));
  if(adoptedPlans.length>300)throw new NewDesignError('本书已采用规划超过单次上下文范围。请先整理规划范围。',422);
- const references=(await db.query("SELECT planning_version_id,reference_role,card_id,card_version_id FROM new_design.planning_version_references WHERE book_id=$1 AND planning_version_id=ANY($2::uuid[])",[bookId,plans.map(plan=>plan.current_version_id)])).rows;
+ const planIds=new Set(plans.map(plan=>plan.current_version_id)),references=(await listRecordCards(db,'planning_version_reference',{where:{book_id:bookId}})).filter(row=>planIds.has(row.planning_version_id));
  const slots:StoryBatchSlot[]=[];
  if(request.mode==='setting'){
   const types=(await db.query("SELECT id,current_version_id FROM new_design.card_types WHERE space_id=$1 AND status='published' AND current_version_id IS NOT NULL AND id=ANY($2::uuid[])",[book.space_id,request.typeIds])).rows;
@@ -29,7 +38,7 @@ export async function freezeStoryBatch(db:PoolClient,bookId:string,request:Story
   for(const {card,type} of targets){
    const target:FormAssistTarget={bookId,cardTypeId:type.id,cardId:card?.id??null,typeVersionId:type.current_version_id,cardRevision:card?Number(card.revision):null,formVersionId:null,title:card?.title??''};
    // Scoped values are read with their original definitions by the existing source contract.
-   const locals=card?(await db.query(`SELECT definition.field_key,local.value FROM new_design.cards card JOIN new_design.card_version_local_values local ON local.card_version_id=card.current_version_id JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE card.id=$1 AND definition.scope='card' AND definition.status='active'`,[card.id])).rows:[];
+   const locals=card?await readCardLocalSnapshot(db,card.current_version_id):[];
    const values={...(card?.values??{}),...Object.fromEntries(locals.map(local=>[local.field_key,local.value]))};
    const snapshot=await freezeFormContext(db,target,values,[]);
    const fields=aiFormFields(snapshot,'prepare_all',[]);
@@ -43,7 +52,7 @@ export async function freezeStoryBatch(db:PoolClient,bookId:string,request:Story
    const type=assertFound((await db.query("SELECT current_version_id FROM new_design.card_types WHERE id=$1 AND space_id=$2 AND status='published'",[card.card_type_id,book.space_id])).rows[0],'人物填写规格未发布。');
    const selected=await resolveBookFormVersion(db,String(book.space_id),'character');
    const target:FormAssistTarget={bookId,cardTypeId:card.card_type_id,cardId:card.id,typeVersionId:type.current_version_id,cardRevision:Number(card.revision),formVersionId:selected?String(selected.id):null,title:card.title};
-   const locals=(await db.query("SELECT definition.field_key,local.value FROM new_design.cards card JOIN new_design.card_version_local_values local ON local.card_version_id=card.current_version_id JOIN new_design.field_definitions definition ON definition.id=local.field_definition_id WHERE card.id=$1 AND definition.scope='card' AND definition.status='active'",[card.id])).rows;
+   const locals=await readCardLocalSnapshot(db,card.current_version_id);
    const values={...card.values,...Object.fromEntries(locals.map(local=>[local.field_key,local.value]))},snapshot=await freezeFormContext(db,target,values,[]),keys=snapshot.fields.filter(field=>fieldInCharacterSection(field,'visible')).map(field=>field.key);
    const fields=keys.length?aiFormFields(snapshot,'adjust',keys):[];
    if(!fields.length)throw new NewDesignError(`“${card.title}”没有实际已发布且允许 AI 建议的外显字段，请先完善本书规格。`,422);

@@ -1,9 +1,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {parse,migrationFiles}=require('../scripts/install-card-kernel-v2.cjs');
+const {spawnSync}=require('node:child_process');
+const path=require('node:path');
+const {options}=require('../scripts/initialize-card-kernel.cjs');
 
-test('card kernel v2 installer locks the complete atomic migration set',()=>{
- assert.deepEqual(migrationFiles.map(name=>name.slice(0,3)),['123','124','125','126','127','128','129','130','131']);
- assert.deepEqual(parse(['--database','ai_novel_new_design','--confirm-atomic-cutover']),{database:'ai_novel_new_design',port:null,confirm:true});
- assert.deepEqual(parse(['--database','ai_novel_new_design','--port','55585','--confirm-atomic-cutover']),{database:'ai_novel_new_design',port:55585,confirm:true});
- for(const values of [[],['--database','ai_novel_new_design'],['--confirm-atomic-cutover'],['--database','bad-name','--confirm-atomic-cutover'],['--database','safe','--port','1','--confirm-atomic-cutover'],['--database','safe','--confirm-atomic-cutover','--again']])assert.throws(()=>parse(values));
+test('pure-table initialization requires a named independent empty database and explicit confirmation',()=>{
+ assert.deepEqual(options(['--database','nd_empty_check','--confirm-empty-database']),{database:'nd_empty_check',port:null,confirmed:true});
+ assert.deepEqual(options(['--database','nd_empty_check','--port','55585','--confirm-empty-database']),{database:'nd_empty_check',port:55585,confirmed:true});
+ for(const values of [[],['--database','nd_empty_check'],['--confirm-empty-database'],['--database','bad-name','--confirm-empty-database'],['--database','postgres','--confirm-empty-database'],['--database','template0','--confirm-empty-database'],['--database','template1','--confirm-empty-database'],['--database','safe','--port','1','--confirm-empty-database'],['--database','safe','--confirm-empty-database','--again'],['--database','safe','--confirm-empty-database','--confirm-empty-database']])assert.throws(()=>options(values));
+});
+
+test('superseded destructive cutover entry refuses instead of applying historical migrations',()=>{
+ const result=spawnSync(process.execPath,[path.join(__dirname,'../scripts/install-card-kernel-v2.cjs'),'--database','ai_novel_new_design','--confirm-atomic-cutover'],{encoding:'utf8'});
+ assert.equal(result.status,1);
+ assert.match(result.stderr,/132|纯表|空库/);
+ assert.doesNotMatch(result.stdout,/password|secret_envelope/i);
 });

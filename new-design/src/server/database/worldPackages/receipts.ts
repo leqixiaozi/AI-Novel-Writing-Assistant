@@ -2,11 +2,12 @@ import type {PoolClient} from 'pg';
 import {getNewDesignPool} from '../runtime';
 import {formHash} from '../formAssist';
 import {NewDesignError} from '../../domain/errors';
+import {findRecordCardByValue} from '../recordCards';
 
 export class WorldPackageWriteError extends NewDesignError {constructor(message:string,status:number,public readonly mutationOutcome:'not_written'|'unknown',issues?:Record<string,string>){super(message,status,issues);}}
 export async function worldOriginal<T>(db:PoolClient,scope:string,input:unknown):Promise<T|null>{
  const raw=input as {requestKey?:string;input?:{requestKey:string}},requestKey=raw.requestKey??raw.input?.requestKey;
- const rows=scope==='public'?(await db.query('SELECT input_hash,receipt FROM new_design.world_package_versions WHERE request_key=$1',[requestKey])).rows:scope==='catalog'?(await db.query('SELECT input_hash,receipt FROM new_design.world_package_catalog_actions WHERE request_key=$1',[requestKey])).rows:(await db.query("SELECT input_hash,receipt FROM new_design.world_package_installations WHERE book_id=$1 AND request_key=$2 AND origin='import' UNION ALL SELECT input_hash,receipt FROM new_design.world_package_sync_commands WHERE book_id=$1 AND request_key=$2 UNION ALL SELECT input_hash,receipt FROM new_design.world_library_commands WHERE book_id=$1 AND request_key=$2",[scope,requestKey])).rows;
+ const rows=scope==='public'?[await findRecordCardByValue(db,'world_package_snapshot','request_key',String(requestKey))].filter(Boolean):scope==='catalog'?[await findRecordCardByValue(db,'world_package_catalog_action','request_key',String(requestKey))].filter(Boolean):(await Promise.all(['world_package_installation','world_package_sync_command','world_library_command'].map(type=>findRecordCardByValue(db,type,'request_key',String(requestKey))))).filter(row=>row&&row.book_id===scope&&(row.origin===undefined||row.origin==='import'));
  if(rows.length>1)throw new WorldPackageWriteError('原键存在多个世界凭证，请保留完整输入核对，未选择或覆盖旧结果。',503,'unknown');const result=rows[0];
  if(!result)return null;
  if(result.input_hash!==formHash({scope,input}))throw new WorldPackageWriteError('原键对应的完整世界请求不同，保留原结果并只读核对。',409,'unknown');

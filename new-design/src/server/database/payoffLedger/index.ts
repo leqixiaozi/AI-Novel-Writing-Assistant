@@ -1,3 +1,4 @@
+import {storyRecordCtes,insertStoryRecords,lockedStoryRecordQuery} from '../storyTimeline/persistence';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {classifyPayoffStatus,type PayoffLedgerItem,type PayoffLedgerSource,type PayoffLedgerWorkspace,type PayoffWindowReceipt,type SavePayoffWindowInput} from '../../../common/payoffLedger';
@@ -17,7 +18,7 @@ function windowReceipt(row:Row):PayoffWindowReceipt{return{
 };}
 
 async function windowInstalled(client:Pick<PoolClient,'query'>):Promise<boolean>{
-  const result=await client.query("SELECT to_regclass('new_design.payoff_window_versions') IS NOT NULL AND to_regclass('new_design.payoff_windows') IS NOT NULL AS installed");
+  const result=await client.query("SELECT count(DISTINCT type_key)=2 AS installed FROM new_design.card_types WHERE type_key IN ('payoff_window_version','payoff_window') AND status='published'");
   return result.rows[0]?.installed===true;
 }
 
@@ -32,45 +33,54 @@ export async function getPayoffLedger(bookId:string):Promise<PayoffLedgerWorkspa
     void book;
     const installed=await windowInstalled(client);
     const [cards,plans,placements,settlements,chapters,scopedFields,windows]=await serialRows([
-      ()=>rows(client,bookId,`SELECT card.id,card.card_type_id,card.current_version_id,version.title,version.values,card.updated_at,
+      ()=>rows(client,bookId,`WITH ${storyRecordCtes.state_type_capabilities},
+${storyRecordCtes.state_field_policies}
+SELECT card.id,card.card_type_id,card.current_version_id,version.title,version.values,card.updated_at,
           type_version.fields type_fields,type.draft_fields,type.status type_status,
           capability.settlement_capability,capability.state_mode,policy.settlement_policy
         FROM new_design.books book JOIN new_design.cards card ON card.space_id=book.space_id AND card.status='active'
         JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='foreshadow'
         JOIN new_design.card_type_versions type_version ON type_version.id=type.current_version_id
         JOIN new_design.card_versions version ON version.id=card.current_version_id AND version.card_id=card.id
-        LEFT JOIN LATERAL (SELECT entry.settlement_capability,entry.state_mode FROM new_design.state_type_capabilities entry
+        LEFT JOIN LATERAL (SELECT entry.settlement_capability,entry.state_mode FROM state_type_capabilities entry
           WHERE entry.type_key='foreshadow' AND entry.space_id IN (book.space_id,'00000000-0000-4000-8000-000000000001'::uuid)
           ORDER BY (entry.space_id=book.space_id) DESC LIMIT 1) capability ON true
-        LEFT JOIN LATERAL (SELECT entry.settlement_policy FROM new_design.state_field_policies entry
+        LEFT JOIN LATERAL (SELECT entry.settlement_policy FROM state_field_policies entry
           WHERE entry.type_key='foreshadow' AND entry.field_key='status'
             AND entry.space_id IN (book.space_id,'00000000-0000-4000-8000-000000000001'::uuid)
           ORDER BY (entry.space_id=book.space_id) DESC LIMIT 1) policy ON true
         WHERE book.id=$1 ORDER BY version.title,card.id`),
-      ()=>rows(client,bookId,`SELECT reference.id,reference.card_id,reference.card_version_id,reference.action_key,reference.note,
+      ()=>rows(client,bookId,`WITH ${storyRecordCtes.planning_objects},
+${storyRecordCtes.planning_versions},
+${storyRecordCtes.planning_version_references}
+SELECT reference.id,reference.card_id,reference.card_version_id,reference.action_key,reference.note,
         object.id object_id,object.title plan_title,object.level,plan.id plan_version_id,document.logical_order
-        FROM new_design.planning_objects object
-        JOIN new_design.planning_versions plan ON plan.id=object.adopted_version_id AND plan.status='adopted' AND plan.stale_at IS NULL
-        JOIN new_design.planning_version_references reference ON reference.planning_version_id=plan.id AND reference.reference_role='foreshadow'
+        FROM planning_objects object
+        JOIN planning_versions plan ON plan.id=object.adopted_version_id AND plan.status='adopted' AND plan.stale_at IS NULL
+        JOIN planning_version_references reference ON reference.planning_version_id=plan.id AND reference.reference_role='foreshadow'
         LEFT JOIN new_design.chapter_documents document ON document.book_id=object.book_id AND document.chapter_card_id=object.card_id AND document.status='active'
         WHERE object.book_id=$1 AND object.status='active'
         ORDER BY document.logical_order NULLS LAST,reference.id`),
-      ()=>rows(client,bookId,`SELECT placement.id,placement.subject_card_id,placement.role,chapter.title chapter_title,document.logical_order
-        FROM new_design.books book JOIN new_design.narrative_placements placement ON placement.space_id=book.space_id AND placement.status='active'
+      ()=>rows(client,bookId,`WITH ${storyRecordCtes.narrative_placements}
+SELECT placement.id,placement.subject_card_id,placement.role,chapter.title chapter_title,document.logical_order
+        FROM new_design.books book JOIN narrative_placements placement ON placement.space_id=book.space_id AND placement.status='active'
         JOIN new_design.cards chapter ON chapter.id=placement.chapter_card_id AND chapter.status='active'
         LEFT JOIN new_design.chapter_documents document ON document.book_id=book.id AND document.chapter_card_id=chapter.id AND document.status='active'
         WHERE book.id=$1 AND placement.role IN ('plant','reinforce','reveal','recover') ORDER BY document.logical_order NULLS LAST,placement.id`),
-      ()=>rows(client,bookId,`SELECT change.id,change.subject_id,change.after_json,change.sequence,change.state_key,
+      ()=>rows(client,bookId,`WITH ${storyRecordCtes.state_changes},
+${storyRecordCtes.chapter_stable_checkpoints}
+SELECT change.id,change.subject_id,change.after_json,change.sequence,change.state_key,
         document.logical_order,settlement.id settlement_id
-        FROM new_design.state_changes change
+        FROM state_changes change
         JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id AND settlement.status='committed'
-        JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.settlement_id=settlement.id AND checkpoint.status='stable'
+        JOIN chapter_stable_checkpoints checkpoint ON checkpoint.settlement_id=settlement.id AND checkpoint.status='stable'
         JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id AND document.status='active'
           AND document.adopted_version_id=settlement.body_version_id
         WHERE change.book_id=$1 AND change.subject_kind='card' AND change.status='active' AND change.state_key='status'
         ORDER BY document.logical_order,change.sequence`),
-      ()=>rows(client,bookId,`SELECT document.logical_order,EXISTS(
-          SELECT 1 FROM new_design.chapter_stable_checkpoints checkpoint
+      ()=>rows(client,bookId,`WITH ${storyRecordCtes.chapter_stable_checkpoints}
+SELECT document.logical_order,EXISTS(
+          SELECT 1 FROM chapter_stable_checkpoints checkpoint
           JOIN new_design.chapter_settlements settlement ON settlement.id=checkpoint.settlement_id AND settlement.status='committed'
           WHERE checkpoint.chapter_document_id=document.id AND checkpoint.status='stable'
             AND document.adopted_version_id=settlement.body_version_id
@@ -84,9 +94,11 @@ export async function getPayoffLedger(bookId:string):Promise<PayoffLedgerWorkspa
         WHERE book.id=$1 AND definition.status='active' AND definition.scope IN ('book_type','card')
           AND definition.field_key='status'
         ORDER BY definition.created_at,definition.id`),
-      ()=>installed?rows(client,bookId,`SELECT pointer.card_id,pointer.revision,version.id,version.book_id,version.version,
+      ()=>installed?rows(client,bookId,`WITH ${storyRecordCtes.payoff_windows},
+${storyRecordCtes.payoff_window_versions}
+SELECT pointer.card_id,pointer.revision,version.id,version.book_id,version.version,
           version.start_chapter_order,version.end_chapter_order,version.idempotency_key,version.created_at
-          FROM new_design.payoff_windows pointer JOIN new_design.payoff_window_versions version ON version.id=pointer.current_version_id
+          FROM payoff_windows pointer JOIN payoff_window_versions version ON version.id=pointer.current_version_id
           WHERE pointer.book_id=$1`):Promise.resolve([] as Row[]),
     ]);
     let throughStableChapterOrder=0;
@@ -137,7 +149,8 @@ export async function getPayoffLedger(bookId:string):Promise<PayoffLedgerWorkspa
 export async function getPayoffWindowRequest(bookId:string,idempotencyKey:string):Promise<PayoffWindowReceipt|null>{
   const pool=await getNewDesignPool();
   if(!(await windowInstalled(pool)))return null;
-  const row=(await pool.query(`SELECT version.*,version.version AS revision FROM new_design.payoff_window_versions version
+  const row=(await pool.query(`WITH ${storyRecordCtes.payoff_window_versions}
+SELECT version.*,version.version AS revision FROM payoff_window_versions version
     WHERE version.book_id=$1 AND version.idempotency_key=$2`,[bookId,idempotencyKey])).rows[0];
   return row?windowReceipt(row):null;
 }
@@ -151,22 +164,20 @@ export async function savePayoffWindow(bookId:string,cardId:string,input:SavePay
       JOIN new_design.cards card ON card.space_id=book.space_id AND card.id=$2 AND card.status='active'
       JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='foreshadow'
       WHERE book.id=$1 AND book.status='active' FOR UPDATE OF card`,[bookId,cardId])).rows[0],'本书伏笔不存在或已归档。');
-    const existing=(await client.query('SELECT * FROM new_design.payoff_window_versions WHERE book_id=$1 AND idempotency_key=$2',[bookId,input.idempotencyKey])).rows[0];
+    const existing=(await client.query(`WITH ${storyRecordCtes.payoff_window_versions}
+SELECT * FROM payoff_window_versions WHERE book_id=$1 AND idempotency_key=$2`,[bookId,input.idempotencyKey])).rows[0];
     if(existing){
       if(String(existing.card_id)!==cardId||numeric(existing.start_chapter_order)!==input.startChapterOrder||numeric(existing.end_chapter_order)!==input.endChapterOrder||Number(existing.version)-1!==input.expectedRevision)
         throw new NewDesignError('请求编号已用于不同目标窗口；请核对原回执。',409);
       await client.query('COMMIT');return windowReceipt({...existing,revision:existing.version});
     }
-    const pointer=(await client.query('SELECT revision FROM new_design.payoff_windows WHERE book_id=$1 AND card_id=$2 FOR UPDATE',[bookId,cardId])).rows[0];
+    const pointer=(await lockedStoryRecordQuery(client,`WITH ${storyRecordCtes.payoff_windows}
+SELECT revision FROM payoff_windows WHERE book_id=$1 AND card_id=$2`,[bookId,cardId])).rows[0];
     const revision=Number(pointer?.revision??0);
     if(revision!==input.expectedRevision)throw new NewDesignError('目标窗口版本已变化，请保留当前输入并重读后核对。',409);
     const id=randomUUID(),version=revision+1;
-    const created=(await client.query(`INSERT INTO new_design.payoff_window_versions
-      (id,book_id,card_id,version,start_chapter_order,end_chapter_order,idempotency_key)
-      VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[id,bookId,cardId,version,input.startChapterOrder,input.endChapterOrder,input.idempotencyKey])).rows[0];
-    await client.query(`INSERT INTO new_design.payoff_windows(book_id,card_id,current_version_id,revision)
-      VALUES($1,$2,$3,$4) ON CONFLICT(book_id,card_id) DO UPDATE
-      SET current_version_id=EXCLUDED.current_version_id,revision=EXCLUDED.revision,updated_at=now()`,[bookId,cardId,id,version]);
+    const created=(await insertStoryRecords(client,"payoff_window_version",`SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::uuid AS card_id,($4)::integer AS version,($5)::integer AS start_chapter_order,($6)::integer AS end_chapter_order,($7)::uuid AS idempotency_key`,[id,bookId,cardId,version,input.startChapterOrder,input.endChapterOrder,input.idempotencyKey])).rows[0];
+    await insertStoryRecords(client,"payoff_window",`SELECT ($1)::uuid AS book_id,($2)::uuid AS card_id,($3)::uuid AS current_version_id,($4)::integer AS revision`,[bookId,cardId,id,version],{keys:["book_id","card_id"],update:(previous,incoming)=>({current_version_id:incoming.current_version_id,revision:incoming.revision,updated_at:new Date().toISOString()})});
     await client.query('COMMIT');return windowReceipt({...created,revision:version});
   }catch(error){await client.query('ROLLBACK').catch(()=>undefined);if(missingRelation(error))throw new NewDesignError('目标窗口功能尚未安装；原伏笔资料和规划未改动。',503);throw error;}finally{client.release();}
 }

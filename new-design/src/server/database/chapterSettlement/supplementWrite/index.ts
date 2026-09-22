@@ -1,3 +1,4 @@
+import {insertSettlementRecords,settlementRecordCtes,updateSettlementRecords,lockedSettlementQuery} from '../recordStorage';
 import {captureBookHistoryInTransaction} from '../../bookHistory';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
@@ -23,51 +24,53 @@ export async function writeResourceSupplementMergedSettlementInTransaction(clien
   if((await client.query('SHOW transaction_isolation')).rows[0].transaction_isolation!=='serializable')throw new NewDesignError('资源补充合并需要同一完整来源事务。',409);
   return inSettlementTransaction(client,async()=>{
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`chapter_settlement_editing_book:${bookId}`]);
-    await client.query(`SELECT session.id FROM new_design.chapter_adoption_sessions session JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id
-      WHERE session.id=$1 AND session.book_id=$2 FOR UPDATE OF session,document`,[sessionId,bookId]);
+    await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT session.id FROM chapter_adoption_sessions session JOIN new_design.chapter_documents document ON document.id=session.chapter_document_id
+      WHERE session.id=$1 AND session.book_id=$2`,[sessionId,bookId]);
     const resources=await import('../../resourceSupplements');
     const impact=await resources.previewResourceSupplementSettlementInTransaction(client,bookId,sessionId);
     if(impact.sessionRevision!==input.expectedSessionRevision||impact.impactHash!==input.expectedImpactHash)throw new NewDesignError('原确认候选或下游来源已变化，请重新核对结算影响。',409);
     const review=await resources.readResourceSupplementImpactReviewForSettlementInTransaction(client,bookId,sessionId,input.reviewId,impact);
     const actual=await readResourceSupplementSettlementChangesInTransaction(client,bookId,sessionId),basis=actual.source.basis;
-    await client.query('SELECT id FROM new_design.chapter_stable_checkpoints WHERE id=$1 FOR UPDATE',[basis.checkpointId]);
+    await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_stable_checkpoints}
+SELECT id FROM chapter_stable_checkpoints WHERE id=$1`,[basis.checkpointId]);
     await client.query('SELECT id FROM new_design.chapter_settlement_items WHERE session_id=$1 ORDER BY id FOR UPDATE',[sessionId]);
     const settlementId=randomUUID(),checkpointId=randomUUID(),newStateChangeIds:string[]=[];
-    await client.query("UPDATE new_design.chapter_adoption_sessions SET status='settling',revision=revision+1,updated_at=now() WHERE id=$1",[sessionId]);
-    await client.query(`INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,from_status,to_status,actor,detail)
-      VALUES($1,$2,'settlement_started',$3,'settling','user',$4::jsonb)`,[randomUUID(),sessionId,actual.session.status,JSON.stringify({reviewId:review.reviewId,impactHash:impact.impactHash})]);
+    await updateSettlementRecords(client,"chapter_adoption_session",`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT chapter_adoption_sessions.*,('settling')::text AS status,(revision+1)::integer AS revision,(now())::timestamptz AS updated_at FROM chapter_adoption_sessions WHERE id=$1`,[sessionId]);
+    await insertSettlementRecords(client,"chapter_settlement_event",`SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('settlement_started')::text AS event_kind,($3)::text AS from_status,('settling')::text AS to_status,('user')::text AS actor,($4::jsonb)::jsonb AS detail`,[randomUUID(),sessionId,actual.session.status,JSON.stringify({reviewId:review.reviewId,impactHash:impact.impactHash})]);
     await client.query(`INSERT INTO new_design.chapter_settlements(id,book_id,chapter_document_id,body_version_id,status,idempotency_key,actor,note,supplement_base_checkpoint_id)
       VALUES($1,$2,$3,$4,'committed',$5,'user',$6,$7)`,[settlementId,bookId,basis.chapterDocumentId,basis.bodyVersionId,`resource-supplement:${input.requestKey}`,review.input.note,basis.checkpointId]);
     for(const change of actual.changes){
-      const proposal=(await client.query("SELECT * FROM new_design.state_change_proposals WHERE id=$1 AND book_id=$2 AND status='proposed' FOR UPDATE",[change.proposalId,bookId])).rows[0];
+      const proposal=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.state_change_proposals}
+SELECT * FROM state_change_proposals WHERE id=$1 AND book_id=$2 AND status='proposed'`,[change.proposalId,bookId])).rows[0];
       if(!proposal||proposal.before_known!==true||stableHash(proposal.before_json)!==stableHash(change.beforeValue)||stableHash(proposal.after_json)!==stableHash(change.afterValue))throw new NewDesignError('原资源提案前后值已变化，请保留原确认核对。',409);
       const id=randomUUID();
-      await client.query(`INSERT INTO new_design.state_changes(id,book_id,settlement_id,proposal_id,chapter_document_id,body_version_id,text_anchor_id,cause_event_card_id,
-        subject_kind,subject_id,state_key,before_json,after_json,delta_json,reason,effective_story_order)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16)`,[id,bookId,settlementId,proposal.id,basis.chapterDocumentId,basis.bodyVersionId,
+      await insertSettlementRecords(client,"state_change",`SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::uuid AS settlement_id,($4)::uuid AS proposal_id,($5)::uuid AS chapter_document_id,($6)::uuid AS body_version_id,($7)::uuid AS text_anchor_id,($8)::uuid AS cause_event_card_id,($9)::text AS subject_kind,($10)::uuid AS subject_id,($11)::text AS state_key,($12::jsonb)::jsonb AS before_json,($13::jsonb)::jsonb AS after_json,($14::jsonb)::jsonb AS delta_json,($15)::text AS reason,($16)::numeric AS effective_story_order`,[id,bookId,settlementId,proposal.id,basis.chapterDocumentId,basis.bodyVersionId,
         proposal.text_anchor_id,proposal.cause_event_card_id,proposal.subject_kind,proposal.subject_id,proposal.state_key,JSON.stringify(proposal.before_json),JSON.stringify(proposal.after_json),
         proposal.delta_json===null?null:JSON.stringify(proposal.delta_json),proposal.reason,proposal.effective_story_order]);
-      await client.query("UPDATE new_design.state_change_proposals SET status='confirmed',confirmed_state_change_id=$2,revision=revision+1,updated_at=now() WHERE id=$1",[proposal.id,id]);
+      await updateSettlementRecords(client,"state_change_proposal",`WITH ${settlementRecordCtes.state_change_proposals}
+SELECT state_change_proposals.*,('confirmed')::text AS status,($2)::uuid AS confirmed_state_change_id,(revision+1)::integer AS revision,(now())::timestamptz AS updated_at FROM state_change_proposals WHERE id=$1`,[proposal.id,id]);
       newStateChangeIds.push(id);
     }
-    await client.query(`UPDATE new_design.state_change_proposals proposal SET status='rejected',revision=proposal.revision+1,updated_at=now()
-      FROM new_design.chapter_settlement_items item WHERE item.session_id=$1 AND item.state_proposal_id=proposal.id AND item.decision='reject' AND proposal.status='proposed'`,[sessionId]);
+    await updateSettlementRecords(client,"state_change_proposal",`WITH ${settlementRecordCtes.state_change_proposals}
+SELECT proposal.*,('rejected')::text AS status,(proposal.revision+1)::integer AS revision,(now())::timestamptz AS updated_at FROM state_change_proposals proposal, new_design.chapter_settlement_items item WHERE item.session_id=$1 AND item.state_proposal_id=proposal.id AND item.decision='reject' AND proposal.status='proposed'`,[sessionId]);
     const confirmed={facts:[...basis.confirmed.facts],knowledge:[...basis.confirmed.knowledge],states:[...basis.confirmed.states,...newStateChangeIds]};
     const summary={...basis.original.checkpoint as Record<string,unknown>};
     const mergedSummary={...summary.summary as Record<string,unknown>,confirmed,
       rejected:[...((summary.summary as Record<string,unknown>).rejected as string[]??[]),...actual.items.filter(item=>item.decision==='reject').map(item=>String(item.id))],
       supplementBaseCheckpointId:basis.checkpointId,supplementReviewId:review.reviewId,supplementImpactHash:impact.impactHash};
-    await client.query("UPDATE new_design.chapter_stable_checkpoints SET status='superseded' WHERE id=$1 AND status='stable'",[basis.checkpointId]);
-    await client.query(`INSERT INTO new_design.chapter_stable_checkpoints(id,book_id,chapter_document_id,body_version_id,session_id,settlement_id,previous_checkpoint_id,chapter_order,summary,dependency_hash)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)`,[checkpointId,bookId,basis.chapterDocumentId,basis.bodyVersionId,sessionId,settlementId,basis.checkpointId,basis.chapterOrder,
+    await updateSettlementRecords(client,"chapter_stable_checkpoint",`WITH ${settlementRecordCtes.chapter_stable_checkpoints}
+SELECT chapter_stable_checkpoints.*,('superseded')::text AS status FROM chapter_stable_checkpoints WHERE id=$1 AND status='stable'`,[basis.checkpointId]);
+    await insertSettlementRecords(client,"chapter_stable_checkpoint",`SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::uuid AS chapter_document_id,($4)::uuid AS body_version_id,($5)::uuid AS session_id,($6)::uuid AS settlement_id,($7)::uuid AS previous_checkpoint_id,($8)::integer AS chapter_order,($9::jsonb)::jsonb AS summary,($10)::char(64) AS dependency_hash`,[checkpointId,bookId,basis.chapterDocumentId,basis.bodyVersionId,sessionId,settlementId,basis.checkpointId,basis.chapterOrder,
       JSON.stringify(mergedSummary),stableHash({sessionId,settlementId,bodyVersionId:basis.bodyVersionId,summary:mergedSummary})]);
     await registerResourceSupplementStateSourcesInTransaction(client,bookId,basis.chapterDocumentId,settlementId,newStateChangeIds);
     // Projections, downstream journals/fences and the full formal original belong
     // to the resource supplement commit command in this same transaction.
-    await client.query("UPDATE new_design.chapter_adoption_sessions SET settlement_id=$2,status='stable',revision=revision+1,error_summary='',updated_at=now() WHERE id=$1",[sessionId,settlementId]);
+    await updateSettlementRecords(client,"chapter_adoption_session",`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT chapter_adoption_sessions.*,($2)::uuid AS settlement_id,('stable')::text AS status,(revision+1)::integer AS revision,('')::text AS error_summary,(now())::timestamptz AS updated_at FROM chapter_adoption_sessions WHERE id=$1`,[sessionId,settlementId]);
     const result:ResourceSupplementMergedWrite={sessionId,settlementId,checkpointId,baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,newStateChangeIds,confirmed,reviewId:review.reviewId,impactHash:impact.impactHash};
-    await client.query(`INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,from_status,to_status,idempotency_key,actor,detail)
-      VALUES($1,$2,'settlement_committed','settling','stable',$3,'user',$4::jsonb)`,[randomUUID(),sessionId,`resource-supplement:${input.requestKey}`,JSON.stringify(result)]);
+    await insertSettlementRecords(client,"chapter_settlement_event",`SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('settlement_committed')::text AS event_kind,('settling')::text AS from_status,('stable')::text AS to_status,($3)::text AS idempotency_key,('user')::text AS actor,($4::jsonb)::jsonb AS detail`,[randomUUID(),sessionId,`resource-supplement:${input.requestKey}`,JSON.stringify(result)]);
     await captureBookHistoryInTransaction(client,{bookId,requestKey:checkpointId,kind:"auto_milestone",label:`第 ${basis.chapterOrder} 章正式补录后的规划与正文`,sourceId:checkpointId});
     return result;
   });

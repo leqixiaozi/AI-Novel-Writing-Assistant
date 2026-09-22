@@ -1,3 +1,4 @@
+import {canonicalFactConflictRows,canonicalFactEvidenceRows,canonicalFactRows,chapterAdoptionSessionRows,chapterStableCheckpointRows,currentKnowledgeStateProjectionRows,currentStateProjectionRows,entityInitialStateRows,entityInitialStateVersionRows,epistemicClaimRows,knowledgeStateChangeRows,knowledgeStateProposalRows,knowledgeStateProposalVersionRows,researchEvidenceRows,researchRecordRows,researchRecordVersionRows,stateChangeProposalRows,stateChangeRows} from './persistence';
 import {createHash} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {NewDesignError,assertFound} from '../../domain/errors';
@@ -58,7 +59,7 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     const row=assertFound((await client.query<Row>(`SELECT card.id,card.title,card.current_version_id,version.title version_title,
       version.values,version.type_version_id,version.revision,type.name type_name
       FROM new_design.cards card JOIN new_design.card_versions version ON version.id=card.current_version_id AND version.card_id=card.id
-      JOIN new_design.card_types type ON type.id=card.card_type_id AND type.status='published'
+      JOIN new_design.card_types type ON type.id=card.card_type_id AND NOT type.is_internal AND type.status='published'
       WHERE card.id=$1 AND card.space_id=$2 AND card.status='active'`,[key,spaceId])).rows[0],
       '连续性来源关联的本书正式资料或精确版本不可用，请返回资料维护核对。');
     identity(row.current_version_id,'资料当前版本');cards.set(key,row);return row;
@@ -91,9 +92,9 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
       checkpoint.session_id,checkpoint.settlement_id,checkpoint.dependency_hash,checkpoint.summary confirmed_summary,session.context_manifest_id
       FROM new_design.chapter_body_versions body JOIN new_design.chapter_documents document ON document.id=body.chapter_document_id
         AND document.book_id=$1 AND document.status='active' AND document.adopted_version_id=body.id
-      JOIN new_design.chapter_stable_checkpoints checkpoint ON checkpoint.book_id=document.book_id
+      JOIN ${chapterStableCheckpointRows} checkpoint ON checkpoint.book_id=document.book_id
         AND checkpoint.chapter_document_id=document.id AND checkpoint.body_version_id=body.id AND checkpoint.status='stable'
-      JOIN new_design.chapter_adoption_sessions session ON session.id=checkpoint.session_id AND session.book_id=document.book_id
+      JOIN ${chapterAdoptionSessionRows} session ON session.id=checkpoint.session_id AND session.book_id=document.book_id
         AND session.chapter_document_id=document.id AND session.body_version_id=body.id AND session.settlement_id=checkpoint.settlement_id AND session.status='stable'
       JOIN new_design.chapter_settlements settlement ON settlement.id=checkpoint.settlement_id AND settlement.book_id=document.book_id
         AND settlement.chapter_document_id=document.id AND settlement.body_version_id=body.id AND settlement.status='committed'
@@ -104,7 +105,7 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     bodies.set(key,row);return row;
   }
   async function anchor(id:unknown,expectedBody?:unknown):Promise<Row> {
-    const row=assertFound((await client.query<Row>('SELECT * FROM new_design.chapter_text_anchors WHERE id=$1 AND book_id=$2 AND status=\'active\'',[identity(id,'文本证据'),bookId])).rows[0],'连续性文本证据已失效，请回原章节核对。');
+    const row=assertFound((await client.query<Row>(`SELECT * FROM new_design.text_anchors WHERE id=$1 AND book_id=$2 AND status='active'`,[identity(id,'文本证据'),bookId])).rows[0],'连续性文本证据已失效，请回原章节核对。');
     if(expectedBody!==undefined&&row.body_version_id!==expectedBody)throw new NewDesignError('连续性文本证据与结算正文版本不同。',409);
     const original=await body(row.body_version_id,row.chapter_document_id),text=String(original.content),start=Number(row.start_offset),end=Number(row.end_offset);
     if(!Number.isInteger(start)||!Number.isInteger(end)||start<0||end<=start||end>text.length||text.slice(start,end)!==row.excerpt||sha(String(row.excerpt))!==row.fragment_hash)throw new NewDesignError('连续性证据的片段、范围或哈希不一致，请回原章节重新核对证据。',409);
@@ -112,10 +113,10 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     return {...row,bodyContentHash:original.content_hash,stableCheckpointId:original.checkpoint_id};
   }
 
-  const facts=bounded((await client.query<Row>('SELECT * FROM new_design.canonical_facts WHERE book_id=$1 AND status=\'confirmed\' ORDER BY id LIMIT 301',[bookId])).rows,'已确认事实');
+  const facts=bounded((await client.query<Row>(`SELECT * FROM ${canonicalFactRows} canonical_fact_rows_record WHERE book_id=$1 AND status='confirmed' ORDER BY id LIMIT 301`,[bookId])).rows,'已确认事实');
   for(const fact of facts) {
     const owner=await card(fact.subject_card_id),object=fact.object_card_id?await card(fact.object_card_id):null;
-    const evidence=bounded((await client.query<Row>('SELECT * FROM new_design.canonical_fact_evidence WHERE fact_id=$1 ORDER BY id LIMIT 301',[fact.id])).rows,'单条事实证据');
+    const evidence=bounded((await client.query<Row>(`SELECT * FROM ${canonicalFactEvidenceRows} canonical_fact_evidence_rows_record WHERE fact_id=$1 ORDER BY id LIMIT 301`,[fact.id])).rows,'单条事实证据');
     const verified:Row[]=[];
     for(const entry of evidence) {
       if(entry.stale_at)throw new NewDesignError('已确认事实仍关联失效证据，请回原章节或事实审阅核对后再生成。',409);
@@ -128,8 +129,8 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
       } else if(entry.research_evidence_id) {
         const source=assertFound((await client.query<Row>(`SELECT evidence.*,version.run_hash,version.source_scope,record.title record_title,
           document.content_hash document_content_hash,document.id document_version_id
-          FROM new_design.research_evidence evidence JOIN new_design.research_record_versions version ON version.id=evidence.research_version_id AND version.run_status='completed'
-          JOIN new_design.research_records record ON record.id=version.record_id AND record.status='active'
+          FROM ${researchEvidenceRows} evidence JOIN ${researchRecordVersionRows} version ON version.id=evidence.research_version_id AND version.run_status='completed'
+          JOIN ${researchRecordRows} record ON record.id=version.record_id AND record.status='active'
           LEFT JOIN new_design.research_document_versions document ON document.id=evidence.source_document_version_id
           LEFT JOIN new_design.research_documents source_document ON source_document.id=document.document_id
           WHERE evidence.id=$1 AND (evidence.source_document_version_id IS NULL OR source_document.status='active')`,[entry.research_evidence_id])).rows[0],'已确认事实的精确研究证据不可用，请核对原研究来源。');
@@ -138,30 +139,30 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     }
     if(fact.source_method==='ai_extract'&&!verified.some(entry=>record(entry.source,'事实证据').body_version_id))throw new NewDesignError('AI 提取的已确认事实缺少有效原正文证据，不能作为正式连续性依据。',409);
     if(!verified.length)note('部分事实由作者直接确认，未关联正文证据；仍按作者确认来源展示，不冒充章节结算。');
-    const conflicts=bounded((await client.query<Row>('SELECT * FROM new_design.canonical_fact_conflicts WHERE book_id=$1 AND status=\'open\' AND (fact_a_id=$2 OR fact_b_id=$2) ORDER BY id LIMIT 301',[bookId,fact.id])).rows,'事实冲突');
+    const conflicts=bounded((await client.query<Row>(`SELECT * FROM ${canonicalFactConflictRows} canonical_fact_conflict_rows_record WHERE book_id=$1 AND status='open' AND (fact_a_id=$2 OR fact_b_id=$2) ORDER BY id LIMIT 301`,[bookId,fact.id])).rows,'事实冲突');
     if(conflicts.length)note('已确认事实存在尚未处理的正式冲突；原冲突与双方来源已保留，生成不能当作冲突已解决。');
     add('canonical_fact',fact.id,fact.id,await sourceHash('canonical_fact',fact.id,fact.id),{fact,subject:owner,object,evidence:verified,conflicts});
   }
 
   // A projection selects the currently effective source only. Its cached value is never
   // exported as a fact, and every selected source is checked against the original ledger.
-  const projections=bounded((await client.query<Row>('SELECT * FROM new_design.current_state_projections WHERE book_id=$1 ORDER BY subject_kind,subject_id,state_key LIMIT 301',[bookId])).rows,'当前状态');
+  const projections=bounded((await client.query<Row>(`SELECT * FROM ${currentStateProjectionRows} current_state_projection_rows_record WHERE book_id=$1 ORDER BY subject_kind,subject_id,state_key LIMIT 301`,[bookId])).rows,'当前状态');
   if(projections.some(projection=>projection.is_stale))throw new NewDesignError('当前状态的原来源已失效，请回原章节审阅与结算核对，不能使用缓存状态生成。',409);
   for(const projection of projections) {
     if(projection.is_stale)throw new NewDesignError('当前状态的原来源已失效，请回原章节审阅与结算核对，不能使用缓存状态生成。',409);
     const owner=await subject(projection.subject_kind,projection.subject_id);
     if(projection.source_initial_version_id) {
-      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(initial) initial,to_jsonb(initial_version) version FROM new_design.entity_initial_states initial
-        JOIN new_design.entity_initial_state_versions initial_version ON initial_version.id=initial.current_version_id AND initial_version.initial_state_id=initial.id
+      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(initial) initial,to_jsonb(initial_version) version FROM ${entityInitialStateRows} initial
+        JOIN ${entityInitialStateVersionRows} initial_version ON initial_version.id=initial.current_version_id AND initial_version.initial_state_id=initial.id
         WHERE initial.book_id=$1 AND initial.subject_kind=$2 AND initial.subject_id=$3 AND initial.state_key=$4 AND initial_version.id=$5`,[bookId,projection.subject_kind,projection.subject_id,projection.state_key,projection.source_initial_version_id])).rows[0],'当前初始状态的精确版本已变化，请核对初始状态来源。');
       const initial=record(row.initial,'初始状态'),version=record(row.version,'初始状态版本');
       if(stableHash(version.value_json)!==stableHash(projection.value_json))throw new NewDesignError('初始状态投影与精确源值不一致，请核对初始状态。',409);
       let sourceFact:Row|null=null;
-      if(version.source_fact_id)sourceFact=assertFound((await client.query<Row>('SELECT * FROM new_design.canonical_facts WHERE id=$1 AND book_id=$2 AND status=\'confirmed\'',[version.source_fact_id,bookId])).rows[0],'初始状态关联事实不再正式确认。');
+      if(version.source_fact_id)sourceFact=assertFound((await client.query<Row>(`SELECT * FROM ${canonicalFactRows} canonical_fact_rows_record WHERE id=$1 AND book_id=$2 AND status='confirmed'`,[version.source_fact_id,bookId])).rows[0],'初始状态关联事实不再正式确认。');
       add('entity_initial_state',initial.id,version.id,await sourceHash('entity_initial_state',initial.id,version.id),{initial,version,subject:owner,sourceFact,projectionRevision:projection.projection_revision,meaning:'作者明确建立的初始状态，不是章节已结算事实'});
     } else {
-      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal FROM new_design.state_changes change
-        JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id AND proposal.book_id=change.book_id
+      const row=assertFound((await client.query<Row>(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal FROM ${stateChangeRows} change
+        JOIN ${stateChangeProposalRows} proposal ON proposal.id=change.proposal_id AND proposal.book_id=change.book_id
           AND proposal.status='confirmed' AND proposal.confirmed_state_change_id=change.id
         JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id AND settlement.book_id=change.book_id
           AND settlement.chapter_document_id=change.chapter_document_id AND settlement.body_version_id=change.body_version_id AND settlement.status='committed'
@@ -175,13 +176,13 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     }
   }
 
-  const knowledge=bounded((await client.query<Row>('SELECT * FROM new_design.current_knowledge_state_projections WHERE book_id=$1 ORDER BY holder_kind,holder_key,claim_id LIMIT 301',[bookId])).rows,'当前人物与读者认知');
+  const knowledge=bounded((await client.query<Row>(`SELECT * FROM ${currentKnowledgeStateProjectionRows} current_knowledge_state_projection_rows_record WHERE book_id=$1 ORDER BY holder_kind,holder_key,claim_id LIMIT 301`,[bookId])).rows,'当前人物与读者认知');
   for(const projection of knowledge) {
     const row=assertFound((await client.query<Row>(`SELECT to_jsonb(change) change,to_jsonb(proposal) proposal,to_jsonb(knowledge_version) version,to_jsonb(claim) claim
-      FROM new_design.knowledge_state_changes change JOIN new_design.knowledge_state_proposals proposal ON proposal.id=change.proposal_id
+      FROM ${knowledgeStateChangeRows} change JOIN ${knowledgeStateProposalRows} proposal ON proposal.id=change.proposal_id
         AND proposal.book_id=change.book_id AND proposal.status='confirmed' AND proposal.confirmed_change_id=change.id AND proposal.current_version_id=change.proposal_version_id
-      JOIN new_design.knowledge_state_proposal_versions knowledge_version ON knowledge_version.id=change.proposal_version_id AND knowledge_version.proposal_id=proposal.id
-      JOIN new_design.epistemic_claims claim ON claim.id=change.claim_id AND claim.book_id=change.book_id
+      JOIN ${knowledgeStateProposalVersionRows} knowledge_version ON knowledge_version.id=change.proposal_version_id AND knowledge_version.proposal_id=proposal.id
+      JOIN ${epistemicClaimRows} claim ON claim.id=change.claim_id AND claim.book_id=change.book_id
       WHERE change.id=$1 AND change.book_id=$2 AND change.status='active' AND change.claim_id=$3 AND change.holder_kind=$4 AND change.holder_key=$5`,[projection.source_change_id,bookId,projection.claim_id,projection.holder_kind,projection.holder_key])).rows[0],'当前认知的原提案、确认版本或流水已失效，请回原章节认知审阅核对。');
     const change=record(row.change,'认知流水'),proposal=record(row.proposal,'认知提案'),version=record(row.version,'认知版本'),claim=record(row.claim,'认知内容');
     if(change.stance!==projection.stance||change.holder_card_id!==projection.holder_card_id||stableHash(change.confidence)!==stableHash(projection.confidence)||change.stance!==version.stance||stableHash(change.confidence)!==stableHash(version.confidence)||proposal.claim_id!==change.claim_id||proposal.holder_kind!==change.holder_kind||proposal.holder_key!==change.holder_key||proposal.holder_card_id!==change.holder_card_id)throw new NewDesignError('当前认知与真实确认源值不一致，请核对认知来源。',409);
@@ -191,7 +192,7 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
     const evidence=version.text_anchor_id?await anchor(version.text_anchor_id,version.body_version_id):null;
     if(proposal.source==='ai'&&(!original||!evidence))throw new NewDesignError('AI 认知提案缺少有效原正文与文本证据，请回原章节审阅核对。',409);
     if(!original)note('部分认知由作者人工确认，未关联正文；人物相信或怀疑的内容不因此成为客观事实。');
-    const truth=claim.truth_fact_id?(await client.query<Row>('SELECT id,status,value_hash,revision FROM new_design.canonical_facts WHERE id=$1 AND book_id=$2',[claim.truth_fact_id,bookId])).rows[0]??null:null;
+    const truth=claim.truth_fact_id?(await client.query<Row>(`SELECT id,status,value_hash,revision FROM ${canonicalFactRows} canonical_fact_rows_record WHERE id=$1 AND book_id=$2`,[claim.truth_fact_id,bookId])).rows[0]??null:null;
     if(claim.truth_fact_id&&!truth)throw new NewDesignError('认知关联的客观事实不属于本书或不可用。',409);
     const sourceCharacter=version.source_character_card_id?await card(version.source_character_card_id):null,sourceEvent=version.source_event_card_id?await card(version.source_event_card_id):null;
     add('knowledge_state_change',proposal.id,change.id,await sourceHash('knowledge_state_change',proposal.id,change.id),{change,proposal,version,claim,holder,subject:owner,object,truth,evidence,sourceCharacter,sourceEvent,bodyContentHash:original?.content_hash??null,stableCheckpointId:original?.checkpoint_id??null,projectionRevision:projection.projection_revision,meaning:'已确认人物／读者认知，不能当作客观真相'});
@@ -204,7 +205,7 @@ export async function readChapterContinuitySources(client:PoolClient,bookId:stri
   if(!prior)note('这是本书当前排序的第一章，没有前章正文，不补造前章。');
   else if(!prior.adopted_version_id)note(`紧邻前章「${String(prior.title)}」尚无采用正文；没有改用更早章补齐。`);
   else {
-    const stable=(await client.query<Row>(`SELECT checkpoint.id FROM new_design.chapter_stable_checkpoints checkpoint
+    const stable=(await client.query<Row>(`SELECT checkpoint.id FROM ${chapterStableCheckpointRows} checkpoint
       WHERE checkpoint.book_id=$1 AND checkpoint.chapter_document_id=$2 AND checkpoint.body_version_id=$3 AND checkpoint.status='stable'`,[bookId,prior.id,prior.adopted_version_id])).rows[0];
     if(!stable)note(`紧邻前章「${String(prior.title)}」尚未稳定结算；没有改用较旧正文或更早章补齐。`);
     else {const original=await body(prior.adopted_version_id,prior.id);add('body_version',prior.id,original.id,await sourceHash('body_version',prior.id,original.id),{...original,meaning:'当前排序紧邻前章的真实稳定采用正文'});}

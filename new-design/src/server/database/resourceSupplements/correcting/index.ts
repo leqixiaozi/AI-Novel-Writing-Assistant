@@ -1,5 +1,7 @@
+import {chapterAdoptionPreparationRows,chapterAdoptionSessionRows,chapterResourceSupplementRows,chapterStableCheckpointRows,insertRevisionRecords,insertSupplementSettlementEvents,resourceSupplementCorrectionOriginRows,updateRevisionRecords} from '../persistence';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
+import {requireCardWorkflowTypes} from '../persistence';
 import {z} from 'zod';
 import {resourceSupplementCorrectionStartInputSchema,resourceSupplementCorrectionStartReceiptSchema,
   type ResourceSupplementCorrectionStartInput,type ResourceSupplementCorrectionStartReceipt,type ResourceSupplementCorrectionPreview} from '../../../../common/resourceSupplements/correction';
@@ -11,15 +13,15 @@ import {previewResourceSupplementCorrectionInTransaction} from '../integrity/cor
 
 const requestFrame=(bookId:string,input:ResourceSupplementCorrectionStartInput)=>({contract:'stable_resource_correction_start_v1',bookId,input});
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
-  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='091_resource_supplement_correction_origins'
-    AND to_regclass('new_design.resource_supplement_correction_origins') IS NOT NULL
+  await requireCardWorkflowTypes(client,['resource_supplement_correction_origin','chapter_resource_supplement','chapter_adoption_preparation','chapter_adoption_session'],writing);
+  if(!(await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
     AND ($1::boolean=false OR position('stable_resource_correction_start_v1' IN coalesce(pg_get_functiondef(
       to_regprocedure('new_design.validate_resource_supplement_correction_origin()')),''))>0)`,[writing])).rowCount)
     throw new NewDesignError('修正请求的完整来源保存尚不可用，请保留原冲突与填写。',503);
 }
 async function original(client:PoolClient,bookId:string,input:ResourceSupplementCorrectionStartInput):Promise<ResourceSupplementCorrectionStartReceipt|null>{
   const row=(await client.query(`SELECT origin.*,correction.issue_id,correction.canonical_input,correction.canonical_source
-    FROM new_design.chapter_resource_supplements origin LEFT JOIN new_design.resource_supplement_correction_origins correction ON correction.session_id=origin.session_id
+    FROM ${chapterResourceSupplementRows} origin LEFT JOIN ${resourceSupplementCorrectionOriginRows} correction ON correction.session_id=origin.session_id
     WHERE origin.book_id=$1 AND origin.request_key=$2`,[bookId,input.requestKey]).catch(()=>{
       throw new ResourceSupplementError('原修正结果未能完整读取，请保留原键和全部输入核对，不能以未写入处理。',503,'unknown');
     })).rows[0];
@@ -52,10 +54,10 @@ export async function startResourceSupplementCorrectionInTransaction(client:Pool
   await storage(client,false);const saved=await original(client,bookId,input);if(saved)return saved;await storage(client,true);
   await client.query('SELECT id FROM new_design.books WHERE id=$1 FOR SHARE',[bookId]);
   await client.query(`SELECT id FROM new_design.chapter_documents WHERE book_id=$1 AND id=(
-    SELECT chapter_document_id FROM new_design.chapter_stable_checkpoints WHERE id=$2) FOR UPDATE`,[bookId,input.checkpointId]);
+    SELECT chapter_document_id FROM ${chapterStableCheckpointRows} chapter_stable_checkpoint_record WHERE id=$2) FOR UPDATE`,[bookId,input.checkpointId]);
   const preview=await previewResourceSupplementCorrectionInTransaction(client,bookId,{issueId:input.issueId,resourceScope:input.resourceScope}),basis=preview.basis;
   if(basis.checkpointId!==input.checkpointId||preview.sourceHash!==input.expectedSourceHash)throw new NewDesignError('实际冲突、正文、章前来源或资源规格已变化，请保留填写重新核对；本次未创建修正。',409);
-  if((await client.query(`SELECT id FROM new_design.chapter_adoption_sessions WHERE chapter_document_id=$1
+  if((await client.query(`SELECT id FROM ${chapterAdoptionSessionRows} chapter_adoption_session_record WHERE chapter_document_id=$1
     AND status IN ('reviewing','adopted_pending_proposals','pending_review','partially_confirmed','settling','failed')`,[basis.chapterDocumentId])).rowCount)
     throw new NewDesignError('本章有待处理清单，请返回本章核对原请求；不能覆盖或替换它。',409);
   const sessionId=randomUUID(),preparationId=randomUUID(),inputHash=stableHash(requestFrame(bookId,input));
@@ -63,25 +65,18 @@ export async function startResourceSupplementCorrectionInTransaction(client:Pool
     documentRevision:basis.documentRevision,supplementBaseCheckpointId:basis.checkpointId,supplementSourceHash:preview.sourceHash,
     correctionIssueId:input.issueId,correctionIssueIds:preview.relatedIssues.map(issue=>issue.issue_id),correctionSourceHash:preview.correction.sourceHash};
   const dependencyHash=stableHash(dependency);
-  await client.query(`INSERT INTO new_design.chapter_adoption_preparations(id,book_id,chapter_document_id,body_version_id,expected_document_revision,
-    planning_object_id,planning_version_id,planning_content_hash,context_manifest_id,dependency_snapshot,dependency_hash,idempotency_key,supplement_base_checkpoint_id)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)`,[preparationId,bookId,basis.chapterDocumentId,basis.bodyVersionId,basis.documentRevision,
-    basis.planningObjectId,basis.planningVersionId,(basis.original.planning_version as Record<string,unknown>).content_hash,basis.contextManifestId,JSON.stringify(dependency),dependencyHash,`resource-correction-preparation:${input.requestKey}`,basis.checkpointId]);
-  await client.query("UPDATE new_design.chapter_adoption_preparations SET status='consumed' WHERE id=$1",[preparationId]);
-  await client.query(`INSERT INTO new_design.chapter_adoption_sessions(id,book_id,chapter_document_id,body_version_id,preparation_id,adoption_id,policy_version_id,
-    planning_object_id,planning_version_id,context_manifest_id,dependency_hash,adoption_kind,status,idempotency_key,supplement_base_checkpoint_id)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'resource_supplement','adopted_pending_proposals',$12,$13)`,[sessionId,bookId,basis.chapterDocumentId,basis.bodyVersionId,
-    preparationId,basis.adoptionId,basis.policyVersionId,basis.planningObjectId,basis.planningVersionId,basis.contextManifestId,dependencyHash,`resource-correction-session:${input.requestKey}`,basis.checkpointId]);
+  await insertRevisionRecords(client, 'chapter_adoption_preparation', `SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::uuid AS chapter_document_id,($4)::uuid AS body_version_id,($5)::integer AS expected_document_revision,($6)::uuid AS planning_object_id,($7)::uuid AS planning_version_id,($8)::char(64) AS planning_content_hash,($9)::uuid AS context_manifest_id,($10::jsonb)::jsonb AS dependency_snapshot,($11)::char(64) AS dependency_hash,('prepared')::text AS status,($12)::text AS idempotency_key,('')::text AS created_by,(now())::timestamptz AS created_at,($13)::uuid AS supplement_base_checkpoint_id`, [preparationId,bookId,basis.chapterDocumentId,basis.bodyVersionId,basis.documentRevision,
+    basis.planningObjectId,basis.planningVersionId,(basis.original.planning_version as Record<string,unknown>).content_hash,basis.contextManifestId,JSON.stringify(dependency),dependencyHash,`resource-correction-preparation:${input.requestKey}`,basis.checkpointId], [["id"],["book_id","idempotency_key"]]);
+  await updateRevisionRecords(client, 'chapter_adoption_preparation', `SELECT to_jsonb(record) AS record_values,jsonb_build_object('status',('consumed')::text) AS record_patch FROM ${chapterAdoptionPreparationRows} record WHERE id=$1 FOR UPDATE OF record`, [preparationId], ["id"]);
+  await insertRevisionRecords(client, 'chapter_adoption_session', `SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::uuid AS chapter_document_id,($4)::uuid AS body_version_id,($5)::uuid AS preparation_id,(NULL)::uuid AS prior_body_version_id,($6)::uuid AS adoption_id,(NULL)::uuid AS settlement_id,($7)::uuid AS policy_version_id,($8)::uuid AS planning_object_id,($9)::uuid AS planning_version_id,($10)::uuid AS context_manifest_id,($11)::char(64) AS dependency_hash,('resource_supplement')::text AS adoption_kind,('adopted_pending_proposals')::text AS status,(1)::integer AS revision,($12)::text AS idempotency_key,('')::text AS created_by,('')::text AS error_summary,(now())::timestamptz AS created_at,(now())::timestamptz AS updated_at,($13)::uuid AS supplement_base_checkpoint_id`, [sessionId,bookId,basis.chapterDocumentId,basis.bodyVersionId,
+    preparationId,basis.adoptionId,basis.policyVersionId,basis.planningObjectId,basis.planningVersionId,basis.contextManifestId,dependencyHash,`resource-correction-session:${input.requestKey}`,basis.checkpointId], [["id"],["preparation_id"],["adoption_id"],["settlement_id"],["book_id","idempotency_key"]]);
   const receipt=resourceSupplementCorrectionStartReceiptSchema.parse({contract:'stable_resource_correction_start_v1',bookId,chapterDocumentId:basis.chapterDocumentId,sessionId,preparationId,
     baseCheckpointId:basis.checkpointId,bodyVersionId:basis.bodyVersionId,issueId:input.issueId,relatedIssueIds:preview.relatedIssues.map(issue=>issue.issue_id),requestKey:input.requestKey,
     input,inputHash,sourceHash:preview.sourceHash,sourceRoute:`/new-design/books/${bookId}/writing?chapterDocument=${basis.chapterDocumentId}&session=${sessionId}&resourceIssue=${input.issueId}`,repeated:false});
-  await client.query(`INSERT INTO new_design.chapter_resource_supplements(session_id,book_id,base_checkpoint_id,request_key,full_input,input_hash,source_snapshot,source_hash,original_receipt)
-    VALUES($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8,$9::jsonb)`,[sessionId,bookId,basis.checkpointId,input.requestKey,JSON.stringify(input),inputHash,JSON.stringify(preview),preview.sourceHash,JSON.stringify(receipt)]);
+  await insertRevisionRecords(client, 'chapter_resource_supplement', `SELECT ($1)::uuid AS session_id,($2)::uuid AS book_id,($3)::uuid AS base_checkpoint_id,($4)::text AS request_key,($5::jsonb)::jsonb AS full_input,($6)::char(64) AS input_hash,($7::jsonb)::jsonb AS source_snapshot,($8)::char(64) AS source_hash,($9::jsonb)::jsonb AS original_receipt,('user')::text AS actor,(now())::timestamptz AS created_at`, [sessionId,bookId,basis.checkpointId,input.requestKey,JSON.stringify(input),inputHash,JSON.stringify(preview),preview.sourceHash,JSON.stringify(receipt)], [["session_id"],["book_id","request_key"]]);
   const {sourceHash,...source}=preview;
-  await client.query(`INSERT INTO new_design.resource_supplement_correction_origins(session_id,book_id,issue_id,canonical_input,canonical_source)
-    VALUES($1,$2,$3,$4,$5)`,[sessionId,bookId,input.issueId,stable(requestFrame(bookId,input)),stable(source)]);
-  await client.query(`INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,to_status,actor,detail)
-    VALUES($1,$2,'session_started','adopted_pending_proposals','user',$3::jsonb)`,[randomUUID(),sessionId,JSON.stringify({kind:'resource_correction',baseCheckpointId:basis.checkpointId,
+  await insertRevisionRecords(client, 'resource_supplement_correction_origin', `SELECT ($1)::uuid AS session_id,($2)::uuid AS book_id,($3)::uuid AS issue_id,($4)::text AS canonical_input,($5)::text AS canonical_source,(now())::timestamptz AS created_at`, [sessionId,bookId,input.issueId,stable(requestFrame(bookId,input)),stable(source)], [["session_id"]]);
+  await insertSupplementSettlementEvents(client, `SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('session_started')::text AS event_kind,(NULL)::text AS from_status,('adopted_pending_proposals')::text AS to_status,(NULL)::uuid AS item_id,(NULL)::text AS idempotency_key,('user')::text AS actor,($3::jsonb)::jsonb AS detail,(now())::timestamptz AS created_at,(NULL)::text AS editing_request_key,(NULL)::char(64) AS editing_input_hash,(NULL)::jsonb AS editing_receipt`, [randomUUID(),sessionId,JSON.stringify({kind:'resource_correction',baseCheckpointId:basis.checkpointId,
     bodyVersionId:basis.bodyVersionId,issueId:input.issueId,relatedIssueIds:receipt.relatedIssueIds,sourceHash})]);
   return receipt;
 }
@@ -94,7 +89,7 @@ export async function readResourceSupplementCorrectionStartOriginalInTransaction
 /** Saved complete frame, never reconstructed from current publication or state. */
 export async function readFrozenResourceSupplementCorrectionInTransaction(client:PoolClient,session:Record<string,unknown>,bodyHash:string):Promise<ResourceSupplementCorrectionPreview>{
   await storage(client,false);
-  const row=(await client.query('SELECT full_input,source_snapshot FROM new_design.chapter_resource_supplements WHERE session_id=$1 AND book_id=$2',[session.id,session.book_id])).rows[0];
+  const row=(await client.query(`SELECT full_input,source_snapshot FROM ${chapterResourceSupplementRows} chapter_resource_supplement_record WHERE session_id=$1 AND book_id=$2`,[session.id,session.book_id])).rows[0];
   const input=resourceSupplementCorrectionStartInputSchema.safeParse(row?.full_input);
   if(!input.success)throw new ResourceSupplementError('原修正的完整输入缺失，请保留原请求核对。',409,'unknown');
   const receipt=await original(client,String(session.book_id),input.data),source=row.source_snapshot as ResourceSupplementCorrectionPreview;

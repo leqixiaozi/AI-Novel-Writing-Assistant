@@ -1,3 +1,4 @@
+import {canonicalFactEvidenceRows,canonicalFactRows,chapterAdoptionPreparationRows,chapterAdoptionSessionRows,chapterStableCheckpointRows,knowledgeStateChangeRows,knowledgeStateProposalRows,knowledgeStateProposalVersionRows,planningVersionReferenceRows,planningVersionRows,stateChangeProposalRows,stateChangeRows} from './persistence';
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { z } from "zod";
@@ -20,24 +21,24 @@ export async function readStableResourceSupplementBasisInTransaction(
   const row = (await client.query(`SELECT to_jsonb(checkpoint) checkpoint, to_jsonb(document) document,
     to_jsonb(body) body, to_jsonb(session) session, to_jsonb(settlement) settlement,
     to_jsonb(preparation) preparation, to_jsonb(adoption) adoption, to_jsonb(plan) planning_version
-    FROM new_design.chapter_stable_checkpoints checkpoint
+    FROM ${chapterStableCheckpointRows} checkpoint
     JOIN new_design.books book ON book.id=checkpoint.book_id AND book.status='active'
     JOIN new_design.chapter_documents document ON document.id=checkpoint.chapter_document_id
       AND document.book_id=book.id AND document.status='active' AND document.adopted_version_id=checkpoint.body_version_id
     JOIN new_design.chapter_body_versions body ON body.id=checkpoint.body_version_id
       AND body.chapter_document_id=document.id AND body.archived_at IS NULL
-    JOIN new_design.chapter_adoption_sessions session ON session.id=checkpoint.session_id
+    JOIN ${chapterAdoptionSessionRows} session ON session.id=checkpoint.session_id
       AND session.book_id=book.id AND session.chapter_document_id=document.id AND session.body_version_id=body.id
       AND session.status='stable' AND session.settlement_id=checkpoint.settlement_id
     JOIN new_design.chapter_settlements settlement ON settlement.id=checkpoint.settlement_id
       AND settlement.book_id=book.id AND settlement.chapter_document_id=document.id AND settlement.body_version_id=body.id
       AND settlement.status='committed'
-    JOIN new_design.chapter_adoption_preparations preparation ON preparation.id=session.preparation_id
+    JOIN ${chapterAdoptionPreparationRows} preparation ON preparation.id=session.preparation_id
       AND preparation.book_id=book.id AND preparation.chapter_document_id=document.id AND preparation.body_version_id=body.id
       AND preparation.status='consumed' AND preparation.dependency_hash=session.dependency_hash
     JOIN new_design.chapter_body_adoptions adoption ON adoption.id=session.adoption_id
       AND adoption.chapter_document_id=document.id AND adoption.to_version_id=body.id
-    JOIN new_design.planning_versions plan ON plan.id=session.planning_version_id
+    JOIN ${planningVersionRows} plan ON plan.id=session.planning_version_id
       AND plan.object_id=session.planning_object_id AND plan.book_id=book.id
     WHERE checkpoint.id=$2 AND checkpoint.book_id=$1 AND checkpoint.status='stable'`, [bookId, checkpointId])).rows[0];
   if (!row) unavailable("该稳定章节的原正文、结算或来源已失效，请在章节中核对。原历史保留。");
@@ -56,32 +57,32 @@ export async function readStableResourceSupplementBasisInTransaction(
   const parsed = confirmedSchema.safeParse(summary?.confirmed);
   if (!parsed.success) return unavailable("该稳定章节缺少完整确认清单，请保留原结算并核对来源。");
   const confirmed = parsed.data;
-  const facts = (await client.query(`SELECT DISTINCT fact.* FROM new_design.canonical_facts fact
-    JOIN new_design.canonical_fact_evidence evidence ON evidence.fact_id=fact.id AND evidence.stale_at IS NULL
-    JOIN new_design.chapter_text_anchors anchor ON anchor.id=evidence.chapter_text_anchor_id AND anchor.status='active'
+  const facts = (await client.query(`SELECT DISTINCT fact.* FROM ${canonicalFactRows} fact
+    JOIN ${canonicalFactEvidenceRows} evidence ON evidence.fact_id=fact.id AND evidence.stale_at IS NULL
+    JOIN new_design.text_anchors anchor ON anchor.id=evidence.chapter_text_anchor_id AND anchor.status='active'
     WHERE fact.book_id=$1 AND fact.status='confirmed' AND anchor.book_id=$1
       AND anchor.chapter_document_id=$2 AND anchor.body_version_id=$3 AND fact.id=ANY($4::uuid[])
     ORDER BY fact.id`, [bookId, document.id, body.id, confirmed.facts])).rows;
   const knowledge = (await client.query(`SELECT change.*,to_jsonb(knowledge_version) proposal_version
-    FROM new_design.knowledge_state_changes change
-    JOIN new_design.knowledge_state_proposals proposal ON proposal.id=change.proposal_id
+    FROM ${knowledgeStateChangeRows} change
+    JOIN ${knowledgeStateProposalRows} proposal ON proposal.id=change.proposal_id
       AND proposal.book_id=change.book_id AND proposal.status='confirmed' AND proposal.confirmed_change_id=change.id
-    JOIN new_design.knowledge_state_proposal_versions knowledge_version ON knowledge_version.id=change.proposal_version_id
+    JOIN ${knowledgeStateProposalVersionRows} knowledge_version ON knowledge_version.id=change.proposal_version_id
       AND knowledge_version.proposal_id=proposal.id AND knowledge_version.id=proposal.current_version_id
-    JOIN new_design.chapter_text_anchors anchor ON anchor.id=knowledge_version.text_anchor_id AND anchor.status='active'
+    JOIN new_design.text_anchors anchor ON anchor.id=knowledge_version.text_anchor_id AND anchor.status='active'
     WHERE change.book_id=$1 AND change.status='active' AND anchor.book_id=$1
       AND knowledge_version.chapter_document_id=$2 AND knowledge_version.body_version_id=$3
       AND anchor.chapter_document_id=$2 AND anchor.body_version_id=$3 AND change.id=ANY($4::uuid[])
     ORDER BY change.sequence`, [bookId, document.id, body.id, confirmed.knowledge])).rows;
-  const states = (await client.query(`SELECT change.* FROM new_design.state_changes change
+  const states = (await client.query(`SELECT change.* FROM ${stateChangeRows} change
     JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id
       AND settlement.book_id=change.book_id AND settlement.status='committed'
-    JOIN new_design.state_change_proposals proposal ON proposal.id=change.proposal_id
+    JOIN ${stateChangeProposalRows} proposal ON proposal.id=change.proposal_id
       AND proposal.status='confirmed' AND proposal.confirmed_state_change_id=change.id
       AND proposal.book_id=change.book_id AND proposal.chapter_document_id=change.chapter_document_id
       AND proposal.body_version_id=change.body_version_id AND proposal.subject_kind=change.subject_kind
       AND proposal.subject_id=change.subject_id AND proposal.state_key=change.state_key AND proposal.after_json=change.after_json
-    LEFT JOIN new_design.chapter_text_anchors anchor ON anchor.id=change.text_anchor_id
+    LEFT JOIN new_design.text_anchors anchor ON anchor.id=change.text_anchor_id
     WHERE change.book_id=$1 AND change.chapter_document_id=$2 AND change.body_version_id=$3 AND change.status='active'
       AND settlement.chapter_document_id=$2 AND settlement.body_version_id=$3
       AND (change.text_anchor_id IS NULL OR (anchor.status='active' AND anchor.book_id=$1
@@ -90,7 +91,7 @@ export async function readStableResourceSupplementBasisInTransaction(
   if (facts.length !== confirmed.facts.length || knowledge.length !== confirmed.knowledge.length || states.length !== confirmed.states.length)
     unavailable("原结算的确认事实、认知或状态有失效来源，请先核对；补充不能覆盖或丢弃原确认记录。");
   const planningReferences = (await client.query(`SELECT to_jsonb(reference)||jsonb_build_object('source_version',to_jsonb(card_version)) full_reference
-    FROM new_design.planning_version_references reference
+    FROM ${planningVersionReferenceRows} reference
     JOIN new_design.card_versions card_version ON card_version.id=reference.card_version_id AND card_version.card_id=reference.card_id
     WHERE reference.book_id=$1 AND reference.planning_object_id=$2 AND reference.planning_version_id=$3
     ORDER BY reference.id`, [bookId, session.planning_object_id, session.planning_version_id])).rows.map(row=>row.full_reference);

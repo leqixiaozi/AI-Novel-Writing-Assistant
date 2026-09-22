@@ -4,3 +4,4 @@ export {claimCreativeExtraction,retainCreativeExtractionOutput,finishCreativeExt
 export {executeCreativeExtractionCommand,readCreativeExtractionWriteReceipt} from './commands';
 export {withCreativeExtractionPool,CreativeExtractionError} from './repository';
 export {loadCreativeRecoveryClaim} from './recovery';
+export {freezeManagedJson,readManagedJson,type ManagedJsonReference} from './content';

@@ -1,3 +1,5 @@
+import type {PoolClient} from "pg";
+import {replaceRecordCard,listRecordCards} from "../database/recordCards";
 import type { RegisteredBackgroundHandlerContext, RegisteredBackgroundHandlerResult, RegisteredBackgroundHandlers } from "../database/outbox";
 import { getGraphProjectionBatch, getGraphProjectionState, processGraphProjectionRequest, rebuildGraphProjection, recoverInterruptedGraphRebuild } from "../database/graph";
 import { getNewDesignPool } from "../database/runtime";
@@ -7,7 +9,7 @@ type RequestRow = { id:string; book_id:string; request_kind:string; status:strin
 
 async function readRequest(id:string,bookId:string):Promise<RequestRow>{
   const pool=await getNewDesignPool();
-  return assertFound((await pool.query<RequestRow>("SELECT id,book_id,request_kind,status FROM new_design.graph_projection_requests WHERE id=$1 AND book_id=$2",[id,bookId])).rows[0],"图投影请求与后台作业来源不一致。");
+  return assertFound((await pool.query<RequestRow>("SELECT id,book_id,request_kind,status FROM (SELECT fields.* FROM new_design.cards record JOIN new_design.card_types record_type ON record_type.id=record.card_type_id AND record_type.type_key='graph_projection_request' JOIN new_design.card_versions record_version ON record_version.id=record.current_version_id AND record_version.card_id=record.id CROSS JOIN LATERAL jsonb_to_record(record_version.values) AS fields(id uuid,book_id uuid,generation_id uuid,request_kind text,dependency_resource_id uuid,source_kind text,source_id uuid,source_version_id uuid,source_revision bigint,source_hash char(64),reason text,status text,attempt_count integer,idempotency_key text,last_error_code text,last_error_detail text,retryable boolean,created_at timestamptz,started_at timestamptz,completed_at timestamptz) WHERE record.status='active') graph_projection_request_record WHERE id=$1 AND book_id=$2",[id,bookId])).rows[0],"图投影请求与后台作业来源不一致。");
 }
 
 async function withHeartbeat<T>(context:RegisteredBackgroundHandlerContext,run:()=>Promise<T>):Promise<T>{
@@ -26,7 +28,7 @@ async function runGraphProjection(context:RegisteredBackgroundHandlerContext):Pr
   const pool=await getNewDesignPool();
   const book=(await pool.query<{status:string}>("SELECT status FROM new_design.books WHERE id=$1",[bookId])).rows[0];
   if(book?.status==="archived"&&request.status==="pending"){
-    await pool.query("UPDATE new_design.graph_projection_requests SET status='superseded',completed_at=now() WHERE id=$1 AND status='pending'",[request.id]);
+    await tx(async recordClient=>{const rows=[];for(const current of await listRecordCards(recordClient,"graph_projection_request",{lock:true,where:{id:request.id}})){if(!(current.id===(request.id)&&current.status===("pending")))continue;const row=await replaceRecordCard(recordClient,{id:current.recordCardId,spaceId:current.recordSpaceId,typeKey:"graph_projection_request",values:{...current,revision:Number(current.revision)+1,updated_at:new Date().toISOString(),status:"superseded",completed_at:new Date().toISOString()}});rows.push(row);}return{rows,rowCount:rows.length};});
     request=await readRequest(request.id,bookId);
   }
   if(request.request_kind==="full_rebuild"&&request.status==="processing"){
@@ -63,3 +65,4 @@ async function runGraphProjection(context:RegisteredBackgroundHandlerContext):Pr
 }
 
 export function createGraphProjectionBackgroundHandlers():RegisteredBackgroundHandlers{return{"graph.project":runGraphProjection};}
+async function tx<T>(run:(client:PoolClient)=>Promise<T>):Promise<T>{const pool=await getNewDesignPool(),client=await pool.connect();try{await client.query("BEGIN");const value=await run(client);await client.query("COMMIT");return value;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}

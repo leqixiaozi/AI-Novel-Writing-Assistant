@@ -1,5 +1,7 @@
+import {chapterAdoptionSessionRows,insertRevisionRecords,resourceSupplementImpactReviewRows} from '../persistence';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
+import {requireCardWorkflowTypes} from '../persistence';
 import {z} from 'zod';
 import {resourceSupplementImpactReviewInputSchema,resourceSupplementImpactReviewReceiptSchema,
   type ResourceSupplementImpactReviewInput,type ResourceSupplementImpactReviewReceipt} from '../../../../common/resourceSupplements/review';
@@ -13,7 +15,7 @@ import type {ResourceSupplementSettlementImpact} from '../../../../common/resour
 const requestFrame=(bookId:string,sessionId:string,input:ResourceSupplementImpactReviewInput)=>({contract:'resource_supplement_impact_review_v1',bookId,sessionId,input});
 async function original(client:PoolClient,bookId:string,sessionId:string,input:ResourceSupplementImpactReviewInput):Promise<ResourceSupplementImpactReviewReceipt|null>{
   const row=(await client.query(`SELECT review_id,book_id,session_id,input_hash,full_input,impact_snapshot,original_receipt
-    FROM new_design.resource_supplement_impact_reviews WHERE book_id=$1 AND request_key=$2`,[bookId,input.requestKey])).rows[0];
+    FROM ${resourceSupplementImpactReviewRows} resource_supplement_impact_review_record WHERE book_id=$1 AND request_key=$2`,[bookId,input.requestKey])).rows[0];
   if(!row)return null;
   const parsed=resourceSupplementImpactReviewReceiptSchema.safeParse(row.original_receipt),expected=stableHash(requestFrame(bookId,sessionId,input));
   if(!parsed.success)throw new ResourceSupplementError('原影响确认回执不完整，请保留原请求核对。',409,'unknown');
@@ -25,8 +27,8 @@ async function original(client:PoolClient,bookId:string,sessionId:string,input:R
   return {...saved,impact:saved.impact as ResourceSupplementImpactReviewReceipt['impact'],repeated:true};
 }
 async function storage(client:PoolClient,writing:boolean):Promise<void>{
-  const result=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='089_resource_supplement_impact_reviews'
-    AND to_regclass('new_design.resource_supplement_impact_reviews') IS NOT NULL
+  await requireCardWorkflowTypes(client,['resource_supplement_impact_review'],writing);
+  const result=await client.query(`SELECT id FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'
     AND ($1::boolean=false OR position('resource_supplement_impact_review_v1' IN coalesce(pg_get_functiondef(to_regprocedure('new_design.validate_resource_supplement_impact_review()')),''))>0)`,[writing]);
   if(!result.rowCount)throw new NewDesignError('结算影响确认尚不可用，请保留原候选与来源。',503);
 }
@@ -35,7 +37,7 @@ function validateIdentity(bookId:string,sessionId:string):void{z.string().uuid()
 export async function readResourceSupplementImpactReviewForSettlementInTransaction(client:PoolClient,bookId:string,sessionId:string,reviewId:string,impact:ResourceSupplementSettlementImpact):Promise<ResourceSupplementImpactReviewReceipt>{
   validateIdentity(bookId,sessionId);z.string().uuid().parse(reviewId);
   await storage(client,true);
-  const row=(await client.query('SELECT full_input FROM new_design.resource_supplement_impact_reviews WHERE review_id=$1 AND book_id=$2 AND session_id=$3 FOR SHARE',[reviewId,bookId,sessionId])).rows[0];
+  const row=(await client.query(`SELECT full_input FROM ${resourceSupplementImpactReviewRows} resource_supplement_impact_review_record WHERE review_id=$1 AND book_id=$2 AND session_id=$3 FOR SHARE`,[reviewId,bookId,sessionId])).rows[0];
   if(!row)throw new NewDesignError('请先核对并明确确认本次完整结算影响。',409);
   const input=resourceSupplementImpactReviewInputSchema.parse(row.full_input),saved=await original(client,bookId,sessionId,input);
   if(!saved||saved.reviewId!==reviewId||impact.bookId!==bookId||impact.sessionId!==sessionId||saved.impact.impactHash!==impact.impactHash||stableHash(saved.impact)!==stableHash(impact))
@@ -65,7 +67,7 @@ export async function confirmResourceSupplementSettlementImpact(bookId:string,se
     const prior=await original(client,bookId,sessionId,input);readingOriginal=false;
     if(prior){await client.query('ROLLBACK');return prior;}
     await storage(client,true);
-    await client.query('SELECT id FROM new_design.chapter_adoption_sessions WHERE book_id=$1 AND id=$2 FOR UPDATE',[bookId,sessionId]);
+    await client.query(`SELECT id FROM ${chapterAdoptionSessionRows} chapter_adoption_session_record WHERE book_id=$1 AND id=$2 FOR UPDATE`,[bookId,sessionId]);
     const impact=await previewResourceSupplementSettlementInTransaction(client,bookId,sessionId);
     if(impact.sessionRevision!==input.expectedSessionRevision||impact.impactHash!==input.expectedImpactHash)
       throw new NewDesignError('候选或下游正文、计划、确认来源已变化，请保留原说明并重新核对结算影响。',409);
@@ -79,10 +81,8 @@ export async function confirmResourceSupplementSettlementImpact(bookId:string,se
       sourceRoute:`/new-design/books/${bookId}/writing?chapterDocument=${chapterDocumentId}&session=${sessionId}`,repeated:false};
     resourceSupplementImpactReviewReceiptSchema.parse(receipt);
     const {impactHash,...impactFrame}=impact;
-    await client.query(`INSERT INTO new_design.resource_supplement_impact_reviews(review_id,book_id,session_id,request_key,session_revision,
-      full_input,input_hash,canonical_input,impact_snapshot,impact_hash,canonical_impact,original_receipt)
-      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9::jsonb,$10,$11,$12::jsonb)`,[receipt.reviewId,bookId,sessionId,input.requestKey,impact.sessionRevision,
-      JSON.stringify(input),receipt.inputHash,stable(requestFrame(bookId,sessionId,input)),JSON.stringify(impact),impactHash,stable(impactFrame),JSON.stringify(receipt)]);
+    await insertRevisionRecords(client, 'resource_supplement_impact_review', `SELECT ($1)::uuid AS review_id,($2)::uuid AS book_id,($3)::uuid AS session_id,($4)::uuid AS request_key,($5)::integer AS session_revision,($6::jsonb)::jsonb AS full_input,($7)::char(64) AS input_hash,($8)::text AS canonical_input,($9::jsonb)::jsonb AS impact_snapshot,($10)::char(64) AS impact_hash,($11)::text AS canonical_impact,($12::jsonb)::jsonb AS original_receipt,(now())::timestamptz AS created_at`, [receipt.reviewId,bookId,sessionId,input.requestKey,impact.sessionRevision,
+      JSON.stringify(input),receipt.inputHash,stable(requestFrame(bookId,sessionId,input)),JSON.stringify(impact),impactHash,stable(impactFrame),JSON.stringify(receipt)], [["review_id"],["book_id","request_key"]]);
     committing=true;await client.query('COMMIT');return receipt;
   }catch(error){let rolledBack=false;try{await client.query('ROLLBACK');rolledBack=true;}catch{/* Preserve unknown. */}
     if(error instanceof ResourceSupplementError)throw error;

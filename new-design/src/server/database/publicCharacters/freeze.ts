@@ -1,3 +1,4 @@
+import {insertContractRecord} from "../aiContracts/records";
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {publicDialogueOutputSchema,type PublicCharacterSource,type PublicCharacterTrialInput,type PublicDialoguePromptInput} from '../../../common/publicCharacters';
@@ -33,15 +34,15 @@ export async function freezeTrial(client:PoolClient,id:string,input:PublicCharac
   await client.query(`INSERT INTO new_design.task_contract_versions(id,contract_id,version,source,status,task_group,input_schema,input_schema_version,output_schema,output_schema_version,context_policy_version,prompt_recipe_version_id,required_capabilities,budget_policy,timeout_ms,retry_policy,confirmation_policy,content_hash,created_by)
    VALUES($1,$2,1,'system','draft','character_dialogue',$3::jsonb,$4,$5::jsonb,$6,$7,$8,ARRAY['structured_output'],$9::jsonb,$11,'{"maxAttempts":1,"automaticRetry":false}','before_adopt',$10,'public_characters')`,[contractVersionId,contractId,JSON.stringify(schema),stableHash(schema),JSON.stringify(prompt.outputSchema),stableHash(prompt.outputSchema),prompt.contextPolicy,recipeVersionId,JSON.stringify({assetId:prompt.assetId,assetVersion:prompt.version,maxOutputTokens:prompt.maxTokens,temperature:prompt.temperature}),stableHash({schema,messages:prompt.messages}),route.policy.timeoutMs]);
   await client.query("UPDATE new_design.task_contract_versions SET status='published' WHERE id=$1",[contractVersionId]);await client.query('UPDATE new_design.task_contracts SET current_version_id=$2,published_version_id=$2,revision=2 WHERE id=$1',[contractId,contractVersionId]);
-  for(const [kind,entity,version]of [['prompt_recipe',recipeId,recipeVersionId],['task_contract',contractId,contractVersionId]])await client.query("INSERT INTO new_design.ai_contract_publications(id,entity_kind,entity_id,to_version_id,entity_revision,action,actor,idempotency_key) VALUES($1,$2,$3,$4,2,'publish','public_characters',$5)",[randomUUID(),kind,entity,version,`${key}_${kind}`]);
+  for(const [kind,entity,version]of [['prompt_recipe',recipeId,recipeVersionId],['task_contract',contractId,contractVersionId]])await insertContractRecord(client,"ai_contract_publication",{id:randomUUID(),entity_kind:kind,entity_id:entity,to_version_id:version,entity_revision:2,action:"publish",actor:"public_characters",idempotency_key:`${key}_${kind}`,from_version_id:null});
   const snapshot=await captureManagedModelSnapshot('character_dialogue',route,{client});
   await client.query(`INSERT INTO new_design.context_manifests(id,book_id,public_character_scope,task_contract_version_id,prompt_recipe_version_id,node_key,status,manifest_hash,created_by,task_group,model_route_snapshot_id,source_set_hash,decision_summary)
    VALUES($1,NULL,$2,$3,$4,'public_character_dialogue','complete',$5,'public_characters','character_dialogue',$6,$7,$8::jsonb)`,[manifestId,source.id,contractVersionId,recipeVersionId,stableHash(promptInput),snapshot.id,source.hash,JSON.stringify({contract:'public_character_trial_v1',resourceId:source.id,resourceVersionId:source.versionId,historyKeys:input.historyKeys})]);
   plan={input,source,promptInput,route,contractVersionId,recipeVersionId,manifestId,snapshotId:snapshot.id,snapshotHash:snapshot.snapshotHash,inputHash:stableHash(promptInput),outputSchemaVersion:stableHash(prompt.outputSchema),timeoutMs:route.policy.timeoutMs};
  }
  const original=assertFound((await client.query("SELECT resolved_hash FROM new_design.resolve_dependency_resource('card_version',$1,$2)",[source.id,source.versionId])).rows[0],'公共角色原版本依赖无法精确解析。'),slotId=randomUUID();
- await client.query("INSERT INTO new_design.context_manifest_slots(id,manifest_id,slot_key,sort_order,required) VALUES($1,$2,'public_character_profile',0,true)",[slotId,plan.manifestId]);
- await client.query(`INSERT INTO new_design.context_manifest_entries(id,manifest_id,slot_id,source_type,stable_object_id,exact_version_id,content_hash,inclusion_reason,priority,token_estimate,transform_status,sort_order,content_role,layer_label)
+ await insertContractRecord(client,"context_manifest_slot",{id:slotId,manifest_id:plan.manifestId,slot_key:"public_character_profile",sort_order:0,required:true,token_budget:null});
+ await client.query(`INSERT INTO new_design.context_manifest_items(id,manifest_id,slot_id,source_type,stable_object_id,exact_version_id,content_hash,inclusion_reason,priority,token_estimate,transform_status,sort_order,content_role,layer_label)
  VALUES($1,$2,$3,'card_version',$4,$5,$6,'作者明确选择的公共角色固定版本',0,$7,'full',0,'required','公共角色档案')`,[randomUUID(),plan.manifestId,slotId,source.id,source.versionId,original.resolved_hash,Math.ceil(JSON.stringify(source).length/4)]);
  return plan;
 }

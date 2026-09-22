@@ -1,3 +1,4 @@
+import {settlementRecordCtes,lockedSettlementQuery,updateSettlementRecords,insertSettlementRecords} from './recordStorage';
 import {randomUUID} from "node:crypto";
 import type {PoolClient} from "pg";
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCatalog,SettlementEditingMutation,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt,SettlementEditingAiImportInput} from "../../../common/chapterSettlementEditing";
@@ -34,7 +35,8 @@ async function mutate(sessionId:string,operation:SettlementEditingReceipt["opera
       committing=true;await client.query("COMMIT");return{...prior.receipt,repeated:true};
     }
     readingOriginal=false;
-    const initial=(await client.query("SELECT book_id FROM new_design.chapter_adoption_sessions WHERE id=$1",[sessionId])).rows[0];
+    const initial=(await client.query(`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT book_id FROM chapter_adoption_sessions WHERE id=$1`,[sessionId])).rows[0];
     if(!initial)fail(null,"章节确认会话不存在。",404);
     await bookLock(client,initial.book_id);session=await lockEditingSession(client,sessionId);
     await assertResourceSupplementCandidateContract(client,session,operation);assertEditingSession(session,input.expectedSessionRevision,true);
@@ -58,7 +60,8 @@ export async function getChapterSettlementEditingCatalog(id:string):Promise<Sett
 export async function getChapterSettlementEditingCatalogInTransaction(client:PoolClient,session:EditingRow,lock=true):Promise<SettlementEditingCatalog>{return readEditingCatalog(client,session,lock);}
 export async function readChapterSettlementEditingReceipt(id:string,key:string):Promise<SettlementEditingReceipt|null>{
   if(typeof key!=="string"||key.length<8||key.length>160)fail(null,"原请求标识无效。",422,"requestKey");
-  const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN");await requestLock(client,id,key);const session=(await client.query("SELECT id FROM new_design.chapter_adoption_sessions WHERE id=$1 FOR SHARE",[id])).rows[0];if(!session)fail(null,"章节确认会话不存在。",404);const prior=await receiptByKey(client,id,key);await client.query("COMMIT");return prior?{...prior.receipt,repeated:true}:null;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
+  const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN");await requestLock(client,id,key);const session=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT id FROM chapter_adoption_sessions WHERE id=$1`,[id])).rows[0];if(!session)fail(null,"章节确认会话不存在。",404);const prior=await receiptByKey(client,id,key);await client.query("COMMIT");return prior?{...prior.receipt,repeated:true}:null;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 export async function createChapterSettlementEditingItem(id:string,input:SettlementEditingCreateInput):Promise<SettlementEditingReceipt>{
   return mutate(id,"create",input,input,async(client,session)=>{
@@ -67,7 +70,8 @@ export async function createChapterSettlementEditingItem(id:string,input:Settlem
     const workspace=await addChapterSettlementItem(id,validated.draft,input.actor??"user"),item=workspace.items.find(item=>!before.has(item.id));
     if(!item)fail(session,"新增提案未形成保存结果。",503);
     await freezeEditingItem(client,session,item.id,validated.draft,validated.field,input.actor??"user");
-    if(item.canonicalFactId)await detectCanonicalFactConflictsInTransaction(client,(await client.query("SELECT * FROM new_design.canonical_facts WHERE id=$1",[item.canonicalFactId])).rows[0]);
+    if(item.canonicalFactId)await detectCanonicalFactConflictsInTransaction(client,(await client.query(`WITH ${settlementRecordCtes.canonical_facts}
+SELECT * FROM canonical_facts WHERE id=$1`,[item.canonicalFactId])).rows[0]);
     return item.id;
   });
 }
@@ -82,7 +86,8 @@ export async function updateChapterSettlementEditingItem(itemId:string,input:Set
     const catalog=await readEditingCatalog(client,session,true),validated=await validateEditingDraft(client,session,input.draft,catalog.subjects);
     await updateChapterSettlementItem(itemId,{expectedRevision:input.expectedRevision,draft:validated.draft,actor:input.actor,note:input.note});
     await freezeEditingItem(client,session,itemId,validated.draft,validated.field,input.actor??"user");
-    if(item.canonical_fact_id)await detectCanonicalFactConflictsInTransaction(client,(await client.query("SELECT * FROM new_design.canonical_facts WHERE id=$1",[item.canonical_fact_id])).rows[0]);
+    if(item.canonical_fact_id)await detectCanonicalFactConflictsInTransaction(client,(await client.query(`WITH ${settlementRecordCtes.canonical_facts}
+SELECT * FROM canonical_facts WHERE id=$1`,[item.canonical_fact_id])).rows[0]);
     return itemId;
   });
 }
@@ -103,7 +108,8 @@ export async function decideChapterSettlementEditingItems(id:string,input:Settle
     // the source request's original expected revision in its receipt hash.
     let revision=Number(session.revision);
     if(session.status==="adopted_pending_proposals"||session.status==="failed"){
-      await client.query("UPDATE new_design.chapter_adoption_sessions SET status='pending_review',revision=revision+1,error_summary='',updated_at=now() WHERE id=$1",[id]);revision++;
+      await updateSettlementRecords(client,"chapter_adoption_session",`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT chapter_adoption_sessions.*,('pending_review')::text AS status,(revision+1)::integer AS revision,('')::text AS error_summary,(now())::timestamptz AS updated_at FROM chapter_adoption_sessions WHERE id=$1`,[id]);revision++;
     }
     await decideChapterSettlementItems(id,{expectedRevision:revision,decisions:input.decisions,actor:input.actor});return null;
   });
@@ -123,7 +129,8 @@ export async function commitChapterSettlementEditing(id:string,input:SettlementE
         }else if(item.canonical_fact_id){
           const fact=domain.data.fact as EditingRow;validateCanonicalFactValueInTransaction(fact.value_kind as "text",fact.value_json,fact.object_card_id as string|null);
           await detectCanonicalFactConflictsInTransaction(client,fact);
-          if((await client.query("SELECT 1 FROM new_design.canonical_fact_conflicts WHERE status='open' AND (fact_a_id=$1 OR fact_b_id=$1) LIMIT 1",[item.canonical_fact_id])).rowCount)
+          if((await client.query(`WITH ${settlementRecordCtes.canonical_fact_conflicts}
+SELECT 1 FROM canonical_fact_conflicts WHERE status='open' AND (fact_a_id=$1 OR fact_b_id=$1) LIMIT 1`,[item.canonical_fact_id])).rowCount)
             fail(session,`${validated.subject.label} · ${validated.field.label}与已保存事实存在冲突。请在本章点击该提案的“不纳入”，核对正确字段或变化类型后重新补充；原正文和记录保留。`,409,`items.${item.id}.afterValue`,"核对事实冲突");
         }
       }
@@ -141,14 +148,17 @@ export async function establishChapterSettlementEditingInitialState(id:string,in
     if(!Object.hasOwn(input,"value"))fail(session,"请明确填写初始状态。",422,"value");
     const issue=validateFieldValue(field.field,input.value),bindings=await validateDictionaryTreeBindings(client,[field.field]),values=await validateDictionaryTreeValues(client,[field.field],{[field.key]:input.value});
     if(issue||bindings[field.key]||values[field.key])fail(session,`${subject.label} · ${field.label}：${issue??bindings[field.key]??values[field.key]}`,422,"value");
-    const prior=await client.query("SELECT id FROM new_design.entity_initial_states WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4 FOR UPDATE",[session.book_id,input.subjectKind,input.subjectId,input.stateKey]);
+    const prior=await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.entity_initial_states}
+SELECT id FROM entity_initial_states WHERE book_id=$1 AND subject_kind=$2 AND subject_id=$3 AND state_key=$4`,[session.book_id,input.subjectKind,input.subjectId,input.stateKey]);
     if(prior.rowCount)fail(session,"该字段已有初始状态记录，请核对前值来源，不能新增覆盖。",409,"value");
     const stateId=randomUUID(),versionId=randomUUID();
-    await client.query("INSERT INTO new_design.entity_initial_states(id,book_id,subject_kind,subject_id,state_key) VALUES($1,$2,$3,$4,$5)",[stateId,session.book_id,input.subjectKind,input.subjectId,input.stateKey]);
-    await client.query("INSERT INTO new_design.entity_initial_state_versions(id,initial_state_id,version,value_json,value_hash,actor,note) VALUES($1,$2,1,$3::jsonb,$4,$5,$6)",[versionId,stateId,JSON.stringify(input.value),stableHash(input.value),input.actor??"user",input.note??"在章节结果确认中明确建立初始状态。"]);
-    await client.query("UPDATE new_design.entity_initial_states SET current_version_id=$2,updated_at=now() WHERE id=$1",[stateId,versionId]);
-    await client.query("INSERT INTO new_design.current_state_projections(book_id,subject_kind,subject_id,state_key,value_json,source_initial_version_id,is_stale) VALUES($1,$2,$3,$4,$5::jsonb,$6,false)",[session.book_id,input.subjectKind,input.subjectId,input.stateKey,JSON.stringify(input.value),versionId]);
-    await client.query("UPDATE new_design.chapter_adoption_sessions SET revision=revision+1,updated_at=now() WHERE id=$1",[id]);return null;
+    await insertSettlementRecords(client,"entity_initial_state",`SELECT ($1)::uuid AS id,($2)::uuid AS book_id,($3)::text AS subject_kind,($4)::uuid AS subject_id,($5)::text AS state_key`,[stateId,session.book_id,input.subjectKind,input.subjectId,input.stateKey]);
+    await insertSettlementRecords(client,"entity_initial_state_version",`SELECT ($1)::uuid AS id,($2)::uuid AS initial_state_id,(1)::integer AS version,($3::jsonb)::jsonb AS value_json,($4)::char(64) AS value_hash,($5)::text AS actor,($6)::text AS note`,[versionId,stateId,JSON.stringify(input.value),stableHash(input.value),input.actor??"user",input.note??"在章节结果确认中明确建立初始状态。"]);
+    await updateSettlementRecords(client,"entity_initial_state",`WITH ${settlementRecordCtes.entity_initial_states}
+SELECT entity_initial_states.*,($2)::uuid AS current_version_id,(now())::timestamptz AS updated_at FROM entity_initial_states WHERE id=$1`,[stateId,versionId]);
+    await insertSettlementRecords(client,"current_state_projection",`SELECT ($1)::uuid AS book_id,($2)::text AS subject_kind,($3)::uuid AS subject_id,($4)::text AS state_key,($5::jsonb)::jsonb AS value_json,($6)::uuid AS source_initial_version_id,(false)::boolean AS is_stale`,[session.book_id,input.subjectKind,input.subjectId,input.stateKey,JSON.stringify(input.value),versionId]);
+    await updateSettlementRecords(client,"chapter_adoption_session",`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT chapter_adoption_sessions.*,(revision+1)::integer AS revision,(now())::timestamptz AS updated_at FROM chapter_adoption_sessions WHERE id=$1`,[id]);return null;
   });
 }
 
@@ -157,19 +167,23 @@ export async function startChapterAdoptionSession(preparationId:string,input:{ex
   const hash=stableHash({preparationId,expectedRevision:input.expectedRevision,idempotencyKey:input.idempotencyKey,actor:input.actor??"user"});
   try{
     await client.query("BEGIN");await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`chapter_settlement_preparation:${preparationId}`]);
-    const prep=(await client.query("SELECT * FROM new_design.chapter_adoption_preparations WHERE id=$1 FOR UPDATE",[preparationId])).rows[0];if(!prep)fail(null,"采用确认准备记录不存在。",404);
+    const prep=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_preparations}
+SELECT * FROM chapter_adoption_preparations WHERE id=$1`,[preparationId])).rows[0];if(!prep)fail(null,"采用确认准备记录不存在。",404);
     await bookLock(client,prep.book_id);
-    const prior=(await client.query("SELECT * FROM new_design.chapter_adoption_sessions WHERE preparation_id=$1 OR (book_id=$2 AND idempotency_key=$3) ORDER BY created_at LIMIT 1",[preparationId,prep.book_id,input.idempotencyKey])).rows[0];
+    const prior=(await client.query(`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT * FROM chapter_adoption_sessions WHERE preparation_id=$1 OR (book_id=$2 AND idempotency_key=$3) ORDER BY created_at LIMIT 1`,[preparationId,prep.book_id,input.idempotencyKey])).rows[0];
     if(prior){
       session=prior;
-      const receipt=(await client.query("SELECT detail FROM new_design.chapter_settlement_events WHERE session_id=$1 AND detail->>'editingKind'='start'",[prior.id])).rows[0];
+      const receipt=(await client.query(`WITH ${settlementRecordCtes.chapter_settlement_events}
+SELECT detail FROM chapter_settlement_events WHERE session_id=$1 AND detail->>'editingKind'='start'`,[prior.id])).rows[0];
       if(prior.preparation_id!==preparationId||!receipt||receipt.detail.inputHash!==hash)fail(prior,"原采用请求已用于不同输入，或历史请求没有严格凭证，请核对原会话，不能覆盖。",409,"idempotencyKey");
       const workspace=await inSettlementTransaction(client,()=>readEditingWorkspace(client,String(prior.id)));committing=true;await client.query("COMMIT");return workspace;
     }
     const workspace=await inSettlementTransaction(client,async()=>{
-      const base=await startLegacySession(preparationId,input);session=(await client.query("SELECT * FROM new_design.chapter_adoption_sessions WHERE id=$1",[base.session.id])).rows[0];
+      const base=await startLegacySession(preparationId,input);session=(await client.query(`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT * FROM chapter_adoption_sessions WHERE id=$1`,[base.session.id])).rows[0];
       if(!session||session.preparation_id!==preparationId)fail(session,"原采用请求归属不一致。",409);
-      await client.query("INSERT INTO new_design.chapter_settlement_events(id,session_id,event_kind,to_status,actor,detail) VALUES($1,$2,'session_started',$3,$4,$5::jsonb)",[randomUUID(),session.id,session.status,input.actor??"user",JSON.stringify({editingKind:"start",inputHash:hash,preparationId})]);
+      await insertSettlementRecords(client,"chapter_settlement_event",`SELECT ($1)::uuid AS id,($2)::uuid AS session_id,('session_started')::text AS event_kind,($3)::text AS to_status,($4)::text AS actor,($5::jsonb)::jsonb AS detail`,[randomUUID(),session.id,session.status,input.actor??"user",JSON.stringify({editingKind:"start",inputHash:hash,preparationId})]);
       return readEditingWorkspace(client,String(session.id));
     });committing=true;await client.query("COMMIT");return workspace;
   }catch(error){
@@ -181,8 +195,10 @@ export async function startChapterAdoptionSession(preparationId:string,input:{ex
 export async function getChapterSettlementEditingByPreparation(preparationId:string):Promise<ChapterSettlementEditingWorkspace|null>{
   const client=await(await getNewDesignPool()).connect();try{
     await client.query("BEGIN");await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`chapter_settlement_preparation:${preparationId}`]);
-    const prep=(await client.query("SELECT id FROM new_design.chapter_adoption_preparations WHERE id=$1 FOR SHARE",[preparationId])).rows[0];if(!prep)fail(null,"采用准备记录不存在。",404);
-    const row=(await client.query("SELECT id FROM new_design.chapter_adoption_sessions WHERE preparation_id=$1 FOR SHARE",[preparationId])).rows[0];
+    const prep=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_preparations}
+SELECT id FROM chapter_adoption_preparations WHERE id=$1`,[preparationId])).rows[0];if(!prep)fail(null,"采用准备记录不存在。",404);
+    const row=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT id FROM chapter_adoption_sessions WHERE preparation_id=$1`,[preparationId])).rows[0];
     const workspace=row?await inSettlementTransaction(client,()=>readEditingWorkspace(client,String(row.id))):null;await client.query("COMMIT");return workspace;
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
@@ -190,7 +206,8 @@ export async function createChapterSettlementEditingAiItems(id:string,input:Sett
   return mutate(id,"create",input,input,async(client,session)=>{
     const task=(await client.query("SELECT * FROM new_design.ai_tasks WHERE id=$1 FOR SHARE",[input.taskId])).rows[0],attempt=(await client.query("SELECT * FROM new_design.ai_task_attempts WHERE id=$1 AND task_id=$2 FOR SHARE",[input.attemptId,input.taskId])).rows[0];
     if(!task||!attempt||task.book_id!==session.book_id||task.source_kind!=="chapter_settlement_extraction"||!["running","succeeded"].includes(String(attempt.status)))fail(session,"AI 候选缺少本章真实执行凭证，不能入库。",409,"attemptId");
-    const request=(await client.query("SELECT * FROM new_design.chapter_proposal_extraction_requests WHERE id=$1 AND session_id=$2 AND ai_task_id=$3 FOR UPDATE",[task.source_id,id,task.id])).rows[0];
+    const request=(await lockedSettlementQuery(client,`WITH ${settlementRecordCtes.chapter_proposal_extraction_requests}
+SELECT * FROM chapter_proposal_extraction_requests WHERE id=$1 AND session_id=$2 AND ai_task_id=$3`,[task.source_id,id,task.id])).rows[0];
     if(request?.status!=="running"||Number(request?.expected_session_revision)!==input.expectedSessionRevision)fail(session,"AI 原请求已导入或清单版本已变化，请核对原保存结果；不能用新请求重复导入。",409,"requestKey");
     if(!request||!request.frozen_plan||!request.generated_output||request.body_version_id!==input.bodyVersionId||input.bodyVersionId!==session.body_version_id||request.context_manifest_id!==input.contextManifestId||request.model_route_snapshot_id!==input.modelRouteSnapshotId||attempt.context_manifest_id!==input.contextManifestId||attempt.model_route_snapshot_id!==input.modelRouteSnapshotId||attempt.task_contract_version_id!==request.task_contract_version_id||attempt.prompt_recipe_version_id!==request.prompt_recipe_version_id||attempt.input_hash!==request.frozen_input_hash)
       fail(session,"AI 执行正文、上下文或模型快照与本章冻结请求不一致，不能导入；模型结果保留供核对。",409,"attemptId");
@@ -201,9 +218,12 @@ export async function createChapterSettlementEditingAiItems(id:string,input:Sett
       const validated=await validateEditingDraft(client,session,item,catalog.subjects),materializedId=await materializeAiEditingItem(client,session,validated.draft,input.taskId,input.attemptId,input.actor??"AI");
       await freezeEditingItem(client,session,materializedId,validated.draft,validated.field,input.actor??"AI");
       const raw=(await client.query("SELECT canonical_fact_id FROM new_design.chapter_settlement_items WHERE id=$1",[materializedId])).rows[0];
-      if(raw.canonical_fact_id)await detectCanonicalFactConflictsInTransaction(client,(await client.query("SELECT * FROM new_design.canonical_facts WHERE id=$1",[raw.canonical_fact_id])).rows[0]);
+      if(raw.canonical_fact_id)await detectCanonicalFactConflictsInTransaction(client,(await client.query(`WITH ${settlementRecordCtes.canonical_facts}
+SELECT * FROM canonical_facts WHERE id=$1`,[raw.canonical_fact_id])).rows[0]);
     }
-    await client.query("UPDATE new_design.chapter_adoption_sessions SET status='pending_review',revision=revision+1,error_summary='',updated_at=now() WHERE id=$1",[id]);
-    await client.query("UPDATE new_design.chapter_proposal_extraction_requests SET status='succeeded',failure=NULL,updated_at=now() WHERE id=$1",[request.id]);return null;
+    await updateSettlementRecords(client,"chapter_adoption_session",`WITH ${settlementRecordCtes.chapter_adoption_sessions}
+SELECT chapter_adoption_sessions.*,('pending_review')::text AS status,(revision+1)::integer AS revision,('')::text AS error_summary,(now())::timestamptz AS updated_at FROM chapter_adoption_sessions WHERE id=$1`,[id]);
+    await updateSettlementRecords(client,"chapter_proposal_extraction_request",`WITH ${settlementRecordCtes.chapter_proposal_extraction_requests}
+SELECT chapter_proposal_extraction_requests.*,('succeeded')::text AS status,(NULL)::jsonb AS failure,(now())::timestamptz AS updated_at FROM chapter_proposal_extraction_requests WHERE id=$1`,[request.id]);return null;
   });
 }
