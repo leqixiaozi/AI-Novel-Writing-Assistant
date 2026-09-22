@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('comic panel scripts preserve adopted sets and block scripts based on an obsolete episode outline',async t=>{
- const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'110_comic_episodes',fileName:'110_comic_episodes.sql'},{id:'111_comic_panels',fileName:'111_comic_panels.sql'}]);
+ const {pool}=await finalCardKernelDatabase(t);
  const projects=compiled('server/database/comicProjects'),episodes=compiled('server/database/comicEpisodes'),panels=compiled('server/database/comicPanels');
  const project=(await projects.createComicProject({requestKey:randomUUID(),title:'分格测试',sourceType:'original',sourceText:'雨夜的信。',comicFormat:'webtoon',stylePreset:'webtoon_color'})).project;
  const outline=await episodes.proposeComicEpisode(project.id,{requestKey:randomUUID(),order:1,expectedRevision:0,content:{title:'第一话',outline:'收到一封信',hookType:null,cliffhanger:null,isPaywalled:false,sourceText:null}});
@@ -25,13 +25,13 @@ test('comic panel scripts preserve adopted sets and block scripts based on an ob
  assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedReady,false);
  await assert.rejects(panels.adoptComicPanelSet(project.id,outline.episode.id,{requestKey:randomUUID(),setId:second.set.id,expectedScriptRevision:1}),error=>error.status===409);
  assert.equal((await panels.readComicPanelProposalOriginal(project.id,script.requestKey)).set.id,first.set.id);
- await assert.rejects(pool.query('UPDATE new_design.comic_panels SET action=$1 WHERE panel_set_id=$2',['篡改',first.set.id]),error=>error.code==='23514');
+ await assert.rejects(pool.query("UPDATE new_design.card_version_actions SET action_key='tampered' WHERE request_key=$1",[script.requestKey]),error=>error.code==='23514');
  const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
  const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
  const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${project.id}`;
  assert.equal((await(await fetch(`${base}/episodes/${outline.episode.id}/panels`)).json()).data.adoptedReady,false);
  assert.equal((await(await fetch(`${base}/panel-requests/${script.requestKey}`)).json()).data.set.id,first.set.id);
- await pool.query('ALTER TABLE new_design.comic_panels DISABLE TRIGGER comic_panels_immutable');
+ await pool.query('ALTER TABLE new_design.card_version_actions DISABLE TRIGGER card_version_actions_immutable');
  assert.equal((await panels.getComicPanelWorkspace(project.id,outline.episode.id)).adoptedSetId,first.set.id);
  await assert.rejects(panels.proposeComicPanelSet(project.id,outline.episode.id,{...script,requestKey:randomUUID(),episodeVersionId:revised.version.id,expectedScriptRevision:1}),error=>error.status===503);
 });

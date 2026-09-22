@@ -187,7 +187,16 @@
     "app/migrations/manual/119_drama_strategy_episodes.sql",
     "app/migrations/manual/120_drama_scripts_quality.sql",
     "app/migrations/manual/121_drama_storyboards_media.sql",
-    "app/migrations/manual/122_drama_exports.sql"
+    "app/migrations/manual/122_drama_exports.sql",
+    "app/migrations/manual/123_card_workflow_convergence.sql",
+    "app/migrations/manual/124_comic_card_convergence.sql",
+    "app/migrations/manual/125_drama_card_convergence.sql",
+    "app/migrations/manual/126_creative_hub_card_convergence.sql",
+    "app/migrations/manual/127_card_convergence_support.sql",
+    "app/migrations/manual/128_content_card_convergence.sql",
+    "app/migrations/manual/129_author_workflow_convergence.sql",
+    "app/migrations/manual/130_infrastructure_ledger_convergence.sql",
+    "app/migrations/manual/131_card_kernel_v2_cutover.sql"
   ],
   "requiredPrefixes": [
     "bin/",
@@ -326,6 +335,15 @@
     "119_drama_strategy_episodes.sql",
     "120_drama_scripts_quality.sql",
     "121_drama_storyboards_media.sql",
-    "122_drama_exports.sql"
+    "122_drama_exports.sql",
+    "123_card_workflow_convergence.sql",
+    "124_comic_card_convergence.sql",
+    "125_drama_card_convergence.sql",
+    "126_creative_hub_card_convergence.sql",
+    "127_card_convergence_support.sql",
+    "128_content_card_convergence.sql",
+    "129_author_workflow_convergence.sql",
+    "130_infrastructure_ledger_convergence.sql",
+    "131_card_kernel_v2_cutover.sql"
   ]
 }

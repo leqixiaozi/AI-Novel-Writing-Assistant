@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('comic AI creates review candidates and old-outline panels become stale without adoption',async t=>{
- await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'110_comic_episodes',fileName:'110_comic_episodes.sql'},{id:'111_comic_panels',fileName:'111_comic_panels.sql'},{id:'113_comic_source_bundle',fileName:'113_comic_source_bundle.sql'}]);
+ await finalCardKernelDatabase(t);
  const projects=compiled('server/database/comicProjects'),sources=compiled('server/database/comicSourceBundle'),episodes=compiled('server/database/comicEpisodes'),generation=compiled('server/application/comicGeneration');
  const project=(await projects.createComicProject({requestKey:randomUUID(),title:'AI 漫画候选',sourceType:'original',sourceText:'雨夜里，林青收到一封错投的信。',comicFormat:'webtoon',stylePreset:'webtoon_color'})).project;
  let calls=0;const ai={generateComicCandidate:async input=>{calls++;if(input.operation==='source_extract')return{output:{operation:'source_extract',content:{synopsis:'错投来信引发相遇。',beats:[{order:1,summary:'林青收到错投来信'}],characters:[{name:'林青',role:'主角',visualAnchor:'黑发、蓝色雨衣'}]}},promptSnapshot:{assetId:'comic'},modelSnapshot:{route:'planning'},usedTokens:10};if(input.operation==='episode_outline')return{output:{operation:'episode_outline',content:{title:'第一话 雨夜来信',outline:'林青追查来信来源。',hookType:'mystery',cliffhanger:'信封内还有一张旧照片',isPaywalled:false,sourceText:'雨夜里收到错投的信'}},promptSnapshot:{assetId:'comic'},modelSnapshot:{route:'planning'},usedTokens:12};return{output:{operation:'panel_script',panels:[{order:1,panelType:'establishing',action:'林青站在雨夜街道',dialogues:[],characterRefs:['林青'],sceneRef:'街道',visualPrompt:'黑发青年穿蓝色雨衣站在雨夜街道',densityLevel:'low',focus:'错投的信',layoutData:null}]},promptSnapshot:{assetId:'comic'},modelSnapshot:{route:'planning'},usedTokens:15};}};

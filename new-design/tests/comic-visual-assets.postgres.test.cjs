@@ -2,16 +2,12 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
 const express=require('express');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 const pngBase64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXsAAAAASUVORK5CYII=';
 
 test('comic visual assets keep immutable candidates and require explicit adoption',async t=>{
- const {pool}=await isolatedDatabase(t,[
-  {id:'109_comic_projects',fileName:'109_comic_projects.sql'},
-  {id:'112_comic_bibles',fileName:'112_comic_bibles.sql'},
-  {id:'114_comic_visual_assets',fileName:'114_comic_visual_assets.sql'},
- ]);
+ const {pool}=await finalCardKernelDatabase(t);
  const projects=compiled('server/database/comicProjects');
  const bibles=compiled('server/database/comicBibles');
  const visuals=compiled('server/database/comicVisualAssets');
@@ -48,7 +44,7 @@ test('comic visual assets keep immutable candidates and require explicit adoptio
  const second=await visuals.uploadComicVisualCandidate(project.id,{...upload,requestKey:randomUUID(),assetId:first.asset.id,expectedRevision:1,name:'雨夜肖像'});
  assert.equal(second.version.version,2);
  assert.equal(second.asset.adoptedVersionId,first.version.id);
- await assert.rejects(()=>pool.query('UPDATE new_design.comic_visual_asset_versions SET name=$2 WHERE id=$1',[first.version.id,'篡改']),/immutable|不可改写/i);
+ await assert.rejects(()=>pool.query("UPDATE new_design.card_version_actions SET action_key='tampered' WHERE id=(SELECT id FROM new_design.card_version_actions ORDER BY created_at LIMIT 1)"),/immutable|不可改写/i);
 
  const other=(await projects.createComicProject({requestKey:randomUUID(),title:'另一个项目',sourceType:'original',sourceText:'另一份来源。',comicFormat:'single_page',stylePreset:'shounen_bw'})).project;
  await assert.rejects(()=>visuals.uploadComicVisualCandidate(other.id,{...upload,requestKey:randomUUID()}),/设定对象不存在或不属于该漫画项目/);
@@ -56,11 +52,7 @@ test('comic visual assets keep immutable candidates and require explicit adoptio
 });
 
 test('comic visual asset HTTP routes preserve envelopes, exact bytes and explicit adoption',async t=>{
- await isolatedDatabase(t,[
-  {id:'109_comic_projects',fileName:'109_comic_projects.sql'},
-  {id:'112_comic_bibles',fileName:'112_comic_bibles.sql'},
-  {id:'114_comic_visual_assets',fileName:'114_comic_visual_assets.sql'},
- ]);
+ await finalCardKernelDatabase(t);
  const projects=compiled('server/database/comicProjects');
  const bibles=compiled('server/database/comicBibles');
  const project=(await projects.createComicProject({requestKey:randomUUID(),title:'视觉接口测试',sourceType:'original',sourceText:'夜雨。',comicFormat:'webtoon',stylePreset:'webtoon_color'})).project;

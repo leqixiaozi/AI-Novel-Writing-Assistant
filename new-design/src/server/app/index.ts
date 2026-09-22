@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createIndependentAiGateway } from "../ai";
 import { createNewDesignRouter } from "../http/router";
+import {getNewDesignPool} from '../database/runtime';
 
 /** The independent entry supplies only new-design-owned adapters, never externally injected old gateways. */
 export function createIndependentApplication() {
@@ -17,6 +18,17 @@ export function createIndependentApplication() {
   // Only controlled image upload needs base64 headroom; decoded bytes remain limited to 10 MiB.
   app.use("/api/new-design/visual-assets/uploads",express.json({limit:"16mb"}));
   app.use(express.json({ limit: "4mb" }));
+  app.use('/api/new-design',(request,response,next)=>{
+    if(['GET','HEAD','OPTIONS'].includes(request.method))return next();
+    void getNewDesignPool().then(async pool=>{
+      const state=(await pool.query("SELECT EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='123_card_workflow_convergence') started,EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='131_card_kernel_v2_cutover') finished,to_regclass('new_design.system_capabilities') IS NOT NULL capability_table")).rows[0]??{};
+      if(!state.started)return next();
+      if(!state.finished||!state.capability_table)return response.status(503).json({success:false,error:'卡片内核 v2 正在原子升级，所有业务写入已停用。',recovery:{failedStep:'等待数据库收敛完成',summary:'数据库处于 123–131 部分安装状态。',savedResult:'已有作者数据和原请求保留；不要重复提交。',mutationOutcome:'not_written',sourceRoute:'/new-design/structure/maintenance',actionLabel:'打开运行维护'}});
+      const capability=(await pool.query("SELECT installed,operational FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2'")).rows[0]??{};
+      if(!capability.installed||!capability.operational)return response.status(503).json({success:false,error:'卡片内核 v2 维护门禁未解除，所有业务写入已停用。',recovery:{failedStep:'核对数据库能力',summary:'最终结构或保护检查尚未通过。',savedResult:'已有作者数据和原请求保留；不要重复提交。',mutationOutcome:'not_written',sourceRoute:'/new-design/structure/maintenance',actionLabel:'打开运行维护'}});
+      next();
+    }).catch(next);
+  });
   app.use("/api/new-design", createNewDesignRouter({ ai: createIndependentAiGateway() }));
   const clientRoot = path.resolve(__dirname, "../../client");
   const documentPath = path.join(clientRoot, "index.html");

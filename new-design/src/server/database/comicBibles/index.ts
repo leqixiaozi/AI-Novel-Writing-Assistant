@@ -1,30 +1,76 @@
 import {createHash,randomUUID} from 'node:crypto';
-import type {Pool,PoolClient} from 'pg';
-import {comicBibleAdoptionSchema,comicBibleProposalSchema,type ComicBibleAdoptionInput,type ComicBibleAdoptionReceipt,type ComicBibleEntity,type ComicBibleProposalInput,type ComicBibleProposalReceipt,type ComicBibleVersion,type ComicBibleWorkspace} from '../../../common/comicBibles';
-import {NewDesignError} from '../../domain/errors';
+import {
+  comicBibleAdoptionSchema,comicBibleProposalSchema,type ComicBibleAdoptionInput,type ComicBibleAdoptionReceipt,
+  type ComicBibleEntity,type ComicBibleProposalInput,type ComicBibleProposalReceipt,type ComicBibleVersion,
+  type ComicBibleWorkspace,
+} from '../../../common/comicBibles';
+import {NewDesignError,assertFound} from '../../domain/errors';
+import {
+  adoptWorkflowVersion,appendWorkflowVersion,createWorkflowCard,recordWorkflowAction,requireCardWorkflowTypes,
+  workflowActionByRequest,workflowCard,workflowVersions,type WorkflowDb,type WorkflowRow,
+} from '../cardWorkflow';
 import {getNewDesignPool} from '../runtime';
 
-type Db=Pick<PoolClient,'query'>|Pick<Pool,'query'>;
+const PROJECT_TYPE='comic_project',BIBLE_TYPE='comic_bible';
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value),'utf8').digest('hex');
-async function capable(write=false){const row=(await(await getNewDesignPool()).query("SELECT to_regclass('new_design.comic_bible_entities') IS NOT NULL entities,to_regclass('new_design.comic_bible_versions') IS NOT NULL versions,to_regclass('new_design.comic_bible_adoptions') IS NOT NULL adoptions,(SELECT count(*) FROM pg_trigger WHERE tgname IN ('comic_bible_versions_immutable','comic_bible_adoptions_immutable') AND tgenabled='O') guards")).rows[0];if(!row.entities||!row.versions||!row.adoptions||write&&Number(row.guards)!==2)throw new NewDesignError(!row.entities?'漫画角色／场景手动迁移 112 尚未启用。':'漫画角色／场景版本保护未就绪，写入已停用。',503);}
-function version(row:Record<string,unknown>):ComicBibleVersion{return {id:String(row.id),entityId:String(row.entity_id),version:Number(row.version),content:row.content as ComicBibleVersion['content'],sourceKind:row.source_kind as ComicBibleVersion['sourceKind'],createdAt:new Date(String(row.created_at)).toISOString()};}
-async function entity(db:Db,projectId:string,id:string):Promise<ComicBibleEntity>{const row=(await db.query('SELECT * FROM new_design.comic_bible_entities WHERE id=$1 AND project_id=$2',[id,projectId])).rows[0];if(!row)throw new NewDesignError('漫画角色或场景不存在。',404);const versions=(await db.query('SELECT * FROM new_design.comic_bible_versions WHERE entity_id=$1 ORDER BY version DESC,id DESC',[id])).rows.map(version);return {id:String(row.id),projectId:String(row.project_id),kind:row.kind as ComicBibleEntity['kind'],revision:Number(row.revision),adoptedVersionId:row.adopted_version_id?String(row.adopted_version_id):null,versions};}
-export async function getComicBibleWorkspace(projectId:string):Promise<ComicBibleWorkspace>{await capable();const db=await(await getNewDesignPool()).connect();try{await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');if(!(await db.query('SELECT 1 FROM new_design.comic_projects WHERE id=$1',[projectId])).rowCount)throw new NewDesignError('漫画项目不存在。',404);const rows=(await db.query('SELECT id,kind FROM new_design.comic_bible_entities WHERE project_id=$1 ORDER BY created_at,id',[projectId])).rows,characters:ComicBibleEntity[]=[],scenes:ComicBibleEntity[]=[];for(const row of rows){const item=await entity(db,projectId,String(row.id));(row.kind==='character'?characters:scenes).push(item);}await db.query('COMMIT');return {projectId,characters,scenes};}catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}}
-export async function readComicBibleOriginal(projectId:string,requestKey:string):Promise<ComicBibleProposalReceipt|null>{await capable();const db=await getNewDesignPool(),row=(await db.query('SELECT version.id,version.entity_id FROM new_design.comic_bible_versions version JOIN new_design.comic_bible_entities entity ON entity.id=version.entity_id WHERE entity.project_id=$1 AND version.request_key=$2',[projectId,requestKey])).rows[0];if(!row)return null;const item=await entity(db,projectId,String(row.entity_id));return {entity:item,version:item.versions.find(candidate=>candidate.id===row.id)!,requestKey,repeated:true};}
-export async function readComicBibleAdoptionOriginal(projectId:string,requestKey:string):Promise<ComicBibleAdoptionReceipt|null>{await capable();const db=await getNewDesignPool(),row=(await db.query('SELECT entity_id,version_id,revision FROM new_design.comic_bible_adoptions WHERE project_id=$1 AND request_key=$2',[projectId,requestKey])).rows[0];return row?{entity:await entity(db,projectId,String(row.entity_id)),adoptedVersionId:String(row.version_id),adoptionRevision:Number(row.revision),requestKey,repeated:true}:null;}
-export async function proposeComicBible(projectId:string,raw:ComicBibleProposalInput):Promise<ComicBibleProposalReceipt>{const input=comicBibleProposalSchema.parse(raw),hash=digest({projectId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;try{
- await db.query('BEGIN');const previous=(await db.query('SELECT id,entity_id,input_hash FROM new_design.comic_bible_versions WHERE request_key=$1',[input.requestKey])).rows[0];if(previous){if(previous.input_hash!==hash)throw new NewDesignError('原设定候选请求已用于不同内容。',409);const item=await entity(db,projectId,String(previous.entity_id));await db.query('COMMIT');return {entity:item,version:item.versions.find(value=>value.id===previous.id)!,requestKey:input.requestKey,repeated:true};}
- if(!(await db.query('SELECT id FROM new_design.comic_projects WHERE id=$1 FOR UPDATE',[projectId])).rowCount)throw new NewDesignError('漫画项目不存在。',404);
- let id=input.entityId??randomUUID(),row=input.entityId?(await db.query('SELECT * FROM new_design.comic_bible_entities WHERE project_id=$1 AND id=$2 FOR UPDATE',[projectId,id])).rows[0]:null;
- if(input.entityId&&!row)throw new NewDesignError('设定对象不存在或不属于该项目。',404);if(row&&row.kind!==input.kind)throw new NewDesignError('不能把角色设定改为场景，或把场景改为角色。',409);
- if(!row){if(input.expectedRevision!==0)throw new NewDesignError('新设定尚未建立，请重新核对。',409);row=(await db.query('INSERT INTO new_design.comic_bible_entities(id,project_id,kind) VALUES($1,$2,$3) RETURNING *',[id,projectId,input.kind])).rows[0];}
- if(Number(row.revision)!==input.expectedRevision)throw new NewDesignError('设定对象已有新采用版本，请先核对。',409);
- const next=Number((await db.query('SELECT coalesce(max(version),0)+1 value FROM new_design.comic_bible_versions WHERE entity_id=$1',[id])).rows[0].value),versionId=randomUUID();await db.query('INSERT INTO new_design.comic_bible_versions(id,entity_id,version,content,source_kind,request_key,input_hash) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7)',[versionId,id,next,JSON.stringify(input.content),'manual',input.requestKey,hash]);
- const item=await entity(db,projectId,id);committing=true;await db.query('COMMIT');return {entity:item,version:item.versions.find(value=>value.id===versionId)!,requestKey:input.requestKey,repeated:false};
- }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('设定候选结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicBibleOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_bible_versions WHERE id=$1',[receipt.version.id])).rows[0];if(row?.input_hash===hash)return receipt;}throw new NewDesignError('原设定请求键已被使用。',409);}throw error;}finally{db.release();}}
-export async function adoptComicBible(projectId:string,entityId:string,raw:ComicBibleAdoptionInput):Promise<ComicBibleAdoptionReceipt>{const input=comicBibleAdoptionSchema.parse(raw),hash=digest({projectId,entityId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;try{
- await db.query('BEGIN');const previous=(await db.query('SELECT entity_id,version_id,revision,input_hash FROM new_design.comic_bible_adoptions WHERE request_key=$1',[input.requestKey])).rows[0];if(previous){if(previous.input_hash!==hash||previous.entity_id!==entityId)throw new NewDesignError('原设定采用请求已用于不同对象。',409);const item=await entity(db,projectId,entityId);await db.query('COMMIT');return {entity:item,adoptedVersionId:String(previous.version_id),adoptionRevision:Number(previous.revision),requestKey:input.requestKey,repeated:true};}
- const row=(await db.query('SELECT * FROM new_design.comic_bible_entities WHERE id=$1 AND project_id=$2 FOR UPDATE',[entityId,projectId])).rows[0];if(!row)throw new NewDesignError('设定对象不存在。',404);if(Number(row.revision)!==input.expectedRevision)throw new NewDesignError('设定采用状态已变化，请先读取最新版本。',409);
- if(!(await db.query('SELECT 1 FROM new_design.comic_bible_versions WHERE id=$1 AND entity_id=$2',[input.versionId,entityId])).rowCount)throw new NewDesignError('设定候选不存在或属于其他对象。',404);
- await db.query('UPDATE new_design.comic_bible_entities SET adopted_version_id=$2,revision=revision+1,updated_at=now() WHERE id=$1',[entityId,input.versionId]);await db.query('INSERT INTO new_design.comic_bible_adoptions(id,project_id,entity_id,version_id,revision,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),projectId,entityId,input.versionId,input.expectedRevision+1,input.requestKey,hash]);const item=await entity(db,projectId,entityId);committing=true;await db.query('COMMIT');return {entity:item,adoptedVersionId:input.versionId,adoptionRevision:input.expectedRevision+1,requestKey:input.requestKey,repeated:false};
- }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('设定采用结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicBibleAdoptionOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_bible_adoptions WHERE request_key=$1',[input.requestKey])).rows[0];if(row?.input_hash===hash)return receipt;}}throw error;}finally{db.release();}}
+const iso=(value:unknown)=>new Date(String(value)).toISOString();
+async function capable(write=false){await requireCardWorkflowTypes(await getNewDesignPool(),[PROJECT_TYPE,BIBLE_TYPE],write);}
+
+function bibleVersion(row:WorkflowRow):ComicBibleVersion{
+  const values=row.values as WorkflowRow;
+  return{id:String(row.id),entityId:String(row.card_id),version:Number(values.version),content:values.content,sourceKind:values.source_kind,createdAt:iso(row.created_at)};
+}
+
+async function entity(db:WorkflowDb,projectId:string,id:string,lock=false):Promise<ComicBibleEntity>{
+  const row=await workflowCard(db,id,BIBLE_TYPE,lock);if(String(row.space_id)!==projectId)throw new NewDesignError('漫画角色或场景不存在。',404);const values=row.values as WorkflowRow;
+  return{id:String(row.id),projectId,kind:values.kind,revision:Number(values.workflow_revision??0),adoptedVersionId:values.adopted_version_id?String(values.adopted_version_id):null,versions:(await workflowVersions(db,id)).map(bibleVersion)};
+}
+
+export async function getComicBibleWorkspace(projectId:string):Promise<ComicBibleWorkspace>{
+  await capable();const db=await(await getNewDesignPool()).connect();
+  try{
+    await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');await workflowCard(db,projectId,PROJECT_TYPE);const rows=(await db.query(`SELECT card.id,card.values->>'kind' kind
+      FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id
+      WHERE card.space_id=$1 AND card.status='active' AND type.type_key=$2 ORDER BY card.created_at,card.id`,[projectId,BIBLE_TYPE])).rows,characters:ComicBibleEntity[]=[],scenes:ComicBibleEntity[]=[];
+    for(const row of rows){const item=await entity(db,projectId,String(row.id));(row.kind==='character'?characters:scenes).push(item);}await db.query('COMMIT');return{projectId,characters,scenes};
+  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}
+}
+
+export async function readComicBibleOriginal(projectId:string,requestKey:string):Promise<ComicBibleProposalReceipt|null>{
+  await capable();const db=await getNewDesignPool(),action=await workflowActionByRequest(db,requestKey);if(!action||action.action_key!=='comic_bible.candidate')return null;
+  const item=await entity(db,projectId,String(action.card_id)),saved=item.versions.find(candidate=>candidate.id===String(action.card_version_id));return saved?{entity:item,version:saved,requestKey,repeated:true}:null;
+}
+
+export async function readComicBibleAdoptionOriginal(projectId:string,requestKey:string):Promise<ComicBibleAdoptionReceipt|null>{
+  await capable();const db=await getNewDesignPool(),action=await workflowActionByRequest(db,requestKey);if(!action||action.action_key!=='comic_bible.adopt')return null;
+  return{entity:await entity(db,projectId,String(action.card_id)),adoptedVersionId:String(action.card_version_id),adoptionRevision:Number(action.payload.revision),requestKey,repeated:true};
+}
+
+export async function proposeComicBible(projectId:string,raw:ComicBibleProposalInput):Promise<ComicBibleProposalReceipt>{
+  const input=comicBibleProposalSchema.parse(raw),hash=digest({projectId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;
+  try{
+    await db.query('BEGIN');const previous=await workflowActionByRequest(db,input.requestKey);
+    if(previous){if(previous.action_key!=='comic_bible.candidate'||previous.input_hash!==hash)throw new NewDesignError('原设定候选请求已用于不同内容。',409);const item=await entity(db,projectId,String(previous.card_id));await db.query('COMMIT');return{entity:item,version:assertFound(item.versions.find(value=>value.id===String(previous.card_version_id)),'原设定候选不存在。'),requestKey:input.requestKey,repeated:true};}
+    await workflowCard(db,projectId,PROJECT_TYPE,true);const id=input.entityId??randomUUID();let card:WorkflowRow|null=null;
+    if(input.entityId)card=await workflowCard(db,id,BIBLE_TYPE,true);
+    if(card&&String(card.space_id)!==projectId)throw new NewDesignError('设定对象不存在或不属于该项目。',404);
+    if(card&&card.values.kind!==input.kind)throw new NewDesignError('不能把角色设定改为场景，或把场景改为角色。',409);
+    let versionId:string;if(!card){
+      if(input.expectedRevision!==0)throw new NewDesignError('新设定尚未建立，请重新核对。',409);
+      const created=await createWorkflowCard(db,{id,spaceId:projectId,typeKey:BIBLE_TYPE,title:input.content.name,values:{record_kind:BIBLE_TYPE,project_id:projectId,kind:input.kind,workflow_revision:0,adopted_version_id:null,version:1,content:input.content,source_kind:'manual'}});versionId=created.versionId;
+    }else{
+      const values=card.values as WorkflowRow;if(Number(values.workflow_revision??0)!==input.expectedRevision)throw new NewDesignError('设定对象已有新采用版本，请先核对。',409);
+      const next=Number((await db.query(`SELECT coalesce(max((values->>'version')::integer),0)+1 value FROM new_design.card_versions WHERE card_id=$1`,[id])).rows[0].value),saved=await appendWorkflowVersion(db,{cardId:id,typeKey:BIBLE_TYPE,title:input.content.name,values:{...values,version:next,content:input.content,source_kind:'manual'}});versionId=String(saved.id);
+    }
+    await recordWorkflowAction(db,{cardId:id,cardVersionId:versionId,actionKey:'comic_bible.candidate',requestKey:input.requestKey,inputHash:hash,payload:{kind:input.kind}});const item=await entity(db,projectId,id);committing=true;await db.query('COMMIT');return{entity:item,version:assertFound(item.versions.find(value=>value.id===versionId),'设定候选未保存。'),requestKey:input.requestKey,repeated:false};
+  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('设定候选结果未知，请只读核对原请求。',503);throw error;}finally{db.release();}
+}
+
+export async function adoptComicBible(projectId:string,entityId:string,raw:ComicBibleAdoptionInput):Promise<ComicBibleAdoptionReceipt>{
+  const input=comicBibleAdoptionSchema.parse(raw),hash=digest({projectId,entityId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;
+  try{
+    await db.query('BEGIN');const previous=await workflowActionByRequest(db,input.requestKey);
+    if(previous){if(previous.action_key!=='comic_bible.adopt'||previous.input_hash!==hash||String(previous.card_id)!==entityId)throw new NewDesignError('原设定采用请求已用于不同对象。',409);const item=await entity(db,projectId,entityId);await db.query('COMMIT');return{entity:item,adoptedVersionId:String(previous.card_version_id),adoptionRevision:Number(previous.payload.revision),requestKey:input.requestKey,repeated:true};}
+    const current=await entity(db,projectId,entityId,true);const adopted=await adoptWorkflowVersion(db,{cardId:entityId,typeKey:BIBLE_TYPE,versionId:input.versionId,expectedRevision:input.expectedRevision,actionKey:'comic_bible.adopt',requestKey:input.requestKey,inputHash:hash,payload:{projectId,kind:current.kind}}),item=await entity(db,projectId,entityId);committing=true;await db.query('COMMIT');return{entity:item,adoptedVersionId:input.versionId,adoptionRevision:adopted.revision,requestKey:input.requestKey,repeated:false};
+  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('设定采用结果未知，请只读核对原请求。',503);throw error;}finally{db.release();}
+}

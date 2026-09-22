@@ -48,7 +48,7 @@ function docker(args,fd){return new Promise((resolve,reject)=>{
 });}
 async function portOpen(port){return new Promise(resolve=>{const socket=net.createConnection({host:'127.0.0.1',port});let done=false;const finish=value=>{if(done)return;done=true;socket.destroy();resolve(value);};socket.setTimeout(1000);socket.once('connect',()=>finish(true));socket.once('error',()=>finish(false));socket.once('timeout',()=>finish(false));});}
 async function backup(directory){
- if(await portOpen(5301)||await portOpen(5174))throw fail('独立应用端口仍可访问。请先保存填写、核对未知结果并停止所有写入者；本工具不结束进程或数据库。');
+ if(await portOpen(5301)||await portOpen(5273))throw fail('本项目 5273／5301 端口仍可访问。请先保存填写、核对未知结果并停止所有写入者；本工具不结束进程或数据库。');
  const configBytes=await ordinaryBytes(path.join(appRoot,'.data','runtime.json'),16000),config=JSON.parse(configBytes.toString('utf8'));
  if(!Number.isInteger(config.port)||config.port<1024||config.port>65535||!/^([A-Za-z_][A-Za-z0-9_]*)$/.test(config.user)||!/^([A-Za-z_][A-Za-z0-9_]*)$/.test(config.database))throw fail('原开发配置范围无效；不会覆盖原配置或输出凭据。');
  const inspected=JSON.parse(await docker(['inspect','--type','container',container]));const target=inspected[0],ports=target?.NetworkSettings?.Ports?.['5432/tcp']??[],environment=target?.Config?.Env??[];

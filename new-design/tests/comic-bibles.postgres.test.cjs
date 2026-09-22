@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('comic characters and scenes use independently adopted immutable bibles',async t=>{
- const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'112_comic_bibles',fileName:'112_comic_bibles.sql'}]);
+ const {pool}=await finalCardKernelDatabase(t);
  const projects=compiled('server/database/comicProjects'),bibles=compiled('server/database/comicBibles');
  const project=(await projects.createComicProject({requestKey:randomUUID(),title:'设定测试',sourceType:'original',sourceText:'雨夜小镇',comicFormat:'webtoon',stylePreset:'webtoon_color'})).project;
  const character={kind:'character',requestKey:randomUUID(),expectedRevision:0,content:{name:'林岚',gender:'female',persona:'谨慎的侦探',visualAnchor:'黑色短发、红围巾'}};
@@ -25,13 +25,13 @@ test('comic characters and scenes use independently adopted immutable bibles',as
  assert.equal(workspace.scenes[0].versions[0].content.bible.palette,'冷蓝');
  assert.equal((await bibles.readComicBibleOriginal(project.id,character.requestKey)).version.id,proposed.version.id);
  assert.equal((await bibles.readComicBibleAdoptionOriginal(project.id,adoption.requestKey)).adoptedVersionId,proposed.version.id);
- await assert.rejects(pool.query('DELETE FROM new_design.comic_bible_versions WHERE id=$1',[proposed.version.id]),error=>error.code==='23514');
+ await assert.rejects(pool.query("UPDATE new_design.card_version_actions SET action_key='tampered' WHERE request_key=$1",[adoption.requestKey]),error=>error.code==='23514');
  const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
  const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
  const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${project.id}`;
  assert.equal((await(await fetch(`${base}/bibles`)).json()).data.characters[0].id,proposed.entity.id);
  assert.equal((await(await fetch(`${base}/bible-requests/${character.requestKey}`)).json()).data.version.id,proposed.version.id);
- await pool.query('ALTER TABLE new_design.comic_bible_versions DISABLE TRIGGER comic_bible_versions_immutable');
+ await pool.query('ALTER TABLE new_design.card_version_actions DISABLE TRIGGER card_version_actions_immutable');
  assert.equal((await bibles.getComicBibleWorkspace(project.id)).scenes.length,1);
  await assert.rejects(bibles.proposeComicBible(project.id,{...character,requestKey:randomUUID()}),error=>error.status===503);
 });

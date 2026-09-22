@@ -3,6 +3,7 @@ import type {Pool,PoolClient} from 'pg';
 import {VISUAL_MAX_BYTES} from '../../../common/visualAssets';
 import {comicVisualAdoptionSchema,comicVisualUploadSchema,type ComicVisualAdoptionInput,type ComicVisualAdoptionReceipt,type ComicVisualAsset,type ComicVisualAssetVersion,type ComicVisualUploadInput,type ComicVisualUploadReceipt,type ComicVisualWorkspace} from '../../../common/comicVisualAssets';
 import {NewDesignError} from '../../domain/errors';
+import {requireCardWorkflowTypes,workflowCard} from '../cardWorkflow';
 import {getNewDesignPool} from '../runtime';
 
 type Db=Pick<PoolClient,'query'>|Pick<Pool,'query'>;
@@ -11,8 +12,9 @@ const sha256=(value:Buffer)=>createHash('sha256').update(value).digest('hex');
 const date=(value:unknown)=>new Date(String(value)).toISOString();
 
 async function capable(write=false){
- const row=(await(await getNewDesignPool()).query("SELECT to_regclass('new_design.comic_visual_assets') IS NOT NULL assets,to_regclass('new_design.comic_visual_asset_versions') IS NOT NULL versions,to_regclass('new_design.comic_visual_asset_adoptions') IS NOT NULL adoptions,(SELECT count(*) FROM pg_trigger WHERE tgname IN ('comic_visual_asset_versions_immutable','comic_visual_asset_adoptions_immutable') AND tgenabled='O') guards")).rows[0];
- if(!row.assets||!row.versions||!row.adoptions||write&&Number(row.guards)!==2)throw new NewDesignError(!row.assets?'漫画视觉素材手动迁移 114 尚未启用。':'漫画视觉素材版本保护未就绪，写入已停用。',503);
+ const db=await getNewDesignPool();await requireCardWorkflowTypes(db,['comic_project','comic_bible'],write);
+ const row=(await db.query("SELECT to_regclass('new_design.asset_content_objects') IS NOT NULL contents,to_regclass('new_design.asset_versions') IS NOT NULL versions,to_regclass('new_design.asset_events') IS NOT NULL events")).rows[0];
+ if(!row.contents||!row.versions||!row.events)throw new NewDesignError('共享资产账本尚未完整启用。',503);
 }
 
 function validateImage(input:ComicVisualUploadInput):{bytes:Buffer;checksum:string}{
@@ -37,7 +39,7 @@ async function visualAsset(db:Db,projectId:string,id:string):Promise<ComicVisual
 
 export async function getComicVisualWorkspace(projectId:string,bibleEntityId:string):Promise<ComicVisualWorkspace>{
  await capable();const db=await(await getNewDesignPool()).connect();
- try{await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');if(!(await db.query('SELECT 1 FROM new_design.comic_bible_entities WHERE project_id=$1 AND id=$2',[projectId,bibleEntityId])).rowCount)throw new NewDesignError('设定对象不存在或不属于该漫画项目。',404);const rows=(await db.query("SELECT id FROM new_design.comic_visual_assets WHERE project_id=$1 AND bible_entity_id=$2 AND status='active' ORDER BY created_at,id",[projectId,bibleEntityId])).rows,assets:ComicVisualAsset[]=[];for(const row of rows)assets.push(await visualAsset(db,projectId,String(row.id)));await db.query('COMMIT');return{projectId,bibleEntityId,assets};}catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}
+ try{await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');const bible=await workflowCard(db,bibleEntityId,'comic_bible');if(String(bible.space_id)!==projectId)throw new NewDesignError('设定对象不存在或不属于该漫画项目。',404);const rows=(await db.query("SELECT id FROM new_design.comic_visual_assets WHERE project_id=$1 AND bible_entity_id=$2 AND status='active' ORDER BY created_at,id",[projectId,bibleEntityId])).rows,assets:ComicVisualAsset[]=[];for(const row of rows)assets.push(await visualAsset(db,projectId,String(row.id)));await db.query('COMMIT');return{projectId,bibleEntityId,assets};}catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}
 }
 
 export async function readComicVisualUploadOriginal(projectId:string,requestKey:string):Promise<ComicVisualUploadReceipt|null>{
@@ -49,16 +51,16 @@ export async function uploadComicVisualCandidate(projectId:string,raw:ComicVisua
  try{
   await db.query('BEGIN');const previous=(await db.query('SELECT id,asset_id,input_hash FROM new_design.comic_visual_asset_versions WHERE request_key=$1',[input.requestKey])).rows[0];
   if(previous){if(previous.input_hash!==inputHash)throw new NewDesignError('原视觉素材请求已用于不同内容。',409);const asset=await visualAsset(db,projectId,String(previous.asset_id));await db.query('COMMIT');return{asset,version:asset.versions.find(item=>item.id===previous.id)!,requestKey:input.requestKey,repeated:true};}
-  if(!(await db.query('SELECT id FROM new_design.comic_projects WHERE id=$1 FOR UPDATE',[projectId])).rowCount)throw new NewDesignError('漫画项目不存在。',404);
-  const bible=(await db.query('SELECT * FROM new_design.comic_bible_entities WHERE project_id=$1 AND id=$2 FOR SHARE',[projectId,input.bibleEntityId])).rows[0];
-  if(!bible)throw new NewDesignError('设定对象不存在或不属于该漫画项目。',404);if(!bible.adopted_version_id)throw new NewDesignError('请先明确采用角色或场景设定，再添加视觉素材。',422);
+  await workflowCard(db,projectId,'comic_project',true);
+  const bible=await workflowCard(db,input.bibleEntityId,'comic_bible');
+  if(String(bible.space_id)!==projectId)throw new NewDesignError('设定对象不存在或不属于该漫画项目。',404);if(!bible.values.adopted_version_id)throw new NewDesignError('请先明确采用角色或场景设定，再添加视觉素材。',422);
   let assetId=input.assetId??randomUUID(),asset=input.assetId?(await db.query('SELECT * FROM new_design.comic_visual_assets WHERE project_id=$1 AND id=$2 FOR UPDATE',[projectId,input.assetId])).rows[0]:null;
   if(input.assetId&&!asset)throw new NewDesignError('漫画视觉素材不存在或不属于该项目。',404);
   if(asset&&(asset.bible_entity_id!==input.bibleEntityId||asset.asset_type!==input.assetType))throw new NewDesignError('视觉素材对象或类型与原记录不一致。',409);
   if(asset&&Number(asset.revision)!==input.expectedRevision)throw new NewDesignError('视觉素材采用状态已变化，请先读取最新版本。',409);
   if(!asset){asset=(await db.query('INSERT INTO new_design.comic_visual_assets(id,project_id,bible_entity_id,asset_type) VALUES($1,$2,$3,$4) RETURNING *',[assetId,projectId,input.bibleEntityId,input.assetType])).rows[0];}
   const next=Number((await db.query('SELECT coalesce(max(version),0)+1 value FROM new_design.comic_visual_asset_versions WHERE asset_id=$1',[assetId])).rows[0].value),versionId=randomUUID();
-  await db.query('INSERT INTO new_design.comic_visual_asset_versions(id,project_id,asset_id,bible_entity_id,source_bible_version_id,version,name,description,filename,mime_type,byte_size,checksum,image_data,source_kind,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,\'upload\',$14,$15)',[versionId,projectId,assetId,input.bibleEntityId,bible.adopted_version_id,next,input.name,input.description,input.filename,input.mimeType,file.bytes.length,file.checksum,file.bytes,input.requestKey,inputHash]);
+  await db.query('INSERT INTO new_design.comic_visual_asset_versions(id,project_id,asset_id,bible_entity_id,source_bible_version_id,version,name,description,filename,mime_type,byte_size,checksum,image_data,source_kind,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,\'upload\',$14,$15)',[versionId,projectId,assetId,input.bibleEntityId,bible.values.adopted_version_id,next,input.name,input.description,input.filename,input.mimeType,file.bytes.length,file.checksum,file.bytes,input.requestKey,inputHash]);
   const result=await visualAsset(db,projectId,assetId);committing=true;await db.query('COMMIT');return{asset:result,version:result.versions.find(item=>item.id===versionId)!,requestKey:input.requestKey,repeated:false};
  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('视觉素材候选结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicVisualUploadOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_visual_asset_versions WHERE id=$1',[receipt.version.id])).rows[0];if(row?.input_hash===inputHash)return receipt;}throw new NewDesignError('原视觉素材请求键已被使用。',409);}throw error;}finally{db.release();}
 }
@@ -74,7 +76,7 @@ export async function adoptComicVisualVersion(projectId:string,assetId:string,ra
   if(previous){if(previous.input_hash!==inputHash||previous.asset_id!==assetId)throw new NewDesignError('原视觉素材采用请求已用于不同对象。',409);const asset=await visualAsset(db,projectId,assetId);await db.query('COMMIT');return{asset,adoptedVersionId:String(previous.version_id),adoptionRevision:Number(previous.revision),requestKey:input.requestKey,repeated:true};}
   const asset=(await db.query('SELECT * FROM new_design.comic_visual_assets WHERE project_id=$1 AND id=$2 AND status=\'active\' FOR UPDATE',[projectId,assetId])).rows[0];if(!asset)throw new NewDesignError('漫画视觉素材不存在或不属于该项目。',404);if(Number(asset.revision)!==input.expectedRevision)throw new NewDesignError('视觉素材采用状态已变化，请先读取最新版本。',409);
   const version=(await db.query('SELECT * FROM new_design.comic_visual_asset_versions WHERE asset_id=$1 AND id=$2',[assetId,input.versionId])).rows[0];if(!version)throw new NewDesignError('视觉素材候选不存在或属于其他对象。',404);
-  const bible=(await db.query('SELECT adopted_version_id FROM new_design.comic_bible_entities WHERE project_id=$1 AND id=$2',[projectId,asset.bible_entity_id])).rows[0];if(!bible||bible.adopted_version_id!==version.source_bible_version_id)throw new NewDesignError('角色或场景设定已变化，请基于当前采用设定重新准备视觉素材。',409);
+  const bible=await workflowCard(db,String(asset.bible_entity_id),'comic_bible');if(String(bible.space_id)!==projectId||bible.values.adopted_version_id!==version.source_bible_version_id)throw new NewDesignError('角色或场景设定已变化，请基于当前采用设定重新准备视觉素材。',409);
   const revision=Number(asset.revision)+1;await db.query('UPDATE new_design.comic_visual_assets SET adopted_version_id=$2,revision=$3,updated_at=now() WHERE id=$1',[assetId,input.versionId,revision]);await db.query('INSERT INTO new_design.comic_visual_asset_adoptions(id,project_id,asset_id,version_id,revision,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),projectId,assetId,input.versionId,revision,input.requestKey,inputHash]);const result=await visualAsset(db,projectId,assetId);committing=true;await db.query('COMMIT');return{asset:result,adoptedVersionId:input.versionId,adoptionRevision:revision,requestKey:input.requestKey,repeated:false};
  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('视觉素材采用结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicVisualAdoptionOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_visual_asset_adoptions WHERE request_key=$1',[input.requestKey])).rows[0];if(row?.input_hash===inputHash)return receipt;}}throw error;}finally{db.release();}
 }

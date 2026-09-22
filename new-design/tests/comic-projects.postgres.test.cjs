@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {isolatedDatabase,finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('comic projects keep an independent immutable source snapshot and recover the original create request',async t=>{
- const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'}]);
+ const {pool}=await finalCardKernelDatabase(t);
  const comic=compiled('server/database/comicProjects');
  const templates=compiled('server/database/templateStore');
  let template=await templates.saveTemplate({key:`comic_${randomUUID().replaceAll('-','')}`,name:'漫画测试模板',description:'',draftConfig:{},requestKey:randomUUID()});
@@ -31,8 +31,8 @@ test('comic projects keep an independent immutable source snapshot and recover t
  assert.match((await comic.getComicProject(created.project.id)).source.content,/第一章的正式正文/);
  assert.doesNotMatch((await comic.getComicProject(created.project.id)).source.content,/第二版正文/);
  assert.equal((await comic.listComicProjects()).length,1);
- await assert.rejects(pool.query('UPDATE new_design.comic_source_versions SET content=$1 WHERE project_id=$2',['tampered',created.project.id]),error=>error.code==='23514');
- await pool.query('ALTER TABLE new_design.comic_source_versions DISABLE TRIGGER comic_source_versions_immutable');
+ await assert.rejects(pool.query("UPDATE new_design.card_version_actions SET action_key='tampered' WHERE request_key=$1",[input.requestKey]),error=>error.code==='23514');
+ await pool.query('ALTER TABLE new_design.card_version_actions DISABLE TRIGGER card_version_actions_immutable');
  assert.equal((await comic.getComicCapability()).operational,false);
  assert.equal((await comic.getComicProject(created.project.id)).source.content,created.source.content);
  assert.equal((await comic.readComicCreateOriginal(input.requestKey)).project.id,created.project.id);
@@ -40,7 +40,7 @@ test('comic projects keep an independent immutable source snapshot and recover t
 });
 
 test('original idea and imported text are distinct project sources',async t=>{
- await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'}]);
+ await finalCardKernelDatabase(t);
  const comic=compiled('server/database/comicProjects');
  for(const sourceType of ['original','text_import']){
   const result=await comic.createComicProject({requestKey:randomUUID(),title:sourceType,sourceType,sourceText:`${sourceType} 的来源文本`,comicFormat:'4koma',stylePreset:'chibi'});
@@ -61,6 +61,6 @@ test('original idea and imported text are distinct project sources',async t=>{
 test('comic project creation stays closed before its manual migration is installed',async t=>{
  await isolatedDatabase(t);
  const comic=compiled('server/database/comicProjects');
- assert.deepEqual(await comic.getComicCapability(),{installed:false,operational:false,reason:'漫画工作台手动迁移 109 尚未启用。'});
+ assert.deepEqual(await comic.getComicCapability(),{installed:false,operational:false,reason:'漫画卡片收敛迁移尚未启用。'});
  await assert.rejects(comic.createComicProject({requestKey:randomUUID(),title:'尚未启用',sourceType:'original',sourceText:'保留输入',comicFormat:'webtoon',stylePreset:'webtoon_color'}),error=>error.status===503);
 });

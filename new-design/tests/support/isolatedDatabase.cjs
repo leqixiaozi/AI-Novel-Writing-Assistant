@@ -1,4 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto'),{Pool}=require('pg');
+const runtimeSpec=require('../../runtime/runtime-package.spec.json');
 /** A new empty database on the existing PostgreSQL server; never starts runtime,
  * migrates the author's database, copies author rows, calls a model or drops data. */
 const buildRoot=process.env.ND_REFERENCE_TEST_BUILD?path.resolve(process.env.ND_REFERENCE_TEST_BUILD):path.join(__dirname,'../../dist');
@@ -21,3 +22,6 @@ exports.isolatedDatabase=async function(t,extraMigrations=[]){
  currentPool=pool;require.cache[runtimePath]={id:runtimePath,filename:runtimePath,loaded:true,exports:isolatedRuntime};
  return {pool,database};
 };
+
+const finalManualMigrations=runtimeSpec.manualMigrationFiles.map(fileName=>({id:fileName.slice(0,-4),fileName}));
+exports.finalCardKernelDatabase=t=>exports.isolatedDatabase(t,finalManualMigrations);

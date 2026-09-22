@@ -14,6 +14,11 @@ export async function worldCatalogStateInstalled(db:Pick<PoolClient,'query'>):Pr
 
 export async function worldCatalogArchiveAvailable(db:Pick<PoolClient,'query'>):Promise<boolean>{
  if(!await worldCatalogStateInstalled(db))return false;
+ const final=(await db.query("SELECT EXISTS(SELECT 1 FROM new_design.schema_migrations WHERE id='131_card_kernel_v2_cutover') cutover")).rows[0]?.cutover;
+ if(final){
+  const row=(await db.query("SELECT EXISTS(SELECT 1 FROM new_design.system_capabilities WHERE capability_key='card_kernel_v2' AND installed AND operational) kernel,EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('new_design.card_version_actions') AND tgname='card_version_actions_immutable' AND tgenabled='O') immutable")).rows[0]??{};
+  return Boolean(row.kernel&&row.immutable);
+ }
  const row=(await db.query("SELECT count(*)::integer guards FROM pg_trigger trigger JOIN pg_class relation ON relation.oid=trigger.tgrelid JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='new_design' AND relation.relname='world_package_catalog_actions' AND trigger.tgname=ANY($1::text[]) AND trigger.tgenabled='O'",[['world_package_catalog_action_guard','world_package_catalog_actions_immutable']])).rows[0];
  return Number(row.guards)===2;
 }

@@ -160,6 +160,7 @@ test('new-design route opens its own world library instead of the old system',()
  const source=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
  const exports={};
  const load=name=>{
+  if(name==='react')return require(name);
   if(name==='react/jsx-runtime')return require(name);
   if(name==='./api')return {newDesignApi:{}};
   if(name==='./worldCatalog/WorldCatalogPage')return {default:()=>React.createElement('main',{'data-world-catalog':'new-design'},'新版世界样本库')};

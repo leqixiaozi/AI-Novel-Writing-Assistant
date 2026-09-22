@@ -1,12 +1,12 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 function blueprint(){return{inspiration:'漂浮在永夜海上的群岛，以记忆缴税。',templateKey:'fantasy',references:[],properties:{tone:'幽暗冒险',power:['潮汐术','记忆契约']},layers:['overview','rules','factions','locations','relations','tensions']};}
 function candidate(){return{title:'潮忆群岛',elevatorPitch:'居民以记忆换取浮岛继续航行。',era:'群岛历三百年',spatialStructure:'七座主岛沿永夜潮汐迁徙。',coreOrder:'潮税议会登记并征收记忆。',ordinaryLife:'居民用刻痕和见证人弥补记忆缺口。',rules:[{name:'记忆守恒',summary:'被缴纳的记忆会进入潮库。',cost:'失去一段亲密关系',boundary:'不可凭空复制',enforcement:'潮痕会公开显示欠税'}],factions:[{name:'潮税议会',position:'维持航线',doctrine:'秩序优先',goals:['维持七岛'],methods:['征收潮税']}],locations:[{name:'无灯港',summary:'永不点灯的贸易港。',risk:'潮库泄漏',entryConstraint:'交出一段真实记忆'}],relations:[{source:'潮税议会',target:'无灯港',relation:'控制',tension:'港民反抗加剧'}],tensions:['记忆税维持世界，也持续抹去共同历史。'],sixLayers:{overview:'永夜海上的迁徙群岛。',rules:'记忆与浮力守恒。',factions:'议会和港民对立。',locations:'七岛与潮库。',relations:'征税、庇护与反抗。',tensions:'生存依赖正在摧毁身份。'}};}
 
 test('world wizard versions candidates and publishes only the explicitly selected version',{skip:process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME!=='1',timeout:180000},async t=>{
-  const {pool}=await isolatedDatabase(t,[{id:'084_world_packages',fileName:'084_world_packages.sql'},{id:'115_creative_hub',fileName:'115_creative_hub.sql'},{id:'116_world_generation_sessions',fileName:'116_world_generation_sessions.sql'}]);
+  const {pool}=await finalCardKernelDatabase(t);
   await pool.query("UPDATE new_design.world_package_capability SET operational=true WHERE contract='public_world_package_v1'");
   const world=compiled('server/database/worldGeneration');
   await world.withWorldGenerationPool(pool,async()=>{

@@ -1,28 +1,113 @@
 import {createHash,randomUUID} from 'node:crypto';
-import type {Pool,PoolClient} from 'pg';
-import {comicSourceBundleAdoptionSchema,comicSourceBundleContentSchema,comicSourceBundleProposalSchema,type ComicSourceBundleAdoptionInput,type ComicSourceBundleAdoptionReceipt,type ComicSourceBundleProposalInput,type ComicSourceBundleProposalReceipt,type ComicSourceBundleVersion,type ComicSourceBundleWorkspace,type ComicSourceExtractionPrompt} from '../../../common/comicSourceBundle';
+import {
+  comicSourceBundleAdoptionSchema,comicSourceBundleContentSchema,comicSourceBundleProposalSchema,
+  type ComicSourceBundleAdoptionInput,type ComicSourceBundleAdoptionReceipt,type ComicSourceBundleProposalInput,
+  type ComicSourceBundleProposalReceipt,type ComicSourceBundleVersion,type ComicSourceBundleWorkspace,
+  type ComicSourceExtractionPrompt,
+} from '../../../common/comicSourceBundle';
 import type {ComicGenerationReceipt} from '../../../common/comicPanels';
-import {NewDesignError} from '../../domain/errors';
+import {NewDesignError,assertFound} from '../../domain/errors';
+import {
+  adoptWorkflowVersion,appendWorkflowVersion,createWorkflowCard,recordWorkflowAction,requireCardWorkflowTypes,
+  workflowActionByRequest,workflowCard,workflowVersions,type WorkflowDb,type WorkflowRow,
+} from '../cardWorkflow';
 import {getNewDesignPool} from '../runtime';
 
-type Db=Pick<PoolClient,'query'>|Pick<Pool,'query'>;
+const PROJECT_TYPE='comic_project',BUNDLE_TYPE='comic_source_bundle';
 const digest=(value:unknown)=>createHash('sha256').update(JSON.stringify(value),'utf8').digest('hex');
-async function capable(write=false){const row=(await(await getNewDesignPool()).query("SELECT to_regclass('new_design.comic_source_bundle_state') IS NOT NULL state,to_regclass('new_design.comic_source_bundle_versions') IS NOT NULL versions,to_regclass('new_design.comic_source_bundle_adoptions') IS NOT NULL adoptions,(SELECT count(*) FROM pg_trigger WHERE tgname IN ('comic_source_bundle_versions_immutable','comic_source_bundle_adoptions_immutable') AND tgenabled='O') guards")).rows[0];if(!row.state||!row.versions||!row.adoptions||write&&Number(row.guards)!==2)throw new NewDesignError(!row.state?'漫画来源整理手动迁移 113 尚未启用。':'漫画来源整理版本保护未就绪，写入已停用。',503);}
-function version(row:Record<string,unknown>):ComicSourceBundleVersion{return{id:String(row.id),projectId:String(row.project_id),version:Number(row.version),sourceVersionId:String(row.source_version_id),sourceKind:row.source_kind as ComicSourceBundleVersion['sourceKind'],content:comicSourceBundleContentSchema.parse(row.content),createdAt:new Date(String(row.created_at)).toISOString()};}
-async function workspace(db:Db,projectId:string):Promise<ComicSourceBundleWorkspace>{const project=(await db.query('SELECT adopted_source_version_id FROM new_design.comic_projects WHERE id=$1',[projectId])).rows[0];if(!project)throw new NewDesignError('漫画项目不存在。',404);if(!project.adopted_source_version_id)throw new NewDesignError('漫画项目缺少已采用来源。',409);const state=(await db.query('SELECT revision,adopted_version_id FROM new_design.comic_source_bundle_state WHERE project_id=$1',[projectId])).rows[0],versions=(await db.query('SELECT * FROM new_design.comic_source_bundle_versions WHERE project_id=$1 ORDER BY version DESC,id DESC',[projectId])).rows.map(version);return{projectId,sourceVersionId:String(project.adopted_source_version_id),revision:state?Number(state.revision):0,adoptedVersionId:state?.adopted_version_id?String(state.adopted_version_id):null,versions};}
-export async function getComicSourceBundleWorkspace(projectId:string):Promise<ComicSourceBundleWorkspace>{await capable();const db=await(await getNewDesignPool()).connect();try{await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');const result=await workspace(db,projectId);await db.query('COMMIT');return result;}catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}}
-export async function readComicSourceBundleOriginal(projectId:string,requestKey:string):Promise<ComicSourceBundleProposalReceipt|null>{await capable();const db=await getNewDesignPool(),row=(await db.query('SELECT id FROM new_design.comic_source_bundle_versions WHERE project_id=$1 AND request_key=$2',[projectId,requestKey])).rows[0];if(!row)return null;const current=await workspace(db,projectId);return{workspace:current,version:current.versions.find(item=>item.id===row.id)!,requestKey,repeated:true};}
-export async function readComicSourceBundleAdoptionOriginal(projectId:string,requestKey:string):Promise<ComicSourceBundleAdoptionReceipt|null>{await capable();const db=await getNewDesignPool(),row=(await db.query('SELECT version_id,revision FROM new_design.comic_source_bundle_adoptions WHERE project_id=$1 AND request_key=$2',[projectId,requestKey])).rows[0];return row?{workspace:await workspace(db,projectId),adoptedVersionId:String(row.version_id),adoptionRevision:Number(row.revision),requestKey,repeated:true}:null;}
-export async function getComicSourceExtractionPrompt(projectId:string,instruction:string):Promise<ComicSourceExtractionPrompt>{await capable();const row=(await(await getNewDesignPool()).query('SELECT project.adopted_source_version_id,source.content,source.manifest FROM new_design.comic_projects project JOIN new_design.comic_source_versions source ON source.project_id=project.id AND source.id=project.adopted_source_version_id WHERE project.id=$1',[projectId])).rows[0];if(!row)throw new NewDesignError('漫画项目缺少已采用来源。',409);return{operation:'source_extract',projectId,sourceVersionId:String(row.adopted_source_version_id),sourceText:String(row.content),sourceManifest:row.manifest as Record<string,unknown>,instruction};}
-export async function readComicSourceGenerationOriginal(projectId:string,requestKey:string):Promise<ComicGenerationReceipt|null>{const result=await readComicSourceBundleOriginal(projectId,requestKey);if(!result||result.version.sourceKind!=='ai_candidate')return null;return{requestKey,operation:'source_extract',sourceVersionIds:[result.version.sourceVersionId],candidateVersionId:result.version.id,status:'succeeded',repeated:true,readiness:result.version.sourceVersionId===result.workspace.sourceVersionId?'current':'stale_source',adopted:result.workspace.adoptedVersionId===result.version.id};}
-export async function proposeComicSourceBundle(projectId:string,raw:ComicSourceBundleProposalInput,options:{sourceKind?:'manual'|'ai_candidate';expectedSourceVersionId?:string}={}):Promise<ComicSourceBundleProposalReceipt>{const input=comicSourceBundleProposalSchema.parse(raw),sourceKind=options.sourceKind??'manual',hash=digest(sourceKind==='manual'?{projectId,...input}:{projectId,...input,sourceKind,expectedSourceVersionId:options.expectedSourceVersionId??null});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;try{
- await db.query('BEGIN');const prior=(await db.query('SELECT id,input_hash FROM new_design.comic_source_bundle_versions WHERE request_key=$1',[input.requestKey])).rows[0];if(prior){if(prior.input_hash!==hash)throw new NewDesignError('原来源整理请求已用于不同内容。',409);const current=await workspace(db,projectId);await db.query('COMMIT');return{workspace:current,version:current.versions.find(item=>item.id===prior.id)!,requestKey:input.requestKey,repeated:true};}
- const project=(await db.query('SELECT adopted_source_version_id FROM new_design.comic_projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0];if(!project)throw new NewDesignError('漫画项目不存在。',404);if(!project.adopted_source_version_id)throw new NewDesignError('漫画项目缺少已采用来源。',409);if(options.expectedSourceVersionId&&project.adopted_source_version_id!==options.expectedSourceVersionId)throw new NewDesignError('漫画原文来源已变化，AI 候选未保存；请基于当前来源重新生成。',409);
- await db.query('INSERT INTO new_design.comic_source_bundle_state(project_id) VALUES($1) ON CONFLICT DO NOTHING',[projectId]);const state=(await db.query('SELECT revision FROM new_design.comic_source_bundle_state WHERE project_id=$1 FOR UPDATE',[projectId])).rows[0];if(Number(state.revision)!==input.expectedRevision)throw new NewDesignError('来源整理采用状态已变化，请先读取当前版本。',409);
- const next=Number((await db.query('SELECT coalesce(max(version),0)+1 value FROM new_design.comic_source_bundle_versions WHERE project_id=$1',[projectId])).rows[0].value),id=randomUUID();await db.query('INSERT INTO new_design.comic_source_bundle_versions(id,project_id,version,source_version_id,source_kind,content,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8)',[id,projectId,next,project.adopted_source_version_id,sourceKind,JSON.stringify(input.content),input.requestKey,hash]);const current=await workspace(db,projectId);committing=true;await db.query('COMMIT');return{workspace:current,version:current.versions.find(item=>item.id===id)!,requestKey:input.requestKey,repeated:false};
- }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('来源整理候选结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicSourceBundleOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_source_bundle_versions WHERE id=$1',[receipt.version.id])).rows[0];if(row?.input_hash===hash)return receipt;}throw new NewDesignError('原来源整理请求键已被占用。',409);}throw error;}finally{db.release();}}
-export async function adoptComicSourceBundle(projectId:string,raw:ComicSourceBundleAdoptionInput):Promise<ComicSourceBundleAdoptionReceipt>{const input=comicSourceBundleAdoptionSchema.parse(raw),hash=digest({projectId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;try{
- await db.query('BEGIN');const prior=(await db.query('SELECT version_id,revision,input_hash FROM new_design.comic_source_bundle_adoptions WHERE request_key=$1',[input.requestKey])).rows[0];if(prior){if(prior.input_hash!==hash)throw new NewDesignError('原来源整理采用请求已用于不同版本。',409);const current=await workspace(db,projectId);await db.query('COMMIT');return{workspace:current,adoptedVersionId:String(prior.version_id),adoptionRevision:Number(prior.revision),requestKey:input.requestKey,repeated:true};}
- const project=(await db.query('SELECT adopted_source_version_id FROM new_design.comic_projects WHERE id=$1 FOR UPDATE',[projectId])).rows[0],state=(await db.query('SELECT revision FROM new_design.comic_source_bundle_state WHERE project_id=$1 FOR UPDATE',[projectId])).rows[0];if(!project||!state)throw new NewDesignError('漫画来源整理尚无候选。',404);if(Number(state.revision)!==input.expectedRevision)throw new NewDesignError('来源整理采用状态已变化，请先核对。',409);const target=(await db.query('SELECT source_version_id FROM new_design.comic_source_bundle_versions WHERE id=$1 AND project_id=$2',[input.versionId,projectId])).rows[0];if(!target)throw new NewDesignError('来源整理候选不属于本项目。',404);if(target.source_version_id!==project.adopted_source_version_id)throw new NewDesignError('候选基于旧来源，不能采用。',409);
- await db.query('UPDATE new_design.comic_source_bundle_state SET adopted_version_id=$2,revision=revision+1,updated_at=now() WHERE project_id=$1',[projectId,input.versionId]);await db.query('INSERT INTO new_design.comic_source_bundle_adoptions(id,project_id,version_id,revision,request_key,input_hash) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),projectId,input.versionId,input.expectedRevision+1,input.requestKey,hash]);const current=await workspace(db,projectId);committing=true;await db.query('COMMIT');return{workspace:current,adoptedVersionId:input.versionId,adoptionRevision:input.expectedRevision+1,requestKey:input.requestKey,repeated:false};
- }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('来源整理采用结果未知，请只读核对原请求。',503);if((error as {code?:string}).code==='23505'){const receipt=await readComicSourceBundleAdoptionOriginal(projectId,input.requestKey);if(receipt){const row=(await pool.query('SELECT input_hash FROM new_design.comic_source_bundle_adoptions WHERE request_key=$1',[input.requestKey])).rows[0];if(row?.input_hash===hash)return receipt;}}throw error;}finally{db.release();}}
+const iso=(value:unknown)=>new Date(String(value)).toISOString();
+
+async function capable(write=false){await requireCardWorkflowTypes(await getNewDesignPool(),[PROJECT_TYPE,BUNDLE_TYPE],write);}
+
+async function project(db:WorkflowDb,projectId:string,lock=false){
+  const row=await workflowCard(db,projectId,PROJECT_TYPE,lock),values=row.values as WorkflowRow;
+  return{row,sourceVersionId:String(values.source_version_id),source:values.source_snapshot as WorkflowRow};
+}
+
+async function bundleCard(db:WorkflowDb,projectId:string,lock=false):Promise<WorkflowRow|null>{
+  return(await db.query(`SELECT card.*,version.values current_values
+    FROM new_design.cards card
+    JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key=$2
+    JOIN new_design.card_versions version ON version.id=card.current_version_id
+    WHERE card.space_id=$1 AND card.status='active'
+    ORDER BY card.created_at,card.id LIMIT 1${lock?' FOR UPDATE OF card':''}`,[projectId,BUNDLE_TYPE])).rows[0]??null;
+}
+
+function version(row:WorkflowRow):ComicSourceBundleVersion{
+  const values=row.values as WorkflowRow;
+  return{id:String(row.id),projectId:String(values.project_id),version:Number(values.version),sourceVersionId:String(values.source_version_id),sourceKind:values.source_kind,content:comicSourceBundleContentSchema.parse(values.content),createdAt:iso(row.created_at)};
+}
+
+async function workspace(db:WorkflowDb,projectId:string):Promise<ComicSourceBundleWorkspace>{
+  const currentProject=await project(db,projectId),card=await bundleCard(db,projectId);
+  if(!card)return{projectId,sourceVersionId:currentProject.sourceVersionId,revision:0,adoptedVersionId:null,versions:[]};
+  const values=card.values as WorkflowRow,versions=(await workflowVersions(db,String(card.id))).map(version);
+  return{projectId,sourceVersionId:currentProject.sourceVersionId,revision:Number(values.workflow_revision??0),adoptedVersionId:values.adopted_version_id?String(values.adopted_version_id):null,versions};
+}
+
+export async function getComicSourceBundleWorkspace(projectId:string):Promise<ComicSourceBundleWorkspace>{
+  await capable();const db=await(await getNewDesignPool()).connect();
+  try{await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');const result=await workspace(db,projectId);await db.query('COMMIT');return result;}
+  catch(error){await db.query('ROLLBACK').catch(()=>undefined);throw error;}finally{db.release();}
+}
+
+export async function readComicSourceBundleOriginal(projectId:string,requestKey:string):Promise<ComicSourceBundleProposalReceipt|null>{
+  await capable();const db=await getNewDesignPool(),action=await workflowActionByRequest(db,requestKey);
+  if(!action||action.action_key!=='comic_source_bundle.candidate')return null;
+  const current=await workspace(db,projectId),saved=current.versions.find(item=>item.id===String(action.card_version_id));
+  return saved?{workspace:current,version:saved,requestKey,repeated:true}:null;
+}
+
+export async function readComicSourceBundleAdoptionOriginal(projectId:string,requestKey:string):Promise<ComicSourceBundleAdoptionReceipt|null>{
+  await capable();const db=await getNewDesignPool(),action=await workflowActionByRequest(db,requestKey);
+  if(!action||action.action_key!=='comic_source_bundle.adopt')return null;
+  const current=await workspace(db,projectId);if(!current.versions.some(item=>item.id===String(action.card_version_id)))return null;
+  return{workspace:current,adoptedVersionId:String(action.card_version_id),adoptionRevision:Number(action.payload.revision),requestKey,repeated:true};
+}
+
+export async function getComicSourceExtractionPrompt(projectId:string,instruction:string):Promise<ComicSourceExtractionPrompt>{
+  await capable();const current=await project(await getNewDesignPool(),projectId);
+  return{operation:'source_extract',projectId,sourceVersionId:current.sourceVersionId,sourceText:String(current.source.content),sourceManifest:current.source.manifest as Record<string,unknown>,instruction};
+}
+
+export async function readComicSourceGenerationOriginal(projectId:string,requestKey:string):Promise<ComicGenerationReceipt|null>{
+  const result=await readComicSourceBundleOriginal(projectId,requestKey);if(!result||result.version.sourceKind!=='ai_candidate')return null;
+  return{requestKey,operation:'source_extract',sourceVersionIds:[result.version.sourceVersionId],candidateVersionId:result.version.id,status:'succeeded',repeated:true,readiness:result.version.sourceVersionId===result.workspace.sourceVersionId?'current':'stale_source',adopted:result.workspace.adoptedVersionId===result.version.id};
+}
+
+export async function proposeComicSourceBundle(projectId:string,raw:ComicSourceBundleProposalInput,options:{sourceKind?:'manual'|'ai_candidate';expectedSourceVersionId?:string}={}):Promise<ComicSourceBundleProposalReceipt>{
+  const input=comicSourceBundleProposalSchema.parse(raw),sourceKind=options.sourceKind??'manual',hash=digest(sourceKind==='manual'?{projectId,...input}:{projectId,...input,sourceKind,expectedSourceVersionId:options.expectedSourceVersionId??null});
+  await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;
+  try{
+    await db.query('BEGIN');await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`comic_source_bundle:${projectId}`]);
+    const prior=await workflowActionByRequest(db,input.requestKey);
+    if(prior){if(prior.action_key!=='comic_source_bundle.candidate'||prior.input_hash!==hash)throw new NewDesignError('原来源整理请求已用于不同内容。',409);const current=await workspace(db,projectId);await db.query('COMMIT');return{workspace:current,version:assertFound(current.versions.find(item=>item.id===String(prior.card_version_id)),'原来源整理候选不存在。'),requestKey:input.requestKey,repeated:true};}
+    const currentProject=await project(db,projectId,true);if(options.expectedSourceVersionId&&currentProject.sourceVersionId!==options.expectedSourceVersionId)throw new NewDesignError('漫画原文来源已变化，AI 候选未保存；请基于当前来源重新生成。',409);
+    let card=await bundleCard(db,projectId,true),savedVersionId:string;
+    if(!card){
+      if(input.expectedRevision!==0)throw new NewDesignError('来源整理采用状态已变化，请先读取当前版本。',409);
+      const initial={record_kind:BUNDLE_TYPE,project_id:projectId,workflow_revision:0,adopted_version_id:null,version:1,source_version_id:currentProject.sourceVersionId,source_kind:sourceKind,content:input.content};
+      const created=await createWorkflowCard(db,{id:randomUUID(),spaceId:projectId,typeKey:BUNDLE_TYPE,title:'来源整理',values:initial,versionId:randomUUID()});savedVersionId=created.versionId;
+      await recordWorkflowAction(db,{cardId:created.cardId,cardVersionId:created.versionId,actionKey:'comic_source_bundle.candidate',requestKey:input.requestKey,inputHash:hash,payload:{sourceKind}});
+    }else{
+      const values=card.values as WorkflowRow;if(Number(values.workflow_revision??0)!==input.expectedRevision)throw new NewDesignError('来源整理采用状态已变化，请先读取当前版本。',409);
+      const next=Number((await db.query(`SELECT coalesce(max((values->>'version')::integer),0)+1 value FROM new_design.card_versions WHERE card_id=$1`,[card.id])).rows[0].value),candidateValues={...values,record_kind:BUNDLE_TYPE,version:next,source_version_id:currentProject.sourceVersionId,source_kind:sourceKind,content:input.content};
+      const candidate=await appendWorkflowVersion(db,{cardId:String(card.id),typeKey:BUNDLE_TYPE,values:candidateValues});savedVersionId=String(candidate.id);
+      await recordWorkflowAction(db,{cardId:String(card.id),cardVersionId:savedVersionId,actionKey:'comic_source_bundle.candidate',requestKey:input.requestKey,inputHash:hash,payload:{sourceKind}});
+    }
+    const current=await workspace(db,projectId),saved=assertFound(current.versions.find(item=>item.id===savedVersionId),'来源整理候选未保存。');
+    committing=true;await db.query('COMMIT');return{workspace:current,version:saved,requestKey:input.requestKey,repeated:false};
+  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('来源整理候选结果未知，请只读核对原请求。',503);throw error;}finally{db.release();}
+}
+
+export async function adoptComicSourceBundle(projectId:string,raw:ComicSourceBundleAdoptionInput):Promise<ComicSourceBundleAdoptionReceipt>{
+  const input=comicSourceBundleAdoptionSchema.parse(raw),hash=digest({projectId,...input});await capable(true);const pool=await getNewDesignPool(),db=await pool.connect();let committing=false;
+  try{
+    await db.query('BEGIN');const prior=await workflowActionByRequest(db,input.requestKey);
+    if(prior){if(prior.action_key!=='comic_source_bundle.adopt'||prior.input_hash!==hash)throw new NewDesignError('原来源整理采用请求已用于不同版本。',409);const current=await workspace(db,projectId);await db.query('COMMIT');return{workspace:current,adoptedVersionId:String(prior.card_version_id),adoptionRevision:Number(prior.payload.revision),requestKey:input.requestKey,repeated:true};}
+    const currentProject=await project(db,projectId,true),card=assertFound(await bundleCard(db,projectId,true),'漫画来源整理尚无候选。'),target=assertFound((await db.query('SELECT values FROM new_design.card_versions WHERE id=$1 AND card_id=$2',[input.versionId,card.id])).rows[0],'来源整理候选不属于本项目。');
+    if(String(target.values.source_version_id)!==currentProject.sourceVersionId)throw new NewDesignError('候选基于旧来源，不能采用。',409);
+    const adopted=await adoptWorkflowVersion(db,{cardId:String(card.id),typeKey:BUNDLE_TYPE,versionId:input.versionId,expectedRevision:input.expectedRevision,actionKey:'comic_source_bundle.adopt',requestKey:input.requestKey,inputHash:hash,payload:{projectId}});
+    const current=await workspace(db,projectId);committing=true;await db.query('COMMIT');return{workspace:current,adoptedVersionId:input.versionId,adoptionRevision:adopted.revision,requestKey:input.requestKey,repeated:false};
+  }catch(error){await db.query('ROLLBACK').catch(()=>undefined);if(committing)throw new NewDesignError('来源整理采用结果未知，请只读核对原请求。',503);throw error;}finally{db.release();}
+}

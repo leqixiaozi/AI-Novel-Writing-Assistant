@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('comic episode candidates are preserved until the author adopts a specific version',async t=>{
- const {pool}=await isolatedDatabase(t,[{id:'109_comic_projects',fileName:'109_comic_projects.sql'},{id:'110_comic_episodes',fileName:'110_comic_episodes.sql'}]);
+ const {pool}=await finalCardKernelDatabase(t);
  const comic=compiled('server/database/comicProjects'),episodes=compiled('server/database/comicEpisodes');
  const created=await comic.createComicProject({requestKey:randomUUID(),title:'分集测试',sourceType:'original',sourceText:'人物在雨夜相遇。',comicFormat:'webtoon',stylePreset:'webtoon_color'}),projectId=created.project.id;
  const input={requestKey:randomUUID(),order:1,expectedRevision:0,content:{title:'第一话',outline:'在雨中相遇',hookType:'mystery',cliffhanger:'神秘来信',isPaywalled:false,sourceText:'人物在雨夜相遇。'}};
@@ -26,7 +26,7 @@ test('comic episode candidates are preserved until the author adopts a specific 
  assert.equal((await episodes.adoptComicEpisode(projectId,first.episode.id,switchInput)).episode.revision,2);
  assert.equal((await episodes.readComicEpisodeAdoptionOriginal(projectId,firstAdoption.requestKey)).adoptedVersionId,first.version.id);
  assert.equal((await episodes.readComicEpisodeOriginal(projectId,input.requestKey)).version.id,first.version.id);
- await assert.rejects(pool.query('DELETE FROM new_design.comic_episode_versions WHERE id=$1',[first.version.id]),error=>error.code==='23514');
+ await assert.rejects(pool.query("UPDATE new_design.card_version_actions SET action_key='tampered' WHERE request_key=$1",[firstAdoption.requestKey]),error=>error.code==='23514');
  const express=require('express'),app=express();app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
  const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));t.after(()=>new Promise(resolve=>http.close(resolve)));
  const base=`http://127.0.0.1:${http.address().port}/api/new-design/comic/projects/${projectId}`;

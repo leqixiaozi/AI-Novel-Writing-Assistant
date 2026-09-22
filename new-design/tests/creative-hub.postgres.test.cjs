@@ -1,13 +1,13 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {randomUUID}=require('node:crypto');
-const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+const {finalCardKernelDatabase,compiled}=require('./support/isolatedDatabase.cjs');
 
 test('creative hub keeps bindings, archives instead of deleting, and replays the original turn idempotently',{skip:process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME!=='1',timeout:180000},async t=>{
-  const {pool}=await isolatedDatabase(t,[{id:'115_creative_hub',fileName:'115_creative_hub.sql'}]);
+  const {pool}=await finalCardKernelDatabase(t);
   const repository=compiled('server/database/creativeHub');
   await repository.withCreativeHubPool(pool,async()=>{
-    assert.deepEqual(await repository.getCreativeHubCapability(),{installed:true,operational:true,reason:'创作中枢会话、只读诊断与原回执保护可用。'});
+    assert.deepEqual(await repository.getCreativeHubCapability(),{installed:true,operational:true,reason:'创作中枢会话与不可变诊断动作账本可用。'});
     const binding={bookId:randomUUID(),chapterDocumentId:randomUUID(),taskKind:'quality_issue',taskId:randomUUID()};
     const thread=await repository.createCreativeHubThread({title:'第十章诊断',binding});
     assert.equal(thread.revision,1);
