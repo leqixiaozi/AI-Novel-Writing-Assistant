@@ -8,7 +8,7 @@
 
 当前源码物理边界由 [`132_card_kernel_tables_only.sql`](../../new-design/migrations/132_card_kernel_tables_only.sql) 定义：`new_design` 为 79 张应用表，AGE 图 `new_design_projection` 为 4 张扩展投影表，共 83 张物理表；持久业务视图和兼容 schema／行类型均为零。页面和 API 保留原业务语言。内部记录使用 `cards`、`card_versions` 和明确的 `type_key`，审核／选择等动作使用 `card_version_actions`；作者关系使用 `card_relations` 及关系版本。小说正文、研究原文、文件内容、模型执行、后台任务和传输恢复保留专用正本或账本。
 
-本轮 `132` 是尚未执行 PostgreSQL 验证、尚未安装的源码基线；编译与非数据库检查的最新结果见[开发交付记录](../../new-design/docs/development-delivery.md#当前数据库更新方式)。作者库的已安装证据仍是 2026-09-22 的 `131`：128 项迁移登记、79+4 张物理表、344 个兼容视图和 324 个兼容行类型。它与纯表源码是两个状态，不能因物理表数量相同而宣称作者库已经切换。纯表基线针对获准的独立空库，不会自动覆盖原作者库；安装后须实际登记 `132_card_kernel_tables_only`，并核对 `card_kernel_v2` 的 installed／operational 与 `details.storage=tables_only`。
+本轮 `132` 已在独立 PostgreSQL 测试库安装并核验 79+4 张物理表、零业务视图和零兼容 schema；人工主流程与检查范围见[开发交付记录](../../new-design/docs/development-delivery.md#当前数据库更新方式)。本轮未修改作者库，其最近已记录的安装证据仍是 2026-09-22 的 `131`：128 项迁移登记、79+4 张物理表、344 个兼容视图和 324 个兼容行类型。隔离库与作者库是两个状态，不能因物理表数量相同而宣称作者库已经切换。纯表基线针对获准的独立空库，不会自动覆盖原作者库；安装后须实际登记 `132_card_kernel_tables_only`，并核对 `card_kernel_v2` 的 installed／operational 与 `details.storage=tables_only`。
 
 `123`—`131` 是旧模型无损收敛的历史路径，保留为安装账本与约束证据，不是纯表空库的施工顺序。`132` 的 DDL、领域函数和种子直接面向最终表，不执行运行时 SQL 名称改写、不造兼容视图，也不伪造旧迁移登记。仓储中的查询内静态 CTE 只是当前语句对卡片 JSON 的字段投影，语句结束即消失，不是持久数据库视图。
 

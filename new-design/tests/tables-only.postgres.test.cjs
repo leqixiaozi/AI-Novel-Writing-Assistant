@@ -32,6 +32,29 @@ test('132 tables-only blank database supports real manual author workflows witho
  assert.deepEqual(capability,{installed:true,operational:true,storage:'tables_only'});
  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM new_design.books')).rows[0].count,0);
 
+ // Installation readiness must fail closed without changing the committed baseline.
+ const {requireTablesOnlyInstallation}=compiled('server/database/tablesOnly');
+ assert.equal(await requireTablesOnlyInstallation(pool),1);
+ const integrity=(await pool.query(`SELECT
+  (SELECT count(*)::integer FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='new_design' AND c.contype='f') foreign_keys,
+  (SELECT count(*)::integer FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='new_design' AND NOT c.convalidated) unvalidated_constraints,
+  (SELECT count(*)::integer FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='new_design' AND NOT t.tgisinternal AND t.tgenabled='D') disabled_guards`)).rows[0];
+ assert.ok(integrity.foreign_keys>0);assert.equal(integrity.unvalidated_constraints,0);assert.equal(integrity.disabled_guards,0);
+ const installationCheck=await pool.connect();
+ try{
+  for(const mutation of [
+   "UPDATE new_design.system_capabilities SET operational=false WHERE capability_key='card_kernel_v2'",
+   "DELETE FROM new_design.schema_migrations WHERE id='132_card_kernel_tables_only'",
+  ]){
+   await installationCheck.query('BEGIN');
+   try{
+    await installationCheck.query(mutation);
+    await assert.rejects(requireTablesOnlyInstallation(installationCheck),/服务已停止写入/);
+   }finally{await installationCheck.query('ROLLBACK');}
+   assert.equal(await requireTablesOnlyInstallation(installationCheck),1);
+  }
+ }finally{installationCheck.release();}
+
  const records=compiled('server/database/recordCards');
  const templates=compiled('server/database/templateStore');
  const cards=compiled('server/database/store');
@@ -40,6 +63,14 @@ test('132 tables-only blank database supports real manual author workflows witho
  const bodies=compiled('server/database/chapterBodyStore');
  const writing=compiled('server/database/chapterWriting');
  const hub=compiled('server/database/creativeHub');
+ const {cardGroupFormDefinitionSchema}=compiled('server/domain/validation');
+
+ const contracts=(await pool.query(`SELECT contract.task_key,version.status,version.prompt_recipe_version_id
+  FROM new_design.task_contracts contract JOIN new_design.task_contract_versions version
+  ON version.id=contract.published_version_id AND version.contract_id=contract.id ORDER BY contract.task_key`)).rows;
+ assert.deepEqual(contracts.map(row=>row.task_key),['chapter.extract_changes','chapter.write']);
+ assert.ok(contracts.every(row=>row.status==='published'&&row.prompt_recipe_version_id));
+ for(const table of ['model_route_configs','model_credential_refs'])assert.equal((await pool.query(`SELECT count(*)::integer AS count FROM new_design.${table}`)).rows[0].count,0,'Empty initialization must not invent a provider or credential');
 
  // Deterministic published author sources must exist before any book or user data is created.
  const form=await records.requireRecordCard(pool,'34000000-0000-4000-8000-000000000001','card_group_form','Seeded event form missing');
@@ -47,7 +78,10 @@ test('132 tables-only blank database supports real manual author workflows witho
  assert.equal(form.current_version_id,'35000000-0000-4000-8000-000000000001');
  const formVersion=await records.requireRecordCard(pool,form.current_version_id,'card_group_form_version','Seeded form version missing');
  assert.equal(formVersion.form_id,form.id);assert.equal(formVersion.definition.primaryTypeKey,'event');
- assert.ok(Array.isArray(formVersion.definition.tabs)&&formVersion.definition.tabs.length>0);
+ const formDefinition=cardGroupFormDefinitionSchema.parse(formVersion.definition);
+ assert.ok(formDefinition.groups.length>0);
+ const formSlots=formDefinition.groups.flatMap(group=>group.sections.flatMap(section=>section.slots));
+ assert.ok(formSlots.some(slot=>slot.kind==='primary_card'&&slot.allowedTypeKeys.includes('event')));
  const dictionary=await records.requireRecordCard(pool,'31000000-0000-4000-8000-000000000001','dictionary_definition','Seeded story-role dictionary missing');
  assert.equal(dictionary.dictionary_key,'story_role');assert.equal(dictionary.scope,'system');assert.equal(dictionary.status,'published');
  const dictionaryItems=await records.listRecordCards(pool,'dictionary_item',{where:{dictionary_id:dictionary.id,status:'active'}});
@@ -68,13 +102,31 @@ test('132 tables-only blank database supports real manual author workflows witho
  // Open a book only through the current template repository, preserving installed field/form sources.
  let template=await templates.saveTemplate({key:`tables_${key().replaceAll('-','')}`,name:'纯表隔离验收模板',description:'人工流程隔离测试',draftConfig:{},requestKey:key()});
  template=await templates.publishTemplate(template.id,template.revision,key());
+ assert.equal(template.status,'published');assert.ok(template.currentVersionId);
+ const templateVersions=await templates.listTemplateVersions(template.id);
+ assert.equal(templateVersions.length,1);assert.equal(templateVersions[0].id,template.currentVersionId);
+ const templateForm=templateVersions[0].payload.forms.find(item=>item.sourceId===form.id);
+ assert.ok(templateForm);assert.equal(templateForm.sourceVersionId,formVersion.id);
+ assert.deepEqual(templateForm.definition,formVersion.definition);
  const book=await templates.createBook({key:`tables_${key().replaceAll('-','')}`,name:'纯表隔离验收作品',description:'虚构测试资料，不调用模型',templateVersionId:template.currentVersionId},{includeTemplateSeed:false});
  assert.notEqual(book.spaceId,defaultSpace);
+ assert.equal(book.templateVersionId,template.currentVersionId);assert.equal(book.status,'active');
  const bookTypes=await cards.listCardTypes(book.spaceId),characterType=bookTypes.find(type=>type.key==='character');
  assert.ok(characterType);assert.ok(bookTypes.find(type=>type.key==='volume'));assert.ok(bookTypes.find(type=>type.key==='chapter'));
  const exposedTypeIds=bookTypes.map(type=>type.id);
  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM new_design.card_types WHERE id=ANY($1::uuid[]) AND is_internal',[exposedTypeIds])).rows[0].count,0);
  assert.ok((await pool.query("SELECT count(*)::integer AS count FROM new_design.field_definitions WHERE space_id=$1 AND status='active' AND current_version_id IS NOT NULL",[book.spaceId])).rows[0].count>0);
+ const installedForms=await records.listRecordCards(pool,'card_group_form',{spaceId:book.spaceId,where:{source_form_id:form.id,status:'published'}});
+ assert.equal(installedForms.length,1);assert.equal(installedForms[0].source_form_version_id,formVersion.id);
+ const installedFormVersion=await records.requireRecordCard(pool,installedForms[0].current_version_id,'card_group_form_version','Installed form version missing');
+ assert.equal(installedFormVersion.form_id,installedForms[0].id);
+ const installedDefinition=cardGroupFormDefinitionSchema.parse(installedFormVersion.definition);
+ assert.equal(installedDefinition.installation.sourceTemplateVersionId,template.currentVersionId);
+ assert.equal(installedDefinition.installation.sourceFormId,form.id);
+ assert.equal(installedDefinition.installation.sourceFormVersionId,formVersion.id);
+ // Installation normalizes local fields and remaps book-owned dictionaries, while retaining slot identity.
+ const slotStructure=definition=>definition.groups.map(group=>({key:group.key,sections:group.sections.map(section=>({key:section.key,slots:section.slots.map(slot=>({key:slot.key,kind:slot.kind,allowedTypeKeys:slot.allowedTypeKeys,min:slot.min,max:slot.max,relationTypeKey:slot.relationTypeKey??null,localFieldKeys:slot.localFields.map(field=>field.key)}))}))}));
+ assert.deepEqual(slotStructure(installedDefinition),slotStructure(formDefinition));
  const createMaterial=async(typeKey,title,values)=>{
   const type=bookTypes.find(type=>type.key===typeKey);assert.ok(type,`installed ${typeKey} type`);
   return author.createAuthorMaterial(book.id,{requestKey:key(),cardTypeId:type.id,title,values,formVersionId:null,formResolutionKind:'type_schema'});
@@ -82,6 +134,8 @@ test('132 tables-only blank database supports real manual author workflows witho
 
  const originalInput={requestKey:key(),cardTypeId:characterType.id,title:'沈舟',values:{name:'沈舟',story_role:'supporting',age:0,personality:'谨慎'},formVersionId:null,formResolutionKind:'type_schema'};
  const original=await author.createAuthorMaterial(book.id,originalInput);
+ assert.equal(original.operation,'create');assert.equal(original.bookId,book.id);assert.equal(original.repeated,false);
+ assert.equal(original.card.values.age,0);assert.equal(original.card.values.story_role,'supporting');
  const replayed=await author.createAuthorMaterial(book.id,originalInput);
  assert.equal(replayed.card.id,original.card.id);assert.equal(replayed.cardVersionId,original.cardVersionId);assert.equal(replayed.repeated,true);
  await assert.rejects(author.createAuthorMaterial(book.id,{...originalInput,title:'同键的另一个人物'}),conflict);
@@ -92,6 +146,8 @@ test('132 tables-only blank database supports real manual author workflows witho
  const materialHistory=await cards.listCardVersions(original.card.id);
  assert.equal(materialHistory.length,2);
  assert.equal(materialHistory.find(version=>version.id===original.cardVersionId).values.personality,'谨慎');
+ assert.equal(materialHistory.find(version=>version.id===original.cardVersionId).formResolutionKind,'type_schema');
+ assert.equal(materialHistory.find(version=>version.id===original.cardVersionId).formVersionId,null);
  await assert.rejects(pool.query("UPDATE new_design.card_versions SET values=jsonb_set(values,'{personality}','\"篡改历史\"'::jsonb) WHERE id=$1",[original.cardVersionId]),versionHistoryRejected);
  assert.equal((await cards.getCard(original.card.id)).revision,changed.card.revision);
 
@@ -109,7 +165,7 @@ test('132 tables-only blank database supports real manual author workflows witho
  assert.equal((await pool.query('SELECT count(*)::integer AS count FROM new_design.card_versions WHERE id=$1',[rolledBackVersionId])).rows[0].count,0);
  assert.equal(await author.readAuthorMaterialWriteReceipt(book.id,rollbackInput.requestKey),null);
 
- const content={goal:'送达原信',mustHappen:[],mustPreserve:[],forbiddenBoundaries:[],expectedChanges:[],characterArc:'',notes:''};
+ const content={goal:'送达原信',storyTime:'',mustHappen:[],mustPreserve:[],forbiddenBoundaries:[],expectedChanges:[],characterArc:'',notes:''};
  const storyInput={bookId:book.id,level:'story',parentObjectId:null,cardId:null,title:'故事总纲',sortOrder:0,content,source:'manual',executionMode:'manual',references:[],idempotencyKey:key()};
  let story=await planning.createPlanningObject(storyInput);
  assert.equal(story.adoptedVersionId,null);assert.equal(story.currentVersion.source,'manual');
@@ -144,7 +200,7 @@ test('132 tables-only blank database supports real manual author workflows witho
  let document=await bodies.createChapterDocument({bookId:book.id,chapterCardId:chapterCard.id,logicalOrder:1,title:'第一封信'});
  const draft={content:'沈舟把原信藏在斗篷里，决定先问清来处。',operationKind:'manual_draft',expectedRevision:document.revision,idempotencyKey:key(),createdBy:'isolated-author'};
  document=await writing.saveChapterCandidate(document.id,draft);
- const firstBody=document.versions[0];assert.equal(firstBody.planningVersionId,chapterPlan.adoptedVersionId);assert.equal(document.adoptedVersionId,null);
+ const firstBody=document.versions[0];assert.equal(firstBody.planningVersionId,chapterPlan.adoptedVersionId);assert.equal(firstBody.operationKind,'manual_draft');assert.equal(firstBody.source,'manual');assert.equal(document.adoptedVersionId,null);
  assert.equal((await writing.saveChapterCandidate(document.id,draft)).versions.length,1);
  await assert.rejects(writing.saveChapterCandidate(document.id,{...draft,content:'同键不能替换原稿。'}),conflict);
  const bodyAdoption={versionId:firstBody.id,expectedRevision:document.revision,idempotencyKey:key(),actor:'isolated-author'};
@@ -170,7 +226,7 @@ test('132 tables-only blank database supports real manual author workflows witho
   await assert.rejects(hub.archiveCreativeHubThread(thread.id,thread.revision),conflict);
   const archived=await hub.archiveCreativeHubThread(thread.id,renamed.revision);
   const read=await hub.getCreativeHubThread(thread.id);
-  assert.equal(read.status,'archived');assert.equal(read.revision,archived.revision);assert.deepEqual(read.binding,{});
+  assert.equal(read.status,'archived');assert.equal(read.revision,archived.revision);assert.equal(read.title,'保留历史的无绑定会话');assert.deepEqual(read.binding,{});
   assert.equal((await hub.listCreativeHubThreads()).some(item=>item.id===thread.id),false);
   assert.equal((await hub.listCreativeHubThreads({includeArchived:true})).some(item=>item.id===thread.id),true);
   assert.equal((await pool.query('SELECT count(*)::integer AS count FROM new_design.card_versions WHERE card_id=$1',[thread.id])).rows[0].count,3);
