@@ -312,7 +312,9 @@
 .nd-field-row.is-locked { opacity: .9; }
 .nd-lock-note, .nd-save-hint { margin: 0; color: var(--nd-muted); font-size: .69rem; }
 
-.nd-button { min-height: 42px; padding: .58rem .9rem; border-radius: calc(var(--radius) - .2rem); cursor: pointer; font-size: .78rem; font-weight: 600; transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
+.nd-button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 42px; padding: .58rem .9rem; color: var(--nd-ink); background: transparent; border: 1px solid hsl(var(--input)); border-radius: calc(var(--radius) - .2rem); cursor: pointer; font-size: .78rem; font-weight: 600; line-height: 1.4; text-align: center; text-decoration: none; transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
+.nd-button:hover:not(:disabled) { background: var(--nd-soft); }
+.nd-button:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .nd-button:disabled { opacity: .45; cursor: not-allowed; }
 .nd-button-primary { color: var(--nd-accent-foreground) !important; background: var(--nd-accent); border: 1px solid var(--nd-accent); }
 .nd-button-primary:hover:not(:disabled) { background: hsl(var(--primary) / .88); }
