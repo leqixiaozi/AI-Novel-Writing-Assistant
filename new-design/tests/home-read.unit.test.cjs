@@ -73,7 +73,7 @@ test('projection exposes only declared home facts, preserves task counts and exp
 });
 
 test('creation draft uses the canonical structured state reader and exports no body, lease or prompt', () => {
-  const result = projectHomeCreation({ id: 'draft-1', book_name: '新作品', status: 'failed', stage: 'world', progress: 40, selected_direction_id: 'direction-1', updated_at: time,
+  const result = projectHomeCreation({ id: 'draft-1', book_name: '新作品', status: 'failed', stage: 'world', progress: 40, selected_direction_id: 'first', updated_at: time,
     director_state: { mode: 'stepwise', cursor: 2, completedStages: ['direction', 'direction', 'project', 'not-real'], leaseUntil: 'private-lease', activeBatchId: 'private-batch' },
     input_payload: { apiKey: 'private-secret' }, initial_cards: [{ manuscript: 'private-body' }] });
   assert.deepEqual(result.completedStages, ['direction', 'project']);
@@ -82,7 +82,9 @@ test('creation draft uses the canonical structured state reader and exports no b
   assert.equal(result.status, 'failed');
   assert.doesNotMatch(JSON.stringify(result), /private-/);
   assert.equal(projectHomeCreation(undefined), null);
-  assert.match(HOME_CREATION_QUERY, /book_id IS NULL AND status NOT IN \('completed'\)/);
+  assert.match(HOME_CREATION_QUERY, /version\.values->>'book_id' IS NULL AND version\.values->>'status'<>'completed'/);
+  assert.match(HOME_CREATION_QUERY, /version\.values->>'selected_direction_id' selected_direction_id/);
+  assert.doesNotMatch(HOME_CREATION_QUERY, /selected_direction_id'\)::uuid/);
   assert.doesNotMatch(HOME_CREATION_QUERY, /SELECT \*|initial_cards|review_cards|description|source_reference/);
 });
 

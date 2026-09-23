@@ -109,7 +109,7 @@ LEFT JOIN director_counts ON director_counts.id=director.id ORDER BY book.update
 /** Select just the structured director metadata, never the source manuscript or full input payload. */
 export const HOME_CREATION_QUERY = `SELECT COALESCE((version.values->>'id')::uuid,card.id) id,
  version.values->>'book_name' book_name,version.values->>'status' status,version.values->>'stage' stage,
- (version.values->>'progress')::integer progress,(version.values->>'selected_direction_id')::uuid selected_direction_id,
+ (version.values->>'progress')::integer progress,version.values->>'selected_direction_id' selected_direction_id,
  version.values->'input_payload'->'creationDirector' director_state,
  COALESCE((version.values->>'updated_at')::timestamptz,card.updated_at) updated_at
  FROM new_design.cards card JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='book_creation_session'
