@@ -25,8 +25,8 @@
 .nd-legacy-plan-section legend{font-size:14px;font-weight:600;padding:0 6px}.nd-legacy-plan-section label{display:block;min-width:0;font-size:13px;line-height:1.6}.nd-legacy-plan-section textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;min-height:96px;font-size:14px;padding:8px 12px;border:1px solid var(--nd-line);border-radius:6px;color:var(--nd-ink);background:var(--nd-canvas,var(--nd-paper));resize:vertical}
 @container nd-book-content (max-width:650px){.nd-legacy-plan-section{grid-template-columns:minmax(0,1fr)}}
 .nd-legacy-surface .nd-subnav{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:0 0 20px;padding:0 0 4px;border-bottom:1px solid var(--nd-line)}
-.nd-legacy-surface .nd-subnav a{min-height:40px;box-sizing:border-box;padding:10px 12px;background:transparent;border-radius:0;font-size:13px;line-height:1.5;color:var(--nd-muted)}
-.nd-legacy-surface .nd-subnav a.active{color:var(--nd-ink);box-shadow:inset 0 -2px var(--nd-accent)}
+.nd-legacy-surface .nd-subnav :is(a,button){min-height:40px;box-sizing:border-box;padding:10px 12px;background:transparent;border-radius:0;font-size:13px;line-height:1.5;color:var(--nd-muted)}
+.nd-legacy-surface .nd-subnav :is(a,button).active,.nd-legacy-surface .nd-subnav button[aria-pressed="true"]{color:var(--nd-ink);box-shadow:inset 0 -2px var(--nd-accent)}
 .nd-legacy-surface .nd-home{max-width:none;padding:24px}
 .nd-legacy-surface .nd-home-hero{gap:20px;padding:20px;border-radius:8px}
 .nd-legacy-surface .nd-home-starter-aside{padding-left:16px;gap:10px}

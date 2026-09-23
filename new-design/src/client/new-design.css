@@ -37,8 +37,8 @@
 .nd-context-header p { max-width: 48rem; margin: 0; color: var(--nd-muted); font-size: .82rem; }
 .nd-breadcrumb { color: var(--nd-accent) !important; font-size: .68rem !important; letter-spacing: .04em; }
 .nd-subnav { display: flex; gap: .25rem; margin-bottom: 1rem; overflow-x: auto; padding: .25rem; background: var(--nd-soft); border-radius: var(--radius); }
-.nd-subnav a { flex: 0 0 auto; min-height: 44px; padding: .68rem .85rem; color: var(--nd-muted); border-radius: calc(var(--radius) - .2rem); font-size: .76rem; text-decoration: none; }
-.nd-subnav a.active { color: var(--nd-ink); background: var(--nd-paper); box-shadow: 0 1px 2px hsl(var(--foreground) / .06); }
+.nd-subnav :is(a,button) { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 44px; padding: .68rem .85rem; color: var(--nd-muted); border: 0; border-radius: calc(var(--radius) - .2rem); background: transparent; font-size: .76rem; text-decoration: none; cursor: pointer; }
+.nd-subnav :is(a,button).active,.nd-subnav button[aria-pressed="true"] { color: var(--nd-ink); background: var(--nd-paper); box-shadow: 0 1px 2px hsl(var(--foreground) / .06); }
 .nd-subnav span { flex: 0 0 auto; min-height: 44px; padding: .68rem .85rem; color: var(--nd-faint); border-radius: calc(var(--radius) - .2rem); font-size: .76rem; cursor: not-allowed; }
 
 .nd-radar-shell .nd-page-header { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: .6rem 1rem; margin-bottom: .7rem; padding: .55rem 0 .75rem; border-bottom: 1px solid var(--nd-line); }
