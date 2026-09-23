@@ -58,9 +58,18 @@ a { color: hsl(var(--primary)); }
 .nd-independent-sidebar { display: none; padding: 1rem; background: hsl(var(--muted) / .25); }
 .nd-independent-sidebar.is-open { display: block; }
 .nd-independent-sidebar nav { display: grid; gap: .25rem; }
+.nd-independent-nav-group-toggle { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; min-height: 44px; padding: .6rem .8rem; color: hsl(var(--muted-foreground)); background: transparent; border: 0; border-radius: var(--radius); cursor: pointer; font-size: .78rem; font-weight: 650; text-align: left; }
+.nd-independent-nav-group-toggle:hover { color: hsl(var(--foreground)); background: hsl(var(--muted) / .7); }
+.nd-independent-nav-group-toggle:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.nd-independent-nav-group-toggle svg { flex: none; transition: transform .16s ease; }
+.nd-independent-nav-group.is-collapsed .nd-independent-nav-group-toggle svg { transform: rotate(-90deg); }
+.nd-independent-nav-group.is-current.is-collapsed .nd-independent-nav-group-toggle { color: hsl(var(--primary)); background: hsl(var(--primary) / .1); box-shadow: inset 3px 0 hsl(var(--primary)); }
+.nd-independent-nav-group-toggle small { display: block; margin-top: .2rem; color: hsl(var(--foreground)); font-size: .7rem; font-weight: 500; }
+.nd-independent-nav-group-links[hidden] { display: none; }
 .nd-independent-sidebar a, .nd-independent-section { min-height: 44px; display: flex; align-items: center; padding: .6rem .8rem; border-radius: var(--radius); text-decoration: none; font-size: .85rem; color: hsl(var(--foreground)); }
 .nd-independent-sidebar a:hover { background: hsl(var(--muted)); }
 .nd-independent-sidebar a[aria-current="page"] { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
+.nd-independent-sidebar a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .nd-independent-section { width: 100%; justify-content: space-between; border: 0; background: transparent; text-align: left; color: hsl(var(--muted-foreground)); }
 .nd-independent-advanced { padding-left: .75rem; }
 .nd-independent-content { padding: 1rem; min-width: 0; }
