@@ -75,13 +75,12 @@ export default function HomePage() {
     <main className="nd-shell nd-home" aria-busy={loading}>
       <header className="nd-home-heading">
         <div>
-          <p className="nd-kicker">你的创作工作台</p>
-          <h1>创作首页</h1>
+          <h2>更多创作入口</h2>
         </div>
         <nav aria-label="首页常用操作">
           <a href="/new-design/guide">创作向导</a>
-        <a href="/new-design/books">我的书籍</a>
-        <a href="/new-design/creative-hub">创作中枢</a>
+          <a href="/new-design/books">我的书籍</a>
+          <a href="/new-design/creative-hub">创作中枢</a>
           <a href="/new-design/books/new">＋ 开始新故事</a>
           <a href="/new-design/books/new?method=idea&mode=automatic&form=short_story">
             创作短篇
