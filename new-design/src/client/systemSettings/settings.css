@@ -7,12 +7,14 @@
 .nd-system-preferences fieldset label,.nd-system-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 .nd-system-toggle small { display: block; margin-top: 3px; color: var(--nd-muted); font-size: 11px; font-weight: 400; }
 .nd-system-preferences>.nd-message { grid-column: 1/-1; }
-.nd-system-groups { display: grid; gap: 28px; }
-.nd-system-groups>section { display: grid; grid-template-columns: minmax(220px,.65fr) minmax(0,1.35fr); gap: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--nd-line); }
+.nd-system-groups { display: grid; gap: 16px; }
+.nd-system-groups>section { display: grid; grid-template-columns: minmax(220px,.65fr) minmax(0,1.35fr); gap: 28px; padding: 20px 22px; border: 1px solid var(--nd-accent); border-radius: 10px; background: var(--nd-paper); }
 .nd-system-groups>section>div { display: grid; gap: 4px; }
-.nd-system-groups a { display: grid; grid-template-columns: minmax(150px,.55fr) minmax(0,1fr) auto; align-items: center; gap: 14px; min-height: 66px; padding: 12px 14px; border-radius: 9px; }
+.nd-system-groups a { display: grid; grid-template-columns: minmax(150px,.55fr) minmax(0,1fr) auto; align-items: center; gap: 14px; min-height: 66px; padding: 12px 14px; border-radius: 9px; color: var(--nd-ink); text-decoration: none; }
 .nd-system-groups a:hover { background: var(--nd-soft); }
-.nd-system-groups a strong { font-size: 14px; }
+.nd-system-groups a:hover strong { text-decoration: underline; }
+.nd-system-groups a:focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 2px; }
+.nd-system-groups a strong { color: var(--nd-accent); font-size: 14px; }
 .nd-system-groups a span { color: var(--nd-muted); font-size: 12px; line-height: 1.6; }
 .nd-system-groups a b { color: var(--nd-accent); font-weight: 500; }
 html[data-nd-density="compact"] .nd-shell :is(.nd-system-groups a,.nd-guide-steps li) { min-height: 54px; padding-block: 8px; }
