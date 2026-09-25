@@ -337,6 +337,7 @@ export const bookInputSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(800).default(""),
   templateVersionId: z.string().uuid(),
+  rootValues:z.record(z.string(),z.unknown()).optional(),
 });
 
 export const storyTimePositionSchema = z.object({

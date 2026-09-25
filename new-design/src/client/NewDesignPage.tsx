@@ -1,4 +1,4 @@
-import {useEffect} from 'react';
+import {lazy,Suspense,useEffect} from 'react';
 import SavedRecoveryPage from './savedRecovery';
 import BookHistoryPage from './bookHistory';
 import PublicTitlesPage from './publicTitles';
@@ -9,6 +9,11 @@ import BooksPage from "./BooksPage";
 import ReadingPage from './bookshelf/ReadingPage';
 import CreateBookPage from "./CreateBookPage";
 import CardTypeCatalogPage from "./CardTypeCatalogPage";
+const MetaCardsPage=lazy(()=>import('./cardAssembly/MetaCardsPage'));
+const CardTemplatesPage=lazy(()=>import('./cardAssembly/CardTemplatesPage'));
+const BookTemplatesPage=lazy(()=>import('./cardAssembly/BookTemplatesPage'));
+const BookAssemblyPage=lazy(()=>import('./cardAssembly/BookAssemblyPage'));
+const OpenBookFromTemplatePage=lazy(()=>import('./cardAssembly/OpenBookFromTemplatePage'));
 import DictionaryRelationsPage from "./DictionaryRelationsPage";
 import FormDesignerPage from "./FormDesignerPage";
 import NewDesignLanding from "./NewDesignLanding";
@@ -77,6 +82,7 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf} getShelfBookDetail={newDesignApi.getShelfBookDetail} listChapterDocuments={newDesignApi.listChapterDocuments}/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
+  if(path==="/new-design/books/new-from-template")return <Suspense fallback={<div className="nd-shell">正在载入开书页…</div>}><OpenBookFromTemplatePage/></Suspense>;
   if(path==="/new-design/comic")return <ComicProjectsPage/>;
   const comicMatch=path.match(/^\/new-design\/comic\/projects\/([^/]+)$/);
   if(comicMatch)return <ComicProjectDetail key={comicMatch[1]} projectId={decodeURIComponent(comicMatch[1])}/>;
@@ -119,6 +125,8 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;
   if(path==="/new-design/research/reference-packs")return <ReferencePacksPage/>;
   const overviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/overview$/);
+  const assemblyMatch=path.match(/^\/new-design\/books\/([^/]+)\/assembly$/);
+  if(assemblyMatch)return <Suspense fallback={<div className="nd-shell">正在载入本书卡片…</div>}><BookAssemblyPage key={assemblyMatch[1]} bookId={decodeURIComponent(assemblyMatch[1])}/></Suspense>;
   const compositionMatch=path.match(/^\/new-design\/books\/([^/]+)\/composition$/);
   if(compositionMatch)return <BookCompositionPage key={compositionMatch[1]} bookId={decodeURIComponent(compositionMatch[1])}/>;
   const directorMatch=path.match(/^\/new-design\/books\/([^/]+)\/director$/);
@@ -152,6 +160,9 @@ function NewDesignRoute({pathname}:NewDesignPageProps) {
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
   if(bookMatch)return bookMatch[2]?<BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={bookMatch[2] as "forms"|"cards"|"fields"}/>:<BookOverviewPage bookId={decodeURIComponent(bookMatch[1])}/>;
   if(path==="/new-design/structure/card-types")return <CardTypeCatalogPage/>;
+  if(path==="/new-design/structure/meta-cards")return <Suspense fallback={<div className="nd-shell">正在载入元卡片…</div>}><MetaCardsPage/></Suspense>;
+  if(path==="/new-design/structure/card-templates")return <Suspense fallback={<div className="nd-shell">正在载入卡片模板…</div>}><CardTemplatesPage/></Suspense>;
+  if(path==="/new-design/structure/book-templates")return <Suspense fallback={<div className="nd-shell">正在载入书籍模板…</div>}><BookTemplatesPage/></Suspense>;
   if(path==="/new-design/structure/dictionaries-relations")return <DictionaryRelationsPage/>;
   if(path==="/new-design/structure/forms")return <FormDesignerPage/>;
   if(path==="/new-design/structure/templates")return <TemplateGroupsPage/>;

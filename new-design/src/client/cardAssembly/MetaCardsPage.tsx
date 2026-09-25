@@ -1,0 +1,33 @@
+import {useEffect,useState} from 'react';
+import {FIELD_TYPES,type FieldDefinition} from '../../common/contracts';
+import type {MetaCardDefinition,MetaCardVersion} from '../../common/cardAssembly';
+import {newDesignApi} from '../api';
+import StructureShell from '../StructureShell';
+import ResizableAssemblyWorkspace from './ResizableAssemblyWorkspace';
+import './assembly.css';
+
+const api=newDesignApi.cardAssembly;
+const empty=():MetaCardDefinition=>({id:'',key:'',name:'',description:'',category:'',kind:'ordinary',fields:[],status:'draft',revision:0,currentVersionId:null});
+const newField=(order:number):FieldDefinition=>({key:'',name:'',description:'',type:'short_text',required:false,defaultValue:null,options:[],group:'',order});
+const rootFields=():FieldDefinition[]=>[
+  {...newField(0),key:'bookName',name:'书名',required:true},
+  {...newField(1),key:'description',name:'作品说明',type:'long_text'},
+  {...newField(2),key:'storyFormat',name:'篇幅形式',type:'select',options:[{value:'long_novel',label:'长篇小说'},{value:'short_story',label:'连续完整短篇'}]},
+  {...newField(3),key:'targetWordCount',name:'目标字数',type:'number'},
+  {...newField(4),key:'genre',name:'题材基底'},
+  {...newField(5),key:'styleKeywords',name:'文风关键词'},
+  {...newField(6),key:'targetAudience',name:'目标读者'},
+];
+
+export default function MetaCardsPage(){
+  const [items,setItems]=useState<MetaCardDefinition[]>([]),[draft,setDraft]=useState<MetaCardDefinition>(empty),[versions,setVersions]=useState<MetaCardVersion[]>([]),[query,setQuery]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  async function refresh(){setItems(await api.listMetaCards())}
+  useEffect(()=>{void refresh().catch(error=>setMessage(String(error)))},[]);
+  function choose(item:MetaCardDefinition){setDraft(structuredClone(item));setMessage('');void api.metaVersions(item.id).then(setVersions).catch(error=>setMessage(String(error)))}
+  function updateField(index:number,patch:Partial<FieldDefinition>){setDraft(current=>({...current,fields:current.fields.map((field,i)=>i===index?{...field,...patch}:field)}))}
+  async function save(){setBusy(true);setMessage('');try{const saved=await api.saveMetaCard({...draft,id:draft.id||undefined,expectedRevision:draft.id?draft.revision:undefined});setDraft(saved);await refresh();setMessage('元卡片草稿已保存。')}catch(error){setMessage(String(error))}finally{setBusy(false)}}
+  async function publish(){if(!draft.id)return;setBusy(true);setMessage('');try{const result=await api.publishMetaCard(draft.id,draft.revision);setDraft(result.definition);setVersions(await api.metaVersions(draft.id));await refresh();setMessage(`已发布元卡片 v${result.version.version}。`)}catch(error){setMessage(String(error))}finally{setBusy(false)}}
+  return <StructureShell title="元卡片" description="定义可复用的字段块；发布后供卡片模板和书籍根卡精确引用。"><ResizableAssemblyWorkspace><aside><h2>元卡片目录</h2><button type="button" className="nd-assembly-small primary" onClick={()=>{setDraft(empty());setVersions([])}}>＋ 定义元卡片</button><label>搜索<input value={query} onChange={event=>setQuery(event.target.value)} placeholder="名称或 key"/></label>{items.filter(item=>(item.name+item.key).toLowerCase().includes(query.toLowerCase())).map(item=><button type="button" key={item.id} className={`nd-assembly-listitem ${draft.id===item.id?'active':''}`} onClick={()=>choose(item)}><span>{item.name}<br/><small>{item.key}</small></span><small>{item.currentVersionId?'已发布':'草稿'}</small></button>)}</aside>
+    <main><div className="nd-assembly-actions"><strong>{draft.name||'新元卡片'}</strong><span style={{flex:1}}/><button type="button" disabled={busy||!draft.name||!draft.key} onClick={()=>void save()}>保存草稿</button><button type="button" className="primary" disabled={busy||!draft.id} onClick={()=>void publish()}>发布新版本</button></div><div style={{padding:'18px',overflow:'auto'}}><div className="nd-assembly-inline"><label>名称<input value={draft.name} onChange={event=>setDraft({...draft,name:event.target.value})}/></label><label>稳定 key<input value={draft.key} disabled={Boolean(draft.id)} onChange={event=>setDraft({...draft,key:event.target.value})} placeholder="character_identity"/></label></div><div className="nd-assembly-inline"><label>分类<input value={draft.category} onChange={event=>setDraft({...draft,category:event.target.value})}/></label><label>用途<select value={draft.kind} onChange={event=>{const kind=event.target.value as MetaCardDefinition['kind'];setDraft({...draft,kind,fields:kind==='book_root'&&draft.fields.length===0?rootFields():draft.fields})}}><option value="ordinary">普通元卡片</option><option value="book_root">书籍信息根卡</option></select></label></div><label>说明<textarea value={draft.description} onChange={event=>setDraft({...draft,description:event.target.value})}/></label><h2>字段结构</h2><p className="nd-assembly-inspector-note">每个字段有稳定 key。发布会生成不可变版本；已开书籍仍保留所选版本。</p>{draft.fields.map((field,index)=><div className="nd-assembly-field" key={index}><header><strong>{field.name||`字段 ${index+1}`}</strong><button type="button" className="nd-assembly-small" onClick={()=>setDraft({...draft,fields:draft.fields.filter((_,i)=>i!==index)})}>移除</button></header><div className="nd-assembly-inline"><label>字段名称<input value={field.name} onChange={event=>updateField(index,{name:event.target.value})}/></label><label>字段 key<input value={field.key} onChange={event=>updateField(index,{key:event.target.value})}/></label></div><div className="nd-assembly-inline"><label>类型<select value={field.type} onChange={event=>updateField(index,{type:event.target.value as FieldDefinition['type']})}>{FIELD_TYPES.map(type=><option key={type} value={type}>{type}</option>)}</select></label><label className="nd-assembly-checkbox"><input type="checkbox" checked={field.required} onChange={event=>updateField(index,{required:event.target.checked})}/>必填</label></div><label>说明<input value={field.description} onChange={event=>updateField(index,{description:event.target.value})}/></label></div>)}<button type="button" className="nd-assembly-small" onClick={()=>setDraft({...draft,fields:[...draft.fields,newField(draft.fields.length)]})}>＋ 添加字段</button></div></main>
+    <aside><h2>版本与来源</h2><p className="nd-assembly-inspector-note">元卡片定义字段，不代表书里的一张已填写资料卡。书籍从发布版本复制字段规格，填写后才建立正式资料卡。</p><p>状态：{draft.status==='published'?'已发布':'草稿'}</p><p>当前修订：{draft.revision||'未保存'}</p><h3>已发布版本</h3>{versions.map(version=><div className="nd-assembly-field" key={version.id}><strong>v{version.version}</strong><small> · {version.fields.length} 个字段</small><p>版本 ID：{version.id}</p></div>)}{message&&<p className="nd-assembly-message" role="status">{message}</p>}</aside></ResizableAssemblyWorkspace></StructureShell>
+}

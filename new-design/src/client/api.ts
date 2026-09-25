@@ -9,6 +9,7 @@ import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../co
 import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
 import {createResourceSupplementApi} from './resourceSupplements/api';
+import {createCardAssemblyApi} from './cardAssembly/api';
 import {createChapterQualityApi} from './chapterQuality/api';
 import {createResourceFocusApi} from './characterResources/focus/api';
 import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
@@ -424,6 +425,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const newDesignApi = {
+  cardAssembly:createCardAssemblyApi(request),
   creativeHub:createCreativeHubApi(request),
   worldGeneration:createWorldGenerationApi(request),
   ...createChapterQualityApi(request),
@@ -725,7 +727,7 @@ export const newDesignApi = {
   previewBookChange:(bookId:string,operationKey:BookChangeOperationKey,input:Record<string,unknown>)=>request<BookChangeSet>(`/books/${bookId}/change-previews`,{method:"POST",body:JSON.stringify({operationKey,input})}),
   applyBookChange:(changeSetId:string)=>request<BookChangeSet>(`/book-change-sets/${changeSetId}/apply`,{method:"POST",body:"{}"}),
   saveBookViewConfig:(bookId:string,key:BookViewKey,input:{config:Record<string,unknown>;revision:number})=>request(`/books/${bookId}/view-config/${key}`,{method:"PUT",body:JSON.stringify(input)}),
-  createBook: (input: {key:string;name:string;description:string;templateVersionId:string}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
+  createBook: (input: {key:string;name:string;description:string;templateVersionId:string;rootValues?:Record<string,unknown>}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
   listInspirationCandidates: () => request<InspirationCandidate[]>("/book-creation/inspirations"),
   listStrategyResources: (input:{typeKey?:string;archived?:boolean;search?:string}={}) => {
     const params=new URLSearchParams();

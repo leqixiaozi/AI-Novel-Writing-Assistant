@@ -321,10 +321,11 @@ export async function createCard(input:CardCreateInput):Promise<AuthorSavedCard>
  catch(error){if(input.authorWrite)return await rethrowAuthorMaterialWrite(client,error,commitStarted);await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
 
-type CardSnapshotUpdateInput={ title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind }&FormAiSaveExtras&AuthorWriteExtras;
+type CardSnapshotUpdateInput={ title?: string; values?: Record<string, unknown>; localValues?:Record<string,unknown>; revision: number; source: CardVersion["source"]; formVersionId?:string|null; formResolutionKind?:FormResolutionKind; allowRootCard?:boolean }&FormAiSaveExtras&AuthorWriteExtras;
 
 /** Reuses the standard version, validation and AI-origin writer in a caller-owned transaction. */
 async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotUpdateInput):Promise<AuthorSavedCard>{
+  if(!input.allowRootCard&&(await client.query('SELECT 1 FROM new_design.books WHERE root_card_id=$1',[id])).rowCount)throw new NewDesignError('书籍信息根卡须从本书根卡入口修改，不能作为普通资料编辑或归档。',409);
   if(input.authorWrite){const prior=await claimAuthorMaterialWrite(client,input.authorWrite,id);if(prior)return {...prior.card,authorReceipt:prior};}
     const existing = assertFound(await findCard(client, id, true), "资料不存在。");
     if (existing.revision !== input.revision) throw new NewDesignError("此卡片已在其他页面更新，请刷新后再保存。", 409);
@@ -338,6 +339,20 @@ async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotU
     await validateFormProvenance(client,{formVersionId,formResolutionKind,spaceId:String(cardContext.space_id),typeKey:String(cardContext.type_key),requireCurrent:input.formVersionId!==undefined||input.formResolutionKind!==undefined});
     const validated = validateCardValues(typeVersion.fields, incomingValues);
     if (Object.keys(validated.issues).length > 0) throw new NewDesignError("请修正资料字段后再保存。", 422, validated.issues);
+    // Book-local slots keep the field obligations frozen at opening. Later
+    // edits through the ordinary card endpoint cannot weaken that contract.
+    const sourceSlot=(await listRecordCards(client,'book_template_slot',{spaceId:String(cardContext.space_id),where:{card_id:id}}))[0];
+    const sourceRoot=input.allowRootCard?(await listRecordCards(client,'book_assembly_snapshot',{spaceId:String(cardContext.space_id),where:{root_card_id:id}}))[0]:null;
+    const metaVersionId=sourceSlot?.meta_version_id??sourceRoot?.assembly?.root?.metaVersionId;
+    if(metaVersionId){
+      const frozen=await findRecordCard(client,String(metaVersionId),'meta_card_version',{includeArchived:true});
+      if(!frozen)throw new NewDesignError('本书卡片的字段来源版本不存在。',422);
+      const frozenFields=frozen.fields as FieldDefinition[];
+      const frozenKeys=new Set(frozenFields.map(field=>field.key));
+      const frozenValues=Object.fromEntries(Object.entries(validated.values).filter(([key])=>frozenKeys.has(key)));
+      const frozenCheck=validateCardValues(frozenFields,frozenValues);
+      if(Object.keys(frozenCheck.issues).length)throw new NewDesignError('请补齐本书卡片要求的字段。',422,frozenCheck.issues);
+    }
     const treeIssues=await validateDictionaryTreeValues(client,typeVersion.fields,validated.values);
     if(Object.keys(treeIssues).length)throw new NewDesignError("请选择允许范围内的字典项目。",422,treeIssues);
     const localDefinitions=await client.query(`SELECT definition.id,definition.field_key,definition.current_version_id,version.field_schema
@@ -361,6 +376,7 @@ async function writeCardSnapshot(client:PoolClient,id:string,input:CardSnapshotU
       INSERT INTO new_design.card_versions (id, card_id, revision, type_version_id, title, values, source, form_version_id, form_resolution_kind)
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
     `, [versionId, id, nextRevision, typeVersion.id, title, JSON.stringify(validated.values), input.source, formVersionId, formResolutionKind]);
+    await client.query('UPDATE new_design.card_versions SET book_slot_spec_version_id=(SELECT book_slot_spec_version_id FROM new_design.card_versions WHERE id=$2) WHERE id=$1',[versionId,priorVersion.current_version_id]);
     await snapshotDictionaryTreeValues(client,typeVersion.fields,validated.values,versionId);
     for(const [key,row] of localByKey){const value=incomingLocalValues[key];if(value===undefined||value===null||value===""||(Array.isArray(value)&&value.length===0))continue;const snapshotId=randomUUID();await createRecordCard(client,{id:snapshotId,spaceId:String(cardContext.space_id),typeKey:'card_version_local_value',title:key,values:{id:snapshotId,card_version_id:versionId,field_definition_id:row.id,field_definition_version_id:row.current_version_id,value}});}
     await client.query(`

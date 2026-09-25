@@ -11,6 +11,9 @@ import {structureWriteHash,executeStructureWrite} from "./structureWrites";
 import {initializeProjectRuleInTransaction} from './bookshelf/initialize';
 import {createRecordCard,findRecordCard,listRecordCards,replaceRecordCard,type RecordCardDb,type RecordCardRow} from './recordCards';
 import {recordWorkflowAction} from './cardWorkflow';
+import type {BookAssembly,CardTemplateGraph} from '../../common/cardAssembly';
+import {resolveBookAssembly} from './cardAssembly/catalog';
+import {installBookAssembly} from './cardAssembly/install';
 
 const SYSTEM_SPACE_ID='00000000-0000-4000-8000-000000000001';
 
@@ -18,7 +21,7 @@ interface PayloadType { sourceId:string;sourceVersionId:string;key:string;name:s
 interface PayloadDictionary { sourceId:string;key:string;name:string;description:string;items:Array<{sourceId:string;parentSourceId:string|null;key:string;label:string;description:string;value:Record<string,unknown>;sortOrder:number}>; }
 interface PayloadTagDimension {sourceId:string;key:string;name:string;description:string;nodes:Array<{sourceId:string;parentSourceId:string|null;key:string;name:string;description:string;aliases:string[];color:string|null;metadata:Record<string,unknown>;sortOrder:number}>;}
 interface PayloadTagBinding {sourceTypeId:string;sourceDimensionId:string;config:Record<string,unknown>;}
-interface PayloadRelation { statePolicy?:{settlementCapability:"disabled";stateMode:"none"};sourceId:string;sourceRevision?:number;sourceVersion?:import("../../common/referenceParity").FrozenDefinitionReference;key:string;name:string;description:string;direction:"directed"|"undirected";sourceTypeKeys:string[];targetTypeKeys:string[];sourceMax:number|null;targetMax:number|null;propertiesSchema:unknown[]; }
+interface PayloadRelation { statePolicy?:{settlementCapability:"disabled";stateMode:"none"};sourceId:string;sourceVersionId?:string;sourceRevision?:number;sourceVersion?:import("../../common/referenceParity").FrozenDefinitionReference;key:string;name:string;description:string;direction:"directed"|"undirected";sourceTypeKeys:string[];targetTypeKeys:string[];sourceMax:number|null;targetMax:number|null;propertiesSchema:unknown[]; }
 interface PayloadForm { sourceId:string;sourceVersionId:string;key:string;name:string;description:string;definition:CardGroupFormDefinition; }
 interface PayloadCard { sourceId:string;typeKey:string;title:string;values:Record<string,unknown>; }
 interface PayloadViewConfig { key:BookViewKey;name:string;config:Record<string,unknown>; }
@@ -36,7 +39,7 @@ const DEFAULT_VIEW_CONFIGS:PayloadViewConfig[]=[
   {key:"world",name:"世界",config:{groupBy:"card_type",sort:"title",display:"list",expanded:[]}},
   {key:"resources",name:"资源",config:{groupBy:"card_type",sort:"updated_desc",display:"list",expanded:[]}},
 ];
-export interface TemplatePayload {defaultFormKeys?:Record<string,string>;activeForms?:Record<string,string>; cardTypes:PayloadType[];dictionaries:PayloadDictionary[];tagDimensions?:PayloadTagDimension[];tagBindings?:PayloadTagBinding[];relationTypes:PayloadRelation[];forms:PayloadForm[];seedCards:PayloadCard[];viewConfigs?:PayloadViewConfig[];menu:{defaultPage:string;pages:string[]}; }
+export interface TemplatePayload {assembly?:BookAssembly;assemblyGraphs?:Record<string,CardTemplateGraph>;defaultFormKeys?:Record<string,string>;activeForms?:Record<string,string>; cardTypes:PayloadType[];dictionaries:PayloadDictionary[];tagDimensions?:PayloadTagDimension[];tagBindings?:PayloadTagBinding[];relationTypes:PayloadRelation[];forms:PayloadForm[];seedCards:PayloadCard[];viewConfigs?:PayloadViewConfig[];menu:{defaultPage:string;pages:string[]}; }
 
 function asDate(value:unknown):string{return value instanceof Date?value.toISOString():new Date(String(value)).toISOString();}
 function mapTemplate(row:Record<string,unknown>):TemplateGroupSummary{return{id:String(row.id),key:String(row.template_key),name:String(row.name),description:String(row.description??""),status:row.status as TemplateGroupSummary["status"],revision:Number(row.revision),currentVersion:row.current_version==null?null:Number(row.current_version),currentVersionId:row.current_version_id?String(row.current_version_id):null,draftConfig:row.draft_config as Record<string,unknown>,createdAt:asDate(row.created_at),updatedAt:asDate(row.updated_at)};}
@@ -76,15 +79,40 @@ export async function saveTemplate(input:{id?:string;key:string;name:string;desc
 }
 
 async function buildPayload(client:PoolClient,config:Record<string,unknown>):Promise<TemplatePayload>{
+  const assembly=config.assembly as BookAssembly|undefined;
+  const resolved=assembly?await resolveBookAssembly(client,assembly):null;
+  const assemblyMetaIds=new Set<string>();
+  if(resolved&&assembly){
+    assemblyMetaIds.add(assembly.root.metaVersionId);
+    assembly.standalone.forEach(slot=>assemblyMetaIds.add(slot.metaVersionId));
+    assembly.modules.forEach(module=>((resolved.templateById.get(module.cardTemplateVersionId)!.graph as import('../../common/cardAssembly').CardTemplateGraph).slots).forEach(slot=>assemblyMetaIds.add(slot.metaVersionId)));
+  }
   const requested=Array.isArray(config.cardTypeIds)?config.cardTypeIds.filter((id):id is string=>typeof id==="string"):[];
+  const sourceTypeVersionIds=resolved?[...assemblyMetaIds].map(id=>String(resolved.metaById.get(id)!.card_type_version_id)):[];
+  const relationVersionIds=assembly&&resolved?[...assembly.edges,...assembly.modules.flatMap(module=>(resolved.templateById.get(module.cardTemplateVersionId)!.graph as CardTemplateGraph).edges)].filter(edge=>edge.kind==='card_relation').map(edge=>edge.relationTypeVersionId).filter((id):id is string=>Boolean(id)):[];
+  const relationVersions=relationVersionIds.length?(await client.query('SELECT * FROM new_design.relation_type_versions WHERE id=ANY($1::uuid[])',[relationVersionIds])).rows:[];
+  const relationVersionByType=new Map<string,Record<string,any>>();
+  for(const version of relationVersions){const key=String(version.relation_type_id),existing=relationVersionByType.get(key);if(existing&&existing.id!==version.id)throw new NewDesignError('同一本书籍模板不能混用同一关系类型的两个发布版本。',422);relationVersionByType.set(key,version)}
   const typeResult=await client.query(`SELECT type.*,version.id AS source_version_id,version.fields
-    FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id
-    WHERE type.space_id=$1 AND type.status='published' AND NOT type.is_internal ${requested.length?"AND type.id=ANY($2::uuid[])":"AND type.is_system"} ORDER BY type.sort_order`,requested.length?[SYSTEM_SPACE_ID,requested]:[SYSTEM_SPACE_ID]);
+    FROM new_design.card_types type JOIN new_design.card_type_versions version ON ${resolved?'version.card_type_id=type.id':'version.id=type.current_version_id'}
+    WHERE type.space_id=$1 AND type.status='published' AND NOT type.is_internal ${resolved?"AND version.id=ANY($2::uuid[])":requested.length?"AND type.id=ANY($2::uuid[])":"AND type.is_system"} ORDER BY type.sort_order`,resolved?[SYSTEM_SPACE_ID,sourceTypeVersionIds]:requested.length?[SYSTEM_SPACE_ID,requested]:[SYSTEM_SPACE_ID]);
+  if(resolved&&new Set(typeResult.rows.map(row=>String(row.type_key))).size!==typeResult.rows.length)throw new NewDesignError('同一书籍模板中同一元卡片不能混用两个发布字段版本。',422);
   const categories=new Map((await listRecordCards(client,'card_type_category')).map(row=>[row.id,row]));
   const dictionaryRows=await listRecordCards(client,'dictionary_definition',{where:{scope:'system',status:'published'}});
-  const relationResult=await client.query("SELECT * FROM new_design.relation_types WHERE scope='system' AND status='published' ORDER BY name");
-  const forms=await listRecordCards(client,'card_group_form',{where:{space_id:null,status:'published'}});
-  const formVersions=new Map((await listRecordCards(client,'card_group_form_version')).map(row=>[row.id,row]));
+  const relationResult=await client.query("SELECT * FROM new_design.relation_types WHERE (scope='system' OR id=ANY($1::uuid[])) AND status='published' ORDER BY name",[[...relationVersionByType.keys()]]);
+  // Freeze every selectable system relation as part of the book snapshot too.
+  // An author may connect two instances only after opening the book.
+  const remainingRelationIds=relationResult.rows.filter(row=>!relationVersionByType.has(String(row.id))).map(row=>String(row.current_version_id)).filter(Boolean);
+  if(remainingRelationIds.length){
+    const remaining=await client.query("SELECT * FROM new_design.relation_type_versions WHERE id=ANY($1::uuid[]) AND status='published'",[remainingRelationIds]);
+    for(const version of remaining.rows)relationVersionByType.set(String(version.relation_type_id),version);
+  }
+  if(resolved&&relationResult.rows.some(row=>!relationVersionByType.has(String(row.id))))throw new NewDesignError('系统关系类型缺少已发布版本，不能生成本书关系快照。',422);
+  // A new card assembly installs only its selected meta-card types. Legacy
+  // system forms may reference types outside that selection and must not be
+  // installed implicitly as part of this book-template snapshot.
+  const forms=resolved?[]:await listRecordCards(client,'card_group_form',{where:{space_id:null,status:'published'}});
+  const formVersions=new Map((forms.length?await listRecordCards(client,'card_group_form_version'):[]).map(row=>[row.id,row]));
   const dictionaries:PayloadDictionary[]=[];
   for(const dictionary of dictionaryRows.sort((a,b)=>String(a.name).localeCompare(String(b.name)))){
     const items=await listRecordCards(client,'dictionary_item',{where:{dictionary_id:dictionary.id,status:'active'}});
@@ -109,9 +137,10 @@ async function buildPayload(client:PoolClient,config:Record<string,unknown>):Pro
   return{
     cardTypes:typeResult.rows.map(type=>({sourceId:String(type.id),sourceVersionId:String(type.source_version_id),key:String(type.type_key),name:String(type.name),description:String(type.description??""),categoryKey:categories.get(String(type.category_id))?.category_key,capabilities:type.semantic_capabilities,fields:type.fields,sortOrder:Number(type.sort_order)})),
     dictionaries,tagDimensions,tagBindings,
-    relationTypes:relationResult.rows.map(relation=>({sourceId:String(relation.id),key:String(relation.relation_key),name:String(relation.name),description:String(relation.description??""),direction:relation.direction,sourceTypeKeys:relation.source_type_keys,targetTypeKeys:relation.target_type_keys,sourceMax:relation.source_max==null?null:Number(relation.source_max),targetMax:relation.target_max==null?null:Number(relation.target_max),propertiesSchema:relation.properties_schema})),
+    relationTypes:relationResult.rows.map(relation=>{const frozen=relationVersionByType.get(String(relation.id))??relation;return{sourceId:String(relation.id),...(frozen.id!==relation.id?{sourceVersionId:String(frozen.id)}:{}),key:String(frozen.relation_key),name:String(frozen.name),description:String(relation.description??""),direction:frozen.direction,sourceTypeKeys:frozen.source_type_keys,targetTypeKeys:frozen.target_type_keys,sourceMax:frozen.source_max==null?null:Number(frozen.source_max),targetMax:frozen.target_max==null?null:Number(frozen.target_max),propertiesSchema:frozen.properties_schema}}),
     forms:forms.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(form=>{const version=assertFound(formVersions.get(String(form.current_version_id)),"表单正式版本不存在。");return{sourceId:form.id,sourceVersionId:version.id,key:form.form_key,name:form.name,description:form.description??"",definition:version.definition as CardGroupFormDefinition};}),
     seedCards,viewConfigs:DEFAULT_VIEW_CONFIGS,menu:{defaultPage:"creative-forms",pages:["creative-forms","all-cards","book-views"]},
+    ...(assembly&&resolved?{assembly,assemblyGraphs:Object.fromEntries(assembly.modules.map(module=>[module.cardTemplateVersionId,resolved.templateById.get(module.cardTemplateVersionId)!.graph as CardTemplateGraph]))}:{}),
   };
 }
 
@@ -146,6 +175,7 @@ interface CreateBookOrigin {
 }
 
 export interface CreateBookOptions {
+  rootValues?:Record<string,unknown>;
   includeTemplateSeed?: boolean;
   initialCards?: InitialCardDraft[];
   reviewCards?: BookCreationReviewCard[];
@@ -190,7 +220,7 @@ async function installPayload(
     await installNonSettlementFields(client,spaceId,type.key,fields);
   }
   await applyTreeAdditions(client,spaceId,{dictionaries:[],tagDimensions:[],tagBindings:payload.tagBindings??[]},'template_install');
-  for (const relation of payload.relationTypes) {const relationId=randomUUID();relationTypeIds.set(relation.sourceId,relationId);if(!Array.isArray(relation.propertiesSchema))throw new NewDesignError(`模板关系“${relation.name}”缺少完整正式字段规格，请选择已完善的模板版本。`,422,{[`relationTypes.${relation.sourceId}`]:"请核对正式模板关系规格。"});const fields:FieldDefinition[]=[];for(const [index,value] of relation.propertiesSchema.entries()){const raw=value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:null,result=raw?fieldDefinitionSchema.strict().safeParse({...raw,order:raw.order??index}):null;if(!result?.success)throw new NewDesignError(`模板关系“${relation.name}”含未知字段，不会自动发布；请核对正式模板规格。`,422,{[`relationTypes.${relation.sourceId}`]:"请完善真实字段规格后重新选择模板版本。"});fields.push({...result.data,defaultValue:result.data.defaultValue??null} as FieldDefinition);}const propertiesSchema=remapDictionaryTreeFields(fields,dictionaryIds,dictionaryItemIds);await client.query(`INSERT INTO new_design.relation_types (id,relation_key,name,description,direction,source_type_keys,target_type_keys,source_max,target_max,scope,owner_space_id,properties_schema,status,source_relation_type_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'book',$10,$11::jsonb,'published',$12)`, [relationId, relation.key, relation.name, relation.description, relation.direction, relation.sourceTypeKeys, relation.targetTypeKeys, relation.sourceMax, relation.targetMax, spaceId, JSON.stringify(propertiesSchema), relation.sourceId]);}
+  for (const relation of payload.relationTypes) {const relationId=randomUUID();relationTypeIds.set(relation.sourceId,relationId);if(!Array.isArray(relation.propertiesSchema))throw new NewDesignError(`模板关系“${relation.name}”缺少完整正式字段规格，请选择已完善的模板版本。`,422,{[`relationTypes.${relation.sourceId}`]:"请核对正式模板关系规格。"});const fields:FieldDefinition[]=[];for(const [index,value] of relation.propertiesSchema.entries()){const raw=value&&typeof value==="object"&&!Array.isArray(value)?value as Record<string,unknown>:null,result=raw?fieldDefinitionSchema.strict().safeParse({...raw,order:raw.order??index}):null;if(!result?.success)throw new NewDesignError(`模板关系“${relation.name}”含未知字段，不会自动发布；请核对正式模板规格。`,422,{[`relationTypes.${relation.sourceId}`]:"请完善真实字段规格后重新选择模板版本。"});fields.push({...result.data,defaultValue:result.data.defaultValue??null} as FieldDefinition);}const propertiesSchema=remapDictionaryTreeFields(fields,dictionaryIds,dictionaryItemIds);await client.query(`INSERT INTO new_design.relation_types (id,relation_key,name,description,direction,source_type_keys,target_type_keys,source_max,target_max,scope,owner_space_id,properties_schema,status,source_relation_type_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'book',$10,$11::jsonb,'published',$12)`, [relationId, relation.key, relation.name, relation.description, relation.direction, relation.sourceTypeKeys, relation.targetTypeKeys, relation.sourceMax, relation.targetMax, spaceId, JSON.stringify(propertiesSchema), relation.sourceId]);if(relation.sourceVersionId){const targetVersionId=randomUUID();await client.query(`INSERT INTO new_design.relation_type_versions(id,relation_type_id,version,relation_key,name,direction,source_type_keys,target_type_keys,source_max,target_max,properties_schema,definition_hash,status,source_version_id) VALUES($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,'published',$12)`,[targetVersionId,relationId,relation.key,relation.name,relation.direction,relation.sourceTypeKeys,relation.targetTypeKeys,relation.sourceMax,relation.targetMax,JSON.stringify(propertiesSchema),structureWriteHash(relation),relation.sourceVersionId]);await client.query('UPDATE new_design.relation_types SET current_version_id=$2 WHERE id=$1',[relationId,targetVersionId])}}
   for(const relation of payload.relationTypes)if(relation.statePolicy?.settlementCapability==="disabled"&&relation.statePolicy.stateMode==="none"){
     if(!(await listRecordCards(client,'state_relation_capability',{where:{space_id:spaceId,relation_key:relation.key}})).length){
       const id=randomUUID();await createRecordCard(client,{id,spaceId,typeKey:'state_relation_capability',title:relation.name,values:{id,space_id:spaceId,relation_key:relation.key,settlement_capability:'disabled',state_mode:'none'}});
@@ -307,13 +337,14 @@ export async function createBookInTransaction(client:PoolClient,input:{key:strin
  await client.query("INSERT INTO new_design.card_spaces(id,space_key,name) VALUES($1,$2,$3)",[spaceId,`book_${input.key}`,input.name]);
  await client.query("INSERT INTO new_design.books(id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb)",[id,spaceId,input.key,input.name,input.description,template.id,version.id,JSON.stringify(payload)]);
  const installed=await installPayload(client,id,spaceId,payload,options);
+ await installBookAssembly(client,{bookId:id,spaceId,templateVersionId:version.id,bookName:input.name,description:input.description,rootValues:options.rootValues??options.origin?.sourcePayload,payload});
  await initializeProjectRuleInTransaction(client,id,randomUUID());
  await saveBookSources(client,id,spaceId,options);
  return{book:await getBookInTransaction(client,id),installed,payload};
 }
 
 export async function createBook(
-  input: { key: string; name: string; description: string; templateVersionId: string },
+  input: { key: string; name: string; description: string; templateVersionId: string;rootValues?:Record<string,unknown> },
   options: CreateBookOptions = {},
 ): Promise<BookSummary> {
   const pool = await getNewDesignPool();
@@ -328,6 +359,7 @@ export async function createBook(
     await client.query("INSERT INTO new_design.card_spaces (id,space_key,name) VALUES ($1,$2,$3)", [spaceId, `book_${input.key}`, input.name]);
     await client.query(`INSERT INTO new_design.books (id,space_id,book_key,name,description,template_id,template_version_id,installed_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`, [id, spaceId, input.key, input.name, input.description, template.id, version.id, JSON.stringify(payload)]);
     await installPayload(client, id, spaceId, payload, options);
+    await installBookAssembly(client,{bookId:id,spaceId,templateVersionId:version.id,bookName:input.name,description:input.description,rootValues:input.rootValues??options.rootValues??options.origin?.sourcePayload,payload});
     await initializeProjectRuleInTransaction(client,id,randomUUID());
     await saveBookSources(client,id,spaceId,options);
     if(options.origin?.sessionId){
@@ -372,6 +404,7 @@ export async function previewBookSync(bookId:string,targetVersionId:string):Prom
   const types=await pool.query("SELECT type.id,type.current_version_id,type.revision,type.type_key,version.fields FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id WHERE type.space_id=$1",[book.space_id]);
   const installed=book.installed_payload as TemplatePayload,next=target.payload as TemplatePayload;
   const comparison=compareFields(installed,next,types.rows.map((row)=>({key:String(row.type_key),fields:row.fields as FieldDefinition[]})));
+  if(JSON.stringify(installed.assembly??null)!==JSON.stringify(next.assembly??null))comparison.conflicts.push({typeKey:'书籍装配图',fieldKey:'assembly',reason:'书籍模板的节点或关系发生变化；现有增量同步不改写本书装配快照，需要逐本核对结构迁移。'});
   const treeAdditions=compareTrees(installed,next,comparison.conflicts),id=randomUUID();
   const client=await pool.connect();
   try{
@@ -504,6 +537,7 @@ export async function applyBookSync(syncId:string):Promise<TemplateSyncPreview>{
     }
     const target=assertFound(await findRecordCard(client,String(sync.to_template_version_id),'template_group_version'),"目标模板版本不存在。");
     if(target.template_id!==book.template_id)throw new NewDesignError("目标模板版本不属于当前模板。",409);
+    if(JSON.stringify((book.installed_payload as TemplatePayload).assembly??null)!==JSON.stringify((target.payload as TemplatePayload).assembly??null))throw new NewDesignError('书籍模板装配结构已变化，当前增量同步不能修改已开书籍的节点和关系。',409);
     await client.query("UPDATE new_design.books SET template_version_id=$2,installed_payload=$3::jsonb,revision=revision+1,updated_at=now() WHERE id=$1",[book.id,target.id,JSON.stringify(installedSyncPayload(book.installed_payload as TemplatePayload,sync.additions as TemplateSyncPreview["additions"],treeAdditions))]);
     const result:TemplateSyncPreview={id:syncId,bookId:String(sync.book_id),fromTemplateVersionId:String(sync.from_template_version_id),toTemplateVersionId:String(sync.to_template_version_id),additions:sync.additions as TemplateSyncPreview["additions"],treeAdditions:{dictionaries:treeAdditions.dictionaries,tagDimensions:treeAdditions.tagDimensions,tagBindings:treeAdditions.tagBindings},conflicts:sync.conflicts as TemplateSyncPreview["conflicts"],status:"applied"};
     await replaceRecordCard(client,{id:syncId,spaceId:sync.recordSpaceId,typeKey:'book_template_sync',values:{...sync,status:'applied',applied_at:new Date().toISOString(),tree_additions:{...treeAdditions,receipt:result}}});

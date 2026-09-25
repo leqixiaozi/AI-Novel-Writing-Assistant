@@ -69,11 +69,15 @@
     "test:research-readonly": "pnpm run build:server && node --test tests/research-readonly-router.postgres.test.cjs"
   },
   "dependencies": {
+    "@antv/x6": "2.19.2",
+    "@antv/x6-plugin-selection": "2.2.2",
+    "@antv/x6-plugin-snapline": "2.1.7",
+    "@antv/x6-plugin-transform": "2.1.8",
+    "@embedded-postgres/windows-x64": "17.6.0-beta.15",
     "@tiptap/core": "3.31.3",
     "@tiptap/extension-bubble-menu": "3.31.3",
     "@tiptap/pm": "3.31.3",
     "@tiptap/starter-kit": "3.31.3",
-    "@embedded-postgres/windows-x64": "17.6.0-beta.15",
     "express": "^5.2.1",
     "pg": "8.20.0",
     "react": "^19.2.4",
@@ -90,7 +94,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "tsx": "^4.20.6",
-    "vite": "^7.3.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
   }
 }

@@ -28,6 +28,9 @@ export const NEW_DESIGN_PRIMARY_NAV = [
 export const NEW_DESIGN_ADVANCED_NAV = [
   { key: "settings", label: "系统设置", href: "/new-design/structure/settings" },
   { key: "content-types", label: "内容类型", href: "/new-design/structure/card-types" },
+  { key: "meta-cards", label: "元卡片", href: "/new-design/structure/meta-cards" },
+  { key: "card-templates", label: "卡片模板", href: "/new-design/structure/card-templates" },
+  { key: "book-templates", label: "书籍模板", href: "/new-design/structure/book-templates" },
   { key: "options-relations", label: "选项与关联", href: "/new-design/structure/dictionaries-relations" },
   { key: "forms", label: "创作表单", href: "/new-design/structure/forms" },
   { key: "templates", label: "开书模板", href: "/new-design/structure/templates" },
@@ -60,6 +63,7 @@ export const BOOK_TASK_NAV = [
   { key: "overview", label: "创作概览", path: "overview" },
   { key: "direction", label: "创作方向", path: "setting" },
   { key: "story-setting", label: "故事设定", path: "story-setting" },
+  { key: "assembly", label: "本书卡片", path: "assembly" },
   { key: "planning", label: "故事规划", path: "planning" },
   { key: "composition", label: "全书编排", path: "composition" },
   { key: "director", label: "全书导演", path: "director" },
@@ -95,7 +99,7 @@ export const BOOK_NAV_GROUPS: readonly BookNavigationGroup[] = [
     { key: "direction", label: "本书创作方向", items: ["direction"] },
   ] },
   { key: "setting", label: "② 故事设定", defaultPath: "story-setting", sections: [
-    { key: "setting", label: "设定档案", items: ["story-setting"] },
+    { key: "setting", label: "设定档案", items: ["story-setting", "assembly"] },
   ] },
   { key: "production", label: "③ 故事规划", defaultPath: "planning", sections: [
     { key: "content", label: "规划与正文", items: ["planning", "composition", "writing"] },

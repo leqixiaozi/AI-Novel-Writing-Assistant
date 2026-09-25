@@ -8,6 +8,7 @@ import {ImagePreparationError} from '../database/imagePreparation';
 import {characterExperiencesRouter} from './characterExperiences';
 import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
 import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
+import {cardAssemblyRouter} from './cardAssembly';
 import {comicProjectsRouter} from './comicProjects';
 import {comicEpisodesRouter} from './comicEpisodes';
 import {comicPanelsRouter} from './comicPanels';
@@ -429,6 +430,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(worldPackageReadRouter());
   router.use(bookshelfMutationFence());
   router.use(bookshelfWritableGuard());
+  router.use(cardAssemblyRouter());
   // Visiting a source or home page must never resume research work.
   router.use("/home", homeRouter());
   router.use(bookshelfRouter());
