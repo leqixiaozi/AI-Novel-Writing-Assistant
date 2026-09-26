@@ -7,6 +7,7 @@
 | 菜单、术语与页面对标 | [导航与术语](navigation-and-terminology.md)、[对照入口](comparison-entry.md)、[逐页施工记录](legacy-page-replication-progress.md) |
 | 新页面布局与样式 | [布局与样式约定](ui-layout-and-styles.md)、`../src/client/new-design.css` 与目标页面局部样式 |
 | 资料、表单和开书 | [业务表单外壳](business-form-shell.md)、[统一开书表单](unified-book-creation-form.md)、[资料管理](material-management-and-safe-archive.md) |
+| 元卡片、卡片模板与书籍模板 | [体系标准](card-template-system-standard.md)、[功能与页面设计](card-template-feature-design.md)、[数据库设计](card-template-database-design.md)：三层定义、装配、开书快照及数据边界 |
 | 书籍规划与章节 | [规划中心](book-overview-and-planning-center.md)、[章节工作区](chapter-writing-workspace.md)、[采用结算](chapter-adoption-settlement.md)、[旧章修订](chapter-revision-recompute.md) |
 | 数据正本与迁移 | [数据库架构](../../doc/20架构/database.md)、[数据字典](data-model.md)、`../migrations/` 中的 SQL；字段和约束以当前迁移为准 |
 | 页面与 API 接线 | [导航与术语](navigation-and-terminology.md)、`../src/client/api.ts`、`../src/server/http/` 的目标路由；逐项追踪用户操作到新版回执 |
