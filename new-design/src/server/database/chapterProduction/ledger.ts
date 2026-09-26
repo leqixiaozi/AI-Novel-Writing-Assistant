@@ -1,3 +1,5 @@
+import {updateProductionRecords} from './persistence';
+import {chapterWritingRequestRows} from './persistence';
 import {randomUUID} from 'node:crypto';
 import type {PoolClient} from 'pg';
 import {NewDesignError,assertFound} from '../../domain/errors';
@@ -9,15 +11,15 @@ export async function retainOriginalChapterUsage(client:PoolClient,row:Row,trace
   await client.query('INSERT INTO new_design.ai_attempt_usage(id,task_id,step_id,attempt_id,provider,model,input_tokens,output_tokens,fallback_count,budget_decision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[randomUUID(),row.ai_task_id,row.step_id,row.current_attempt_id,String(trace.provider??'unknown'),String(trace.model??'unknown'),count(trace.inputTokens),count(trace.outputTokens),count(trace.fallbackCount)??0,trace.budgetExceeded===true?'exceeded':!unknown&&count(trace.inputTokens)!==null&&count(trace.outputTokens)!==null?'within_budget':'unknown']);
 }
 async function events(client:PoolClient,row:Row,to:string,reason:string,detail:string){
-  if(row.current_attempt_id)await client.query("INSERT INTO new_design.ai_task_state_events(id,task_id,step_id,attempt_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor) VALUES($1,$2,$3,$4,'attempt','running',$5,'generate_candidate',$6,$7,'user','controlled_chapter_executor')",[randomUUID(),row.ai_task_id,row.step_id,row.current_attempt_id,to==='cancelled'?'discarded':to,reason,detail]);
-  for(const kind of ['step','task'])await client.query("INSERT INTO new_design.ai_task_state_events(id,task_id,step_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor) VALUES($1,$2,$3,$4,$5,$6,'generate_candidate',$7,$8,'user','controlled_chapter_executor')",[randomUUID(),row.ai_task_id,kind==='task'?null:row.step_id,kind,kind==='task'?row.task_status:row.step_status,to,reason,detail]);
+  if(row.current_attempt_id)await client.query("INSERT INTO new_design.ai_task_events(id,task_id,step_id,attempt_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor) VALUES($1,$2,$3,$4,'attempt','running',$5,'generate_candidate',$6,$7,'user','controlled_chapter_executor')",[randomUUID(),row.ai_task_id,row.step_id,row.current_attempt_id,to==='cancelled'?'discarded':to,reason,detail]);
+  for(const kind of ['step','task'])await client.query("INSERT INTO new_design.ai_task_events(id,task_id,step_id,entity_kind,from_status,to_status,checkpoint_key,reason_code,reason_detail,actor_kind,actor) VALUES($1,$2,$3,$4,$5,$6,'generate_candidate',$7,$8,'user','controlled_chapter_executor')",[randomUUID(),row.ai_task_id,kind==='task'?null:row.step_id,kind,kind==='task'?row.task_status:row.step_status,to,reason,detail]);
 }
 export async function lockOriginalChapterExecution(client:PoolClient,bookId:string,requestId:string):Promise<Row>{
-  const source=assertFound((await client.query('SELECT ai_task_id FROM new_design.chapter_writing_requests WHERE book_id=$1 AND id=$2 AND controlled_snapshot IS NOT NULL',[bookId,requestId])).rows[0],'本书原受控章节请求不存在。');
+  const source=assertFound((await client.query(`SELECT ai_task_id FROM ${chapterWritingRequestRows} chapter_writing_request_rows_record WHERE book_id=$1 AND id=$2 AND controlled_snapshot IS NOT NULL`,[bookId,requestId])).rows[0],'本书原受控章节请求不存在。');
   await client.query('SELECT id FROM new_design.ai_tasks WHERE id=$1 FOR UPDATE',[source.ai_task_id]);
   const step=assertFound((await client.query("SELECT id,current_attempt_id FROM new_design.ai_task_steps WHERE task_id=$1 AND step_key='generate_candidate' FOR UPDATE",[source.ai_task_id])).rows[0],'原生成步骤不存在。');
   if(step.current_attempt_id)await client.query('SELECT id FROM new_design.ai_task_attempts WHERE id=$1 FOR UPDATE',[step.current_attempt_id]);
-  return assertFound((await client.query(`SELECT request.*,task.status task_status,step.id step_id,step.status step_status,step.current_attempt_id,step.lease_expires_at,attempt.status attempt_status FROM new_design.chapter_writing_requests request JOIN new_design.ai_tasks task ON task.id=request.ai_task_id JOIN new_design.ai_task_steps step ON step.id=$3 LEFT JOIN new_design.ai_task_attempts attempt ON attempt.id=step.current_attempt_id WHERE request.book_id=$1 AND request.id=$2 FOR UPDATE OF request`,[bookId,requestId,step.id])).rows[0],'原请求来源未完整读取。');
+  return assertFound((await client.query(`SELECT request.*,task.status task_status,step.id step_id,step.status step_status,step.current_attempt_id,step.lease_expires_at,attempt.status attempt_status FROM ${chapterWritingRequestRows} request JOIN new_design.ai_tasks task ON task.id=request.ai_task_id JOIN new_design.ai_task_steps step ON step.id=$3 LEFT JOIN new_design.ai_task_attempts attempt ON attempt.id=step.current_attempt_id WHERE request.book_id=$1 AND request.id=$2 FOR UPDATE OF request`,[bookId,requestId,step.id])).rows[0],'原请求来源未完整读取。');
 }
 export async function finishKnownChapterFailure(client:PoolClient,row:Row,trace:Row,message:string,category:string){
   if(row.controlled_output)throw new NewDesignError('原模型回复已保存，不能改为生成失败；请完成候选入库。',409);
@@ -38,7 +40,7 @@ export async function endExpiredOriginalChapter(client:PoolClient,bookId:string,
   if(row.current_attempt_id)await client.query("UPDATE new_design.ai_task_attempts SET status='discarded',error_category='unknown',retry_eligibility='none',error_summary=$2,ended_at=now() WHERE id=$1 AND status='running'",[row.current_attempt_id,message]);
   await client.query("UPDATE new_design.ai_task_steps SET status='cancelled',revision=revision+1,lease_token=NULL,lease_expires_at=NULL,completed_at=now(),updated_at=now() WHERE id=$1",[row.step_id]);
   await client.query("UPDATE new_design.ai_tasks SET status='cancelled',revision=revision+1,completed_at=now(),updated_at=now() WHERE id=$1",[row.ai_task_id]);
-  await client.query("UPDATE new_design.chapter_writing_requests SET status='cancelled',error_summary=$2,updated_at=now() WHERE id=$1",[requestId,message]);
+  await updateProductionRecords(client, 'chapter_writing_request', `SELECT to_jsonb(record) AS record_values,jsonb_build_object('status',('cancelled')::text,'error_summary',($2)::text,'updated_at',(now())::timestamptz) AS record_patch FROM ${chapterWritingRequestRows} record WHERE id=$1 FOR UPDATE OF record`, [requestId,message], ["id"]);
   await events(client,row,'cancelled','author_ended_expired_original',message);await retainOriginalChapterUsage(client,row,row.controlled_execution??{},true);
 }
 
@@ -51,7 +53,7 @@ export async function endSavedReplyOriginalChapter(client:PoolClient,bookId:stri
   await client.query("UPDATE new_design.ai_task_attempts SET status='discarded',error_category=NULL,retry_eligibility='none',error_summary=$2,ended_at=now() WHERE id=$1 AND status='running'",[row.current_attempt_id,message]);
   await client.query("UPDATE new_design.ai_task_steps SET status='cancelled',revision=revision+1,lease_token=NULL,lease_expires_at=NULL,completed_at=now(),updated_at=now() WHERE id=$1",[row.step_id]);
   await client.query("UPDATE new_design.ai_tasks SET status='cancelled',revision=revision+1,completed_at=now(),updated_at=now() WHERE id=$1",[row.ai_task_id]);
-  await client.query("UPDATE new_design.chapter_writing_requests SET status='cancelled',error_summary=$2,updated_at=now() WHERE id=$1",[requestId,message]);
+  await updateProductionRecords(client, 'chapter_writing_request', `SELECT to_jsonb(record) AS record_values,jsonb_build_object('status',('cancelled')::text,'error_summary',($2)::text,'updated_at',(now())::timestamptz) AS record_patch FROM ${chapterWritingRequestRows} record WHERE id=$1 FOR UPDATE OF record`, [requestId,message], ["id"]);
   await events(client,row,'cancelled','author_retained_original_reply',message);
   await retainOriginalChapterUsage(client,row,row.controlled_execution??{});
 }

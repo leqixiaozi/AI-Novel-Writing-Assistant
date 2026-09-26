@@ -1,0 +1,47 @@
+/* Legacy section proportions; fields and writes still come from the installed
+   new-design form version, including supplements and conditional visibility. */
+.nd-book-shell .nd-dynamic-form{display:grid;gap:16px;min-width:0;container-type:inline-size;container-name:nd-form-fields}
+.nd-book-shell .nd-dynamic-form>.nd-form-group{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0;padding:20px 16px 16px;border:1px solid var(--nd-line);border-radius:8px;background:var(--nd-paper);box-shadow:none;min-width:0}
+.nd-book-shell .nd-dynamic-form>.nd-form-group[hidden]{display:none!important}
+.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=long]{grid-template-columns:repeat(2,minmax(0,1fr))}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>legend{padding:0 6px;color:var(--nd-ink);font-size:14px;line-height:1.5;font-weight:600}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control{display:grid;align-content:start;gap:8px;min-width:0;margin:0}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control>span:first-child{font-size:13px;line-height:1.6;font-weight:500;overflow-wrap:anywhere}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control>small{font-size:12px;line-height:1.6;color:var(--nd-muted)}
+.nd-book-shell .nd-dynamic-form :is(input:not([type=checkbox]):not([type=radio]),select,textarea){width:100%;box-sizing:border-box;min-width:0;padding:8px 12px;border:1px solid var(--nd-line);border-radius:6px;background:var(--nd-canvas,var(--nd-paper));color:var(--nd-ink);font:inherit;font-size:14px;line-height:1.6}
+.nd-book-shell .nd-dynamic-form :is(input:not([type=checkbox]):not([type=radio]),select){min-height:40px}
+.nd-book-shell .nd-dynamic-form textarea{min-height:112px;resize:vertical}
+.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=short]>[data-field-type=long_text]{grid-column:1/-1}
+.nd-book-shell .nd-dynamic-form :is(input,select,textarea):focus-visible{outline:2px solid var(--nd-accent);outline-offset:2px}
+.nd-book-shell .nd-dynamic-form [aria-invalid=true]{border-color:var(--nd-error)}
+.nd-book-shell .nd-dynamic-form .has-error>em{font-size:12px;line-height:1.5;color:var(--nd-error);font-style:normal}
+.nd-book-shell .nd-dynamic-form .nd-field-capability{font-size:10px;padding:1px 5px;line-height:1.6}
+.nd-book-shell .nd-dynamic-form .nd-options{display:flex;flex-wrap:wrap;gap:8px 16px;padding:8px 0;min-width:0}
+.nd-book-shell .nd-dynamic-form .nd-option{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:13px;line-height:1.6}
+.nd-book-shell .nd-dynamic-form .nd-option input{width:16px;height:16px;margin:0;flex:none;accent-color:var(--nd-accent)}
+.nd-book-shell .nd-dynamic-form .nd-tree-inline-editor{display:grid;gap:12px;min-width:0;padding:12px;border:1px solid var(--nd-line);border-radius:6px}
+/* The actual editor width determines columns, including beside chapter tables. */
+@container nd-form-fields (max-width:560px){.nd-book-shell .nd-dynamic-form>.nd-form-group,.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=long]{grid-template-columns:minmax(0,1fr);padding:16px 12px}.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=short]>[data-field-type=long_text]{grid-column:auto}}
+.nd-book-shell .nd-business-form-editor{gap:20px;padding:16px;border:1px solid var(--nd-line);border-radius:8px}
+.nd-book-shell .nd-business-editor-heading{align-items:center;padding-bottom:12px;gap:12px}
+.nd-book-shell .nd-business-editor-heading h2{font-size:16px;margin:0 0 6px}
+.nd-book-shell .nd-business-editor-heading p:last-child{font-size:12px;line-height:1.6}
+.nd-book-shell .nd-form-provenance{gap:6px}.nd-book-shell .nd-form-provenance :is(span,small){font-size:11px}
+.nd-book-shell .nd-business-form-editor>[data-business-title]{gap:8px;margin:0}
+.nd-book-shell .nd-business-form-editor>[data-business-title]>span{font-size:13px;font-weight:500}
+.nd-book-shell .nd-business-form-editor>[data-business-title]>small{font-size:12px;line-height:1.6}
+.nd-book-shell .nd-business-form-editor>[data-business-title]>input{min-height:40px;font-size:14px}
+.nd-book-shell .nd-field-source-list summary{font-size:12px}
+.nd-book-shell .nd-business-form-editor .nd-business-editor-heading{flex-wrap:wrap;align-items:flex-start;gap:8px;padding:0 0 12px}
+.nd-book-shell .nd-business-form-editor .nd-form-provenance{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 10px;flex:1 1 220px}
+.nd-book-shell .nd-business-form-editor .nd-form-provenance button{margin:0;font-size:12px;min-height:32px;padding:4px 0}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control{position:relative}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control>span:has(>.nd-story-help){position:absolute;top:0;right:0}
+.nd-book-shell .nd-dynamic-form>.nd-form-group>.nd-control:has(>span>.nd-story-help)>span:first-child{padding-right:28px}
+.nd-book-shell .nd-dynamic-form .nd-story-help>button{width:24px;height:24px;min-height:24px;padding:0;border-radius:50%}
+.nd-book-shell .nd-story-setting .nd-story-setting-layout.is-character{grid-template-columns:220px minmax(0,1fr);gap:16px}
+@container nd-book-content (max-width:650px){.nd-book-shell .nd-story-setting .nd-story-setting-layout.is-character{grid-template-columns:minmax(0,1fr)}.nd-book-shell .nd-story-setting .nd-story-index{max-height:200px}}
+@container nd-book-content (max-width:650px){.nd-book-shell .nd-dynamic-form>.nd-form-group{grid-template-columns:minmax(0,1fr);padding:16px 12px}.nd-book-shell .nd-business-editor-heading{align-items:stretch;flex-direction:column}.nd-book-shell .nd-form-provenance{justify-items:start}}
+@media(max-width:700px){.nd-book-shell .nd-dynamic-form>.nd-form-group{grid-template-columns:minmax(0,1fr)}}
+@container nd-book-content (max-width:650px){.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=long]{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:700px){.nd-book-shell .nd-dynamic-form>.nd-form-group[data-layout=long]{grid-template-columns:minmax(0,1fr)}}

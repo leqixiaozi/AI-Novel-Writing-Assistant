@@ -6,6 +6,14 @@
 
 连接检查只检查服务与显式选择的模型，不自动选择列表第一项。配置可读取不等于连接成功。普通界面使用中文；专用环境变量名和版本凭证放在折叠区。凭据只保存引用，不保存密钥正文，不读取旧网关或旧配置。
 
+| 接口协议 | 示例地址 | 请求与认证 | 检查范围 |
+| --- | --- | --- | --- |
+| 本机 Ollama | `http://127.0.0.1:11434` | `/api/chat`，本机直连 | `/api/tags` 返回名称；生成仍需单独验证 |
+| OpenAI 兼容 | OpenAI `/v1`、OpenRouter `https://openrouter.ai/api/v1`、MiniMax 中国区 `https://api.minimax.cn/v1` | `/chat/completions`、Bearer；OpenRouter 结构化请求限定支持参数的端点 | `/models` 返回名称；同一网关不同模型的结构化能力可能不同 |
+| Anthropic Messages 兼容 | Claude `https://api.anthropic.com/v1`；MiniMax Anthropic 路径以服务方文档为准 | `/messages`、顶层 `system`；Claude/MiniMax 用 `x-api-key`，OpenRouter Messages 用 Bearer | `/models` 由服务方提供；Claude 官方目录分页时核对所填模型 |
+
+传输前形成统一任务请求，协议适配器只转换 HTTP 格式；收到回复后统一成内容、输入用量、输出用量与可用性，再做 JSON 和原任务合同校验。Claude 官方结构化输出的 Schema 子集不替代原合同；不能安全表达或超过语法上限时只使用提示词中的原合同，并继续严格核验回复。当前 MiniMax-M3 使用已配置的 OpenAI 兼容路线；其中国区凭据和地址与国际区不混用。
+
 > 🏠 **白话比喻**：默认模型像常用快递公司，任务覆盖像某类包裹指定专门承运人，备用像约好的候补承运人。对应到系统：每次调用读取已生效配置，并先保存确切版本快照；修改设置只影响后续调用。
 
 > 🧠 **速记方法**：先保存生效，再冻结版本，最后发请求；检查连接不是生成成功。

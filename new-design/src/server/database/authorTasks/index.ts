@@ -15,6 +15,10 @@ const poolScope=new AsyncLocalStorage<Pool>();
 export function withAuthorTasksPool<T>(pool:Pool,run:()=>Promise<T>):Promise<T>{return poolScope.run(pool,run);}
 const getPool=async()=>poolScope.getStore()??await getNewDesignPool();
 const QUERY=`WITH sources AS (${AUTHOR_TASK_SOURCE_QUERY}) SELECT sources.*,book.name book_name FROM sources LEFT JOIN new_design.books book ON book.id=sources.book_id`;
+/** Archive checks native execution states in the caller-owned transaction, without recovery. */
+export async function bookArchiveBlockers(client:Pick<import('pg').PoolClient,'query'>,bookId:string):Promise<Array<{title:string;route:string}>> {
+ const result=await client.query(`WITH sources AS (${AUTHOR_TASK_SOURCE_QUERY}) SELECT title,route FROM sources WHERE book_id=$1 AND (status IN ('queued','preparing','running','generating','creating','settling','leased','retry_scheduled','cancel_requested','paused','waiting_recovery','waiting_approval','unknown','result_unknown','result_pending','ready') OR meta->>'activeCommand'='true' OR COALESCE((meta->>'unknownRequestCount')::integer,0)>0 OR COALESCE((meta->>'ledgerPendingCount')::integer,0)>0 OR COALESCE((meta->>'replyPendingCount')::integer,0)>0) ORDER BY updated_at DESC LIMIT 10`,[bookId]);return result.rows.map(row=>({title:String(row.title??'本书运行任务'),route:String(row.route)}));
+}
 function encodeCursor(row:AuthorTaskRow):string{return Buffer.from(JSON.stringify({at:row.cursor_at??new Date(row.updated_at).toISOString(),kind:row.kind,id:row.id})).toString("base64url");}
 function decodeCursor(raw:string){try{return cursorSchema.parse(JSON.parse(Buffer.from(raw,"base64url").toString("utf8")));}catch{throw new NewDesignError("运行记录分页凭证无效，请从首屏重新查看。",422);}}
 export async function listAuthorTasks(raw:AuthorTaskFilter={}):Promise<AuthorTaskPage>{

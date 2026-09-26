@@ -1,0 +1,5 @@
+import type {PublicCharactersApi,PublicCharacterWorkspace,PublicCharacterTrial,PublicPortraitReceipt} from '../../common/publicCharacters';
+export function createPublicCharactersApi(request:<T>(path:string,init?:RequestInit)=>Promise<T>):PublicCharactersApi{
+ const base='/public-characters',post=(input:unknown)=>({method:'POST',body:JSON.stringify(input)});
+ return{workspace:(resourceId,versionId)=>request<PublicCharacterWorkspace>(`${base}/workspace${resourceId&&versionId?`?resource=${encodeURIComponent(resourceId)}&version=${encodeURIComponent(versionId)}`:''}`),run:input=>request<PublicCharacterTrial>(`${base}/trials`,post(input)),byKey:key=>request<PublicCharacterTrial|null>(`${base}/trials/by-key/${encodeURIComponent(key)}`),complete:id=>request<PublicCharacterTrial>(`${base}/trials/${id}/complete`,post({})),endExpired:id=>request<PublicCharacterTrial>(`${base}/trials/${id}/end-expired`,post({})),portraitCommand:input=>request<PublicPortraitReceipt>(`${base}/portraits/commands`,post(input)),portraitReceipt:key=>request<PublicPortraitReceipt|null>(`${base}/portraits/commands/by-key/${encodeURIComponent(key)}`)};
+}

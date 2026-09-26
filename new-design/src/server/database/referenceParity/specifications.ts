@@ -1,0 +1,73 @@
+import {installNonSettlementFields} from "./fieldPolicies";
+import {randomUUID} from "node:crypto";
+import type {PoolClient} from "pg";
+import type {CardGroupFormDefinition,FieldDefinition,TemplateGroupSummary} from "../../../common/contracts";
+import {resourceFieldAdditions,characterVisibleAdditions,characterFieldAdditions,type ReferenceSpecificationPreview,type ReferenceSpecificationPublishInput} from "../../../common/referenceParity";
+import {NewDesignError,assertFound} from "../../domain/errors";
+import {getNewDesignPool} from "../runtime";
+import {executeStructureWrite,readStructureWriteReceipt,structureWriteHash} from "../structureWrites";
+import type {TemplatePayload} from "../templateStore";
+import {createRecordCard,findRecordCard,listRecordCards,replaceRecordCard} from '../recordCards';
+const SYSTEM_SPACE_ID='00000000-0000-4000-8000-000000000001';
+
+async function inspect(client:PoolClient,sourceTemplateVersionId:string,lock=false,kind:"profile"|"visible"|"resource"="profile"){
+  const templateVersion=assertFound(await findRecordCard(client,sourceTemplateVersionId,'template_group_version',{includeArchived:true}),'请选择实际已发布的模板版本。');
+  const templateHead=assertFound(await findRecordCard(client,String(templateVersion.template_id),'template_group',{includeArchived:true,lock}),'模板不存在。');
+  const template={...templateHead,current_version_id:templateHead.current_version_id as string|null,name:String(templateHead.name),payload:templateVersion.payload};
+  if(template.current_version_id!==sourceTemplateVersionId)throw new NewDesignError("模板已有新版本，请重新预览当前发布版本。",409);
+  const typeKey=kind==="resource"?"prop":"character";
+  const payload=structuredClone(template.payload as TemplatePayload),type=assertFound(payload.cardTypes.find(item=>item.key===typeKey),"这个模板没有所选内容规格。");
+  const source=assertFound((await client.query(`SELECT type.*,version.fields,version.version FROM new_design.card_types type JOIN new_design.card_type_versions version ON version.id=type.current_version_id WHERE type.id=$1 AND type.space_id='00000000-0000-4000-8000-000000000001' AND type.status='published' ${lock?"FOR UPDATE OF type":""}`,[type.sourceId])).rows[0],"模板的人物来源不是可发布的公共规格。");
+  const conflicts:string[]=[];
+  if(source.current_version_id!==type.sourceVersionId||structureWriteHash(source.fields)!==structureWriteHash(type.fields))conflicts.push("模板快照与当前人物来源版本不同，请先明确选择对应的来源版本。");
+  if(structureWriteHash(source.draft_fields)!==structureWriteHash(source.fields))conflicts.push("人物来源有未发布草稿，请先处理草稿后准备发布。");
+  const diff=kind==="resource"?resourceFieldAdditions(type.fields):kind==="visible"?characterVisibleAdditions(type.fields):characterFieldAdditions(type.fields);conflicts.push(...diff.conflicts);
+  const preview:ReferenceSpecificationPreview={...(kind!=="profile"?{kind}:{}),sourceTemplateVersionId,templateId:String(template.id),templateRevision:Number(template.revision),inputHash:structureWriteHash({...(kind!=="profile"?{kind}:{}),sourceTemplateVersionId,templateRevision:template.revision,payload,sourceRevision:source.revision,additions:diff.additions}),additions:diff.additions,conflicts,canPublish:!conflicts.length&&diff.additions.length>0};
+  return{template,payload,type,source,preview};
+}
+export async function previewReferenceSpecification(sourceTemplateVersionId:string,kind:"profile"|"visible"|"resource"="profile"){const client=await(await getNewDesignPool()).connect();try{await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const {preview}=await inspect(client,sourceTemplateVersionId,false,kind);await client.query("COMMIT");return preview;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+export async function publishReferenceSpecification(input:ReferenceSpecificationPublishInput):Promise<TemplateGroupSummary>{
+  const kind=input.kind??"profile";
+  return executeStructureWrite("template","publish",input.requestKey,{command:"character_reference_specification",...input},async client=>{
+    const {template,payload,type,source,preview}=await inspect(client,input.sourceTemplateVersionId,true,input.kind);
+    if(preview.templateRevision!==input.templateRevision||preview.inputHash!==input.previewHash)throw new NewDesignError("来源规格或模板已改变，请重新预览。",409);
+    if(!preview.canPublish)throw new NewDesignError(preview.conflicts.join(" ")||"人物字段已齐全，无需重复发布。",422);
+    const fields=[...(source.fields as FieldDefinition[]),...preview.additions],typeVersionId=randomUUID();
+    await client.query("INSERT INTO new_design.card_type_versions(id,card_type_id,version,fields) VALUES($1,$2,$3,$4::jsonb)",[typeVersionId,source.id,Number(source.version)+1,JSON.stringify(fields)]);
+    await client.query("UPDATE new_design.card_types SET current_version_id=$2,draft_fields=$3::jsonb,revision=revision+1,updated_at=now() WHERE id=$1",[source.id,typeVersionId,JSON.stringify(fields)]);
+    await installNonSettlementFields(client,String(source.space_id),type.key,preview.additions);
+    type.fields=fields;type.sourceVersionId=typeVersionId;
+    if(!payload.forms.some(item=>item.definition.primaryTypeKey===type.key)){
+      const formId=randomUUID(),formVersionId=randomUUID(),key=`${type.key}_reference_${formId.replaceAll("-","").slice(0,12)}`;
+      const definition:CardGroupFormDefinition={primaryTypeKey:type.key,fieldExtensions:preview.additions.map(field=>({fieldKey:field.key,group:field.group,order:field.order})),groups:[{key:"profile",name:kind==="resource"?"资源策划":"人物档案",order:0,sections:[{key:"profile",name:"档案与规划",order:0,slots:[{key:type.key,name:kind==="resource"?"道具":"人物",kind:"primary_card",allowedTypeKeys:[type.key],min:1,max:1,localFields:[]}]}]}]};
+      const name=kind==='resource'?'资源策划':'人物档案',now=new Date().toISOString();
+      await createRecordCard(client,{id:formVersionId,spaceId:SYSTEM_SPACE_ID,typeKey:'card_group_form_version',title:name,values:{id:formVersionId,form_id:formId,version:1,definition,created_at:now}});
+      await createRecordCard(client,{id:formId,spaceId:SYSTEM_SPACE_ID,typeKey:'card_group_form',title:name,values:{id:formId,space_id:null,form_key:key,name,description:'档案与规划分别填写。',status:'published',revision:1,draft_definition:definition,is_system:false,current_version_id:formVersionId,created_at:now,updated_at:now}});
+      payload.forms.push({sourceId:formId,sourceVersionId:formVersionId,key,name:kind==="resource"?"资源策划":"人物档案",description:"档案与规划分别填写。",definition});
+    }
+    for(const frozen of payload.forms.filter(item=>item.definition.primaryTypeKey===type.key)){
+      // A newly created form already includes these exact field extensions.
+      if(preview.additions.every(field=>frozen.definition.fieldExtensions?.some(item=>item.fieldKey===field.key)))continue;
+      const form=assertFound(await findRecordCard(client,frozen.sourceId,'card_group_form',{lock:true}),'模板的公共人物表单已不可用。');
+      if(form.space_id!==null||form.status!=='published')throw new NewDesignError('模板的公共人物表单已不可用。',422);
+      const currentFormVersion=assertFound(await findRecordCard(client,String(form.current_version_id),'card_group_form_version',{includeArchived:true}),'表单当前版本不存在。');
+      if(form.current_version_id!==frozen.sourceVersionId||structureWriteHash(form.draft_definition)!==structureWriteHash(frozen.definition))throw new NewDesignError("人物表单来源或草稿已改变，请重新核对模板。",409);
+      const definition={...frozen.definition,fieldExtensions:[...(frozen.definition.fieldExtensions??[]),...preview.additions.map(field=>({fieldKey:field.key,group:field.group,order:field.order}))]},versionId=randomUUID();
+      await createRecordCard(client,{id:versionId,spaceId:SYSTEM_SPACE_ID,typeKey:'card_group_form_version',title:String(form.name),values:{id:versionId,form_id:form.id,version:Number(currentFormVersion.version)+1,definition,created_at:new Date().toISOString()}});
+      await replaceRecordCard(client,{id:form.id,spaceId:form.recordSpaceId,typeKey:'card_group_form',values:{...form,current_version_id:versionId,draft_definition:definition,revision:Number(form.revision)+1,updated_at:new Date().toISOString()}});
+      frozen.definition=definition;frozen.sourceVersionId=versionId;
+    }
+    const versionId=randomUUID(),versions=await listRecordCards(client,'template_group_version',{includeArchived:true,where:{template_id:template.id}}),version=Math.max(0,...versions.map(row=>Number(row.version)))+1;
+    await createRecordCard(client,{id:versionId,spaceId:SYSTEM_SPACE_ID,typeKey:'template_group_version',title:String(template.name),values:{id:versionId,template_id:template.id,version,payload,created_at:new Date().toISOString()}});
+    const {payload:oldPayload,...templateValues}=template;void oldPayload;
+    const row=await replaceRecordCard(client,{id:template.id,spaceId:template.recordSpaceId,typeKey:'template_group',values:{...templateValues,current_version_id:versionId,revision:Number(template.revision)+1,status:'published',updated_at:new Date().toISOString()}});
+    return{id:String(row.id),key:String(row.template_key),name:String(row.name),description:String(row.description??""),status:"published",revision:Number(row.revision),currentVersion:version,currentVersionId:versionId,draftConfig:row.draft_config,createdAt:new Date(String(row.created_at)).toISOString(),updatedAt:new Date(String(row.updated_at)).toISOString()};
+  });
+}
+
+export async function readReferenceSpecificationReceipt(input:ReferenceSpecificationPublishInput){
+  const saved=await readStructureWriteReceipt("template",input.requestKey);
+  if(!saved)return null;
+  if(saved.operation!=="publish"||saved.inputHash!==structureWriteHash({kind:"template",operation:"publish",input:{command:"character_reference_specification",...input}}))throw new NewDesignError("原凭证对应另一份发布输入，不能按当前模板确认。",409);
+  return saved.result as TemplateGroupSummary;
+}

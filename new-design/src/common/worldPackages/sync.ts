@@ -1,0 +1,27 @@
+import {z} from 'zod';
+import type {FieldDefinition} from '../contracts';
+import type {PublishedWorldPackage,WorldInstallReceipt,WorldSection,WorldThreeWayField,WorldValue} from './base';
+import {worldInstallInputSchema,type FrozenWorldCard,type FrozenWorldRelation,type WorldInstallTarget} from './base';
+const uuid=z.string().uuid(),key=z.string().min(1).max(100),hash=z.string().regex(/^[a-f0-9]{64}$/);
+export const worldValueSchema=z.discriminatedUnion('present',[z.object({present:z.literal(false)}).strict(),z.object({present:z.literal(true),value:z.unknown().refine((value):boolean=>value!==undefined)}).strict().refine(value=>Object.hasOwn(value,'value'))]);
+const relationChoice=z.object({sourceRelationId:uuid,targetTypeId:uuid,decision:z.enum(['keep','take','detach']),sourceCardId:uuid,targetCardId:uuid,properties:z.record(key,z.unknown())}).strict();
+export const worldSyncInputSchema=z.object({requestKey:uuid,installationId:uuid,packageId:uuid,operation:z.enum(['pull','push','publish','toggle']),choices:z.array(z.object({sourceCardId:uuid,sourceKey:key,targetKey:key,decision:z.enum(['keep','take']),value:worldValueSchema}).strict()).max(1500),cardRequestKeys:z.record(uuid,uuid),candidateId:uuid.nullable(),publicRequestKey:uuid.nullable(),syncEnabled:z.boolean().nullable(),newCards:z.array(worldInstallInputSchema.shape.cards.element).max(300).optional(),relationChoices:z.array(relationChoice).max(500).optional()}).strict().superRefine((input,ctx)=>{
+ const additions=input.newCards??[],relations=input.relationChoices??[];
+ if(input.operation==='toggle'&&input.syncEnabled===null||input.operation!=='toggle'&&input.syncEnabled!==null||input.operation==='publish'&&(!input.candidateId||!input.publicRequestKey)||input.operation!=='publish'&&(input.candidateId||input.publicRequestKey))ctx.addIssue({code:'custom',message:'请核对操作、同步开关和完整候选来源。'});
+ if((input.operation==='toggle'||input.operation==='publish')&&(input.choices.length||additions.length||relations.length||Object.keys(input.cardRequestKeys).length))ctx.addIssue({code:'custom',message:'同步开关和候选发布不能夹带其他同步选择。'});
+ if(input.operation!=='pull'&&additions.length)ctx.addIssue({code:'custom',message:'新增公共对象须通过拉取独立创建。'});
+ for(const [name,ids] of [['来源字段',input.choices.map(item=>`${item.sourceCardId}:${item.sourceKey}`)],['新增对象',additions.map(item=>item.sourceCardId)],['来源关系',relations.map(item=>item.sourceRelationId)]] as const)if(new Set(ids).size!==ids.length)ctx.addIssue({code:'custom',message:`${name}只能作一次明确选择。`});
+ const keys=[...Object.values(input.cardRequestKeys),...additions.map(item=>item.requestKey)];
+ if(new Set(keys).size!==keys.length||keys.includes(input.requestKey)||input.publicRequestKey===input.requestKey)ctx.addIssue({code:'custom',message:'各资料保存及公共发布原键须独立且不能重复。'});
+});
+export const worldSyncCommitSchema=worldSyncInputSchema.extend({previewHash:hash});
+export type WorldSyncInput=z.infer<typeof worldSyncInputSchema>;
+export type WorldSyncCommit=z.infer<typeof worldSyncCommitSchema>;
+export interface WorldSyncField extends WorldThreeWayField {localBase:WorldValue;targetKey:string|null;sourceLabel:string;targetLabel:string|null;}
+export interface WorldSyncObject {sourceCardId:string;section:WorldSection;title:string;targetCardId:string;targetTypeId:string;targetTypeKey:string;targetVersionId:string;targetRevision:number;fields:FieldDefinition[];localFieldKeys:string[];localValues:Record<string,unknown>;values:Record<string,unknown>;formVersionId:string|null;formResolutionKind:string;sourceHash:string;differences:WorldSyncField[];}
+export interface WorldPushCandidate {id:string;bookId:string;installationId:string;packageId:string;input:WorldSyncCommit;workspaceHash:string;objects:WorldSyncObject[];publicLive:Array<{cardId:string;versionId:string}>;createdAt:string;publishedPackageId:string|null;}
+export interface WorldSyncRelation {sourceRelationId:string;title:string;targetRelationId:string|null;targetVersionId:string|null;targetTypeId:string;targetRevision:number|null;base:WorldValue;localBase:WorldValue;local:WorldValue;upstream:WorldValue;status:WorldThreeWayField['status'];original:FrozenWorldRelation|null;next:FrozenWorldRelation|null;}
+export interface WorldSyncWorkspace {bookId:string;rootCardId:string;installation:WorldInstallReceipt;upstream:PublishedWorldPackage;objects:WorldSyncObject[];newObjects:FrozenWorldCard[];removedObjects:string[];relations:WorldSyncRelation[];publicLive:Array<{cardId:string;versionId:string}>;syncEnabled:boolean;workspaceHash:string;history:WorldSyncReceipt[];candidates:WorldPushCandidate[];}
+export interface WorldSyncPreview {bookId:string;input:WorldSyncInput;workspace:WorldSyncWorkspace;previewHash:string;changes:Array<{cardId:string;title:string;values:Record<string,unknown>}>;newTargets:WorldInstallTarget[];relationTargets:Record<string,unknown>[];selectedRelations:NonNullable<WorldSyncInput['relationChoices']>;warnings:string[];}
+export interface WorldSyncReceipt {id:string;bookId:string;installationId:string;requestKey:string;operation:WorldSyncInput['operation'];inputHash:string;input:WorldSyncCommit;sequence:number;candidateId:string|null;publishedPackageId:string|null;cardVersions:Array<{cardId:string;versionId:string}>;addedCards:WorldInstallReceipt['cards'];relationVersions:Array<{sourceRelationId:string;targetRelationId:string;versionId:string;targetTypeId:string}>;createdAt:string;sourceRoute:string;repeated:boolean;}
+

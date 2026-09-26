@@ -13,7 +13,8 @@ const STARTUP_CHECK_INTERVAL_MS = 1000;
 const STARTUP_WAIT_THRESHOLD_MS = 1200;
 
 function shouldUseStartupGate(): boolean {
-  return import.meta.env.DEV && APP_RUNTIME !== "desktop";
+  const pathname = window.location.pathname;
+  return import.meta.env.DEV && APP_RUNTIME !== "desktop" && pathname !== "/new-design" && !pathname.startsWith("/new-design/");
 }
 
 async function checkServerReady(signal: AbortSignal): Promise<boolean> {

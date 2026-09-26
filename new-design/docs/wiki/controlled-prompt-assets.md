@@ -21,8 +21,11 @@
 | book_analysis | BookAnalysisResult | 分析维度完整，候选类型/字段/证据受计划约束 |
 | planning_candidate | PlanningCandidateOutput | 层级来自既有 story/volume/chapter/scene 合同，资料引用只来自输入 |
 | chapter_settlement | `{items:[],notes:[]}` | 真实本章正文、正式字段、已知前值及字典范围；仅提案，不直接确认或结算 |
+| quality_audit | `{summary,findings:[],recheckOutcome,recheckEvidence:[]}` | 确切正文及采用计划；逐字摘录与 UTF-16 位置校验；原问题复检必须提供当前修复证据 |
 
 本模块不执行 HTTP 模型请求、不读数据库、不读凭据、不写候选、不采用资料或规划。模型适配层消费编译结果并将输出交给 `parseOutput`；应用层继续使用唯一资料、关系、规划、正文正本及原有事务。
+
+章节诊断由 `application/chapterQuality` 执行，`database/chapterQuality` 保存单次原请求回执，质量报告与问题仍归 `qualityAudits`。修复要求绑定原问题版本、原正文与原请求，生成沿用 `chapterProduction` 的整章候选；比较、采用和结算继续走章节工作台。候选被正式采用后明确登记修复，稳定结算后才能对该问题复检；模型声称修复不能直接将问题标为验证通过。局部问题写为质量债，不停止导演。未知模型结果只读核对，已保存回复可继续导入，原过期未知领取必须明确结束；不自动再次调用。`095_chapter_quality_requests.sql` 为手动安装合同，不加入普通启动迁移列表。
 
 ## 输入与校验
 

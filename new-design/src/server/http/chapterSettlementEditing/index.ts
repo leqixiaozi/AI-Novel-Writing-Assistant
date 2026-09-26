@@ -2,7 +2,7 @@ import {Router,type NextFunction,type Response} from "express";
 import {z} from "zod";
 import {AiExecutionError} from "../../ai";
 import {NewDesignError} from "../../domain/errors";
-import {chapterSettlementAiInputSchema,getChapterSettlementAiStatus,runChapterSettlementAiExtraction,getChapterSettlementAiReceipt,getChapterSettlementAiResult,importSavedChapterSettlementAiResult,releaseSavedChapterSettlementAiResult,endExpiredUnknownChapterSettlementAiExtraction} from "../../ai/chapterSettlement";
+import {chapterSettlementAiInputSchema,readSettlementAiOriginalReceipt,getChapterSettlementAiStatus,runChapterSettlementAiExtraction,getChapterSettlementAiReceipt,getChapterSettlementAiResult,importSavedChapterSettlementAiResult,releaseSavedChapterSettlementAiResult,endExpiredUnknownChapterSettlementAiExtraction} from "../../ai/chapterSettlement";
 import {
   startChapterAdoptionSession,getChapterSettlementEditingWorkspace,getChapterSettlementEditingByPreparation,createChapterSettlementEditingItem,updateChapterSettlementEditingItem,
   decideChapterSettlementEditingItems,commitChapterSettlementEditing,readChapterSettlementEditingReceipt,establishChapterSettlementEditingInitialState,
@@ -12,7 +12,7 @@ import {
   settlementEditingDecisionsSchema,settlementEditingCommitSchema,settlementEditingInitialSchema,settlementFieldLabels,
 } from "./validation";
 
-const defaults={startChapterAdoptionSession,getChapterSettlementEditingWorkspace,getChapterSettlementEditingByPreparation,createChapterSettlementEditingItem,updateChapterSettlementEditingItem,
+const defaults={runChapterSettlementAiExtraction,startChapterAdoptionSession,getChapterSettlementEditingWorkspace,getChapterSettlementEditingByPreparation,createChapterSettlementEditingItem,updateChapterSettlementEditingItem,
   decideChapterSettlementEditingItems,commitChapterSettlementEditing,readChapterSettlementEditingReceipt,establishChapterSettlementEditingInitialState};
 
 function recoveryFailure(step:string,error:unknown,retained:string):AiExecutionError {
@@ -39,6 +39,7 @@ function recoveryFailure(step:string,error:unknown,retained:string):AiExecutionE
 /** Source-workbench mutations and read-only receipts; no task-record action surface. */
 export function chapterSettlementEditingRouter(dependencies:Partial<typeof defaults>={}):Router {
   const store={...defaults,...dependencies},router=Router();
+  router.post("/chapter-adoption-sessions/:sessionId/editing/ai-extraction-receipt",(request,response,next)=>{void Promise.resolve().then(()=>readSettlementAiOriginalReceipt(settlementSessionId.parse(request.params.sessionId),chapterSettlementAiInputSchema.parse(request.body))).then(data=>response.json({success:true,data})).catch(next);});
   const respond=(response:Response,next:NextFunction,step:string,retained:string,run:()=>Promise<unknown>,status=200)=>{
     void Promise.resolve().then(run).then(data=>response.status(status).json({success:true,data})).catch(error=>next(recoveryFailure(step,error,retained)));
   };
@@ -72,7 +73,7 @@ export function chapterSettlementEditingRouter(dependencies:Partial<typeof defau
   router.get("/chapter-adoption-sessions/:id/editing/ai-status",(request,response,next)=>respond(response,next,"读取正文变化提取能力",
     "正文与当前输入保留，能力读取不会发送模型请求。",async()=>{settlementSessionId.parse(String(request.params.id));return getChapterSettlementAiStatus();}));
   router.post("/chapter-adoption-sessions/:id/editing/ai-extractions",(request,response,next)=>respond(response,next,"整理正文变化提案",
-    "本次运行结果尚未确认；采用正文、确认清单与原请求凭证保留，请先读取原运行结果，不再次调用模型。",()=>runChapterSettlementAiExtraction(
+    "本次运行结果尚未确认；采用正文、确认清单与原请求凭证保留，请先读取原运行结果，不再次调用模型。",()=>store.runChapterSettlementAiExtraction(
       settlementSessionId.parse(String(request.params.id)),extractionSchema.parse(request.body)),202));
   router.get("/chapter-adoption-sessions/:id/editing/ai-extractions/by-key/:key",(request,response,next)=>respond(response,next,"核对原变化提取请求",
     "读取失败不表示原模型请求未发送；原凭证与已有结果保留，请继续只读核对。",()=>getChapterSettlementAiReceipt(

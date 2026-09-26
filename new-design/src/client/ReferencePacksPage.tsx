@@ -23,7 +23,7 @@ export default function ReferencePacksPage(){
   const load=async()=>{const request=++generation.current;const [nextRecords,nextPacks,nextBooks]=await Promise.all([newDesignApi.listResearchRecords(),newDesignApi.listReferencePacks(),newDesignApi.listBooks()]);if(!mounted.current||request!==generation.current)return nextPacks;setRecords(nextRecords.filter((item)=>["completed","partial"].includes(item.currentVersion.runStatus)));setPacks(nextPacks);setBooks(nextBooks);
     if(sourceActive.current&&!source.valid){setSourceFailure(source.message);return nextPacks;}
     if(sourceActive.current&&source.valid&&source.bookId){if(!nextBooks.some(item=>item.id===source.bookId)){setSourceFailure("指定书籍不存在于已加载列表，未选择其他书籍代替。请只读核对原来源。");return nextPacks;}setBookId(source.bookId);setSourceFailure("");}
-    else setBookId(current=>current||nextBooks[0]?.id||"");return nextPacks;};
+    return nextPacks;};
   useEffect(()=>{void load().catch((error)=>setMessage(error instanceof Error?error.message:"研究参考包加载失败。"));},[]);
   useEffect(()=>{let active=true;if(bookId)void newDesignApi.listBookResearchAdoptions(bookId).then(items=>{if(!active)return;const owned=items.filter(item=>item.bookId===bookId);if(dirtyItemsRef.current.length){setMessage("本书批次只读回执已返回；未保存提案草稿保持在本页，保存前不替换候选。");return;}setAdoptions(owned);
     if(sourceActive.current&&source.valid&&source.adoptionId){const target=findResearchAdoptionSource(owned,bookId,source);if(!target){setSourceFailure("指定研究采用批次不存在于本书加载列表，未选择其他批次代替；参考包和提案草稿保留。");return;}setAdoptionId(target.id);setSourceFailure("");}

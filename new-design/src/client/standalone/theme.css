@@ -53,16 +53,30 @@ a { color: hsl(var(--primary)); }
 .nd-independent-theme select { max-width: 8rem; min-height: 44px; padding: .4rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .nd-independent-models { font-size: .8rem; min-height: 44px; display: none; align-items: center; }
 .nd-independent-menu { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: inherit; }
+.nd-independent-nav-switch { min-height: 44px; padding: .4rem .7rem; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--card)); color: hsl(var(--foreground)); white-space: nowrap; }
 .nd-independent-body { display: grid; grid-template-columns: minmax(0, 1fr); }
 .nd-independent-sidebar { display: none; padding: 1rem; background: hsl(var(--muted) / .25); }
 .nd-independent-sidebar.is-open { display: block; }
 .nd-independent-sidebar nav { display: grid; gap: .25rem; }
+.nd-independent-nav-group-toggle { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; min-height: 44px; padding: .6rem .8rem; color: hsl(var(--muted-foreground)); background: transparent; border: 0; border-radius: var(--radius); cursor: pointer; font-size: .78rem; font-weight: 650; text-align: left; }
+.nd-independent-nav-group-toggle:hover { color: hsl(var(--foreground)); background: hsl(var(--muted) / .7); }
+.nd-independent-nav-group-toggle:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.nd-independent-nav-group-toggle svg { flex: none; transition: transform .16s ease; }
+.nd-independent-nav-group.is-collapsed .nd-independent-nav-group-toggle svg { transform: rotate(-90deg); }
+.nd-independent-nav-group.is-current.is-collapsed .nd-independent-nav-group-toggle { color: hsl(var(--primary)); background: hsl(var(--primary) / .1); box-shadow: inset 3px 0 hsl(var(--primary)); }
+.nd-independent-nav-group-toggle small { display: block; margin-top: .2rem; color: hsl(var(--foreground)); font-size: .7rem; font-weight: 500; }
+.nd-independent-nav-group-links[hidden] { display: none; }
 .nd-independent-sidebar a, .nd-independent-section { min-height: 44px; display: flex; align-items: center; padding: .6rem .8rem; border-radius: var(--radius); text-decoration: none; font-size: .85rem; color: hsl(var(--foreground)); }
 .nd-independent-sidebar a:hover { background: hsl(var(--muted)); }
 .nd-independent-sidebar a[aria-current="page"] { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
+.nd-independent-sidebar a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .nd-independent-section { width: 100%; justify-content: space-between; border: 0; background: transparent; text-align: left; color: hsl(var(--muted-foreground)); }
 .nd-independent-advanced { padding-left: .75rem; }
 .nd-independent-content { padding: 1rem; min-width: 0; }
+.nd-independent-layout.is-book-workspace:not(.is-project-navigation) .nd-independent-sidebar { display: none; }
+.nd-independent-layout.is-book-workspace.is-project-navigation .nd-independent-sidebar { display: block; }
+.nd-independent-layout.is-book-workspace .nd-independent-menu { display: none; }
+.nd-independent-layout.is-project-navigation .nd-book-navigation { display: none; }
 .nd-independent-skip { position: fixed; top: .5rem; left: .5rem; z-index: 100; padding: .75rem; background: hsl(var(--card)); transform: translateY(-160%); }
 .nd-independent-skip:focus { transform: translateY(0); }
 @media (min-width: 768px) {
@@ -71,5 +85,9 @@ a { color: hsl(var(--primary)); }
   .nd-independent-menu { display: none; }
   .nd-independent-models { display: inline-flex; }
   .nd-independent-content { padding: 1.5rem; }
+  .nd-independent-layout.is-book-workspace .nd-independent-body { grid-template-columns: minmax(0, 1fr); }
+  .nd-independent-layout.is-book-workspace.is-project-navigation .nd-independent-body { grid-template-columns: 13rem minmax(0, 1fr); }
+  .nd-independent-layout.is-project-navigation .nd-book-layout { grid-template-columns: minmax(0, 1fr); }
+  .nd-independent-layout.is-project-navigation .nd-book-shell .nd-book-layout:has(>.nd-book-navigation.is-collapsed) { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

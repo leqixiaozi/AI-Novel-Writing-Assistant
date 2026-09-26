@@ -23,7 +23,7 @@
 | 核对共用阶段准备 | `GET sessions/:id/director/prepare/by-key/:key` | 返回阶段命令与已保存批次，不重发模型 |
 | 核对单项准备 | `GET sessions/:id/review-ai/by-key/:key` | 只读候选状态 |
 | 恢复刷新后的候选 | `GET sessions/:id/review-ai/batches` | 只读全部本会话批次 |
-| 继续保存已有结果 | `POST creation-preparation-batches/:id/recover-saved-result {}` | 无模型调用；完成已有输出的后续保存 |
+| 继续保存已有结果 | `POST creation-preparation-batches/:id/recover-saved-result {}` | 无模型调用；完成已有输出保存，或校验完整失败回复后恢复候选。核对原文哈希、冻结规格和会话修订，事务原子保存；不自动采用 |
 | 采用勾选结果 | `POST creation-preparation-batches/:id/adopt` | 校验精确对象与字段，填入同一表单；不正式开书 |
 | 核对采用回执 | `GET creation-preparation-batches/:id/adoptions/by-key/:key` | 只读原采用结果 |
 | 保留旧候选并结束采用 | `POST creation-preparation-batches/:id/release-saved-result {}` | 保留结果，禁止旧批迟到覆盖 |

@@ -42,7 +42,8 @@ apiClient.interceptors.response.use(
       description = backendMessage && backendMessage !== title ? backendMessage : undefined;
     }
 
-    if (!status || !silentErrorStatuses.includes(status)) {
+    const newDesignRoute = typeof window !== "undefined" && (window.location.pathname === "/new-design" || window.location.pathname.startsWith("/new-design/"));
+    if (!newDesignRoute && (!status || !silentErrorStatuses.includes(status))) {
       const isGenericServerErrorToast = title === "服务器错误，请稍后重试。";
 
       if (description) {

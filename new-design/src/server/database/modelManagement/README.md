@@ -1,8 +1,10 @@
 # 模型与知识语义索引连接
 
+稳定资源修正使用专属注册资产`new_design.character.stable_resource_correction@v1`，仅绑定既有`chapter_settlement`受控任务组，不开放通用研究入口。`stableCorrection`与普通v1的`stableSupplement`互斥；完整原资源范围、原正文计划／SHA、当前会话修订、实际issue-owned章前证明和当前正常发布目录全部核验。候选仅限唯一冲突字段，模型输出仍走原结构化字段、字典、证据、差值验证与治理用量原记录。旧v1资产、输入、哈希和领取保护保持。
+
 ## 唯一正本
 
-文字模型与专属向量模型都使用原 `model_route_configs / model_route_versions` 和 `model_credential_refs`，发布使用原 `ai_contract_publications`。不增加第二连接表、端点配置或密钥链。凭据只存原环境变量引用，公开连接版本不读取或返回密钥。
+文字模型与专属向量模型都使用原 `model_route_configs / model_route_versions` 和 `model_credential_refs`，发布使用原 `ai_contract_publications`。不增加第二连接表或端点配置。手动迁移 105 为凭据引用增加数据库密文；新设置页将密钥加密保存到原凭据行，连接版本仍只冻结凭据 ID，目录和公开版本不返回密钥。旧环境变量引用只作为历史兼容路径；新建凭据使用数据库密文。
 
 白话比喻：同一家车行分别登记载客车与运货车，仍用同一本车辆档案，不另开私人账本。对应代码：向量模型用途由原配置 `scope=task_group, task_group=knowledge_embedding, task_key=null` 与版本 `required_capabilities=['embedding']` 明确声明，文字任务列表不增加向量任务。速记：同正本、分用途、选原版、不借默认。
 

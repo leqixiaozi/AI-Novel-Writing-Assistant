@@ -1,3 +1,4 @@
+import {settlementRecordCtes,updateSettlementRecords} from '../../database/chapterSettlement/recordStorage';
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ChapterSettlementAiReceipt } from "../../../common/chapterSettlementAi";
@@ -16,7 +17,8 @@ export async function releaseSavedChapterSettlementAiResult(requestId:string):Pr
     if(row.status!=="running"||row.attempt_status!=="running"||!row.generated_output||!row.generated_execution)throw new NewDesignError("只有模型结果已保存、候选尚未入库的提取可以结束；已入库清单或未知模型回执不能由此操作改变。",409);
     if((await client.query("SELECT 1 FROM new_design.chapter_settlement_items WHERE source_task_id=$1 LIMIT 1",[row.ai_task_id])).rowCount)throw new NewDesignError("本次已有候选入库，请审阅清单或完成运行回执，不能结束已入库结果。",409);
     const refs={taskId:row.ai_task_id,stepId:row.step_id,attemptId:row.attempt_id},trace=row.generated_execution;
-    await client.query("UPDATE new_design.chapter_proposal_extraction_requests SET status='stale',failure=NULL,error_summary='',updated_at=now() WHERE id=$1",[requestId]);
+    await updateSettlementRecords(client,"chapter_proposal_extraction_request",`WITH ${settlementRecordCtes.chapter_proposal_extraction_requests}
+SELECT chapter_proposal_extraction_requests.*,('stale')::text AS status,(NULL)::jsonb AS failure,('')::text AS error_summary,(now())::timestamptz AS updated_at FROM chapter_proposal_extraction_requests WHERE id=$1`,[requestId]);
     await client.query("UPDATE new_design.ai_task_attempts SET status='discarded',result_kind=$2,result_stable_id=$3,result_version_id=$4,result_hash=$5,ended_at=now(),error_summary='作者保留模型结果并结束未入库提取；未修改正式事实' WHERE id=$1 AND status='running'",[row.attempt_id,SOURCE_KIND,requestId,row.prompt_recipe_version_id,stableHash(row.generated_output)]);
     const step=(await client.query("UPDATE new_design.ai_task_steps SET status='cancelled',lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,revision=revision+1,updated_at=now(),completed_at=now() WHERE id=$1 AND status='running' AND current_attempt_id=$2 RETURNING revision",[row.step_id,row.attempt_id])).rows[0];
     const task=(await client.query("UPDATE new_design.ai_tasks SET status='cancelled',revision=revision+1,updated_at=now(),completed_at=now() WHERE id=$1 AND status='running' RETURNING revision",[row.ai_task_id])).rows[0];

@@ -2,6 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { preparePrompt, listPromptAssets, PROMPT_TASK_TYPES } = require("../dist/server/ai/prompts");
 
+test("opening materials support the approved 16384 output budget without raising unrelated task limits", () => {
+  const assets=listPromptAssets();
+  assert.equal(assets.find(item=>item.taskType==='initial_content').maxTokens,16384);
+  assert.equal(assets.find(item=>item.taskType==='initial_content').version,'v4');
+  assert.equal(assets.find(item=>item.taskType==='directions').maxTokens,5000);
+  assert.equal(assets.find(item=>item.taskType==='form_assist').maxTokens,7000);
+});
+
 const field = (key, type = "short_text", extra = {}) => ({ key, name: key === "__title" ? "资料名称" : "人物目标", description: "可执行的目标", type, required: true, options: [], ...extra });
 const type = { key: "character", name: "人物", description: "人物资料", fields: [field("goal")] };
 const direction = { id: "direction-1", title: "守脉者", premise: "少年守护灵脉", protagonist: "守山少年", centralConflict: "灵脉消失", readerPromise: "揭开失忆真相", styleKeywords: ["仙侠悬疑"] };
@@ -12,9 +20,9 @@ test("registered assets include chapter changes and chapter generation and expos
   const assets = listPromptAssets();
   assert.equal(assets.length, PROMPT_TASK_TYPES.length);
   assert.deepEqual(new Set(assets.map(item => item.taskType)), new Set(PROMPT_TASK_TYPES));
-  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, 8);
-  assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v1" && item.label === "生成章节正文"));
-  assert.ok(assets.every(item => item.contextPolicy === "explicit_task_snapshot_only" && item.version === "v1"));
+  assert.equal(new Set(assets.map(item => `${item.assetId}@${item.version}`)).size, assets.length);
+  assert.ok(assets.some(item => item.taskType === "chapter_generation" && item.assetId === "new_design.chapter.generate_candidate" && item.version === "v2" && item.label === "生成章节正文"));
+  assert.ok(assets.every(item => item.contextPolicy === "explicit_task_snapshot_only" && /^v[1-9]\d*$/.test(item.version) && item.assetId.startsWith("new_design.")));
   assert.ok(assets.every(item => !Object.hasOwn(item, "instruction") && !Object.hasOwn(item, "messages")));
 });
 

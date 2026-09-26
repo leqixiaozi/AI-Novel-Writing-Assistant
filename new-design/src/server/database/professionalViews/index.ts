@@ -1,3 +1,4 @@
+import {storyRecordCtes} from '../storyTimeline/persistence';
 import {z} from 'zod';
 import type {ProfessionalGrowthEntry,ProfessionalViewsWorkspace} from '../../../common/professionalViews';
 import {getWorldCharacterMaintenanceWorkspace,professionalDisplay} from '../worldCharacterMaintenance';
@@ -17,20 +18,25 @@ export async function getProfessionalViewsWorkspace(bookId:string):Promise<Profe
  try {
   await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   const book=await getBookInTransaction(client,id);if(book.status!=='active'||book.spaceId!==source.book.spaceId)throw new NewDesignError('本书来源范围已变化，请保留填写并重新读取。',409);
-  const rows=(await client.query(`SELECT change.*,card.current_version_id exact_card_version,
+  const rows=(await client.query(`WITH ${storyRecordCtes.state_changes},
+${storyRecordCtes.chapter_adoption_sessions}
+SELECT change.*,card.current_version_id exact_card_version,
    session.id session_id,
    (change.status='active' AND settlement.status='committed' AND settlement.book_id=change.book_id AND settlement.chapter_document_id=change.chapter_document_id AND settlement.body_version_id=change.body_version_id AND document.book_id=change.book_id AND document.status='active' AND document.adopted_version_id=change.body_version_id AND body.archived_at IS NULL) source_valid
-   FROM new_design.state_changes change
+   FROM state_changes change
    JOIN new_design.cards card ON card.id=change.subject_id AND card.space_id=$2 AND card.status='active'
    JOIN new_design.card_types type ON type.id=card.card_type_id AND type.type_key='character'
    JOIN new_design.chapter_settlements settlement ON settlement.id=change.settlement_id
    JOIN new_design.chapter_documents document ON document.id=change.chapter_document_id
    JOIN new_design.chapter_body_versions body ON body.id=change.body_version_id AND body.chapter_document_id=document.id
-   LEFT JOIN new_design.chapter_adoption_sessions session ON session.settlement_id=settlement.id AND session.book_id=change.book_id AND session.chapter_document_id=document.id AND session.body_version_id=body.id
+   LEFT JOIN chapter_adoption_sessions session ON session.settlement_id=settlement.id AND session.book_id=change.book_id AND session.chapter_document_id=document.id AND session.body_version_id=body.id
    WHERE change.book_id=$1 AND change.subject_kind='card'
    ORDER BY change.effective_story_order NULLS LAST,change.sequence LIMIT 501`,[id,book.spaceId])).rows;
   const labels=new Map(source.objects.map(object=>[object.id,object.title]));
-  const dictionaryRows=(await client.query(`SELECT item.dictionary_id,item.id,version.label FROM new_design.dictionary_items item JOIN new_design.dictionary_definitions definition ON definition.id=item.dictionary_id JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id AND version.item_id=item.id WHERE item.status='active' AND definition.status='published' AND version.status='active' AND (definition.owner_space_id IS NULL OR definition.owner_space_id=$1)`,[book.spaceId])).rows;
+  const dictionaryRows=(await client.query(`WITH ${storyRecordCtes.dictionary_items},
+${storyRecordCtes.dictionary_definitions},
+${storyRecordCtes.dictionary_item_versions}
+SELECT item.dictionary_id,item.id,version.label FROM dictionary_items item JOIN dictionary_definitions definition ON definition.id=item.dictionary_id JOIN dictionary_item_versions version ON version.id=item.current_version_id AND version.item_id=item.id WHERE item.status='active' AND definition.status='published' AND version.status='active' AND (definition.owner_space_id IS NULL OR definition.owner_space_id=$1)`,[book.spaceId])).rows;
   const dictionaryLabels=new Map<string,string>(dictionaryRows.map(row=>[`${row.dictionary_id}:${row.id}`,String(row.label)]));
   const growth:ProfessionalGrowthEntry[]=[];for(const row of rows.slice(0,500)){
    const object=source.objects.find(object=>object.id===row.subject_id),field=object?.fields.find(item=>item.field.key===row.state_key)?.field;

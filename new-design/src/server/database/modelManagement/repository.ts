@@ -1,9 +1,11 @@
+import {readRouteFallbacks,readContractPublication,insertContractRecord} from "../aiContracts/records";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { ManagedCredentialChoice, ManagedRouteSummary, ModelRouteCenterCatalog, SaveManagedModelRouteInput, SaveManagedModelRouteResult } from "../../../common/modelRouting";
 import { MODEL_TASKS } from "../../../common/modelRouting";
 import { NewDesignError, assertFound } from "../../domain/errors";
-import { getNewDesignPool } from "../runtime";
+import { getNewDesignCredentialKey, getNewDesignPool } from "../runtime";
+import { openModelCredential, sealModelCredential } from "../credentialCrypto";
 import { stableHash } from "../aiContracts";
 import { providerSchema, saveSchema, taskSchema, unsupportedIssue, versionFromRows, type DbRow } from "./policy";
 
@@ -21,16 +23,24 @@ export async function withClient<T>(context: ManagedDatabaseContext | undefined,
   catch (error) { if (transactional) await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
-export async function readFallbacks(client: PoolClient, versionId: string): Promise<DbRow[]> { return (await client.query("SELECT * FROM new_design.model_route_fallbacks WHERE route_version_id=$1 ORDER BY sort_order,id", [versionId])).rows; }
+export async function readFallbacks(client: PoolClient, versionId: string): Promise<DbRow[]> { return await readRouteFallbacks(client,versionId); }
 export async function readSummary(client: PoolClient, config: DbRow): Promise<ManagedRouteSummary> {
   const current = assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.current_version_id, config.id])).rows[0], "路由当前版本不存在。"), currentFallbacks = await readFallbacks(client, current.id);
   const published = config.published_version_id ? assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [config.published_version_id, config.id])).rows[0], "路由生效版本不存在。") : null;
-  const issue = unsupportedIssue(current, currentFallbacks);
+  const issue = unsupportedIssue({...current,scope:config.scope}, currentFallbacks);
   return { id: config.id, scope: config.scope, taskType: config.scope === "task" ? config.task_key : null, name: config.name, revision: Number(config.revision), current: versionFromRows(current, currentFallbacks), published: published ? versionFromRows(published, await readFallbacks(client, published.id)) : null, editable: !issue, configurationIssue: issue };
 }
 const credentialVariable = (row: DbRow): string | null => row.status === "active" && providerSchema.safeParse(row.provider).success && /^env:\/\/NEW_DESIGN_AI_[A-Z0-9_]+$/.test(String(row.secret_locator)) ? String(row.secret_locator).slice(6) : null;
-function credentialChoice(row: DbRow): ManagedCredentialChoice { const variable = credentialVariable(row); return { id: row.id, label: row.credential_key, provider: row.provider, available: Boolean(variable && process.env[variable]), status: row.status }; }
-export async function getManagedCredentialCatalog(context?:ManagedDatabaseContext):Promise<Pick<ModelRouteCenterCatalog,"credentials"|"environmentReferences">>{return withClient(context,async client=>{const credentials=(await client.query("SELECT * FROM new_design.model_credential_refs ORDER BY credential_key,id")).rows.map(credentialChoice);const environmentReferences=Object.keys(process.env).filter(name=>/^NEW_DESIGN_AI_[A-Z0-9_]+$/.test(name)&&!["NEW_DESIGN_AI_PROVIDER","NEW_DESIGN_AI_MODEL","NEW_DESIGN_AI_BASE_URL","NEW_DESIGN_AI_TIMEOUT_MS","NEW_DESIGN_AI_MAX_TOKENS"].includes(name)).sort().map(name=>({name,available:Boolean(process.env[name])}));return {credentials,environmentReferences};});}
+async function credentialAvailable(row: DbRow): Promise<boolean> {
+  if(row.status!=="active"||!providerSchema.safeParse(row.provider).success)return false;
+  if(row.secret_locator==="secret://database"){
+    if(!Buffer.isBuffer(row.secret_envelope))return false;
+    try{return Boolean(openModelCredential(row.secret_envelope,await getNewDesignCredentialKey()));}catch{return false;}
+  }
+  const variable=credentialVariable(row);return Boolean(variable&&process.env[variable]);
+}
+async function credentialChoice(row: DbRow): Promise<ManagedCredentialChoice> { return { id: row.id, label: row.credential_key, provider: row.provider, available: await credentialAvailable(row), status: row.status }; }
+export async function getManagedCredentialCatalog(context?:ManagedDatabaseContext):Promise<Pick<ModelRouteCenterCatalog,"credentials"|"environmentReferences">>{return withClient(context,async client=>{const credentials=await Promise.all((await client.query("SELECT * FROM new_design.model_credential_refs ORDER BY credential_key,id")).rows.map(credentialChoice));const environmentReferences=Object.keys(process.env).filter(name=>/^NEW_DESIGN_AI_[A-Z0-9_]+$/.test(name)&&!["NEW_DESIGN_AI_PROVIDER","NEW_DESIGN_AI_MODEL","NEW_DESIGN_AI_BASE_URL","NEW_DESIGN_AI_TIMEOUT_MS","NEW_DESIGN_AI_MAX_TOKENS"].includes(name)).sort().map(name=>({name,available:Boolean(process.env[name])}));return {credentials,environmentReferences};});}
 export async function getModelRouteCenterCatalog(context?: ManagedDatabaseContext): Promise<ModelRouteCenterCatalog> {
   return withClient(context, async client => {
     const rows = (await client.query("SELECT * FROM new_design.model_route_configs WHERE status='active' AND ((scope='system_default') OR (scope='task' AND task_key=ANY($1::text[]) AND task_group IS NULL)) ORDER BY scope,task_key,id", [MODEL_TASKS.map(item => item.key)])).rows;
@@ -40,13 +50,39 @@ export async function getModelRouteCenterCatalog(context?: ManagedDatabaseContex
   });
 }
 export async function getManagedCredentialEnvironment(id: string | null, provider: string, context?: ManagedDatabaseContext): Promise<string | null> {
-  if (!id) return null;
-  return withClient(context, async client => {
-    const row = assertFound((await client.query("SELECT * FROM new_design.model_credential_refs WHERE id=$1", [id])).rows[0], "模型凭据引用不存在，请在模型设置重新选择。");
-    const variable = credentialVariable(row);
-    if (!variable || row.provider !== provider || !process.env[variable]) throw new NewDesignError("模型凭据未配置或供应商不匹配，请在模型设置绑定专用环境变量。", 422);
-    return variable;
+  return getManagedCredentialSecret(id,provider,context);
+}
+export async function getManagedCredentialSecret(id: string | null, provider: string, context?: ManagedDatabaseContext): Promise<string | null> {
+  if(!id)return null;
+  return withClient(context,async client=>{
+    const row=assertFound((await client.query("SELECT * FROM new_design.model_credential_refs WHERE id=$1",[id])).rows[0],"模型凭据引用不存在，请在模型设置重新选择。");
+    if(row.status!=="active"||row.provider!==provider)throw new NewDesignError("模型凭据未启用或与供应商不匹配。",422);
+    if(row.secret_locator==="secret://database"){
+      try{return openModelCredential(row.secret_envelope,await getNewDesignCredentialKey());}
+      catch{throw new NewDesignError("数据库中的模型凭据无法解密；请在模型设置重新录入密钥。",422);}
+    }
+    const variable=credentialVariable(row);
+    if(!variable||!process.env[variable])throw new NewDesignError("原环境变量凭据不可用；请在模型设置将密钥录入新版数据库。",422);
+    return process.env[variable];
   });
+}
+export async function saveManagedCredentialSecret(input:{name:string;provider:string;apiKey:string;credentialId:string|null},context?:ManagedDatabaseContext):Promise<ManagedCredentialChoice>{
+  const name=input.name?.trim(),secret=input.apiKey;
+  if(!name||name.length>120||typeof secret!=="string"||!secret||secret.trim()!==secret||Buffer.byteLength(secret,"utf8")>8192)throw new NewDesignError("请填写凭据名称和有效密钥，密钥不能包含首尾空格。",422);
+  const provider=providerSchema.parse(input.provider),key=await getNewDesignCredentialKey(),envelope=sealModelCredential(secret,key);
+  return withClient(context,async client=>{
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`managed-credential:${name}`]);
+    let row:DbRow;
+    if(input.credentialId){
+      row=assertFound((await client.query("SELECT * FROM new_design.model_credential_refs WHERE id=$1 FOR UPDATE",[input.credentialId])).rows[0],"原模型凭据不存在。");
+      if(row.credential_key!==name||row.provider!==provider||row.status!=="active")throw new NewDesignError("原凭据名称或供应商已变化，请重新读取目录后再录入。",409);
+      row=(await client.query("UPDATE new_design.model_credential_refs SET secret_locator='secret://database',secret_envelope=$2,updated_at=now() WHERE id=$1 RETURNING *",[row.id,envelope])).rows[0];
+    }else{
+      if((await client.query("SELECT 1 FROM new_design.model_credential_refs WHERE credential_key=$1",[name])).rowCount)throw new NewDesignError("同名凭据已存在。请选择原凭据更新密钥，或换一个名称。",409);
+      row=(await client.query("INSERT INTO new_design.model_credential_refs(id,credential_key,provider,secret_locator,secret_envelope,status) VALUES($1,$2,$3,'secret://database',$4,'active') RETURNING *",[randomUUID(),name,provider,envelope])).rows[0];
+    }
+    return credentialChoice(row);
+  },true);
 }
 export async function createManagedCredential(input: { name: string; provider: string; environmentVariable: string }, context?: ManagedDatabaseContext): Promise<ManagedCredentialChoice> {
   const name = input.name?.trim(), variable = input.environmentVariable?.trim();
@@ -66,9 +102,9 @@ export async function createManagedCredential(input: { name: string; provider: s
 export async function saveManagedModelRoute(value: SaveManagedModelRouteInput & { replaceUnsupported?: boolean }, context?: ManagedDatabaseContext): Promise<SaveManagedModelRouteResult> {
   const input = saveSchema.parse(value);
   return withClient(context, async client => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`managed-route-key:${input.idempotencyKey}`]);
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`contract-publication:${input.idempotencyKey}`]);
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`managed-route-scope:${input.scope}:${input.taskType ?? ""}`]);
-    const receipt = (await client.query("SELECT * FROM new_design.ai_contract_publications WHERE idempotency_key=$1", [input.idempotencyKey])).rows[0];
+    const receipt = await readContractPublication(client,input.idempotencyKey);
     if (receipt) {
       if (receipt.entity_kind !== "model_route") throw new NewDesignError("此请求标识已用于其他操作。", 409);
       const config = assertFound((await client.query("SELECT * FROM new_design.model_route_configs WHERE id=$1", [receipt.entity_id])).rows[0], "保存回执的模型路由不存在。"), version = assertFound((await client.query("SELECT * FROM new_design.model_route_versions WHERE id=$1 AND config_id=$2", [receipt.to_version_id, config.id])).rows[0], "保存回执的模型版本不存在。");
@@ -86,16 +122,16 @@ export async function saveManagedModelRoute(value: SaveManagedModelRouteInput & 
     }
     for (const connection of [input.primary, ...input.fallbacks]) if (connection.credentialId) {
       const credential = assertFound((await client.query("SELECT * FROM new_design.model_credential_refs WHERE id=$1", [connection.credentialId])).rows[0], "选择的模型凭据不存在。");
-      if (credential.provider !== connection.provider || !credentialVariable(credential)) throw new NewDesignError("模型凭据引用不可用或供应商不匹配，请重新选择。", 422);
+      if (credential.provider !== connection.provider || !await credentialAvailable(credential)) throw new NewDesignError("模型凭据引用不可用或供应商不匹配，请重新选择。", 422);
     }
     const fromVersionId = config.published_version_id ?? null;
     const version = Number((await client.query("SELECT COALESCE(max(version),0)+1 AS version FROM new_design.model_route_versions WHERE config_id=$1", [config.id])).rows[0].version), versionId = randomUUID(), revision = Number(config.revision) + (config.current_version_id ? 2 : 1), contentHash = stableHash(input);
     await client.query("INSERT INTO new_design.model_route_versions(id,config_id,version,base_version_id,source,status,provider,model,parameters,required_capabilities,credential_ref_id,budget_policy,timeout_ms,retry_policy,fallback_mode,content_hash,created_by) VALUES($1,$2,$3,$4,'manual','draft',$5,$6,$7::jsonb,'{}',$8,$9::jsonb,$10,$11::jsonb,'replace',$12,$13)", [versionId, config.id, version, config.current_version_id, input.primary.provider, input.primary.model, JSON.stringify({ baseUrl: input.primary.endpoint }), input.primary.credentialId, JSON.stringify({ maxTokens: input.policy.maxTotalTokens, maxOutputTokens: input.policy.maxOutputTokens }), input.policy.timeoutMs, JSON.stringify({ maxRetries: input.policy.maxRetries, retryDelayMs: input.policy.retryDelayMs }), contentHash, `managed:${input.replaceUnsupported ? "replace" : "preserve"}`]);
-    for (const [index, fallback] of input.fallbacks.entries()) await client.query("INSERT INTO new_design.model_route_fallbacks(id,route_version_id,sort_order,provider,model,parameters,credential_ref_id,technical_failure_categories) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8)", [randomUUID(), versionId, index, fallback.provider, fallback.model, JSON.stringify({ baseUrl: fallback.endpoint }), fallback.credentialId, fallback.failureCategories]);
+    for (const [index, fallback] of input.fallbacks.entries()) await insertContractRecord(client,"model_route_fallback",{id:randomUUID(),route_version_id:versionId,sort_order:index,provider:fallback.provider,model:fallback.model,parameters:{baseUrl:fallback.endpoint},credential_ref_id:fallback.credentialId,technical_failure_categories:fallback.failureCategories});
     if (config.published_version_id) await client.query("UPDATE new_design.model_route_versions SET status='superseded' WHERE id=$1", [config.published_version_id]);
     await client.query("UPDATE new_design.model_route_versions SET status='published' WHERE id=$1", [versionId]);
     config = (await client.query("UPDATE new_design.model_route_configs SET current_version_id=$2,published_version_id=$2,revision=$3,updated_at=now() WHERE id=$1 RETURNING *", [config.id, versionId, revision])).rows[0];
-    await client.query("INSERT INTO new_design.ai_contract_publications(id,entity_kind,entity_id,from_version_id,to_version_id,entity_revision,action,actor,idempotency_key) VALUES($1,'model_route',$2,$3,$4,$5,'publish','managed-user',$6)", [randomUUID(), config.id, fromVersionId, versionId, revision, input.idempotencyKey]);
+    await insertContractRecord(client,"ai_contract_publication",{id:randomUUID(),entity_kind:"model_route",entity_id:config.id,from_version_id:fromVersionId,to_version_id:versionId,entity_revision:revision,action:"publish",actor:"managed-user",idempotency_key:input.idempotencyKey});
     return { route: await readSummary(client, config), savedVersionId: versionId, savedVersion: version, active: true, repeated: false };
   }, true);
 }

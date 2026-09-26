@@ -10,7 +10,7 @@
 .nd-book-review-form{display:grid;gap:24px;min-width:0;}
 .nd-book-review-form .nd-book-review-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;}
 .nd-book-review-form .nd-book-review-catalog nav{display:grid;gap:4px;}
-.nd-book-review-form .nd-book-review-catalog nav button{padding:8px 12px;text-align:left;background:transparent;color:var(--nd-ink);border:0;border-radius:8px;}
+.nd-book-review-form .nd-book-review-catalog nav button{display:block;padding:8px 12px;text-align:left;overflow-wrap:anywhere;background:transparent;color:var(--nd-ink);border:0;border-radius:8px;}
 .nd-book-review-form .nd-book-review-catalog nav button.is-selected{background:var(--nd-soft);outline:1px solid hsl(var(--ring));}
 .nd-book-review-form .nd-book-review-editor,.nd-creation-formal-editor,.nd-creation-candidates,.nd-creation-fields{display:grid;gap:16px;min-width:0;}
 .nd-creation-check{display:flex;align-items:center;gap:8px;min-height:44px;font-size:16px;line-height:1.5;}

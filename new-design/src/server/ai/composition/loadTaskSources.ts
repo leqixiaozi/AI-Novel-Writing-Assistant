@@ -1,3 +1,4 @@
+import {listRecordCards,requireRecordCard} from '../../database/recordCards';
 import type {PoolClient} from "pg";
 import type {FieldDefinition,MarketRankingItem} from "../../../common/contracts";
 import {selectableTreeNodeIds} from "../../../common/treePolicy";
@@ -13,8 +14,10 @@ async function frozenTypeFields(client:PoolClient,fields:FieldDefinition[],space
   for(const field of fields){
     const source=field.optionSource;
     if(source?.kind!=="dictionary_tree"){result.push({...field,debugTypeVersionId:typeVersionId} as FieldDefinition);continue;}
-    const dictionary=assertFound((await client.query("SELECT id,revision FROM new_design.dictionary_definitions WHERE id=$1 AND status<>'archived' AND (owner_space_id IS NULL OR owner_space_id=$2)",[source.dictionaryId,spaceId])).rows[0],"所选字段字典不可用或不属于此书，请重新选择内容类型。");
-    const items=(await client.query("SELECT item.id,item.parent_id,item.label,item.status,item.current_version_id,version.path_labels FROM new_design.dictionary_items item JOIN new_design.dictionary_item_versions version ON version.id=item.current_version_id WHERE item.dictionary_id=$1 ORDER BY item.id",[dictionary.id])).rows;
+    const dictionary=await requireRecordCard(client,source.dictionaryId,'dictionary_definition','所选字段字典不可用。');
+    if(dictionary.status==='archived'||dictionary.owner_space_id&&dictionary.owner_space_id!==spaceId)throw new NewDesignError('所选字段字典不可用或不属于此书，请重新选择内容类型。',422);
+    const items:Record<string,any>[]=[];
+    for(const item of (await listRecordCards(client,'dictionary_item',{where:{dictionary_id:dictionary.id}})).sort((a,b)=>a.id.localeCompare(b.id))){const version=await requireRecordCard(client,item.current_version_id,'dictionary_item_version','选项版本不存在。');items.push({...item,path_labels:version.path_labels});}
     const nodes=items.map(item=>({id:item.id,parentId:item.parent_id,status:item.status})),allowed=selectableTreeNodeIds(nodes,source.rule);
     result.push({...field,options:items.filter(item=>allowed.has(item.id)).map(item=>({value:item.id,label:(item.path_labels??[item.label]).join("／")})),debugTypeVersionId:typeVersionId,debugDictionarySnapshot:{id:dictionary.id,revision:dictionary.revision,items:items.map(item=>({id:item.id,versionId:item.current_version_id}))}} as FieldDefinition);
   }
@@ -37,9 +40,10 @@ export async function loadDebugTaskSources(loaded:LoadedCompositionRecipe,parame
     }
     const rankingItems:MarketRankingItem[]=[];
     if(loaded.recipe.taskType==="market_analysis"&&p.rankingSnapshotIds.length){
-      const snapshots=(await client.query("SELECT id FROM new_design.market_source_snapshots WHERE id=ANY($1::uuid[]) AND status='succeeded'",[p.rankingSnapshotIds])).rows;
-      if(snapshots.length!==p.rankingSnapshotIds.length)throw new NewDesignError("部分榜单快照已不可用，请重新选择。",422,{rankingSnapshotIds:"请选择采集成功的来源快照。"});
-      const ranks=(await client.query("SELECT item.*,snapshot.platform,snapshot.list_key,snapshot.list_label FROM new_design.market_ranking_items item JOIN new_design.market_source_snapshots snapshot ON snapshot.id=item.snapshot_id WHERE snapshot.id=ANY($1::uuid[]) ORDER BY snapshot.id,item.rank LIMIT 1001",[p.rankingSnapshotIds])).rows;
+      const snapshots=(await listRecordCards(client,'market_source_snapshot',{where:{status:'succeeded'}})).filter(row=>p.rankingSnapshotIds.includes(row.id)).sort((a,b)=>a.id.localeCompare(b.id));
+      if(snapshots.length!==p.rankingSnapshotIds.length)throw new NewDesignError('部分榜单快照已不可用，请重新选择。',422,{rankingSnapshotIds:'请选择采集成功的来源快照。'});
+      const ranks:Record<string,any>[]=[];
+      for(const snapshot of snapshots)for(const item of (await listRecordCards(client,'market_ranking_item',{where:{snapshot_id:snapshot.id}})).sort((a,b)=>Number(a.rank)-Number(b.rank)))ranks.push({...item,platform:snapshot.platform,list_key:snapshot.list_key,list_label:snapshot.list_label});
       if(ranks.length>1000)throw new NewDesignError("所选榜单超过1000个项目，请减少来源快照后重新预览。",422);
       for(const row of ranks)rankingItems.push({id:row.id,snapshotId:row.snapshot_id,platform:row.platform,listKey:row.list_key,listLabel:row.list_label,evidenceTier:isPrimaryMarketList(row.list_key)?"primary":"supporting",rank:Number(row.rank),title:row.title,author:row.author,category:row.category,tags:row.tags,synopsis:row.synopsis,heatLabel:row.heat_label,serialStatus:row.serial_status,sourceUrl:row.source_url});
     }

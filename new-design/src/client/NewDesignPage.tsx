@@ -1,13 +1,35 @@
+import {lazy,Suspense,useEffect} from 'react';
+import SavedRecoveryPage from './savedRecovery';
+import BookHistoryPage from './bookHistory';
+import PublicTitlesPage from './publicTitles';
+import DependencyReviewPage from './planningCenter/DependencyReviewPage';
+import PublicCharacterWorkshop from './publicCharacters';
 import BookWorkspacePage from "./BookWorkspacePage";
 import BooksPage from "./BooksPage";
+import ReadingPage from './bookshelf/ReadingPage';
 import CreateBookPage from "./CreateBookPage";
 import CardTypeCatalogPage from "./CardTypeCatalogPage";
+const MetaCardsPage=lazy(()=>import('./cardAssembly/MetaCardsPage'));
+const CardTemplatesPage=lazy(()=>import('./cardAssembly/CardTemplatesPage'));
+const BookTemplatesPage=lazy(()=>import('./cardAssembly/BookTemplatesPage'));
+const BookAssemblyPage=lazy(()=>import('./cardAssembly/BookAssemblyPage'));
+const OpenBookFromTemplatePage=lazy(()=>import('./cardAssembly/OpenBookFromTemplatePage'));
 import DictionaryRelationsPage from "./DictionaryRelationsPage";
 import FormDesignerPage from "./FormDesignerPage";
 import NewDesignLanding from "./NewDesignLanding";
 import PromptComponentsPage from "./PromptComponentsPage";
 import PromptCompositionPage from "./promptComposition";
 import ResourceCenterPage from "./ResourceCenterPage";
+import WorldCatalogPage from "./worldCatalog/WorldCatalogPage";
+import ComicProjectsPage from './comicProjects/ComicProjectsPage';
+import ComicProjectDetail from './comicProjects/ComicProjectDetail';
+import DramaProjectsPage from './dramaProjects/DramaProjectsPage';
+import DramaProjectDetail from './dramaProjects/DramaProjectDetail';
+import CreativeHubPage from './creativeHub/CreativeHubPage';
+import WorldGeneratorPage from './worldGenerator/WorldGeneratorPage';
+import WorldWorkspacePage from './worldGenerator/WorldWorkspacePage';
+import VisualCatalogPage from "./visualCatalog/VisualCatalogPage";
+import CharacterImportPage,{PublicCharacterLibrary} from './characterImport';
 import ResourceTreesPage from "./ResourceTreesPage";
 import ResearchRecordsPage from "./ResearchRecordsPage";
 import MarketRadarPage from "./MarketRadarPage";
@@ -36,23 +58,56 @@ import ProfessionalViewsPage from "./professionalViews";
 import {BookRouteShell} from "./bookNavigation";
 import type {VisualAssetsApi} from "../common/visualAssets";
 import "./new-design.css";
+import "./legacySurface.css";
 import type { BookViewKey } from "../common/contracts";
 import {SettingWorkspace,PlanningWorkspace} from './storyWorkspace';
+import PlanningCenterPage from './planningCenter/PlanningCenterPage';
+import SimpleCreationPage from './simpleCreation';
+import NewDesignGuidePage from './guide/NewDesignGuidePage';
+import SystemSettingsPage from './systemSettings/SystemSettingsPage';
+import {applyStoredUiPreferences} from './systemSettings/preferences';
 
 interface NewDesignPageProps { pathname?:string; }
 const visualApi:VisualAssetsApi={workspace:newDesignApi.getVisualWorkspace,upload:newDesignApi.uploadVisualAsset,command:newDesignApi.executeVisualCommand,preview:newDesignApi.previewVisualChange,receipt:newDesignApi.getVisualReceipt,previewByKey:newDesignApi.getVisualPreviewByKey,imageUrl:newDesignApi.visualImageUrl};
 
-export default function NewDesignPage({pathname}:NewDesignPageProps) {
+export default function NewDesignPage(props:NewDesignPageProps) {
+  useEffect(()=>{applyStoredUiPreferences();},[]);
+  return <div className="nd-legacy-surface"><NewDesignRoute {...props}/></div>;
+}
+
+function NewDesignRoute({pathname}:NewDesignPageProps) {
   const path=(pathname??window.location.pathname).replace(/\/+$/,"")||"/new-design";
   if(path==="/new-design")return <NewDesignLanding/>;
+  if(path==="/new-design/guide")return <NewDesignGuidePage/>;
+  if(path==="/new-design/creative-hub")return <CreativeHubPage api={newDesignApi.creativeHub} getBookshelf={newDesignApi.getBookshelf} getShelfBookDetail={newDesignApi.getShelfBookDetail} listChapterDocuments={newDesignApi.listChapterDocuments}/>;
   if(path==="/new-design/books")return <BooksPage/>;
   if(path==="/new-design/books/new")return <CreateBookPage/>;
+  if(path==="/new-design/books/new-from-template")return <Suspense fallback={<div className="nd-shell">正在载入开书页…</div>}><OpenBookFromTemplatePage/></Suspense>;
+  if(path==="/new-design/comic")return <ComicProjectsPage/>;
+  const comicMatch=path.match(/^\/new-design\/comic\/projects\/([^/]+)$/);
+  if(comicMatch)return <ComicProjectDetail key={comicMatch[1]} projectId={decodeURIComponent(comicMatch[1])}/>;
+  if(path==="/new-design/drama")return <DramaProjectsPage/>;
+  const dramaMatch=path.match(/^\/new-design\/drama\/projects\/([^/]+)$/);
+  if(dramaMatch)return <DramaProjectDetail key={dramaMatch[1]} projectId={decodeURIComponent(dramaMatch[1])}/>;
+  const simpleMatch=path.match(/^\/new-design\/books\/([^/]+)\/(simple|short-story)$/);
+  if(simpleMatch)return <SimpleCreationPage key={`${simpleMatch[1]}:${simpleMatch[2]}`} bookId={decodeURIComponent(simpleMatch[1])} short={simpleMatch[2]==='short-story'}/>;
+  const readingMatch=path.match(/^\/new-design\/books\/([^/]+)\/reading$/);
+  if(readingMatch)return <ReadingPage key={readingMatch[1]} bookId={decodeURIComponent(readingMatch[1])}/>;
   if(path==="/new-design/knowledge")return <KnowledgeReferencePage/>;
+  if(path==="/new-design/operations/recovery")return <SavedRecoveryPage/>;
   if(path==="/new-design/operations/records")return <AuthorTaskCenterPage api={newDesignApi}/>;
   if(path==="/new-design/operations/director")return <DirectorFollowupPage api={newDesignApi.directorFollowup}/>;
   const knowledgeMatch=path.match(/^\/new-design\/books\/([^/]+)\/knowledge$/);
   if(knowledgeMatch)return <KnowledgeReferencePage bookId={decodeURIComponent(knowledgeMatch[1])}/>;
   if(path==="/new-design/resources")return <ResourceCenterPage/>;
+  if(path==="/new-design/resources/worlds/new")return <WorldGeneratorPage/>;
+  const worldWorkspaceMatch=path.match(/^\/new-design\/resources\/worlds\/([^/]+)$/);
+  if(worldWorkspaceMatch)return <WorldWorkspacePage rootCardId={decodeURIComponent(worldWorkspaceMatch[1])}/>;
+  if(path==="/new-design/resources/worlds")return <WorldCatalogPage/>;
+  if(path==="/new-design/resources/visual-assets")return <VisualCatalogPage/>;
+  if(path==="/new-design/resources/characters")return <CharacterImportPage/>;
+  if(path==="/new-design/resources/characters/library")return <PublicCharacterLibrary/>;
+  if(path==="/new-design/resources/characters/workshop")return <PublicCharacterWorkshop/>;
   if(path==="/new-design/resources/extraction"){
     const query=new URLSearchParams(window.location.search),bookId=query.get("bookId"),mode=query.get("mode");
     if(!bookId||query.getAll("bookId").length!==1||! /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(bookId))return <div className="nd-shell"><p role="alert">请先从我的书籍选择一本书，再打开写法与标题提炼。</p><a href="/new-design/books">选择书籍</a></div>;
@@ -70,6 +125,8 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(path==="/new-design/research/book-analysis")return <BookAnalysisPage/>;
   if(path==="/new-design/research/reference-packs")return <ReferencePacksPage/>;
   const overviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/overview$/);
+  const assemblyMatch=path.match(/^\/new-design\/books\/([^/]+)\/assembly$/);
+  if(assemblyMatch)return <Suspense fallback={<div className="nd-shell">正在载入本书卡片…</div>}><BookAssemblyPage key={assemblyMatch[1]} bookId={decodeURIComponent(assemblyMatch[1])}/></Suspense>;
   const compositionMatch=path.match(/^\/new-design\/books\/([^/]+)\/composition$/);
   if(compositionMatch)return <BookCompositionPage key={compositionMatch[1]} bookId={decodeURIComponent(compositionMatch[1])}/>;
   const directorMatch=path.match(/^\/new-design\/books\/([^/]+)\/director$/);
@@ -87,8 +144,13 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   if(settingMatch)return <BookWorkspacePage key={settingMatch[1]} bookId={decodeURIComponent(settingMatch[1])} view="forms"/>;
   const storySettingMatch=path.match(/^\/new-design\/books\/([^/]+)\/story-setting$/);
   if(storySettingMatch)return <SettingWorkspace key={storySettingMatch[1]} bookId={decodeURIComponent(storySettingMatch[1])}/>;
+  const dependencyReviewMatch=path.match(/^\/new-design\/books\/([^/]+)\/dependency-review$/);
+  if(dependencyReviewMatch)return <DependencyReviewPage key={dependencyReviewMatch[1]} bookId={decodeURIComponent(dependencyReviewMatch[1])}/>;
+  if(path==='/new-design/resources/titles')return <PublicTitlesPage/>;
   const planningMatch=path.match(/^\/new-design\/books\/([^/]+)\/planning$/);
-  if(planningMatch)return <PlanningWorkspace key={planningMatch[1]} bookId={decodeURIComponent(planningMatch[1])}/>;
+  if(planningMatch){const stage=new URLSearchParams(location.search).get('stage');return stage==='story_macro'||stage==='outline'||stage==='structured'?<PlanningCenterPage key={`${planningMatch[1]}:${stage}`} bookId={decodeURIComponent(planningMatch[1])} presentation={stage}/>:<PlanningWorkspace key={planningMatch[1]} bookId={decodeURIComponent(planningMatch[1])}/>;}
+  const historyMatch=path.match(/^\/new-design\/books\/([^/]+)\/history$/);
+  if(historyMatch)return <BookRouteShell key={historyMatch[1]} bookId={decodeURIComponent(historyMatch[1])} active="history"><BookHistoryPage bookId={decodeURIComponent(historyMatch[1])}/></BookRouteShell>;
   const writingMatch=path.match(/^\/new-design\/books\/([^/]+)\/(?:writing|chapters\/([^/]+)\/write)$/);
   if(writingMatch)return <ChapterWritingPage bookId={decodeURIComponent(writingMatch[1])} initialChapterCardId={writingMatch[2]?decodeURIComponent(writingMatch[2]):undefined}/>;
   const completionMatch=path.match(/^\/new-design\/books\/([^/]+)\/completion$/);
@@ -98,11 +160,15 @@ export default function NewDesignPage({pathname}:NewDesignPageProps) {
   const bookMatch=path.match(/^\/new-design\/books\/([^/]+)(?:\/(forms|cards|fields))?$/);
   if(bookMatch)return bookMatch[2]?<BookWorkspacePage bookId={decodeURIComponent(bookMatch[1])} view={bookMatch[2] as "forms"|"cards"|"fields"}/>:<BookOverviewPage bookId={decodeURIComponent(bookMatch[1])}/>;
   if(path==="/new-design/structure/card-types")return <CardTypeCatalogPage/>;
+  if(path==="/new-design/structure/meta-cards")return <Suspense fallback={<div className="nd-shell">正在载入元卡片…</div>}><MetaCardsPage/></Suspense>;
+  if(path==="/new-design/structure/card-templates")return <Suspense fallback={<div className="nd-shell">正在载入卡片模板…</div>}><CardTemplatesPage/></Suspense>;
+  if(path==="/new-design/structure/book-templates")return <Suspense fallback={<div className="nd-shell">正在载入书籍模板…</div>}><BookTemplatesPage/></Suspense>;
   if(path==="/new-design/structure/dictionaries-relations")return <DictionaryRelationsPage/>;
   if(path==="/new-design/structure/forms")return <FormDesignerPage/>;
   if(path==="/new-design/structure/templates")return <TemplateGroupsPage/>;
   if(path==="/new-design/structure/context")return <ContextManagementPage/>;
   if(path==="/new-design/structure/maintenance")return <OperationsMaintenancePage/>;
   if(path==="/new-design/structure/models")return <ModelSettingsPage/>;
+  if(path==="/new-design/structure/settings")return <SystemSettingsPage/>;
   return <div className="nd-shell nd-fatal"><p className="nd-kicker">新设计</p><h1>页面不存在</h1><p>此地址不在当前新设计导航范围内。</p><a className="nd-button nd-button-primary" href="/new-design">返回创作首页</a></div>;
 }

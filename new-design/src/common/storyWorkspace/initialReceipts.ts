@@ -1,0 +1,4 @@
+import type {EntityInitialStateVersion,StateSubjectKind} from '../contracts';
+export interface InitialStateWriteInput {bookId:string;requestKey?:string;subjectKind:StateSubjectKind;subjectId:string;stateKey:string;value:unknown;sourceFactId?:string|null;expectedRevision?:number;actor?:string;note?:string}
+export function initialWriteInput(input:InitialStateWriteInput){return {bookId:input.bookId,requestKey:input.requestKey,subjectKind:input.subjectKind,subjectId:input.subjectId,stateKey:input.stateKey,value:input.value,sourceFactId:input.sourceFactId??null,expectedRevision:input.expectedRevision??0,actor:input.actor??'user',note:input.note??''};}
+export interface InitialStateWriteReceipt {requestKey:string;bookId:string;inputHash:string;stateId:string;resultRevision:number;input:ReturnType<typeof initialWriteInput>;version:EntityInitialStateVersion}

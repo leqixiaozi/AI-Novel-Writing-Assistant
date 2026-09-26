@@ -1,8 +1,35 @@
+import {savedRecoveryRouter} from './savedRecovery';
+import {ClassificationWriteError} from '../database/bookshelf/classification';
+import {imagePreparationRouter} from './imagePreparation';
+import {characterAuthorRouter} from './characterAuthor';
+import {bookHistoryRouter} from './bookHistory';
+import {publicTitlesRouter} from './publicTitles';
+import {ImagePreparationError} from '../database/imagePreparation';
+import {characterExperiencesRouter} from './characterExperiences';
+import {characterImportReadRouter,characterImportWriteRouter} from './characterImport';
+import {worldPackageReadRouter,worldPackageWriteRouter} from './worldPackages';
+import {cardAssemblyRouter} from './cardAssembly';
+import {comicProjectsRouter} from './comicProjects';
+import {comicEpisodesRouter} from './comicEpisodes';
+import {comicPanelsRouter} from './comicPanels';
+import {comicBiblesRouter} from './comicBibles';
+import {comicVisualAssetsRouter} from './comicVisualAssets';
+import {comicSourceBundleRouter} from './comicSourceBundle';
+import {comicRenderingRouter} from './comicRendering';
+import {dramaProjectsRouter} from './dramaProjects';
+import {dramaProductionRouter} from './dramaProduction';
+import {worldUsageRouter} from './worldUsage';
+import {payoffLedgerRouter} from './payoffLedger';
+import {characterResourcesRouter} from "./characterResources";
+import {resourceSupplementsRouter} from './resourceSupplements';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import {referenceParityRouter} from "./referenceParity";
 import { homeRouter } from "./home";
+import {bookshelfRouter,bookshelfMutationFence,bookshelfWritableGuard} from './bookshelf';
 import { z, ZodError, type ZodType } from "zod";
 import type { ApiEnvelope, FieldDefinition } from "../../common/contracts";
 import type { NewDesignAiGateway } from "../ai/gateway";
+import {storyWorkspaceRouter} from "./storyWorkspace";
 import { businessFormAiRouter } from "./formAssist";
 import { mountCreationDirector } from "./creationDirector";
 import {promptManagementRouter} from "./promptManagement";
@@ -15,6 +42,8 @@ import {multiviewAuthorRouter} from "./multiviewAuthor";
 import {authorTasksRouter} from "./authorTasks";
 import {authorMaterialsRouter} from "./authorMaterials";
 import {professionalResourcesRouter} from "./professionalResources";
+import {publicCharactersRouter} from './publicCharacters';
+import {PublicCharacterError} from '../database/publicCharacters';
 import {ProfessionalResourceError} from "../database/professionalResources";
 import {bookCompositionRouter} from "./bookComposition";
 import {productionDirectorRouter} from "./productionDirector";
@@ -23,7 +52,10 @@ import {visualAssetsRouter} from "./visualAssets";
 import {VisualSourceError} from "../database/visualAssets";
 import {knowledgeIndexRouter} from "./knowledgeIndex";
 import {worldConsistencyRouter} from "./worldConsistency";
+import {chapterQualityRouter} from './chapterQuality';
 import {characterDialogueRouter} from "./characterDialogue";
+import {creativeHubRouter} from './creativeHub';
+import {worldGenerationRouter} from './worldGeneration';
 import {creativeExtractionRouter} from "./creativeExtraction";
 import {imageGenerationRouter,ImageHttpError} from "./imageGeneration";
 import {ImageGenerationError} from "../database/imageGeneration";
@@ -49,7 +81,7 @@ import {
   updateCardType,
 } from "../database/store";
 import { getDatabaseRuntimeStatus, getPrivateRuntimeDiagnostics, getPrivateRuntimeStatus } from "../database/runtime";
-import { archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
+import { FieldWriteError, readFieldWriteReceipt, archiveScopedField, createBookFieldExtension, createCardLocalField, listScopedFieldHistory, listScopedFields, previewFieldExtension, reviseCardLocalField } from "../database/fieldExtensions";
 import { scrub } from "../runtime/command";
 import {
   applyBookSync,
@@ -87,7 +119,7 @@ import { archiveMaterialGroup, bulkChangeGroupMemberships, bulkChangeTagMembersh
 import { addContextBindingVersion, adoptContextBindingVersion, archiveContextBinding, createContextAssemblyPreview, createContextBinding, finalizeContextManifest, getContextAssemblyPreview, getContextBinding, getContextImpacts, getFinalizedContextManifest, listContextAssemblyPreviews, listContextBindings, listContextSnapshots, listContextSnapshotSources, resolveContextBindings } from "../database/contextManagement";
 import { applyBookChangeSet, previewBookChangeSet } from "../database/changeSetStore";
 import { addResearchDocumentVersion, createResearchDocument, getResearchRecord, listResearchDocuments, listResearchDocumentVersions, listResearchRecords, updateResearchRecord } from "../database/researchStore";
-import { adoptMarketSignal, getMarketScan, requestMarketScanCancellation } from "../database/marketStore";
+import { adoptMarketSignal, getMarketScan, listSavedMarketSignals, requestMarketScanCancellation } from "../database/marketStore";
 import { applyCandidateDecisions, updateResearchCandidate } from "../database/bookAnalysisStore";
 import { getReferencePack, listBookResearchReferences, listReferencePacks, previewResearchReuse, publishReferencePack } from "../database/referencePackStore";
 import { addChapterBodyVersion, adoptChapterBodyVersion, archiveChapterBodyVersion, createChapterDocument, createChapterTextAnchor, listChapterDocuments } from "../database/chapterBodyStore";
@@ -109,10 +141,10 @@ import { activateEmbeddingGeneration, addEmbeddingProfileVersion, archiveEmbeddi
 import { cancelBackgroundJobForBook, getBackgroundBookPause, getBackgroundJob, getBackgroundRuntimeHealth, listBackgroundJobs, listOutboxConsumers, listOutboxEvents, replayBackgroundJobForBook, retryBackgroundJobForBook, setBackgroundBookPause, setOutboxConsumerState } from "../database/outbox";
 import type { TransferIngressAdapter } from "../transfers";
 import { cancelTransferOperation, confirmTransferImport, getTransferAvailability, getTransferOperation, listTransferOperations, listTransferProfiles, requestImportDryRun, requestTransferExport, resolveTransferArtifactDownload, resolveTransferConflict } from "../transfers";
-import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
+import { createBookCompletionSnapshot, createPublicationExportManifest, getBookCompletionWorkspace, getPublicationExportRecord, readPublicationExportReceipt, PublicationExportWriteError, listPublicationExports, listReleaseGateItems, recordBookCompletion, recordReleaseGateAssessment, reopenBookCompletion, submitPublicationExport } from "../database/completionExport";
 import { resolvePublicationExportDownload } from "../publicationExport";
-import { ensureResearchRecovery, getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
-import { buildBookAnalysisPlan, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
+import { getMarketAnalysisByKey, listMarketSources, retryMarketAnalysis, retryMarketScan, startMarketAnalysis, startMarketScan } from "../research/marketService";
+import { buildBookAnalysisPlan, getBookAnalysisByKey, retryBookAnalysis, startBookAnalysis } from "../research/bookAnalysisService";
 import { adoptBookResearchBatch, createBookResearchAdoptionPreview, getBookResearchAdoptionBatch, listBookResearchAdoptionBatches, reviseBookResearchAdoptionItem } from "../database/researchAdoption";
 import { createAiRunPreview, getAiRunPreview, getAiRunStableReadContract, listAiRunPreviews, readAiRunPreviewByRequest, readAiRunSubmissionByRequest, submitAiRunPreview } from "../database/aiRunOrchestration";
 import {
@@ -338,6 +370,7 @@ import {
   associationAddSchema,
   associationCreateAndAddSchema,
   associationRemoveSchema,
+  associationRefreshSchema,
   associationReorderSchema,
   associationLocalValuesSchema,
   associationLocalFieldSchema,
@@ -393,8 +426,23 @@ function materialScope(req:Request):{bookId?:string;spaceId?:string}{return mate
 
 export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; transferIngress?:TransferIngressAdapter } = {}): Router {
   const router = Router();
-  // Home reads precede research recovery and never resume work by visiting a page.
+  router.use(characterImportReadRouter());
+  router.use(worldPackageReadRouter());
+  router.use(bookshelfMutationFence());
+  router.use(bookshelfWritableGuard());
+  router.use(cardAssemblyRouter());
+  // Visiting a source or home page must never resume research work.
   router.use("/home", homeRouter());
+  router.use(bookshelfRouter());
+  router.use(comicProjectsRouter());
+  router.use(comicEpisodesRouter(dependencies.ai));
+  router.use(comicPanelsRouter(dependencies.ai));
+  router.use(comicBiblesRouter());
+  router.use(comicVisualAssetsRouter());
+  router.use(comicSourceBundleRouter(dependencies.ai));
+  router.use(comicRenderingRouter());
+  router.use(dramaProjectsRouter(dependencies.ai));
+  router.use(dramaProductionRouter(dependencies.ai));
   router.use("/models",modelSettingsRouter());
   router.use("/prompt-composition",promptCompositionRouter());
   router.use(chapterSettlementEditingRouter());
@@ -407,13 +455,27 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.use(authorTasksRouter());
   router.use(authorMaterialsRouter());
   router.use("/professional-resources",professionalResourcesRouter());
+  router.use('/public-characters',publicCharactersRouter());
+  router.use('/image-preparation',imagePreparationRouter());
+  router.use('/character-author',characterAuthorRouter());
+  router.use('/public-titles',publicTitlesRouter());
+  router.use('/book-history',bookHistoryRouter());
+  router.use('/saved-recovery',savedRecoveryRouter());
   router.use(bookCompositionRouter());
   router.use(productionDirectorRouter());
   router.use(chapterProductionRouter());
   router.use(createWorldCharacterMaintenanceRouter());
+  router.use(characterResourcesRouter(dependencies.ai));
+  router.use(resourceSupplementsRouter());
+  router.use(characterExperiencesRouter(dependencies.ai));
+  router.use(characterImportWriteRouter());
+  router.use(worldPackageWriteRouter());
   router.use(visualAssetsRouter());
   router.use(worldConsistencyRouter());
+  router.use(chapterQualityRouter());
   router.use(characterDialogueRouter());
+  router.use(creativeHubRouter(dependencies.ai));
+  router.use(worldGenerationRouter(dependencies.ai));
   router.use("/creative-extraction",creativeExtractionRouter());
   router.use(imageGenerationRouter());
   router.use("/director-followup",directorFollowupRouter());
@@ -424,8 +486,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.get("/structure-write-receipts/:kind/:key",asyncRoute(async(req,res)=>{
     success(res,await readStructureWriteReceipt(z.enum(['form','template']).parse(req.params.kind),structureRequestKeySchema.parse(req.params.key)));
   }));
-  // Original-request reads must precede the research recovery middleware: checking
-  // an uncertain receipt must not recover runs, create tasks or invoke models.
+  // Checking an uncertain receipt must not recover runs, create tasks or invoke models.
   router.get("/research/market/analyses/by-key/:requestKey",asyncRoute(async(req,res)=>{
     const scope=z.object({scanRecordId:z.string().uuid(),requestKey:z.string().uuid()}).parse({scanRecordId:req.query.scanRecordId,requestKey:req.params.requestKey});
     success(res,await getMarketAnalysisByKey(scope.scanRecordId,scope.requestKey));
@@ -438,7 +499,9 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
     const scope=z.object({bookId:z.string().uuid(),requestKey:z.string().uuid()}).parse({bookId:req.params.id,requestKey:req.params.requestKey});
     success(res,await readAiRunSubmissionByRequest(scope.bookId,scope.requestKey));
   }));
-  router.use((_req,_res,next)=>{void ensureResearchRecovery().then(()=>next(),next);});
+  router.use(storyWorkspaceRouter(dependencies.ai));
+  router.use(worldUsageRouter(dependencies.ai));
+  router.use(payoffLedgerRouter());
   router.use(businessFormAiRouter(dependencies.ai));
 
   router.get("/health", asyncRoute(async (_req, res) => {
@@ -484,6 +547,8 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   }));
   router.get("/cards/:id/versions", asyncRoute(async (req, res) => success(res, await listCardVersions(String(req.params.id)))));
 
+  router.use(referenceParityRouter());
+  router.get("/books/:bookId/field-extensions/receipts/:key",asyncRoute(async(req,res)=>success(res,await readFieldWriteReceipt(String(req.params.bookId),z.string().uuid().parse(req.params.key)))));
   router.get("/books/:bookId/field-definitions", asyncRoute(async(req,res)=>{
     const cardTypeId=typeof req.query.cardTypeId==="string"?req.query.cardTypeId:"";
     if(!cardTypeId)throw new NewDesignError("缺少内容类型。",422);
@@ -577,14 +642,14 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/material-management/cards/:id/archive-preview",asyncRoute(async(req,res)=>success(res,await previewCardArchive(materialScope(req),String(req.params.id),body(cardArchivePreviewSchema,req)),201)));
   router.post("/material-management/cards/:id/archive",asyncRoute(async(req,res)=>success(res,await confirmCardArchive(materialScope(req),String(req.params.id),body(cardArchiveConfirmSchema,req)))));
   router.post("/material-management/cards/:id/restore",asyncRoute(async(req,res)=>success(res,await restoreArchivedCard(materialScope(req),String(req.params.id),body(cardRestoreManagedSchema,req)))));
-  router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId)))));
+  router.get("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await getAssociationWorkspace(String(req.params.bookId),String(req.params.cardId),req.query.instanceId===undefined?undefined:z.string().uuid().parse(req.query.instanceId)))));
   router.get("/books/:bookId/cards/:cardId/association-candidates",asyncRoute(async(req,res)=>success(res,await searchAssociationCandidates(String(req.params.bookId),String(req.params.cardId),associationSearchSchema.parse(req.query)))));
   router.post("/books/:bookId/cards/:cardId/associations",asyncRoute(async(req,res)=>success(res,await addExistingAssociation(String(req.params.bookId),String(req.params.cardId),body(associationAddSchema,req)),201)));
   router.post("/books/:bookId/cards/:cardId/associations/create",asyncRoute(async(req,res)=>success(res,await createAndAddAssociation(String(req.params.bookId),String(req.params.cardId),body(associationCreateAndAddSchema,req)),201)));
   router.post("/books/:bookId/cards/:cardId/associations/reorder",asyncRoute(async(req,res)=>success(res,await reorderAssociations(String(req.params.bookId),String(req.params.cardId),body(associationReorderSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/remove",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/restore",asyncRoute(async(req,res)=>success(res,await removeAssociation(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req),true))));
-  router.post("/books/:bookId/associations/:mountId/refresh-source",asyncRoute(async(req,res)=>success(res,await refreshAssociationSource(String(req.params.bookId),String(req.params.mountId),body(associationRemoveSchema,req)))));
+  router.post("/books/:bookId/associations/:mountId/refresh-source",asyncRoute(async(req,res)=>success(res,await refreshAssociationSource(String(req.params.bookId),String(req.params.mountId),body(associationRefreshSchema,req)))));
   router.patch("/books/:bookId/associations/:mountId/local-values",asyncRoute(async(req,res)=>success(res,await saveAssociationLocalValues(String(req.params.bookId),String(req.params.mountId),body(associationLocalValuesSchema,req)))));
   router.post("/books/:bookId/associations/:mountId/local-fields",asyncRoute(async(req,res)=>success(res,await addAssociationLocalField(String(req.params.bookId),String(req.params.mountId),body(associationLocalFieldSchema,req)),201)));
   router.get("/books/:bookId/associations/:mountId/history",asyncRoute(async(req,res)=>success(res,await listAssociationHistory(String(req.params.bookId),String(req.params.mountId)))));
@@ -605,10 +670,12 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/research/runs/:id/cancel",asyncRoute(async(req,res)=>{await requestMarketScanCancellation(String(req.params.id));success(res,{cancelRequested:true});}));
   router.post("/research/market/analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);success(res,await startMarketAnalysis(dependencies.ai,body(marketAnalysisInputSchema,req)),202);}));
   router.post("/research/market/analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始市场分析。",503);const input=body(z.object({requestKey:z.string().uuid().optional(),expectedVersionId:z.string().uuid().optional()}).strict(),req);success(res,await retryMarketAnalysis(dependencies.ai,z.string().uuid().parse(req.params.id),input),202);}));
+  router.get("/research/market/signals/saved",asyncRoute(async(_req,res)=>success(res,await listSavedMarketSignals())));
   router.post("/research/market/signals/:id/adopt",asyncRoute(async(req,res)=>success(res,await adoptMarketSignal(String(req.params.id)),201)));
   router.get("/research/book-analysis/plan",asyncRoute(async(req,res)=>success(res,(await buildBookAnalysisPlan(bookAnalysisPurposeSchema.parse(req.query.purpose),bookAnalysisPresetSchema.parse(req.query.preset))).plan)));
-  router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema,req)),202);}));
-  router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id)),202);}));
+  router.get("/research/book-analyses/by-key/:requestKey",asyncRoute(async(req,res)=>success(res,await getBookAnalysisByKey(z.string().uuid().parse(req.params.requestKey)))));
+  router.post("/research/book-analyses",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能开始拆书。",503);success(res,await startBookAnalysis(dependencies.ai,body(bookAnalysisInputSchema.and(z.object({requestKey:z.string().uuid().optional()})),req)),202);}));
+  router.post("/research/book-analyses/:id/retry",asyncRoute(async(req,res)=>{if(!dependencies.ai)throw new NewDesignError("尚未配置新设计 AI 网关，不能重试拆书。",503);success(res,await retryBookAnalysis(dependencies.ai,String(req.params.id),body(z.object({requestKey:z.string().uuid().optional(),expectedVersionId:z.string().uuid().optional()}).strict(),req)),202);}));
   router.post("/research/book-analyses/:id/candidates/apply",asyncRoute(async(req,res)=>success(res,await applyCandidateDecisions(String(req.params.id),body(candidateDecisionsSchema,req).decisions))));
   router.put("/research/book-analyses/:id/candidates/:candidateId",asyncRoute(async(req,res)=>success(res,await updateResearchCandidate(String(req.params.id),String(req.params.candidateId),body(researchCandidateUpdateSchema,req)))));
   router.get("/research/reference-packs",asyncRoute(async(_req,res)=>success(res,await listReferencePacks())));
@@ -884,6 +951,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
   router.post("/publication-exports/manifests/:id/submit",asyncRoute(async(req,res)=>success(res,await submitPublicationExport(String(req.params.id),body(publicationExportSubmitSchema,req)),202)));
   router.get("/books/:id/publication-exports",asyncRoute(async(req,res)=>success(res,await listPublicationExports(String(req.params.id)))));
   router.get("/publication-exports/requests/:id",asyncRoute(async(req,res)=>success(res,await getPublicationExportRecord(String(req.params.id)))));
+  router.get("/publication-exports/manifests/:id/receipt",asyncRoute(async(req,res)=>success(res,await readPublicationExportReceipt(z.string().uuid().parse(req.params.id),publicationExportSubmitSchema.parse(req.query)))));
   router.get("/publication-exports/artifacts/:id/download",(req,res,next)=>{void resolvePublicationExportDownload(String(req.params.id)).then(file=>{res.type(file.mediaType);res.download(file.path,file.displayFilename,error=>{if(error)next(error);});},next);});
   router.get("/release-gates",asyncRoute(async(_req,res)=>success(res,await listReleaseGateItems())));
   router.post("/release-gates/:key/assessments",asyncRoute(async(req,res)=>success(res,await recordReleaseGateAssessment({gateKey:String(req.params.key),...body(releaseGateAssessmentSchema,req)}),201)));
@@ -978,7 +1046,7 @@ export function createNewDesignRouter(dependencies: { ai?: NewDesignAiGateway; t
       return;
     }
     if (error instanceof NewDesignError) {
-      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
+      const envelope = { success: false, error: error.message, issues: error.issues, ...(error instanceof PublicationExportWriteError||error instanceof AiExecutionError||error instanceof ProfessionalResourceError||error instanceof PublicCharacterError||error instanceof ImagePreparationError||error instanceof ClassificationWriteError||error instanceof VisualSourceError||error instanceof StructureWriteError||error instanceof FieldWriteError||error instanceof ImageGenerationError||error instanceof ImageHttpError||error instanceof ProfessionalViewsReadError?{recovery:error.recovery}:{}) };
       res.status(error.status).json(envelope);
       return;
     }

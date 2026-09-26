@@ -1,2 +1,4 @@
 export {getSettlementRelationConfigurationWorkspace,saveSettlementRelationConfigurationDraft,publishSettlementRelationConfigurationDraft,publishSettlementRelationConfiguration,readSettlementRelationConfigurationReceipt} from "./commands";
 export {settlementRelationDraftInputSchema,settlementRelationPublishInputSchema} from "./policy";
+
+export {readConfigurationWorkspace as readSettlementRelationConfigurationInTransaction} from "./catalog";

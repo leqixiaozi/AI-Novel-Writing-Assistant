@@ -3,6 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { createIndependentAiGateway } from "../ai";
 import { createNewDesignRouter } from "../http/router";
+import {getNewDesignPool} from '../database/runtime';
+import {requireTablesOnlyInstallation} from '../database/tablesOnly';
 
 /** The independent entry supplies only new-design-owned adapters, never externally injected old gateways. */
 export function createIndependentApplication() {
@@ -17,6 +19,13 @@ export function createIndependentApplication() {
   // Only controlled image upload needs base64 headroom; decoded bytes remain limited to 10 MiB.
   app.use("/api/new-design/visual-assets/uploads",express.json({limit:"16mb"}));
   app.use(express.json({ limit: "4mb" }));
+  app.use('/api/new-design',(request,response,next)=>{
+    if(['GET','HEAD','OPTIONS'].includes(request.method))return next();
+    void getNewDesignPool().then(async pool=>{
+      await requireTablesOnlyInstallation(pool);
+      next();
+    }).catch(()=>response.status(503).json({success:false,error:'新版纯表结构尚未就绪或处于维护状态，业务写入已停用。',recovery:{failedStep:'核对纯表数据库能力',summary:'需要完整纯表结构和可用能力；服务不会自动执行升级或重建。',savedResult:'已有作者数据和原请求保留；不要重复提交。',mutationOutcome:'not_written',sourceRoute:'/new-design/structure/maintenance',actionLabel:'打开运行维护'}}));
+  });
   app.use("/api/new-design", createNewDesignRouter({ ai: createIndependentAiGateway() }));
   const clientRoot = path.resolve(__dirname, "../../client");
   const documentPath = path.join(clientRoot, "index.html");

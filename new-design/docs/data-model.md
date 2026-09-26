@@ -1,18 +1,80 @@
 # 新设计数据模型
 
-本文是新设计 PostgreSQL 结构的数据字典。权威迁移位于 `../migrations/`：`001_card_kernel.sql` 至 `045_business_form_shell.sql` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046_unified_dictionary_tag_trees.sql` 建立统一字典树、多维标签树、稳定字段语义与历史路径快照，`047_tree_value_snapshot_paths.sql` 将不同深度路径改为 JSON 数组并为模板同步增加树资源增量，`048_unified_book_creation_review.sql` 保存创建前统一审阅资料。运行时直接执行这些 SQL，不在代码中维护第二份副本。详细规则见 `unified-tree-resources.md` 与 `unified-book-creation-form.md`。
+## 新旧系统的数据边界
 
-`031`—`045` 继续补齐备份导入导出、私有运行时审计、业务表单来源、字段作用域、表单关联／独立关系、资料组织与安全归档、上下文装配、规划中心、章节创作与稳定结算、旧章选择性重算、研究采用、统一 AI 运行预览、多维查看偏好、完本检查、出版导出、发布证据和 AI 规划候选审计。运行时迁移范围以 `001_card_kernel.sql` 至 `045_planning_ai_candidates.sql` 为准。
+旧版与新设计是两套独立的底层系统，只因方便对比而在同一个页面入口展示。旧版继续使用自己的 SQLite、业务 API 和 AI 执行链；新设计使用自己的 PostgreSQL、业务 API 和 AI 执行链。两套系统之间不直接调用业务模块、数据库、模型配置或运行记录。共同页面只负责展示与导航，请求按所属版本进入各自的服务。
+
+复刻旧版页面和功能时，以用户可见的布局、操作和结果为对标依据；新设计的数据继续由本模型中的卡片及其业务记录承载，不复制旧版表结构，也不把旧版数据表当作新版的运行依赖。
+
+本文区分最终物理表与领域逻辑记录。当前源码基线为 [`132_card_kernel_tables_only.sql`](../migrations/132_card_kernel_tables_only.sql)，注册入口为 [`migrations.ts`](../src/server/database/migrations.ts)，领域函数和确定性种子见 [`bootstrap/tablesOnly/`](../src/server/database/bootstrap/tablesOnly/)。`001`—`131` 保留为历史约束和既有安装的证据，不是新空库逐级执行清单。普通服务启动不自动执行结构变更；后续数据库修改遵守[数据库增量门禁](../AGENTS.md#数据库增量门禁)。
+
+## 卡片内核 v2 最终物理模型
+
+`132` 源码定义 79 张 `new_design` 应用表和 4 张 AGE `new_design_projection` 扩展投影表，共 83 张物理表；不建立持久业务视图，不建立 `new_design_compat` schema 或兼容行类型。页面、深链、API、作者确认和原请求恢复语义保持不变。
+
+当前开发库已在明确授权后原地安装 `133_card_kernel_tables_only_upgrade`：79+4 张物理表、零业务视图、零兼容 schema，实际迁移账本为 129 项。保留旧 128 项登记，不伪造 `132` 空库安装记录。42 本书、12 份正文版本、2 份研究原文、3 份模型配置和 2 份凭据均保留；28,604 条旧格式记录完成映射核对，追加 356 个规范化版本和 70 条动作，202 条已核对的镜像／默认目录／动作来源作为内部归档证据留存，不删除原始版本。完整验证边界见[开发交付记录](development-delivery.md#当前数据库更新方式)。
+
+`132` 是新空库基线，`133` 是已有 `131` 库的显式增量入口，二者不可互相冒充。启动及功能门禁接受实际登记的其中一种，并同时要求 `card_kernel_v2` 可用、`details.storage=tables_only`、完整对象和历史保护。开发与联调统一使用当前开发库；不自动新建测试库、重建、还原或重跑基线。结构已安装与完整页面／写入验收仍是不同证据。
+
+| 类别 | 表数 | 正式职责 |
+| --- | ---: | --- |
+| 卡片内核与作品 | 14 | 迁移、能力、空间、类型、卡片、版本、动作、关系、字段与书籍 |
+| 正文与大文本 | 8 | 章节档案、正文版本／采用、文本锚点、章节结算、研究原文及原文版本 |
+| AI 执行 | 15 | 任务合同、Prompt、模型凭据／路由、上下文清单、任务／步骤／尝试／事件／用量 |
+| 资产、媒体与发布 | 11 | 文件内容、资产版本／关系／事件、媒体任务／输出、发布清单和门禁 |
+| 依赖、Outbox 与后台任务 | 11 | 依赖资源／边／事件、Outbox、消费者、后台任务／尝试／检查点／事件 |
+| 检索、传输与运行时 | 20 | AGE 投影运行、向量索引与检索、备份传输、ID 映射、运行安装／事件／快照 |
+
+### 物理表与逻辑记录的读法
+
+下列清单才是 `132` 的持久应用表。下文保留的旧复数名称（例如 `canonical_facts`、`planning_objects`）用于说明逻辑记录及原业务约束，不表示可以执行 `FROM new_design.<旧名称>`。原记录间的归属、唯一、版本、冻结来源和状态约束仍由最终物理约束、领域命令及原生校验函数共同保护，不能因旧外键消失而删除。
+
+卡片值是开放字段，仓储向业务层返回记录时仍须明确投影业务字段和状态，不依赖对象展开推断完整业务类型，也不能用宽泛类型绕过检查。卡片物理空间与业务记录的可空空间是不同概念：修改卡片版本使用实际卡片空间，公共表单等记录的空业务空间继续保留。测试替身跟随真实仓储入口调整，但原请求幂等、历史版本、明确采用与未知提交结果的保护条件不变。
+
+| 分类 | 最终物理表 |
+| --- | --- |
+| 卡片内核与作品 | `schema_migrations`、`system_capabilities`、`card_spaces`、`card_types`、`card_type_versions`、`cards`、`card_versions`、`card_version_actions`、`relation_types`、`card_relations`、`card_relation_versions`、`field_definitions`、`field_definition_versions`、`books` |
+| 正文与大文本 | `chapter_documents`、`chapter_body_versions`、`chapter_body_adoptions`、`text_anchors`、`chapter_settlements`、`chapter_settlement_items`、`research_documents`、`research_document_versions` |
+| AI 执行 | `task_contracts`、`task_contract_versions`、`prompt_recipes`、`prompt_recipe_versions`、`model_credential_refs`、`model_route_configs`、`model_route_versions`、`model_route_snapshots`、`context_manifests`、`context_manifest_items`、`ai_tasks`、`ai_task_steps`、`ai_task_attempts`、`ai_task_events`、`ai_attempt_usage` |
+| 资产、媒体与发布 | `asset_content_objects`、`asset_versions`、`asset_links`、`asset_events`、`media_jobs`、`media_job_attempts`、`media_outputs`、`publication_manifests`、`publication_artifacts`、`release_definitions`、`release_assessments` |
+| 依赖与后台运行 | `dependency_resources`、`dependency_edges`、`dependency_events`、`outbox_events`、`outbox_inbox_receipts`、`outbox_consumers`、`outbox_aggregate_sequences`、`background_jobs`、`background_job_attempts`、`background_job_checkpoints`、`background_job_events` |
+| 图、向量与检索 | `graph_projection_configs`、`graph_projection_runs`、`graph_projection_checkpoints`、`embedding_profiles`、`embedding_generations`、`embedding_chunks`、`embedding_vectors`、`retrieval_runs`、`retrieval_results` |
+| 传输与运行时 | `transfer_operations`、`transfer_manifests`、`transfer_entries`、`transfer_events`、`transfer_conflicts`、`transfer_validations`、`transfer_id_mappings`、`runtime_installations`、`runtime_events`、`runtime_snapshots`、`runtime_upgrade_plans` |
+
+内部记录由 `card_types.is_internal=true` 和干净的单数 `type_key` 分类；作者资料类型为 `is_internal=false`。作者选材、类型目录和通用卡片统计排除内部记录。`recordCards` 返回的 `recordCardId/recordSpaceId` 是物理元数据，`values.id` 是逻辑记录身份；负载中的 `card_id` 可能指人物、章节等作者卡，三者不能混用。每次逻辑修改追加 `card_versions` 并推进物理卡片头；业务 `revision` 和业务版本指针仍按原命令维护。某些不可变业务版本本身也是内部卡，例如 `planning_version`，它的逻辑 ID 不是物理 `card_versions.id`。
+
+| 逻辑对象／历史名 | `132` 持久化表达 |
+| --- | --- |
+| `canonical_facts`、证据、冲突 | `canonical_fact`、`canonical_fact_evidence`、`canonical_fact_conflict` 内部类型；字段位于当前版本 `values` |
+| 状态、认知、初始值、时序与投影 | `state_change`、`knowledge_state_change`、`entity_initial_state`、`story_event_timing` 等内部类型；保留书籍、精确正文、提案与正式来源引用 |
+| 规划对象、版本、引用／采用 | `planning_object`、`planning_version`、`planning_version_reference`、`planning_adoption` 等记录；层级仍读 `parent_object_id`，采用仍读明确的 `adopted_version_id`，不从文字或最新版本推断 |
+| 表单、字典、模板、标签、分组与挂载 | `card_group_form`、`dictionary_definition`、`template_group`、`material_tag`、`material_group`、`card_mount` 及对应版本类型；不能一概替换为普通 `card_relations` |
+| 事实／认知／时间／关系审核 | `card_version_actions`，动作键以 `canonical_fact.`、`knowledge_state.`、`story_time.`、`story_relation.` 开头；保留原动作负载和请求身份 |
+| 章节结算会话、准备、稳定检查点／事件 | `chapter_adoption_session`、`chapter_adoption_preparation`、`chapter_stable_checkpoint` 卡；事件为 `chapter_settlement.*` 动作；正式结算及条目仍是两张专用表 |
+| 人物对话和倾向 | `character_dialogue_session`、`character_dialogue_round`、`character_author_trial`、`character_author_influence_candidate` 卡；选择为 `character_dialogue.select`／`character_author.influence_decision` 动作 |
+| `chapter_text_anchors`、`context_manifest_entries` | 最终物理 `text_anchors`、`context_manifest_items`；正文锚点与资料锚点按字段及精确来源区分 |
+| 旧 `embedding_index_generations`、`semantic_retrieval_runs/results` | 物理 `embedding_generations`、`retrieval_runs/results`；来源元数据使用 `embedding_source_snapshot` 卡，原文保存于 `embedding_chunks(record_kind='source')` |
+| 旧发布／运行时账本名称 | 发布清单／产物为 `publication_manifests/artifacts`，门禁为 `release_definitions/assessments`，运行事件／快照为 `runtime_events/snapshots` |
+
+仓储可在单条查询内部用静态 CTE 和 `jsonb_to_record` 投影逻辑字段。CTE 随查询结束消失，不是数据库持久视图；它只读取最终表，不做 SQL 名称重写，也不需要兼容 schema。完整内部类型清单见 [`record-types.sql`](../src/server/database/bootstrap/tablesOnly/record-types.sql) 与实际仓储，不能机械去掉复数名称末尾的 `s`。
+
+小说正文和研究原文保留专用文本版本正本；附件字节保留受管存储及资产账本；嵌入来源原文／分块文本使用专用分块表。不能为统一卡片而把作者大文本、二进制文件或密钥塞进内部卡 JSON。候选保存、模型成功、采用动作和正式结算仍是不同边界，确认及精确版本/hash校验不能省略。
+
+### 历史约束来源
+
+`001`—`045` 建立卡片、书籍、研究、章节生产、AI 运行、资料管理和业务表单基础；`046`—`048` 补齐统一字典树、多维标签树、历史路径快照及开书前统一审阅。`049`—`083` 扩展表单 AI、模型路由、章节结算、导演、知识索引、世界一致性、图像与人物对话等来源和回执。`084`—`112` 的手动合同另有安装、能力开关和数据保护边界。详细规则见 `unified-tree-resources.md`、`unified-book-creation-form.md` 及下文“后续迁移与页面数据边界”。
 
 ## 跨机器同步原则
 
 把 Git 仓库理解成“施工图纸”，把每台电脑上的 PostgreSQL 数据目录理解成“按图建成的房子”。图纸适合跨机器同步，建成后的房子不能把砖墙文件直接复制到另一台机器。对应到开发流程：迁移 SQL、数据字典和确定性基础数据进入 Git；PostgreSQL 二进制数据目录不进入 Git。
 
-新机器拉取代码并首次打开“新设计”后，会按 `new_design.schema_migrations` 的记录顺序执行尚未应用的 SQL。默认空间使用固定 UUID，可在不同机器得到一致的基础身份。
+新机器拉取源码不等于数据库已初始化。空库须走明确授权的初始化入口，成功后登记 `132_card_kernel_tables_only`；既有库后续按增量门禁处理，不自动重跑旧迁移或重建。默认空间和基础目录使用确定性身份，但不能据此推断不同机器的作者内容相同。
 
 用户创建的元卡片、卡片和资产登记属于真实业务数据。结构化数据需要使用 PostgreSQL 逻辑备份与恢复来迁移，不能复制正在运行的数据目录，也不能提交到 Git。受管附件的字节内容不存进 PostgreSQL，而是位于独立的受管文件目录；完整迁移必须同时备份数据库和该文件目录，并在恢复后按校验和复核。外部对象存储还要由对应服务独立保证对象可取回。第一阶段尚未提供备份/恢复界面；在该闭环完成前，不应宣称业务数据或附件会自动跨机器同步。
 
 ## 关系概览
+
+卡片内核及书籍规划／章节正文的可视化关系见[数据库架构的核心关系图](../../doc/20架构/database.md#核心关系图)。下列为领域逻辑关系图，非物理表清单；旧复数名按上方映射读取，审核动作也不代表独立表。图不代替本字典与最终 SQL。
 
 ```text
 card_spaces 1 ── n card_types 1 ── n card_type_versions
@@ -343,10 +405,10 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 | 字段 | 类型 | 约束 | 含义 |
 |---|---|---|---|
-| `id` | `text` | 主键 | 已执行迁移编号，例如 `001_card_kernel` |
+| `id` | `text` | 主键 | 实际成功执行的迁移编号；纯表空库登记 `132_card_kernel_tables_only` |
 | `applied_at` | `timestamptz` | 非空 | 成功执行时间 |
 
-运行时先读取这张表，只执行尚未登记的 SQL 文件；同一迁移不会在每次启动时重复执行。
+启动读取安装状态，不自动执行结构变更。获准的迁移入口只登记实际成功的迁移；不补造旧安装历史，也不重复执行已登记迁移。
 
 ## `new_design.card_spaces`
 
@@ -365,7 +427,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 |---|---|---|---|
 | `id` | `uuid` | 主键 | 元卡片类型身份 |
 | `space_id` | `uuid` | 外键、非空 | 所属空间 |
-| `category_id` | `uuid` | 外键、可空 | 管理目录位置，不参与字段继承 |
+| `category_id` | `uuid` | 逻辑引用、可空 | `card_type_category` 记录身份；只管目录，不参与字段继承 |
 | `type_key` | `text` | 空间内唯一 | 稳定类型标识 |
 | `name` | `text` | 非空 | 类型名称 |
 | `description` | `text` | 非空 | 用途说明 |
@@ -374,6 +436,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `current_version_id` | `uuid` | 可空 | 当前发布版本 |
 | `draft_fields` | `jsonb` | 非空 | 当前可编辑草稿 |
 | `is_system` | `boolean` | 非空 | 是否为随产品交付的内置类型 |
+| `is_internal` | `boolean` | 非空、默认 false | 区分仓储记录与作者资料类型；不能代替能力开关 |
 | `sort_order` | `integer` | 非空 | 类型列表中的稳定顺序 |
 | `semantic_capabilities` | `jsonb` | 非空 | 类型可参与的通用创作流程能力 |
 | `created_at` / `updated_at` | `timestamptz` | 非空 | 审计时间 |
@@ -388,11 +451,13 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**类型管“是什么”，能力管“能做什么”，字段管“具体填什么”**。
 
-## `new_design.card_type_categories`
+## 类型分类逻辑记录：`card_type_category`
+
+历史名称为 `card_type_categories`。以下字段位于内部卡片的 `values`；`card_types.category_id` 引用其逻辑身份，不是指向旧分类表的外键。
 
 | 字段 | 类型 | 约束 | 含义 |
 |---|---|---|---|
-| `id` | `uuid` | 主键 | 分类节点身份 |
+| `id` | `uuid` | 逻辑唯一身份 | 分类节点身份；与承载它的物理卡片 ID 分开 |
 | `category_key` | `text` | 唯一、非空 | 稳定分类标识 |
 | `name` | `text` | 非空 | 用户可见名称 |
 | `parent_id` | `uuid` | 自关联、可空 | 上级分类；当前六个系统分类均为根节点 |
@@ -402,7 +467,7 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `revision` | `integer` | 正整数 | 并发写保护 |
 | `created_at` / `updated_at` | `timestamptz` | 非空 | 审计时间 |
 
-系统内置七类为创作策略、人物与组织、世界设定、剧情结构、篇章结构、参考资料和 AI 资源；前六类服务书籍资料，AI 资源只管理跨书复用的提示词组件。搜索树时保留命中叶子的祖先路径；分类节点不创建卡片实例，也不向子类型传递字段。
+系统内置七类为创作策略、人物与组织、世界设定、剧情结构、篇章结构、参考资料和 AI 资源；前六类服务书籍资料，AI 资源只管理跨书复用的提示词组件。搜索树保留命中叶子的祖先路径；分类节点由内部卡承载，但不是作者资料卡，也不向子类型传递字段。
 
 > 🏠 **白话比喻**：分类像档案柜上的抽屉标签，类型像抽屉里的空白表格。对应到系统里：移动抽屉只改变查找位置，不会改写表格上的栏目。
 
@@ -449,6 +514,19 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 | `source` | `text` | `create/edit/archive/restore` | 形成原因 |
 | `created_at` | `timestamptz` | 非空 | 快照时间 |
 
+## `new_design.card_version_actions`
+
+| 字段 | 类型 | 约束与含义 |
+| --- | --- | --- |
+| `id` | `uuid` | 动作物理主键；历史只追加 |
+| `card_id` | `uuid` | 所属物理卡片，不是动作负载中的逻辑对象引用 |
+| `card_version_id` | `uuid`，可空 | 可锁定确切物理卡片版本 |
+| `action_key` | `text` | 带领域名称的动作键；不等同于统一的 adopt 枚举 |
+| `request_key` | `text`，可空 | 领域命名空间内原请求身份；不能误标成 UUID |
+| `input_hash` | `char(64)`，可空 | 与请求键成对存在；同键不同输入拒绝 |
+| `payload` / `receipt` | `jsonb` | 原动作负载和可选结果回执；不由普通文本推断正式采用 |
+| `created_at` | `timestamptz` | 动作创建时间 |
+
 ## 字典、关系与挂载
 
 `dictionary_definitions` / `dictionary_items` 保存稳定字典和树节点，`dictionary_item_versions` 保存每次改名、移动、排序或停用后的不可变路径；`card_tree_value_snapshots` 保存卡片版本当时看到的中文路径。`material_tag_dimensions` 把题材、情绪、叙事功能等分类问题分开，每个维度内的 `material_tags` 构成树，类型通过 `card_type_tag_bindings` 声明选择范围和展示规则。`relation_types` 保存允许的源类型、目标类型、方向、数量和关系属性，`card_relations` 保存真实关系；`card_mounts` 把引用卡片装入某个表单实例，并把“本事件目标、立场、结果”等局部值存在挂载上。
@@ -476,6 +554,8 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 > 🧠 **速记方法**：**安装复制、书书隔离、升级只加不改**。
 
 ## 统一开书与 AI 来源追踪
+
+开书读取不可变模板时，历史平面字典中省略的 `parentSourceId` 仅在运行时目录映射为 `parentId: null`，与显式根节点等价。已有父节点标识和层级路径保持不变，非法非空标识仍受校验；不回写模板快照、不回填数据库。这样旧模板可以继续进入受控 AI 准备，且不改变其来源哈希与历史内容。
 
 `inspiration_candidates` 保存可跨机器初始化的“没有想法”候选；`book_creation_sessions` 保存一次开书从来源理解、方向确认、初始资料预览到书籍安装的状态；`ai_generation_batches` 保存每次 AI 调用的阶段、输入、输出、提示词版本、模型、重试来源和错误；`book_content_sources` 把完成后的书籍关联到真实入口与来源；`card_field_origins` 记录 AI 初始值或表单建议对应的卡片字段、生成批次和确认状态。
 
@@ -621,7 +701,9 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 
 > 🧠 **速记方法**：**状态管开门，数据库管正文；升级先留旧库，新库验完再换牌。**
 
-## 迁移规则
+## 历史领域合同与保留约束
+
+以下编号用于追溯约束来源，不是执行建议。旧表名按“物理表与逻辑记录的读法”映射；`132` 将真实校验和副作用重接到最终物理表、记录卡与动作，而不是重跑历史迁移。后续变更入口统一见[数据库增量门禁](../AGENTS.md#数据库增量门禁)。
 
 ### 033 业务表单来源
 
@@ -733,6 +815,75 @@ story_event_timings ──> story_time_positions（旧事件视图兼容投影�
 2. 已发布迁移文件不可改写；结构变化必须新增迁移。
 3. 迁移默认只前进且非破坏。删列、改类型、清表或重建数据库必须先完成备份、恢复校验并取得明确授权。
 4. 确定性基础数据使用稳定主键和 `ON CONFLICT`，确保多机初始化结果一致。
+
+## 后续迁移与页面数据边界
+
+### 旧版页面与新版数据的对应原则
+
+旧版页面是布局、信息密度、入口和操作流程的参考；新版页面读取 `new_design` 的独立数据。页面上显示“人物”“世界”“章节”等业务名称，内部按各对象的真实正本保存，并非把每个业务行都硬塞进 `cards`。以下是数据归属，不代替 [逐页施工记录](legacy-page-replication-progress.md) 中对全部菜单和可见操作的核对。
+
+| 页面所见 | 新版正本或稳定身份 | 版本、候选与辅助记录 | 不能混用的边界 |
+| --- | --- | --- | --- |
+| 人物、世界、道具、公共创作资源、本书资料 | `card_spaces`、`card_types`、`cards` | `card_type_versions`、`card_versions`、字段与字典版本、挂载及关系版本 | 公共来源与本书副本各有身份；引用确切版本，不用运行回执代替资料正本。 |
+| 故事／卷／章／场景规划 | 对应类型的 `cards`、明确采用的 `card_versions` | `card_relations` 层级／引用、`card_version_actions` 候选与采用回执 | 计划切版不自动改正文、事实或已结算状态。 |
+| 章节写作与质量修复 | `chapter_documents`、`chapter_body_versions`、正式采用与稳定检查点 | AI 请求、审计报告、修复候选、结算提案与回执 | AI 回复和候选不是正式正文；确认变化仍归事实、状态、认知等领域账本。 |
+| 知识、图片与视觉资产 | 研究原文及版本、`asset_versions`、受管文件 | 解析／嵌入与检索轨迹、生成回复、挂载和来源回执 | 数据库登记版本、哈希和定位；受管文件字节另行备份，检索投影不成为原件。 |
+| 模型设置、导演与运行记录 | 已发布的模型路由版本、原 `ai_tasks`／步骤／尝试及领域来源 | 冻结上下文、执行快照、控制命令和只读运行投影 | 模型凭据不出现在公开回执；运行记录只展示状态和来源页，业务动作回到来源页。 |
+
+这些边界来自迁移 SQL 与对应数据库模块；页面完整覆盖范围以 `src/client/navigation.ts`、实际路由和逐页操作清单为准。旧版页面中的按钮只有接入新版来源、保存／采用／恢复回执和错误状态后才能记为可用；打开入口或存在数据库表均不证明操作完成。
+
+### 历史普通迁移 `046`—`083`
+
+下表记录本字典原有 `045` 之后的主要结构增量。未列为新表的迁移仍可能修改约束、触发器、字段和索引；字段的物理定义以对应 SQL 为准。
+
+| 迁移 | 数据归属与主要关系 | 关键约束或用途 |
+| --- | --- | --- |
+| `046`—`048` | `dictionary_item_versions`、标签维度／目标成员版本、`card_tree_value_snapshots`；开书会话统一审阅 | 字典与标签使用稳定节点身份和路径快照；审阅结果属于开书前会话，不覆盖已存在资料。 |
+| `049`—`051` | `form_ai_draft_decisions`、`card_version_ai_draft_sources`、`prompt_command_receipts`；数据库函数作用域加固 | 表单 AI 决定与保存的资料版本相连；提示词资源分类和原命令回执独立于卡片内容。 |
+| `052`—`053` | 原 `model_route_snapshots` 增加受管任务范围；提示词配方槽位及原 `ai_task_attempts` 增加调试结果 | 调试沿原任务／尝试账本，不能从调试输出直接写正式业务事实。 |
+| `054`—`057` | 章节结算编辑回执、`chapter_proposal_extraction_requests` 冻结输入、`settlement_relation_configuration_drafts`／`versions`／`receipts`，依赖事件保护 | 人工编辑、AI 提案和关系结算配置均需精确来源与原请求；确认仍通过原章节结算事务。 |
+| `058`—`063` | 开书生产原请求与 AI 准备、受管快照依赖桥、知识引用、作者资料保存、`professional_resource_receipts` | 开书和资料写入复用既有书籍／卡片正本；来源哈希、版本和幂等回执证明一次操作，不建立第二套书籍或资源内容。 |
+| `065`—`069` | `book_composition_order_events`、`production_director_runs`／`chapters`／`commands`、编排时间命令、视觉资产来源和章节连续性来源 | 导演冻结范围与原章节请求指针，正文仍归 `chapter_body_versions`；编排及图片回执保留来源版本，不能替代实际采用。 |
+| `070`—`076` | 嵌入执行与原连接版本、`structure_write_receipts`、资产回执及失效事件身份 | 向量执行绑定精确模型连接／维度与索引分代；结构写入和资产派生使用原请求及来源哈希。`072`—`076` 还收紧函数作用域、参数和定位校验。 |
+| `077`—`081` | `quality_report_material_versions`、`world_consistency_requests`、`creative_extraction_previews`／`write_receipts`；原 AI 尝试与资产账本承载图片回复，知识引用增加段落来源 | 世界检查锁定卡片／关系的确切版本；提取先预览再按作者选择写入；图片原回复与最终 `asset_versions` 分开。 |
+| `083` | `character_dialogue_sessions`／`rounds`／`selections` | 对话是非事实沙盒；仅作者明确选择的行动约束能进入真实规划候选，不能直接修改人物、认知、状态或正文。 |
+
+`064`、`082` 没有注册的迁移文件；迁移顺序取注册清单，不依据编号补跑不存在的文件。`050`、`057`、`060`、`072`—`076`、`080`、`081` 等既有结构扩展尤其需要结合触发器和应用读写理解，不能仅凭是否新增表判断影响。
+
+### 历史独立安装合同 `084`—`131`
+
+以下表格记录历史迁移引入的业务语义及其当时安装边界，不要求新空库继续执行这些文件。`132` 由最终函数、内部类型、种子和能力记录装配相同保护；能力开关不能绕过来源校验、原请求或下游闭包。表中旧对象名均为历史逻辑名称，实际物理边界以上方最终清单为准。
+
+| 迁移 | 新增业务记录或保护 | 正本与启用边界 |
+| --- | --- | --- |
+| `084`—`085` | 世界包版本、公共卡片／关系精确引用、逐书安装映射、同步命令与三方基线；人物资源回填保护 | 世界资料仍是原公共与本书卡片／关系版本；包与安装仅冻结来源和映射。`084` 不进入普通启动，默认关闭。 |
+| `108` | `world_package_catalog_actions` 追加归档／恢复事件 | 目录状态与固定包版本分离。普通目录隐藏已归档来源，新导入与继续发布受阻；原版本、原请求和书内独立资料不删改。须在 `084` 之后手动安装，且归档触发器完整启用。 |
+| `109` | `comic_projects`、`comic_source_versions` | 漫画项目独立于小说业务表。创建时将小说已采用正文或作者输入冻结为来源版本，原创建请求键可找回；来源快照不可更新或删除。未安装或快照保护停用时禁止新建，已创建项目仍可读取。手动迁移不随启动安装。 |
+| `110` | `comic_episodes`、`comic_episode_versions`、`comic_episode_adoptions` | 分集大纲按序号保存人工候选并由作者明确采用。候选与采用回执不可改写；新候选不覆盖已采用版本。AI 大纲生成尚未接入，迁移仍须手动安装。 |
+| `111` | `comic_panel_sets`、`comic_panels`、`comic_panel_set_adoptions` | 分格以整话脚本版本保存候选，逐格动作、对白、人物、场景与画面提示词有同一版本来源；作者明确采用后才成为正式脚本。旧大纲的脚本会标记为不就绪，不能继续采用；旧脚本仍可读取。分格成图与导出尚未接入。 |
+| `112` | `comic_bible_entities`、`comic_bible_versions`、`comic_bible_adoptions` | 角色与场景设定各自保存文字候选和明确采用；外形锚点、人物性格、场景色彩／材质／布局保留历史。快照保护失效时停写保读；视觉图片由 `114` 的独立版本账本绑定。 |
+| `113` | `comic_source_bundle_state`、`comic_source_bundle_versions`、`comic_source_bundle_adoptions` | 冻结原文之上另建人工来源梗概／情节节拍／角色线索候选，明确采用后才成为正式整理依据。每版绑定原来源版本，候选和采用流水不可改写；原文始终保留。AI 来源提取尚未接入。 |
+| `114` | `comic_visual_assets`、`comic_visual_asset_versions`、`comic_visual_asset_adoptions` | 角色肖像、三视图、表情、服装、道具和场景设定图保存为不可改写候选；每版绑定当时已采用的角色／场景设定版本，只有作者明确采用才成为正式视觉锚点。当前接入本地上传，不把图片候选自动视为已采用，也不冒充分格成图或导出。 |
+| `115` | `creative_hub_threads`、`creative_hub_turns`；创作中枢独立模型任务范围 | 会话绑定作品、章节或原任务；每次诊断冻结当时只读投影和原请求身份，迟到结果只写回原 turn，同键不同输入拒绝。线程只归档不删除，原问题与冻结状态不可改写。中枢只返回查询、失败解释、影响分析和已有页面定位，不提供生成、保存、采用、审批、取消或重试业务写入。未安装或保护不完整时写入停用。 |
+| `116` | `world_generation_sessions`、`world_generation_candidates`、`world_generation_publications`；世界样本独立模型任务和公共关系规则 | 灵感、模板、属性与确切参考版本冻结为生成会话；模型和人工修改只新增候选，明确发布才经世界包底座生成公共世界固定版本。规则、势力、地点及候选关系分别进入正式卡片和关系版本；来源变化、旧修订、同键不同输入及重复发布受阻。手动迁移未安装或保护不完整时写入停用。 |
+| `117` | `comic_render_batches`、事实快照、成图版本／采用、气泡输出和导出清单／文件 | 漫画分格与角色／场景设定图冻结采用分镜和视觉事实，生成结果只成为候选；作者明确采用后才能进入气泡预览、无字原图和项目清单导出。图片字节继续进入受管资产，导出使用相对定位及校验和；来源变化会拒绝旧清单提交。 |
+| `118`—`120` | 短剧项目／来源版本、策略／人物／分集候选与采用、台本版本／采用、质量报告 | 短剧是独立领域，不复用旧版短剧表。小说来源只冻结已采用正文；原创与文本来源冻结作者输入。所有 AI 结果先进入不可变候选，人物、策略、分集和台本分别采用，后级绑定上级确切版本；质量报告不覆盖正式台本。 |
+| `121`—`122` | 短剧分镜／镜头版本、媒体提示词和任务账本、导出清单／文件 | 分镜绑定已采用台本；角色设计、关键帧、对白音频和视频提示词保留版本。供应商执行端口未安装时任务明确为不可运行，不创建伪成功或假排队。SRT、timeline JSON、Markdown 与 JSON 导出冻结正式来源并在提交时重新核对。 |
+| `123`—`126` | `card_version_actions`；世界生成、漫画、短剧和创作中枢稳定对象／候选／采用的卡片映射 | 原 UUID、请求键、输入哈希和时间戳尽量保留；创作中枢轮次改为不可变动作状态。此阶段只复制和重接，不删除旧表。 |
+| `127`—`130` | `system_capabilities`；结构、内容、作者流程及基础设施各类旧记录的卡片内核映射 | 每张旧表按主键生成确定性内部身份，原行完整保存在版本值中并逐表核对数量。仍不删除旧表。 |
+| `131` | 79 张最终应用表、兼容投影、`card_kernel_v2` 能力和全局写门禁 | 在同一事务内核对、切换、重建兼容读取并删除重复物理表；AGE 保留 4 张投影表。任何失败整体回滚，不允许半迁移修补。 |
+| `087`—`094` | `chapter_resource_supplements`、影响复核、完整性日志／冲突／解除证明、修正来源与正式提交回执 | 补充引用原稳定检查点、采用正文和结算，不重开原会话或覆盖原状态；下游冲突与投影来源必须经实际证明解除。各迁移按合同顺序独立启用，不能因部分表已存在就宣称闭环可用。 |
+| `095` | `chapter_quality_requests` | 冻结待审正文版本、AI 任务／步骤／尝试和原回复；质量报告仍归 `quality_audit_reports`，请求成功不自动采用修复。 |
+| `096`—`097` | 公共人物能力、`public_character_trials`、`public_character_portrait_events` 及公共人物上下文范围 | 人物档案仍用公共 `cards/card_versions`；试聊和肖像事件是候选／回执，不写书内人物正本。 |
+| `098`—`100` | `image_prompt_preparations`、依赖创建保护和图片原回复校验 | 提示词准备与模型原回复有独立来源和校验；正式图片仍以资产版本和挂载为准。 |
+| `101`—`102` | `character_author_trials`、创作倾向候选和明确决定 | 对话／倾向保留精确人物、正文和来源快照；候选不自动成为正式人物资料、事实或章节正文。 |
+| `103` | `public_title_factory_trials`／`choices` | 未开书标题基于公共来源卡片的确切版本；生成和选择回执不创建占位书，也不代替明确采用书名。 |
+| `104` | `book_content_history_snapshots`／`restores` | 历史快照冻结书内来源，恢复先保存当前状态并留下原请求；不以快照替换各领域原有历史账本。 |
+| `105` | 原 `model_credential_refs.secret_envelope` | 数据库密文与 `secret://database` 成对受约束；旧 `env://` 引用继续可读，公开目录和运行快照不返回密钥。 |
+| `106` | `world_usage_candidates`／`adoptions`／`capability` | 本书世界正式来源冻结后，人工或 AI 只生成候选；明确采用才向规划与章节提供范围。手动迁移不随启动安装；当前作者库已安装并启用能力行。 |
+| `107` | `payoff_windows` 及伏笔类型新版本 | 目标章节窗口由作者保存，账本只根据正式章节结算判断回收；手动迁移不随启动安装，当前作者库已安装。 |
+
+`086` 没有对应历史文件。2026-09-22 的 `123`—`131`、共 128 项登记是旧兼容模型的历史证据；随后当前开发库以单一事务安装 `133`，共 129 项登记并移除兼容视图及行类型。旧版数据库未操作。`132` 的历史空库验证与 `133` 的存量核对分别保留，不将局部读取冒烟宣称为全功能验收。实际状态以[开发交付记录](development-delivery.md)为准。
 
 ## 内置小说资料规格
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DictionaryItem, DictionarySummary, MaterialTag, StandardFieldSemantic, TagDimension, TreeImpactPreview } from "../common/contracts";
 import { treeDescendantIds } from "../common/treePolicy";
 import { newDesignApi } from "./api";
@@ -45,6 +45,14 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
   const [impact,setImpact]=useState<TreeImpactPreview|null>(null);
+  const newDictionaryBaseline=useRef("");
+  const newDimensionBaseline=useRef("");
+  const semanticsBaseline=useRef<StandardFieldSemantic[]>([]);
+  const dictionaryDirty=!!dictionary&&JSON.stringify(dictionary)!==(dictionary.id?JSON.stringify(dictionaries.find(item=>item.id===dictionary.id)):newDictionaryBaseline.current);
+  const dimensionDirty=!!dimension&&JSON.stringify(dimension)!==(dimension.id?JSON.stringify(dimensions.find(item=>item.id===dimension.id)):newDimensionBaseline.current);
+  const semanticsDirty=JSON.stringify(semantics)!==JSON.stringify(semanticsBaseline.current);
+  const confirmSwitch=()=>!busy&&(!((mode==="dictionary"&&dictionaryDirty)||(mode==="tag"&&dimensionDirty))||window.confirm("当前树有未保存修改。放弃这些修改并切换吗？"));
+  const confirmReload=(otherDirty:boolean)=>!otherDirty||window.confirm("此操作会重新读取目录，其他未保存的修改将丢弃。继续吗？");
 
   const load=async()=>{
     const [nextDictionaries,nextDimensions,nextSemantics]=await Promise.all([
@@ -55,12 +63,14 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
     setDictionaries(nextDictionaries);
     setDimensions(nextDimensions);
     setSemantics(nextSemantics);
+    semanticsBaseline.current=nextSemantics;
     setDictionary(current=>current?nextDictionaries.find(item=>item.id===current.id)??current:nextDictionaries[0]??null);
     setDimension(current=>current?nextDimensions.find(item=>item.id===current.id)??current:nextDimensions[0]??null);
   };
 
   useEffect(()=>{void load().catch(error=>setMessage(error instanceof Error?error.message:"树资源加载失败。"));},[]);
   useEffect(()=>{setMode(initialMode);setSelectedNodeId(null);setImpact(null);},[initialMode]);
+  useEffect(()=>{if(!dictionaryDirty&&!dimensionDirty&&!semanticsDirty)return;const protect=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};window.addEventListener("beforeunload",protect);return()=>window.removeEventListener("beforeunload",protect);},[dictionaryDirty,dimensionDirty,semanticsDirty]);
 
   const activeDictionaryItem=dictionary?.items.find(item=>item.id===selectedNodeId)??null;
   const activeTag=dimension?.nodes.find(item=>item.id===selectedNodeId)??null;
@@ -80,12 +90,14 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
   };
 
   const createCatalogItem=()=>{
+    if(!confirmSwitch())return;
     setSelectedNodeId(null);setImpact(null);
-    if(mode==="dictionary")setDictionary(blankDictionary());
-    else setDimension(blankDimension());
+    if(mode==="dictionary"){const next=blankDictionary();newDictionaryBaseline.current=JSON.stringify(next);setDictionary(next);}
+    else {const next=blankDimension();newDimensionBaseline.current=JSON.stringify(next);setDimension(next);}
   };
 
   const selectCatalogItem=(id:string)=>{
+    if(!confirmSwitch())return;
     setSelectedNodeId(null);setImpact(null);
     if(mode==="dictionary"){
       const selected=dictionaries.find(item=>item.id===id);
@@ -97,11 +109,13 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
   };
 
   const addNode=(parentId:string|null)=>{
+    if(busy)return;
     setImpact(null);
     if(mode==="dictionary"&&dictionary){
       const item=newDictionaryItem(parentId,dictionary.items.length*10+10);
       setDictionary({...dictionary,items:[...dictionary.items,item]});setSelectedNodeId(item.id);
     }else if(mode==="tag"&&dimension){
+      if(!dimension.id){setMessage("请先保存标签维度，再新增标签节点。维度保存不会保存节点。");return;}
       const id=crypto.randomUUID();
       const tag:MaterialTag={id,spaceId:RESOURCE_SPACE_ID,key:`tag_${id.replaceAll("-","").slice(0,12)}`,name:"新标签",aliases:[],color:null,metadata:{description:""},dimensionId:dimension.id,parentId,sortOrder:dimension.nodes.length*10+10,path:[],childCount:0,status:"active",revision:1,currentVersionId:"",visibility:"space",memberCount:0,updatedAt:new Date().toISOString()};
       setDimension({...dimension,nodes:[...dimension.nodes,tag]});setSelectedNodeId(id);
@@ -109,12 +123,14 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
   };
 
   const moveNode=async(id:string,direction:-1|1)=>{
+    if(busy)return;
     setImpact(null);
     if(mode==="dictionary"&&dictionary){
       setDictionary({...dictionary,items:reorderSiblings(dictionary.items,id,direction)});
       setSelectedNodeId(id);setMessage("顺序已调整，保存字典树后生效。");return;
     }
     if(mode==="tag"&&dimension){
+      if(!confirmReload(dimensionDirty||dictionaryDirty||semanticsDirty))return;
       const selected=dimension.nodes.find(item=>item.id===id);
       if(!selected?.currentVersionId){setMessage("请先保存这个新标签，再调整顺序。");return;}
       const nextNodes=reorderSiblings(dimension.nodes,id,direction);
@@ -131,35 +147,53 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
     }
   };
 
-  const saveDictionary=()=>dictionary&&run(async()=>{const saved=dictionary.id?await newDesignApi.updateDictionary(dictionary):await newDesignApi.createDictionary(dictionary);setDictionary(saved);},"字典树已保存，历史路径快照已更新。");
-  const saveDimension=()=>dimension&&run(async()=>{const saved=dimension.id?await newDesignApi.updateTagDimension(dimension):await newDesignApi.createTagDimension(dimension);setDimension(saved);},"标签维度已保存。");
-  const saveTag=()=>dimension&&activeTag&&run(async()=>{
+  const saveDictionary=()=>{if(!dictionary||!confirmReload(dimensionDirty||semanticsDirty))return;void run(async()=>{const saved=dictionary.id?await newDesignApi.updateDictionary(dictionary):await newDesignApi.createDictionary(dictionary);setDictionary(saved);},"字典树已保存，历史路径快照已更新。");};
+  const saveDimension=()=>{
+    if(!dimension)return;
+    const savedNodes=dimension.id?dimensions.find(item=>item.id===dimension.id)?.nodes??[]:[];
+    if(JSON.stringify(dimension.nodes)!==JSON.stringify(savedNodes)){setMessage("标签节点尚未保存。请先逐个保存节点；保存标签维度只保存名称和用途，不会保存节点。");return;}
+    if(!confirmReload(dictionaryDirty||semanticsDirty))return;
+    void run(async()=>{const saved=dimension.id?await newDesignApi.updateTagDimension(dimension):await newDesignApi.createTagDimension(dimension);setDimension(saved);},"标签维度名称与用途已保存；标签节点需单独保存。");
+  };
+  const saveTag=()=>{
+    if(!dimension||!activeTag)return;
+    const saved=dimensions.find(item=>item.id===dimension.id);
+    const otherNodes=dimension.nodes.filter(item=>item.id!==activeTag.id),savedOtherNodes=(saved?.nodes??[]).filter(item=>item.id!==activeTag.id);
+    if(!confirmReload(dictionaryDirty||semanticsDirty||dimension.name!==saved?.name||dimension.description!==saved?.description||JSON.stringify(otherNodes)!==JSON.stringify(savedOtherNodes)))return;
+    void run(async()=>{
     const persisted=dimensions.flatMap(item=>item.nodes).some(item=>item.id===activeTag.id),description=String(activeTag.metadata.description??"");
     if(persisted)await newDesignApi.reviseMaterialTag({spaceId:RESOURCE_SPACE_ID},activeTag.id,{name:activeTag.name,aliases:activeTag.aliases,color:activeTag.color,metadata:{...activeTag.metadata,description},dimensionId:dimension.id,parentId:activeTag.parentId,sortOrder:activeTag.sortOrder,visibility:activeTag.visibility,expectedRevision:activeTag.revision,idempotencyKey:crypto.randomUUID()});
     else await newDesignApi.createMaterialTag({spaceId:RESOURCE_SPACE_ID},{key:activeTag.key,name:activeTag.name,aliases:[],metadata:{description},dimensionId:dimension.id,parentId:activeTag.parentId,sortOrder:activeTag.sortOrder,idempotencyKey:crypto.randomUUID()});
-  },"标签节点已保存，所属路径已记录。");
-  const preview=(kind:"dictionary"|"tag",id:string,action:"move"|"archive")=>{setBusy(true);void newDesignApi.previewTreeNodeChange(id,kind,action).then(setImpact).catch(error=>setMessage(error instanceof Error?error.message:"影响检查失败。")).finally(()=>setBusy(false));};
-  const archive=()=>{
-    if(mode==="dictionary"&&dictionary&&activeDictionaryItem&&impact?.nodeId===activeDictionaryItem.id){setDictionary({...dictionary,items:dictionary.items.map(item=>item.id===activeDictionaryItem.id?{...item,status:"archived"}:item)});setSelectedNodeId(null);setImpact(null);}
-    else if(mode==="tag"&&activeTag&&impact?.nodeId===activeTag.id){void run(()=>newDesignApi.reviseMaterialTag({spaceId:RESOURCE_SPACE_ID},activeTag.id,{name:activeTag.name,aliases:activeTag.aliases,color:activeTag.color,metadata:activeTag.metadata,parentId:activeTag.parentId,sortOrder:activeTag.sortOrder,visibility:activeTag.visibility,expectedRevision:activeTag.revision,idempotencyKey:crypto.randomUUID()},true).then(()=>undefined),"标签已停用，历史选择仍保留原名称和路径。");}
+    },"标签节点已保存，所属路径已记录。");
   };
-  const saveSemantic=(item:StandardFieldSemantic)=>run(async()=>{if(item.id.startsWith("new:")){const {id:_id,status:_status,revision:_revision,...input}=item;await newDesignApi.createStandardFieldSemantic(input);}else await newDesignApi.updateStandardFieldSemantic(item);},"字段模板已保存。");
+  const preview=(kind:"dictionary"|"tag",id:string,action:"move"|"archive")=>{if(busy)return;setBusy(true);void newDesignApi.previewTreeNodeChange(id,kind,action).then(setImpact).catch(error=>setMessage(error instanceof Error?error.message:"影响检查失败。")).finally(()=>setBusy(false));};
+  const archive=()=>{
+    if(busy)return;
+    if(mode==="dictionary"&&dictionary&&activeDictionaryItem&&impact?.nodeId===activeDictionaryItem.id){setDictionary({...dictionary,items:dictionary.items.map(item=>item.id===activeDictionaryItem.id?{...item,status:"archived"}:item)});setSelectedNodeId(null);setImpact(null);}
+    else if(mode==="tag"&&activeTag&&impact?.nodeId===activeTag.id){if(!confirmReload(dictionaryDirty||semanticsDirty||dimensionDirty))return;void run(()=>newDesignApi.reviseMaterialTag({spaceId:RESOURCE_SPACE_ID},activeTag.id,{name:activeTag.name,aliases:activeTag.aliases,color:activeTag.color,metadata:activeTag.metadata,parentId:activeTag.parentId,sortOrder:activeTag.sortOrder,visibility:activeTag.visibility,expectedRevision:activeTag.revision,idempotencyKey:crypto.randomUUID()},true).then(()=>undefined),"标签已停用，历史选择仍保留原名称和路径。");}
+  };
+  const saveSemantic=(item:StandardFieldSemantic)=>{
+    const other=semantics.filter(value=>value.id!==item.id),savedOther=semanticsBaseline.current.filter(value=>value.id!==item.id);
+    if(!confirmReload(dictionaryDirty||dimensionDirty||JSON.stringify(other)!==JSON.stringify(savedOther)))return;
+    void run(async()=>{if(item.id.startsWith("new:")){const {id:_id,status:_status,revision:_revision,...input}=item;await newDesignApi.createStandardFieldSemantic(input);}else await newDesignApi.updateStandardFieldSemantic(item);},"字段模板已保存。");
+  };
 
   return <ResourceShell active={initialMode==="dictionary"?"dictionaries":"tags"}>
     <main className="nd-tree-resource-page">
       <nav className="nd-segmented" aria-label="树资源类型">
-        <button className={mode==="dictionary"?"is-active":""} onClick={()=>setMode("dictionary")} type="button">字典树</button>
-        <button className={mode==="tag"?"is-active":""} onClick={()=>setMode("tag")} type="button">标签树</button>
-        <button className={mode==="field"?"is-active":""} onClick={()=>setMode("field")} type="button">字段模板</button>
+        <button disabled={busy} className={mode==="dictionary"?"is-active":""} onClick={()=>setMode("dictionary")} type="button">字典树</button>
+        <button disabled={busy} className={mode==="tag"?"is-active":""} onClick={()=>setMode("tag")} type="button">标签树</button>
+        <button disabled={busy} className={mode==="field"?"is-active":""} onClick={()=>setMode("field")} type="button">字段模板</button>
       </nav>
       {message&&<p className="nd-message" aria-live="polite">{message}</p>}
-      {mode==="field"?<section className="nd-standard-field-list">
+      {mode==="field"?<section className="nd-standard-field-list"><fieldset disabled={busy} style={{display:"contents"}}>
         <div className="nd-section-heading"><div><p className="nd-kicker">标准字段语义</p><h2>复用业务含义，不强制相同表单</h2></div><button className="nd-button nd-button-secondary" type="button" onClick={()=>setSemantics(items=>[...items,{id:`new:${crypto.randomUUID()}`,name:"新字段模板",description:"",dataType:"short_text",recommendedDictionaryId:null,applicableTypeKeys:[],allowedSelectionModes:["single"],settlementSuggestion:"none",status:"active",revision:1}])}>＋ 新建模板</button></div>
         {semantics.map((item,index)=><article key={item.id}><div className="nd-form-grid"><label className="nd-control"><span>中文名称</span><input value={item.name} onChange={event=>setSemantics(values=>values.map((value,i)=>i===index?{...value,name:event.target.value}:value))}/></label><label className="nd-control"><span>内容形式</span><select value={item.dataType} onChange={event=>setSemantics(values=>values.map((value,i)=>i===index?{...value,dataType:event.target.value as StandardFieldSemantic["dataType"]}:value))}><option value="short_text">短文本</option><option value="long_text">长文本</option><option value="number">数字</option><option value="boolean">是／否</option><option value="select">单选</option><option value="multi_select">多选</option><option value="date">日期</option></select></label><label className="nd-control"><span>推荐字典</span><select value={item.recommendedDictionaryId??""} onChange={event=>setSemantics(values=>values.map((value,i)=>i===index?{...value,recommendedDictionaryId:event.target.value||null}:value))}><option value="">不绑定</option>{dictionaries.map(value=><option key={value.id} value={value.id}>{value.name}</option>)}</select></label></div><label className="nd-control"><span>用途解释</span><input value={item.description} onChange={event=>setSemantics(values=>values.map((value,i)=>i===index?{...value,description:event.target.value}:value))}/></label><button className="nd-button nd-button-secondary" type="button" disabled={busy||!item.name.trim()} onClick={()=>void saveSemantic(item)}>保存字段模板</button></article>)}
-      </section>:<div className="nd-tree-resource-workspace">
-        <TreeResourceCatalog title={mode==="dictionary"?"字典树":"标签维度"} items={catalogItems} selectedId={mode==="dictionary"?dictionary?.id??null:dimension?.id??null} onSelect={selectCatalogItem} onCreate={createCatalogItem} selectedTree={<TreeManager key={`${mode}:${mode==="dictionary"?dictionary?.id:dimension?.id}`} nodes={nodes} selectedId={selectedNodeId} onSelect={id=>{setSelectedNodeId(id);setImpact(null);}} onAdd={addNode} onMove={(id,direction)=>void moveNode(id,direction)}/>}/>
-        <section className="nd-tree-resource-editor">{(mode==="dictionary"?dictionary:dimension)?<>
+      </fieldset></section>:<div className="nd-tree-resource-workspace">
+        <TreeResourceCatalog title={mode==="dictionary"?"字典树":"标签维度"} items={catalogItems} selectedId={mode==="dictionary"?dictionary?.id??null:dimension?.id??null} onSelect={selectCatalogItem} onCreate={createCatalogItem} selectedTree={<TreeManager key={`${mode}:${mode==="dictionary"?dictionary?.id:dimension?.id}`} nodes={nodes} selectedId={selectedNodeId} onSelect={id=>{if(busy)return;setSelectedNodeId(id);setImpact(null);}} onAdd={addNode} onMove={(id,direction)=>void moveNode(id,direction)}/>}/>
+        <section className="nd-tree-resource-editor"><fieldset disabled={busy} style={{display:"contents"}}>{(mode==="dictionary"?dictionary:dimension)?<>
           <div className="nd-form-grid"><label className="nd-control"><span>{mode==="dictionary"?"字典名称":"维度名称"}</span><input value={(mode==="dictionary"?dictionary:dimension)?.name??""} onChange={event=>mode==="dictionary"&&dictionary?setDictionary({...dictionary,name:event.target.value}):dimension&&setDimension({...dimension,name:event.target.value})}/></label><label className="nd-control"><span>用途解释</span><input value={(mode==="dictionary"?dictionary:dimension)?.description??""} onChange={event=>mode==="dictionary"&&dictionary?setDictionary({...dictionary,description:event.target.value}):dimension&&setDimension({...dimension,description:event.target.value})}/></label></div>
+          {mode==="tag"&&<p className="nd-help-text">标签维度只保存名称和用途。新维度请先保存，再新增标签；每个标签节点单独保存。</p>}
           <div className="nd-tree-resource-detail">
             <div className="nd-tree-node-editor">
               {mode==="dictionary"&&activeDictionaryItem?<>
@@ -177,7 +211,7 @@ export default function ResourceTreesPage({initialMode}:{initialMode:"dictionary
             </div>
           </div>
           <footer className="nd-editor-actions"><button className="nd-button nd-button-primary" disabled={busy||!(mode==="dictionary"?dictionary?.name:dimension?.name)?.trim()} type="button" onClick={()=>void(mode==="dictionary"?saveDictionary():saveDimension())}>{busy?"保存中…":mode==="dictionary"?"保存字典树":"保存标签维度"}</button></footer>
-        </>:<div className="nd-empty nd-empty-page">选择或新建一棵树。</div>}</section>
+        </>:<div className="nd-empty nd-empty-page">选择或新建一棵树。</div>}</fieldset></section>
       </div>}
     </main>
   </ResourceShell>;

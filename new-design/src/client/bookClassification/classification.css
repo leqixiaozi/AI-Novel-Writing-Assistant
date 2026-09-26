@@ -1,0 +1,8 @@
+.nd-book-classification fieldset{border:0;padding:0;margin:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.nd-book-classification fieldset>.nd-button{grid-column:1/-1;justify-self:start}
+.nd-materials-unbuilt{margin-top:12px}
+.nd-materials-unbuilt>summary{cursor:pointer;padding:10px 0}
+.nd-materials-unbuilt section{margin:12px 0}
+.nd-materials-unbuilt h3{font-size:14px;margin:8px 0}
+@media(max-width:1000px){.nd-book-classification fieldset{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.nd-book-classification fieldset{grid-template-columns:minmax(0,1fr)}}

@@ -6,10 +6,11 @@ import {ApiError,newDesignApi} from '../api';
 import BookShell from '../BookShell';
 import './director.css';
 import {z} from 'zod';
+import DirectorRangeSelector from './RangeSelector';
+import RunChapterTable from './RunChapterTable';
 const statusLabels={ready:'等待明确开始',running:'逐章生成中',paused:'停在章边界',waiting_recovery:'原结果待核对',failed:'需要处理来源',completed:'候选准备完成',cancelled:'范围已结束'};
-const chapterLabels={pending:'待生成',running:'原生成结果待核对',candidate_saved:'候选已保存',failed:'本章待处理',unknown:'原调用及用量未知'};
-export default function ProductionDirectorPage({bookId}:{bookId:string}){
-  const query=new URLSearchParams(window.location.search),runParams=query.getAll('run'),requested=runParams.length===1&&z.string().uuid().safeParse(runParams[0]).success?runParams[0]:null,invalidRun=runParams.length>0&&!requested;
+export default function ProductionDirectorPage({bookId,initialRunId,embedded=false,onCloseGuardChange}:{bookId:string;initialRunId?:string;embedded?:boolean;onCloseGuardChange?:(state:{blocked:boolean;dirty:boolean})=>void}){
+  const query=new URLSearchParams(initialRunId?'run='+encodeURIComponent(initialRunId):embedded?'':window.location.search),runParams=query.getAll('run'),requested=runParams.length===1&&z.string().uuid().safeParse(runParams[0]).success?runParams[0]:null,invalidRun=runParams.length>0&&!requested;
   const [workspace,setWorkspace]=useState<DirectorWorkspace|null>(null),[selected,setSelected]=useState<string|null>(requested),[chapters,setChapters]=useState<string[]>([]),[instruction,setInstruction]=useState(''),[policy,setPolicy]=useState<'completion_first'|'quality_first'>('completion_first');
   const [pending,setPending]=useState<DirectorPending|null>(null),[storageBlocked,setStorageBlocked]=useState(false),[error,setError]=useState<Error|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[notWritten,setNotWritten]=useState(false),[checked,setChecked]=useState(false),[saved,setSaved]=useState<DirectorReceipt|null>(null);
   const [draftLoaded,setDraftLoaded]=useState(false);
@@ -20,6 +21,7 @@ export default function ProductionDirectorPage({bookId}:{bookId:string}){
   const flight=useRef(false),sequence=useRef(0),run=workspace?.runs.find(item=>item.id===selected)??null;
   const capture=(value:unknown)=>setError(value instanceof Error?value:new Error('结果未确认，请保留原请求。'));
   const locked=busy||Boolean(pending)||storageBlocked||!draftLoaded||invalidRun;
+  useEffect(()=>{onCloseGuardChange?.({blocked:busy||Boolean(pending)||storageBlocked,dirty:Boolean(chapters.length||instruction)});},[busy,pending,storageBlocked,chapters.length,instruction,onCloseGuardChange]);
   async function refresh(){const token=++sequence.current;try{const value=await newDesignApi.getDirectorWorkspace(bookId);if(value.bookId!==bookId||value.book.id!==bookId)throw new Error('导演目录来源与本书不一致，禁止替代。');if(requested&&!value.runs.some(item=>item.id===requested)){const exact=await newDesignApi.getDirectorRun(bookId,requested);if(exact.bookId!==bookId||exact.id!==requested)throw new Error('原导演记录来源不匹配，不选择其他记录代替。');value.runs=[exact,...value.runs];}if(token===sequence.current){setWorkspace(value);setNotice('已读取原记录；读取不继续任务、不生成正文。');}}catch(value){if(token===sequence.current)capture(value);}}
   useEffect(()=>{try{const raw=sessionStorage.getItem(directorPendingKey(bookId));if(raw)setPending(parseDirectorPending(raw,bookId));const draft=sessionStorage.getItem(directorDraftKey(bookId));if(draft){const value=parseDirectorDraft(draft,bookId);setChapters(value.chapters);setInstruction(value.instruction);setPolicy(value.policy);setKnowledgeSources(value.knowledgeSources??[]);}}catch{setStorageBlocked(true);}setDraftLoaded(true);void refresh();return()=>{sequence.current++;};},[bookId]);
   useEffect(()=>{if(!draftLoaded||storageBlocked)return;try{const raw=JSON.stringify({bookId,chapters,instruction,policy,knowledgeSources}),key=directorDraftKey(bookId);sessionStorage.setItem(key,raw);if(sessionStorage.getItem(key)!==raw)throw new Error('范围草稿未保存');}catch{setStorageBlocked(true);setNotice('本机未能保留未提交范围，当前填写仍在页面，禁止发出任务；请先复制要求保存。');}},[bookId,chapters,instruction,policy,knowledgeSources,storageBlocked,draftLoaded]);
@@ -55,10 +57,10 @@ export default function ProductionDirectorPage({bookId}:{bookId:string}){
           {run.leaseExpired&&['running','waiting_recovery'].includes(run.status)&&!run.chapters.some(item=>item.ledgerPending||item.boundaryPending||(item.status==='running'||item.status==='unknown')&&(item.modelResultSaved||!item.unclaimed&&!item.leaseExpired))&&<button className='nd-button' disabled={locked} onClick={()=>action('end_expired')}>明确结束过期原范围</button>}
           {!['running','completed','cancelled'].includes(run.status)&&<button className='nd-button' disabled={locked} onClick={()=>action('cancel')}>结束此范围</button>}
         </div>
-        <ol>{run.chapters.map(item=><li key={item.chapterCardId}><h3>{item.title}</h3><p>{chapterLabels[item.status]}</p>{item.warnings.map((warning,index)=><p className='nd-message' key={index}>{warning}</p>)}{item.failure&&<p role='alert'>{item.failure.failedStep}：{item.failure.summary}</p>}<a href={`/new-design/books/${bookId}/writing?chapter=${item.chapterCardId}`}>到本章核对候选、采用与结算</a><a href={`/new-design/books/${bookId}/planning?plan=${item.planningObjectId}`}>核对本章规划</a></li>)}</ol>
+        <RunChapterTable key={run.id} run={run} writing={workspace.writing}/>
       </>:<p>从左侧选择运行范围，或在下方准备新的范围。</p>}
       <section><h2>准备章节范围</h2><p>按全书叙述顺序选择已采用计划的章节。保存范围不会调用模型，开始生成需再明确点击。</p>
-        {workspace.writing.chapters.map(chapter=><label className='nd-director-choice' key={chapter.chapterCardId}><input type='checkbox' disabled={locked||!chapter.planningVersionId} checked={chapters.includes(chapter.chapterCardId)} onChange={event=>setChapters(current=>event.target.checked?[...current,chapter.chapterCardId]:current.filter(id=>id!==chapter.chapterCardId))}/>{chapter.volumeTitle}／{chapter.title}{!chapter.planningVersionId?'（请先采用计划）':''}</label>)}
+        <DirectorRangeSelector key={bookId} workspace={workspace} selected={chapters} onChange={setChapters} disabled={locked}/>
         <label>本次要求<textarea value={instruction} maxLength={4000} disabled={locked} onChange={event=>setInstruction(event.target.value)}/></label>
         <section aria-label='本次知识参考'><h3>本次知识参考</h3><p>明确选择已解析参考；生成每章前核对原件、解析版本和完整正文，参考不是已发生的故事事实。</p><button className='nd-button' type='button' disabled={knowledgeReading} onClick={()=>void readKnowledge()}>只读刷新可用参考</button><a href={`/new-design/books/${bookId}/knowledge`}>上传、解析或查看知识参考</a>
           {knowledgeChoices.map(item=>{const selected=knowledgeSources.some(source=>source.parsedVersionId===item.parsedVersionId);return <label className='nd-director-choice' key={item.parsedVersionId}><input type='checkbox' checked={selected} disabled={locked||!selected&&knowledgeSources.length>=20} onChange={event=>setKnowledgeSources(current=>event.target.checked?[...current,{assetId:item.assetId,sourceVersionId:item.sourceVersionId,parsedVersionId:item.parsedVersionId,checksum:item.checksum}]:current.filter(source=>source.parsedVersionId!==item.parsedVersionId))}/><span>{item.title}</span></label>;})}
@@ -71,5 +73,7 @@ export default function ProductionDirectorPage({bookId}:{bookId:string}){
       </section>
       </section></div>}
   </main>;
-  return workspace?<BookShell book={workspace.book} active='director'>{content}</BookShell>:<div className='nd-shell'>{content}</div>;
+  return embedded?<div className='nd-shell'>{content}</div>:workspace?<BookShell book={workspace.book} active='director'>{content}</BookShell>:<div className='nd-shell'>{content}</div>;
 }
+
+export {directorPendingKey,parseDirectorPending,retainDirectorPending,type DirectorPending} from './pending';

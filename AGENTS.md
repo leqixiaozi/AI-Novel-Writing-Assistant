@@ -66,6 +66,12 @@
 - If a workflow belongs in another module, explain the correct user entry point directly, for example "从小说基础信息设置书级默认写法", rather than "书级默认写法已经迁回小说页".
 - Before finishing UI work, review newly added copy and rewrite any sentence that sounds like it is talking to the developer or describing the modification process.
 
+## 页面参考与复刻规则
+
+- 当用户要求参考旧版、现有页面、截图或其他页面实现时，默认需要高度复刻参考页面的布局和页面功能，包括信息密度、尺寸、间距、操作入口、交互流程及相关状态；不能自行简化、重新设计或省略功能。
+- 用户明确提出的修改方式优先于参考页面和默认视觉规则；除此之外，以参考页面为实现依据。
+- 若有无法复刻的布局、功能或交互，必须先说明具体差异及原因，与用户确认后再处理，或按用户明确给出的修改方式执行；不得静默替换为其他方案，也不得用无效按钮冒充已实现功能。
+
 ## UI Visual Rules
 
 - The client uses project-owned UI primitives, Tailwind CSS, and semantic CSS variables. Do not add or install new shadcn/ui components, run shadcn generators, or treat shadcn defaults as the product's visual authority. Existing files under `client/src/components/ui/` are maintained as project-owned compatibility primitives.
@@ -179,6 +185,14 @@ These areas have the highest priority for wiki accumulation:
 6. RAG and context assembly rules for worldbuilding, characters, chapters, style, and continuity.
 7. Beginner-first product decisions that reduce cognitive load and help users complete a full novel.
 
+## 个人流程与代码域入口
+
+- 每项开发、分析、复刻及文档任务开始时，先查同目录 `AGENTS.local.md`，按映射读取 `personal-dev-workflow` Skill，再据此判断范围、授权和检查节点；同一会话已读且未变可复用，无需用户再次点名。专项 Skill 仅在对应场景读取。如另有 Superpowers 规则，二者同时适用；与个人流程或用户当前指令冲突时按后者处理。本机绝对路径只写入 local。
+- `AGENTS.local.md` 缺失或映射失效时，先定向核实已有入口；本任务已授权写文档且位置可写时，核实 Git 忽略和未跟踪后建立本机入口。无写入授权时继续可独立进行的只读工作并说明缺口；项目设计和共享要求不能仅记录在 local。
+- `client/`、`server/`、`shared/` 是旧版业务实现；`new-design/` 是独立新版，按 [新版入口](new-design/AGENTS.md) 处理。`desktop/`、`infra/`、`scripts/` 分别承载桌面壳、基础设施和仓库脚本；文档按任务定向读取 `docs/` 或 `new-design/docs/`。
+- 新版对标任务仅只读参考旧版业务源码和数据；必要的共用页面入口隔离须列出影响范围。两套系统各自使用业务 API、数据库和 AI 执行链，不建立互调。
+- 文档写入按 `project-docs-governance` Skill 原位维护并提交本任务内容；保护已有未提交改动，不把他人的文件纳入提交。讨论、只读审计和规格不自动授权编码或启动服务。
+
 ## Agent Collaboration Rules
 
 - The project allows subagents to assist with development, investigation, verification, and documentation work when the active tool environment and higher-priority instructions permit it.
@@ -247,6 +261,8 @@ These areas have the highest priority for wiki accumulation:
 - GitHub-side packaging still must obey the version/tag rules above. If the correct workflow, tag, branch, or version is unclear, stop and verify the release identifier before triggering packaging.
 
 ## Prompt Governance
+
+- This section governs legacy `server/`. The independent `new-design/` product owns its prompt assets under `new-design/src/server/ai/prompts/`, with its registry and execution gate described in `new-design/AGENTS.md`. Do not cross-call or copy a prompt between the two products as a shortcut.
 
 - `server/src/prompting/` is the only allowed entrypoint for adding new product-level prompts.
 - Any new product-facing prompt must be implemented as a `PromptAsset` under `server/src/prompting/prompts/<family>/`.

@@ -1,0 +1,23 @@
+.nd-world-packages {font-size:13px;line-height:1.55;}
+.nd-world-packages h3 {margin:12px 0 4px;}.nd-world-packages p {margin:5px 0;}
+.nd-world-status,.nd-world-values {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0;}
+.nd-world-status>div {padding:9px 11px;background:var(--nd-soft);border-radius:6px;}
+.nd-world-status small,.nd-world-values small,.nd-world-status strong,.nd-world-values span {display:block;overflow-wrap:anywhere;white-space:pre-wrap;}
+.nd-world-values small,.nd-world-status small {opacity:.7;font-size:11px;}
+.nd-world-sections {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:10px 0;}
+.nd-world-sections>label,.nd-world-sections>span {padding:7px 9px;background:var(--nd-soft);border-radius:5px;}
+.nd-world-packages details {padding:7px 0;border-bottom:1px solid var(--nd-line);}
+.nd-world-packages summary {cursor:pointer;}.nd-world-difference {padding:8px 0;border-bottom:1px solid var(--nd-line);}
+.nd-world-packages label {display:inline-flex;align-items:center;gap:6px;margin:4px 9px 4px 0;}
+.nd-world-packages select,.nd-world-packages input:not([type=checkbox]) {padding:4px 7px;max-width:100%;border:1px solid var(--nd-line);border-radius:4px;background:var(--nd-paper);color:inherit;}
+.nd-world-confirm {margin:10px 0;padding:10px;background:var(--nd-soft);}
+.nd-world-history-row {padding:7px 0;}
+.nd-world-history-row>p {margin:3px 0;}
+.nd-world-packages pre {max-height:320px;overflow:auto;font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.nd-world-mapping {display:grid;grid-template-columns:1fr 1fr;gap:8px;}.nd-world-source {margin-top:12px;}
+@media(max-width:640px){.nd-world-status,.nd-world-values,.nd-world-mapping {grid-template-columns:1fr;}.nd-world-sections {grid-template-columns:1fr;}}
+
+.nd-world-source-modes {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:7px 0;}
+.nd-world-source-modes .nd-button {text-align:left;white-space:normal;}
+.nd-world-source-modes [aria-pressed=true] {background:var(--nd-soft);border-color:var(--nd-accent);}
+@media(max-width:640px){.nd-world-source-modes {grid-template-columns:1fr;}}

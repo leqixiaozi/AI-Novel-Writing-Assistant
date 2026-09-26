@@ -7,6 +7,7 @@ import { getBusinessFormAi } from "./store";
 import { freezeFormContext } from "./context";
 import { NewDesignError, assertFound } from "../../domain/errors";
 import { selectableTreeNodeIds } from "../../../common/treePolicy";
+import {findRecordCard,listRecordCards} from "../recordCards";
 
 // This explicit author confirmation creates only book-owned resources. Global sources are copied, not changed.
 export async function confirmFormAiNewNode(bookId:string,runId:string,input:{suggestionId:string;name:string;idempotencyKey:string}):Promise<{nodeId:string;requiresBinding:boolean;message:string}>{
@@ -15,10 +16,9 @@ export async function confirmFormAiNewNode(bookId:string,runId:string,input:{sug
   const key=`ai_${suggestion.id.replaceAll("-","")}`;
   // Stable suggestion identity permits retry after an uncertain network response, without another node.
   if(tree.kind==="dictionary"){
-    const existing=(await pool.query(`SELECT item.id,item.label,definition.owner_space_id FROM new_design.dictionary_items item JOIN new_design.dictionary_definitions definition ON definition.id=item.dictionary_id
-      WHERE item.item_key=$1 AND definition.owner_space_id=$2`,[key,book.space_id])).rows[0];
+    const definitions=(await listRecordCards(pool,"dictionary_definition",{spaceId:String(book.space_id),includeArchived:true})).filter(item=>String(item.owner_space_id)===String(book.space_id)),existing=(await listRecordCards(pool,"dictionary_item",{includeArchived:true})).find(item=>item.item_key===key&&definitions.some(definition=>String(definition.id)===String(item.dictionary_id)));
     if(existing){if(existing.label!==input.name)throw new NewDesignError("此建议已按其他名称确认，请直接编辑书内选项。",409);return {nodeId:existing.id,requiresBinding:tree.scope!=="book",message:"书内选项已创建，请重新生成建议以使用最新范围。"};}
-  }else {const existing=(await pool.query("SELECT tag.id,version.name FROM new_design.material_tags tag JOIN new_design.material_tag_versions version ON version.id=tag.current_version_id WHERE tag.tag_key=$1 AND tag.space_id=$2",[key,book.space_id])).rows[0];if(existing){if(existing.name!==input.name)throw new NewDesignError("此建议已按其他名称确认，请直接编辑书内标签。",409);return {nodeId:existing.id,requiresBinding:tree.scope!=="book",message:"书内标签已创建，请重新生成建议。"};}}
+  }else {const tags=await listRecordCards(pool,"material_tag",{spaceId:String(book.space_id),includeArchived:true,where:{tag_key:key}}),tag=tags[0],version=tag?await findRecordCard(pool,String(tag.current_version_id),'material_tag_version',{includeArchived:true}):null;if(tag&&version){if(version.name!==input.name)throw new NewDesignError("此建议已按其他名称确认，请直接编辑书内标签。",409);return {nodeId:tag.id,requiresBinding:tree.scope!=="book",message:"书内标签已创建，请重新生成建议。"};}}
   if(run.status!=="review"||!tree.rule.aiSuggestible||!tree.rule.allowInlineCreate)throw new NewDesignError("该范围不允许原地新增，请到创作资源中维护书内选项。",422);
   const current=await freezeFormContext(pool,run.snapshot.target,run.snapshot.values,run.snapshot.tagIds,run.snapshot.referenceCardIds??[],run.snapshot.referenceKnowledgeSources??[]);if(current.sourceHash!==run.snapshot.sourceHash)throw new NewDesignError("建议来源已变化，请重新生成后确认新增。",409);
   const nodeId=randomUUID(),proposed={id:nodeId,parentId:suggestion.parentId,name:input.name,status:"active" as const};

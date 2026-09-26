@@ -1,6 +1,31 @@
+import {createPublicCharactersApi} from './publicCharacters/api';
+import {createCharacterAuthorApi} from './characterAuthor/api';
+import {createBookHistoryApi} from './bookHistory/api';
+import {createPublicTitlesApi} from './publicTitles/api';
+import type {AssociationWriteCommand} from "../common/referenceParity";
+import type {ReferenceFormsWorkspace,ReferenceFormPreviewInput,ReferenceFormPreview,ReferenceFormInstallInput,ReferenceFormReceipt,ReferenceFormSelectionInput,ReferenceInstanceUpgradeInput,ReferencePrimaryType,ReferenceAssociationPublicationInput,ReferenceAssociationPublicationPreview} from "../common/referenceParity";
+import type {FieldWriteReceipt,ReferenceSpecificationPreview,ReferenceSpecificationPublishInput} from "../common/referenceParity";
 import type { FormAssistRequest, FormAssistRun, FormAssistAdoption } from "../common/formAssist";
 import type { HomeSnapshot, HomeModelStatus } from "../common/home";
 import {createFeatureApi} from "./featureApi";
+import {createResourceSupplementApi} from './resourceSupplements/api';
+import {createCardAssemblyApi} from './cardAssembly/api';
+import {createChapterQualityApi} from './chapterQuality/api';
+import {createResourceFocusApi} from './characterResources/focus/api';
+import {createRecentBodyExperienceApi} from './characterExperiences/recentBodies/api';
+import {createWorldPackagesApi} from './worldPackages/api';
+import {createComicProjectsApi} from './comicProjects/api';
+import {createComicEpisodesApi} from './comicProjects/episodesApi';
+import {createComicPanelsApi} from './comicProjects/panelsApi';
+import {createComicBiblesApi} from './comicProjects/biblesApi';
+import {createComicVisualAssetsApi} from './comicProjects/visualAssetsApi';
+import {createComicSourceBundleApi} from './comicProjects/sourceBundleApi';
+import {createComicRenderingApi} from './comicProjects/renderingApi';
+import {createDramaApi} from './dramaProjects/api';
+import {createCreativeHubApi} from './creativeHub/api';
+import {createWorldGenerationApi} from './worldGenerator/api';
+import {createWorldUsageApi} from './worldUsage/api';
+import type {PayoffLedgerWorkspace,PayoffWindowReceipt,SavePayoffWindowInput} from '../common/payoffLedger';
 import type {ChapterSettlementEditingWorkspace,SettlementEditingCreateInput,SettlementEditingUpdateInput,SettlementEditingDecisionsInput,SettlementEditingCommitInput,SettlementEditingInitialInput,SettlementEditingReceipt} from "../common/chapterSettlementEditing";
 import type {ChapterSettlementAiStatus,ChapterSettlementAiInput,ChapterSettlementAiReceipt} from "../common/chapterSettlementAi";
 import type {SettlementRelationConfigurationWorkspace,SettlementRelationDraftInput,SettlementRelationPublishInput,SettlementRelationConfigurationReceipt} from "../common/chapterSettlementEditing";
@@ -16,7 +41,7 @@ import type { ContextAuthorCatalog } from "../common/contextAuthor";
 import type {CreationDirectorCommand,CreationDirectorControl,CreationDirectorControlReceipt,CreationDirectorCommandReceipt} from "../common/creationDirector";
 import type {CreationReviewAiInput,CreationPreparationReceipt,AdoptCreationPreparationInput,CreationPreparationAdoptionReceipt} from "../common/creationReviewAi";
 import type {BookCreationProductionWorkspace,BookCreationProductionReceipt,SaveBookCreationFormalReviewInput} from "../common/bookCreationProduction";
-import type {KnowledgeWorkspace,KnowledgeSearchResult,KnowledgeUploadInput,KnowledgeWriteInput,KnowledgeBindInput,KnowledgeArchiveInput,KnowledgeArchivePreview,KnowledgeWriteReceipt,KnowledgeContent,KnowledgeReferenceCandidate,KnowledgeReferenceTarget,KnowledgeReferenceInput} from "../common/knowledgeReference";
+import type {KnowledgeWorkspace,KnowledgeReferenceItem,KnowledgeSearchResult,KnowledgeUploadInput,KnowledgeWriteInput,KnowledgeBindInput,KnowledgeArchiveInput,KnowledgeArchivePreview,KnowledgeWriteReceipt,KnowledgeContent,KnowledgeReferenceCandidate,KnowledgeReferenceTarget,KnowledgeReferenceInput} from "../common/knowledgeReference";
 import type {MultiviewAuthorWorkspace} from "../common/multiviewAuthor";
 import type {AuthorTaskFilter,AuthorTaskPage,AuthorTaskKind,AuthorTaskRecord} from "../common/authorTasks";
 import type {AuthorMaterialWriteInput,AuthorMaterialWriteReceipt} from "../common/authorMaterials";
@@ -24,7 +49,7 @@ import {PROFESSIONAL_ROUTE,type ProfessionalCatalog,type ProfessionalCommand,typ
 import type {BookCompositionWorkspace,BookCompositionOrderInput,BookCompositionOrderPreview,BookCompositionOrderSaveInput,BookCompositionOrderReceipt,ChapterCompositionWriteReceipt} from "../common/bookComposition";
 import type {DirectorWorkspace,DirectorRun,DirectorCreateInput,DirectorCommand,DirectorReceipt} from "../common/productionDirector";
 import type {WorldCharacterQuery,WorldCharacterMaintenanceWorkspace} from "../common/worldCharacterMaintenance";
-import type {VisualWorkspace,VisualUploadInput,VisualCommand,VisualPreviewInput,VisualImpactPreview,VisualReceipt} from "../common/visualAssets";
+import type {VisualCatalogPage,VisualCatalogQuery,VisualWorkspace,VisualUploadInput,VisualCommand,VisualPreviewInput,VisualImpactPreview,VisualReceipt} from "../common/visualAssets";
 import type {AuthorTimelineWorkspace,AuthorTimelinePreviewInput,AuthorTimelinePreview,AuthorTimelineSaveInput,AuthorTimelineReceipt} from "../common/bookComposition/timeline";
 import type {SavedChapterWritingReply} from '../common/productionDirector';
 import type {
@@ -69,6 +94,7 @@ import type {
   ResearchRecordType,
   ResearchCandidate,
   MarketSourceDefinition,
+  MarketSavedSignal,
   MarketScanDetail,
   BookAnalysisPlan,
   BookAnalysisPreset,
@@ -326,6 +352,7 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const records=value.sourceRoute==="/new-design/operations/records"&&value.actionLabel==="打开运行记录";
   const materialParts=/^\/new-design\/books\/([^/?#]+)\/cards$/.exec(value.sourceRoute);
   const materials=materialParts&&uuid.test(materialParts[1])&&value.actionLabel==="返回本书资料";
+  const publicCharacters=value.sourceRoute==="/new-design/resources/characters/workshop"&&value.actionLabel==="返回公共角色试用";
   const professional=value.sourceRoute===PROFESSIONAL_ROUTE&&value.actionLabel==="返回专业创作资源";
   const bookCompositionParts=/^\/new-design\/books\/([^/?#]+)\/composition$/.exec(value.sourceRoute);
   const bookComposition=bookCompositionParts&&uuid.test(bookCompositionParts[1])&&value.actionLabel==="返回全书编排";
@@ -347,9 +374,11 @@ export function safeRecoveryTarget(candidate: unknown): AiRuntimeRecovery | null
   const professionalMaintenance=maintenanceParts&&uuid.test(maintenanceParts[1])&&value.actionLabel==="返回专业维护";
   const contextRunParts=/^\/new-design\/structure\/context\?bookId=([^&#]+)&tab=run$/.exec(value.sourceRoute);
   const contextRun=contextRunParts&&uuid.test(contextRunParts[1])&&value.actionLabel==="返回运行输入";
+  const fieldRoute=/^\/new-design\/books\/([0-9a-f-]+)\/story-setting$/.exec(String(value.sourceRoute));
+  const fieldRecovery=fieldRoute&&uuid.test(fieldRoute[1])&&value.actionLabel==="返回资料填写";
   const structure=(value.sourceRoute==="/new-design/structure/forms"&&value.actionLabel==="返回创作表单")||(value.sourceRoute==="/new-design/structure/templates"&&value.actionLabel==="返回开书模板");
-  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
-  return allowed||professionalGraph||dialogue ? value as unknown as AiRuntimeRecovery : null;
+  const allowed = (value.sourceRoute === "/new-design/structure/models" && value.actionLabel === "打开模型设置") || (value.sourceRoute === "/new-design/structure/maintenance" && value.actionLabel === "打开运行维护") || (composition && value.actionLabel === "返回提示词组合") || writing || chapterWriting || relation || knowledge || views || records || materials || professional || publicCharacters || bookComposition || director || visual || world || extraction || imageConfiguration || directorControl || professionalMaintenance || contextRun || structure || creation&&value.actionLabel==="返回开书表单";
+  return allowed||professionalGraph||dialogue||fieldRecovery ? value as unknown as AiRuntimeRecovery : null;
 }
 
 export function isGlobalModelRecovery(recovery: AiRuntimeRecovery): boolean {
@@ -388,11 +417,79 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if(recovery&&isGlobalModelRecovery(recovery)&&typeof window!=="undefined")window.dispatchEvent(new CustomEvent("new-design:model-failure",{detail:recovery}));
     throw new ApiError(recovery?`${recovery.failedStep}失败：${recovery.summary}`:publicApiErrorMessage(technicalDetail, response.status), envelope.issues, response.status, technicalDetail,recovery);
   }
+  if(init?.method&&init.method.toUpperCase()!=="GET"&&typeof window!=="undefined"){
+    const bookId=/^\/books\/([a-f0-9-]{36})(?:\/|$)/i.exec(path)?.[1];
+    if(bookId)window.dispatchEvent(new CustomEvent('new-design:book-workflow-changed',{detail:{bookId}}));
+  }
   return envelope.data;
 }
 
 export const newDesignApi = {
+  cardAssembly:createCardAssemblyApi(request),
+  creativeHub:createCreativeHubApi(request),
+  worldGeneration:createWorldGenerationApi(request),
+  ...createChapterQualityApi(request),
+  worldUsage:createWorldUsageApi(request),
+  getPayoffLedger:(bookId:string)=>request<PayoffLedgerWorkspace>(`/books/${encodeURIComponent(bookId)}/payoff-ledger`),
+  savePayoffWindow:(bookId:string,cardId:string,input:SavePayoffWindowInput)=>request<PayoffWindowReceipt>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/${encodeURIComponent(cardId)}/window`,{method:'PUT',body:JSON.stringify(input)}),
+  getPayoffWindowRequest:(bookId:string,idempotencyKey:string)=>request<PayoffWindowReceipt|null>(`/books/${encodeURIComponent(bookId)}/payoff-ledger/window-requests/${encodeURIComponent(idempotencyKey)}`),
+ worldPackages:createWorldPackagesApi(request),
+ comicProjects:createComicProjectsApi(request),
+ comicEpisodes:createComicEpisodesApi(request),
+ comicPanels:createComicPanelsApi(request),
+ comicBibles:createComicBiblesApi(request),
+ comicVisualAssets:createComicVisualAssetsApi(request),
+ comicSourceBundle:createComicSourceBundleApi(request),
+ comicRendering:createComicRenderingApi(request),
+ drama:createDramaApi(request),
+ recentBodyExperiences:createRecentBodyExperienceApi(request),
+ getExperienceRecord:(bookId:string,batchId:string)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/by-id/${batchId}`),
+ getPublicCharacterCatalog:()=>request<import('../common/characterImport').CharacterImportCatalog>('/public-characters'),
+ getCharacterImportWorkspace:(bookId:string,resourceId:string,resourceVersionId:string)=>request<import('../common/characterImport').CharacterImportWorkspace>(`/books/${bookId}/character-import/workspace?resourceId=${encodeURIComponent(resourceId)}&resourceVersionId=${encodeURIComponent(resourceVersionId)}`),
+ previewCharacterImport:(bookId:string,input:import('../common/characterImport').CharacterImportInput)=>request<import('../common/characterImport').CharacterImportPreview>(`/books/${bookId}/character-import/preview`,{method:'POST',body:JSON.stringify(input)}),
+ importPublicCharacter:(bookId:string,input:import('../common/characterImport').CharacterImportCommit)=>request<import('../common/characterImport').CharacterImportReceipt>(`/books/${bookId}/character-import`,{method:'POST',body:JSON.stringify(input)}),
+ readCharacterImportOriginal:(bookId:string,input:import('../common/characterImport').CharacterImportCommit)=>request<import('../common/characterImport').CharacterImportReceipt|null>(`/books/${bookId}/character-import/original-receipt`,{method:'POST',body:JSON.stringify(input)}),
+ prepareExperienceSeries:(bookId:string,input:import('../common/characterExperiences').ExperienceSeriesInput)=>request<import('../common/characterExperiences').ExperienceSeriesSources>(`/books/${bookId}/character-experiences/series-preview`,{method:'POST',body:JSON.stringify(input)}),
+ endUnknownExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences/end-unknown`,{method:'POST',body:JSON.stringify({confirm:true,input})}),
+ getExperienceWorkspace:(bookId:string,characterId:string)=>request<import('../common/characterExperiences').ExperienceWorkspace>(`/books/${bookId}/character-experiences/workspace?characterId=${encodeURIComponent(characterId)}`),
+ generateExperiences:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord>(`/books/${bookId}/character-experiences`,{method:'POST',body:JSON.stringify(input)}),
+ readExperienceOriginal:(bookId:string,input:import('../common/characterExperiences').ExperienceRequest)=>request<import('../common/characterExperiences').ExperienceRecord|null>(`/books/${bookId}/character-experiences/original-receipt`,{method:'POST',body:JSON.stringify(input)}),
+ getExperienceDraft:(bookId:string,batchId:string,candidateId:string,eventId:string)=>request<import('../common/characterExperiences').ExperienceDraft>(`/books/${bookId}/character-experiences/${batchId}/candidates/${candidateId}/draft`,{method:'POST',body:JSON.stringify({eventId})}),
+ readBookCompositionTimelineOriginalReceipt:(bookId:string,input:import('../common/bookComposition/timeline').AuthorTimelineSaveInput)=>request<import('../common/bookComposition/timeline').AuthorTimelineReceipt|null>(`/books/${bookId}/composition-timeline/original-receipt`,{method:'POST',body:JSON.stringify(input)}),
+
+  getReferenceForms:(bookId:string)=>request<ReferenceFormsWorkspace>(`/books/${bookId}/reference-forms`),
+  getBookFormSelection:(bookId:string)=>request<{bookId:string;bookRevision:number;activeForms:Record<string,string>}>(`/books/${bookId}/form-selection`),
+  previewReferenceForm:(bookId:string,input:ReferenceFormPreviewInput)=>request<ReferenceFormPreview>(`/books/${bookId}/reference-forms/preview`,{method:'POST',body:JSON.stringify(input)}),
+  installReferenceForm:(bookId:string,input:ReferenceFormInstallInput)=>request<ReferenceFormReceipt>(`/books/${bookId}/reference-forms/install`,{method:'POST',body:JSON.stringify(input)}),
+  selectReferenceForm:(bookId:string,input:ReferenceFormSelectionInput)=>request<ReferenceFormReceipt>(`/books/${bookId}/reference-forms/select`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceFormInstallReceipt:(bookId:string,input:ReferenceFormInstallInput)=>request<ReferenceFormReceipt|null>(`/books/${bookId}/reference-forms/install-receipt`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceFormSelectionReceipt:(bookId:string,input:ReferenceFormSelectionInput)=>request<ReferenceFormReceipt|null>(`/books/${bookId}/reference-forms/select-receipt`,{method:'POST',body:JSON.stringify(input)}),
+  previewReferenceInstanceUpgrade:(bookId:string,input:{instanceId:string;targetFormVersionId:string})=>request<{bookId:string;instanceId:string;targetFormVersionId:string;expectedInstanceRevision:number;fromFormVersionId:string;mountCount:number;conflicts:string[];canUpgrade:boolean;inputHash:string}>(`/books/${bookId}/reference-forms/instance-preview`,{method:'POST',body:JSON.stringify(input)}),
+  upgradeReferenceInstance:(bookId:string,input:ReferenceInstanceUpgradeInput)=>request<ReferenceFormReceipt>(`/books/${bookId}/reference-forms/instance-upgrade`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceInstanceUpgradeReceipt:(bookId:string,input:ReferenceInstanceUpgradeInput)=>request<ReferenceFormReceipt|null>(`/books/${bookId}/reference-forms/instance-receipt`,{method:'POST',body:JSON.stringify(input)}),
+  previewReferenceAssociations:(sourceTemplateVersionId:string,primaryTypeKeys:ReferencePrimaryType[])=>request<ReferenceAssociationPublicationPreview>(`/reference-associations/preview`,{method:'POST',body:JSON.stringify({sourceTemplateVersionId,primaryTypeKeys})}),
+  publishReferenceAssociations:(input:ReferenceAssociationPublicationInput)=>request<TemplateGroupSummary>(`/reference-associations/publish`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceAssociationsReceipt:(input:ReferenceAssociationPublicationInput)=>request<TemplateGroupSummary|null>(`/reference-associations/receipt`,{method:'POST',body:JSON.stringify(input)}),
+  verifyFieldWriteReceipt:(bookId:string,command:unknown)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipt`,{method:'POST',body:JSON.stringify(command)}),
+  readFieldWriteReceipt:(bookId:string,key:string)=>request<FieldWriteReceipt|null>(`/books/${bookId}/field-extensions/receipts/${encodeURIComponent(key)}`),
+  previewReferenceSpecification:(versionId:string,kind?:"profile"|"visible"|"resource")=>request<ReferenceSpecificationPreview>(`/reference-specifications/${versionId}${kind?`?kind=${kind}`:""}`),
+  publishReferenceSpecification:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary>(`/reference-specifications/publish`,{method:'POST',body:JSON.stringify(input)}),
+  readReferenceSpecificationReceipt:(input:ReferenceSpecificationPublishInput)=>request<TemplateGroupSummary|null>(`/reference-specifications/receipt`,{method:'POST',body:JSON.stringify(input)}),
+  endUnknownStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/end-unknown`,{method:"POST",body:JSON.stringify({confirm:true})}),
+  readInitialStateWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").InitialStateWriteReceipt|null>(`/books/${bookId}/initial-state-write-receipts/${encodeURIComponent(key)}`),
+  readPlanningWriteReceipt:(bookId:string,key:string)=>request<import("../common/storyWorkspace").PlanningWriteReceipt|null>(`/books/${bookId}/planning-write-receipts/${encodeURIComponent(key)}`),
+  checkStoryBatchSlot:(bookId:string,key:string,slotId:string)=>request<import("../common/storyWorkspace").StoryBatchDraft>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}/slots/${slotId}`),
+  writeVisibleBatch:(bookId:string,batchKey:string,input:import('../common/storyWorkspace').VisibleBatchWriteInput)=>request<import('../common/storyWorkspace').VisibleBatchWriteReceipt>(`/books/${bookId}/story-ai-batches/by-request/${batchKey}/visible-batch-writes`,{method:'POST',body:JSON.stringify(input)}),
+  readVisibleBatchWrite:(bookId:string,batchKey:string,input:import('../common/storyWorkspace').VisibleBatchWriteInput)=>request<import('../common/storyWorkspace').VisibleBatchWriteReceipt|null>(`/books/${bookId}/story-ai-batches/by-request/${batchKey}/visible-batch-write-receipt`,{method:'POST',body:JSON.stringify(input)}),
+  getCharacterResources:(bookId:string,characterId:string,selection?:import('../common/characterResources').ResourceLedgerSelection)=>request<import('../common/characterResources').CharacterResourceLedger>(`/books/${bookId}/characters/${characterId}/resource-ledger${selection?`?${new URLSearchParams({relationTypeId:selection.relationTypeId,holdingDimensionKey:selection.holdingDimensionKey,specificationHash:selection.specificationHash})}`:''}`),
+  getCharacterResourceHistory:(bookId:string,characterId:string,selection:import('../common/characterResources').ResourceLedgerSelection)=>request<import('../common/characterResources/history').CharacterResourceHistory>(`/books/${bookId}/characters/${characterId}/resource-history?${new URLSearchParams({relationTypeId:selection.relationTypeId,holdingDimensionKey:selection.holdingDimensionKey,specificationHash:selection.specificationHash})}`),
+  adoptVisibleFields:(bookId:string,batchKey:string,input:import('../common/storyWorkspace').VisibleAdoptionInput)=>request<import('../common/storyWorkspace').StoryBatchDraft>(`/books/${bookId}/story-ai-batches/by-request/${batchKey}/visible-adoptions`,{method:'POST',body:JSON.stringify(input)}),
+  readVisibleAdoption:(bookId:string,batchKey:string,input:import('../common/storyWorkspace').VisibleAdoptionInput)=>request<import('../common/storyWorkspace').StoryBatchDraft|null>(`/books/${bookId}/story-ai-batches/by-request/${batchKey}/visible-adoption-receipt`,{method:'POST',body:JSON.stringify(input)}),
+  generateStoryBatch:(bookId:string,input:import("../common/storyWorkspace").StoryBatchRequest)=>request<import("../common/storyWorkspace").StoryBatchRecord>(`/books/${bookId}/story-ai-batches`,{method:"POST",body:JSON.stringify(input)}),
+  readStoryBatch:(bookId:string,key:string)=>request<import("../common/storyWorkspace").StoryBatchRecord|null>(`/books/${bookId}/story-ai-batches/by-request/${encodeURIComponent(key)}`),
   ...createFeatureApi(request),
+ ...createResourceSupplementApi(request),
+ ...createResourceFocusApi(request),
   getSavedChapterWritingReply:(id:string)=>request<SavedChapterWritingReply>(`/chapter-writing-requests/${encodeURIComponent(id)}/saved-reply`),
   completeSavedChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/complete-saved-result`,{method:'POST'}),
   endExpiredChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${encodeURIComponent(id)}/end-expired`,{method:'POST'}),
@@ -409,12 +506,17 @@ export const newDesignApi = {
   controlDirectorRun:(bookId:string,id:string,input:DirectorCommand)=>request<DirectorReceipt>(`/books/${encodeURIComponent(bookId)}/director/runs/${encodeURIComponent(id)}/commands`,{method:'POST',body:JSON.stringify(input)}),
   getWorldCharacterMaintenanceWorkspace:(bookId:string,input:WorldCharacterQuery)=>request<WorldCharacterMaintenanceWorkspace>(`/books/${encodeURIComponent(bookId)}/world-character/workspace?${new URLSearchParams({mode:input.mode,...(input.focusCardId?{focusCardId:input.focusCardId}:{})})}`),
   getVisualWorkspace:(bookId:string)=>request<VisualWorkspace>(`/books/${encodeURIComponent(bookId)}/visual-assets`),
+  getVisualCatalog:(input:VisualCatalogQuery)=>request<VisualCatalogPage>(`/visual-assets/catalog?${new URLSearchParams({query:input.query,kind:input.kind,source:input.source,offset:String(input.offset),limit:String(input.limit)})}`),
   uploadVisualAsset:(input:VisualUploadInput)=>request<VisualReceipt>("/visual-assets/uploads",{method:'POST',body:JSON.stringify(input)}),
   executeVisualCommand:(input:VisualCommand)=>request<VisualReceipt>("/visual-assets/commands",{method:'POST',body:JSON.stringify(input)}),
   previewVisualChange:(input:VisualPreviewInput)=>request<VisualImpactPreview>("/visual-assets/previews",{method:'POST',body:JSON.stringify(input)}),
   getVisualReceipt:(bookId:string,key:string)=>request<VisualReceipt|null>(`/books/${encodeURIComponent(bookId)}/visual-assets/receipts/by-key/${encodeURIComponent(key)}`),
   getVisualPreviewByKey:(bookId:string,key:string)=>request<VisualImpactPreview|null>(`/books/${encodeURIComponent(bookId)}/visual-assets/previews/by-key/${encodeURIComponent(key)}`),
   visualImageUrl:(bookId:string,assetId:string,versionId:string)=>`${API_ROOT}/books/${encodeURIComponent(bookId)}/visual-assets/${encodeURIComponent(assetId)}/versions/${encodeURIComponent(versionId)}/content`,
+  publicCharacters:createPublicCharactersApi(request),
+  characterAuthor:createCharacterAuthorApi(request),
+  publicTitles:createPublicTitlesApi(request),
+  bookHistory:createBookHistoryApi(request),
   getProfessionalCatalog:()=>request<ProfessionalCatalog>("/professional-resources/catalog"),
   executeProfessionalCommand:(input:ProfessionalCommand)=>request<ProfessionalReceipt>("/professional-resources/commands",{method:"POST",body:JSON.stringify(input)}),
   getProfessionalReceipt:(key:string)=>request<ProfessionalReceipt|null>(`/professional-resources/commands/by-key/${encodeURIComponent(key)}`),
@@ -429,7 +531,8 @@ export const newDesignApi = {
   getBookMultiviewAuthorWorkspace:(bookId:string)=>request<MultiviewAuthorWorkspace>(`/books/${encodeURIComponent(bookId)}/multiview-author-workspace`),
   listAuthorTasks:(filter:AuthorTaskFilter={})=>{const query=new URLSearchParams();for(const [key,value] of Object.entries(filter))if(value!==undefined)query.set(key,String(value));return request<AuthorTaskPage>(`/author-tasks?${query}`);},
   getAuthorTask:(kind:AuthorTaskKind,id:string)=>request<AuthorTaskRecord>(`/author-tasks/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`),
-  getKnowledgeWorkspace:(bookId:string)=>request<KnowledgeWorkspace>(`/books/${encodeURIComponent(bookId)}/knowledge/workspace`),
+  getKnowledgeWorkspace:(bookId:string,before?:string)=>request<KnowledgeWorkspace>(`/books/${encodeURIComponent(bookId)}/knowledge/workspace${before?`?${new URLSearchParams({before})}`:''}`),
+  getKnowledgeReferenceItem:(bookId:string,id:string)=>request<KnowledgeReferenceItem>(`/books/${encodeURIComponent(bookId)}/knowledge/assets/${encodeURIComponent(id)}`),
   getKnowledgeContent:(bookId:string,id:string,parsedVersionId:string,offset=0)=>request<KnowledgeContent>(`/books/${encodeURIComponent(bookId)}/knowledge/assets/${encodeURIComponent(id)}/content?${new URLSearchParams({parsedVersionId,offset:String(offset)})}`),
   getKnowledgeReferenceCandidates:(bookId:string)=>request<{items:KnowledgeReferenceCandidate[];truncated:boolean}>(`/books/${encodeURIComponent(bookId)}/knowledge/reference-candidates`),
   getKnowledgeReferenceTargets:(bookId:string)=>request<{items:KnowledgeReferenceTarget[];truncated:boolean}>(`/books/${encodeURIComponent(bookId)}/knowledge/reference-targets`),
@@ -458,6 +561,7 @@ export const newDesignApi = {
   getManagedEmbeddingSaveReceipt:(key:string)=>request<ManagedEmbeddingSaveResult|null>(`/models/embedding/connections/by-request/${encodeURIComponent(key)}`),
   inheritManagedModelRoute:(id:string,expectedRevision:number)=>request<unknown>(`/models/routes/${encodeURIComponent(id)}/inherit`,{method:"POST",body:JSON.stringify({expectedRevision})}),
   createManagedModelCredential:(input:{name:string;provider:string;environmentVariable:string})=>request<ManagedCredentialChoice>("/models/credentials",{method:"POST",body:JSON.stringify(input)}),
+  saveManagedModelCredentialSecret:(input:{name:string;provider:string;apiKey:string;credentialId:string|null})=>request<ManagedCredentialChoice>("/models/credentials/database",{method:"POST",body:JSON.stringify(input)}),
   probeManagedModelConnection:(connection:ManagedModelConnection)=>request<{available:boolean;modelFound:boolean;models:string[]}>("/models/probe",{method:"POST",body:JSON.stringify({connection})}),
   getManagedModelPreview:(taskType:ModelTaskKey)=>request<ManagedTaskRoute>(`/models/preview/${encodeURIComponent(taskType)}`),
   getIndependentModelStatus:()=>request<IndependentModelStatus>("/models/status"),
@@ -523,14 +627,16 @@ export const newDesignApi = {
   previewManagedArchive:(scope:MaterialApiScope,id:string,expectedRevision:number)=>request<CardArchivePreview>(`/material-management/cards/${id}/archive-preview?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify({expectedRevision})}),
   confirmManagedArchive:(scope:MaterialApiScope,id:string,input:{previewId:string;confirmationToken:string;snapshotHash:string;expectedRevision:number;acceptRisk:boolean;idempotencyKey:string})=>request<CardArchiveReceipt>(`/material-management/cards/${id}/archive?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
   restoreManagedCard:(scope:MaterialApiScope,id:string,input:{expectedRevision:number;idempotencyKey:string})=>request<CardArchiveReceipt>(`/material-management/cards/${id}/restore?${materialScopeQuery(scope)}`,{method:"POST",body:JSON.stringify(input)}),
-  getAssociationWorkspace:(bookId:string,cardId:string)=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations`),
-  searchAssociationCandidates:(bookId:string,cardId:string,input:{slotKey:string;query:string;offset?:number;limit?:number})=>request<{items:AssociationCandidate[];hasMore:boolean}>(`/books/${bookId}/cards/${cardId}/association-candidates?slotKey=${encodeURIComponent(input.slotKey)}&query=${encodeURIComponent(input.query)}&offset=${input.offset??0}&limit=${input.limit??20}`),
-  addExistingAssociation:(bookId:string,cardId:string,input:{slotKey:string;cardId:string;expectedInstanceRevision:number|null;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations`,{method:"POST",body:JSON.stringify(input)}),
-  createAndAddAssociation:(bookId:string,cardId:string,input:{slotKey:string;cardTypeId:string;title:string;values:Record<string,unknown>;expectedInstanceRevision:number|null;formVersionId?:string|null;formResolutionKind:FormResolutionKind;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations/create`,{method:"POST",body:JSON.stringify(input)}),
-  reorderAssociations:(bookId:string,cardId:string,input:{items:Array<{mountId:string;expectedRevision:number}>;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations/reorder`,{method:"POST",body:JSON.stringify(input)}),
+  verifyAssociationSourceWrite:(bookId:string,command:{cardId:string;input:AuthorMaterialWriteInput})=>request<AuthorMaterialWriteReceipt|null>(`/books/${bookId}/association-source-receipt`,{method:"POST",body:JSON.stringify(command)}),
+  verifyAssociationWrite:(bookId:string,command:AssociationWriteCommand)=>request<AssociationWorkspace|null>(`/books/${bookId}/association-receipt`,{method:"POST",body:JSON.stringify(command)}),
+  getAssociationWorkspace:(bookId:string,cardId:string,instanceId?:string)=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations${instanceId?`?instanceId=${encodeURIComponent(instanceId)}`:""}`),
+  searchAssociationCandidates:(bookId:string,cardId:string,input:{slotKey:string;query:string;offset?:number;limit?:number;instanceId?:string})=>request<{items:AssociationCandidate[];hasMore:boolean}>(`/books/${bookId}/cards/${cardId}/association-candidates?slotKey=${encodeURIComponent(input.slotKey)}&query=${encodeURIComponent(input.query)}&offset=${input.offset??0}&limit=${input.limit??20}${input.instanceId?`&instanceId=${encodeURIComponent(input.instanceId)}`:""}`),
+  addExistingAssociation:(bookId:string,cardId:string,input:{slotKey:string;cardId:string;expectedInstanceRevision:number|null;instanceId?:string;associationFormVersionId?:string;expectedSourceCardVersionId?:string;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations`,{method:"POST",body:JSON.stringify(input)}),
+  createAndAddAssociation:(bookId:string,cardId:string,input:{slotKey:string;cardTypeId:string;title:string;values:Record<string,unknown>;expectedInstanceRevision:number|null;instanceId?:string;associationFormVersionId?:string;targetTypeVersionId?:string;formVersionId?:string|null;formResolutionKind:FormResolutionKind;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations/create`,{method:"POST",body:JSON.stringify(input)}),
+  reorderAssociations:(bookId:string,cardId:string,input:{items:Array<{mountId:string;expectedRevision:number}>;instanceId?:string;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/cards/${cardId}/associations/reorder`,{method:"POST",body:JSON.stringify(input)}),
   removeAssociation:(bookId:string,mountId:string,input:{expectedRevision:number;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/remove`,{method:"POST",body:JSON.stringify(input)}),
   restoreAssociation:(bookId:string,mountId:string,input:{expectedRevision:number;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/restore`,{method:"POST",body:JSON.stringify(input)}),
-  refreshAssociationSource:(bookId:string,mountId:string,input:{expectedRevision:number;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/refresh-source`,{method:"POST",body:JSON.stringify(input)}),
+  refreshAssociationSource:(bookId:string,mountId:string,input:{expectedRevision:number;expectedSourceRevision:number;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/refresh-source`,{method:"POST",body:JSON.stringify(input)}),
   saveAssociationLocalValues:(bookId:string,mountId:string,input:{expectedRevision:number;values:Record<string,unknown>;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/local-values`,{method:"PATCH",body:JSON.stringify(input)}),
   addAssociationLocalField:(bookId:string,mountId:string,input:{expectedRevision:number;field:AddInformationFieldInput;initialValue?:unknown;idempotencyKey:string})=>request<AssociationWorkspace>(`/books/${bookId}/associations/${mountId}/local-fields`,{method:"POST",body:JSON.stringify(input)}),
   listAssociationHistory:(bookId:string,mountId:string)=>request<AssociationMountVersion[]>(`/books/${bookId}/associations/${mountId}/history`),
@@ -607,6 +713,12 @@ export const newDesignApi = {
   endExpiredKnowledgeSemantic:(bookId:string,id:string)=>request<KnowledgeSemanticReceipt>(`/books/${encodeURIComponent(bookId)}/knowledge-index/semantic/${encodeURIComponent(id)}/end-expired`,{method:"POST",body:"{}"}),
   listTemplateVersions: (id: string) => request<TemplateGroupVersion[]>(`/templates/${id}/versions`),
   listBooks: () => request<BookSummary[]>("/books"),
+  getBookshelf:()=>request<import('../common/bookshelf').BookshelfSnapshot>('/bookshelf'),
+  getBookReading:(bookId:string,chapter?:string,scope:import('../common/bookshelf').ReadingScope='adopted')=>request<import('../common/bookshelf').BookReading>(`/books/${encodeURIComponent(bookId)}/reading?scope=${scope}${chapter?'&chapter='+encodeURIComponent(chapter):''}`),
+  getShelfTextExport:(bookId:string,scope:import('../common/bookshelf').ReadingScope,chapter?:string)=>request<import('../common/bookshelf').ShelfTextExport>(`/books/${encodeURIComponent(bookId)}/bookshelf-export?scope=${scope}${chapter?'&chapter='+encodeURIComponent(chapter):''}`),
+  getShelfBookDetail:(bookId:string)=>request<import('../common/bookshelf').ShelfBookDetail>(`/books/${encodeURIComponent(bookId)}/bookshelf-detail`),
+  readBookLifecycle:(bookId:string)=>request<import('../common/bookshelf').BookLifecycle>(`/books/${encodeURIComponent(bookId)}/lifecycle`),
+  changeBookLifecycle:(bookId:string,input:import('../common/bookshelf').BookLifecycleInput)=>request<import('../common/bookshelf').BookLifecycle>(`/books/${encodeURIComponent(bookId)}/lifecycle`,{method:'PATCH',body:JSON.stringify(input)}),
   getHomeSnapshot: () => request<HomeSnapshot>("/home/snapshot"),
   getHomeModels: () => request<HomeModelStatus>("/home/models"),
   getBook: (id: string) => request<BookSummary>(`/books/${id}`),
@@ -615,7 +727,7 @@ export const newDesignApi = {
   previewBookChange:(bookId:string,operationKey:BookChangeOperationKey,input:Record<string,unknown>)=>request<BookChangeSet>(`/books/${bookId}/change-previews`,{method:"POST",body:JSON.stringify({operationKey,input})}),
   applyBookChange:(changeSetId:string)=>request<BookChangeSet>(`/book-change-sets/${changeSetId}/apply`,{method:"POST",body:"{}"}),
   saveBookViewConfig:(bookId:string,key:BookViewKey,input:{config:Record<string,unknown>;revision:number})=>request(`/books/${bookId}/view-config/${key}`,{method:"PUT",body:JSON.stringify(input)}),
-  createBook: (input: {key:string;name:string;description:string;templateVersionId:string}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
+  createBook: (input: {key:string;name:string;description:string;templateVersionId:string;rootValues?:Record<string,unknown>}) => request<BookSummary>("/books", {method:"POST",body:JSON.stringify(input)}),
   listInspirationCandidates: () => request<InspirationCandidate[]>("/book-creation/inspirations"),
   listStrategyResources: (input:{typeKey?:string;archived?:boolean;search?:string}={}) => {
     const params=new URLSearchParams();
@@ -670,10 +782,12 @@ export const newDesignApi = {
   startMarketAnalysis:(input:{scanRecordId:string;scanVersionId?:string;requestKey?:string;itemIds:string[];focus:string;budgetTokens:number})=>request<{recordId:string;versionId:string;version:number}>("/research/market/analyses",{method:"POST",body:JSON.stringify(input)}),
   retryMarketAnalysis:(id:string,input:{requestKey?:string;expectedVersionId?:string}={})=>request<{recordId:string;versionId:string;version:number}>(`/research/market/analyses/${id}/retry`,{method:"POST",body:JSON.stringify(input)}),
   getMarketAnalysisByKey:(scanRecordId:string,key:string)=>request<ResearchRecordDetail|null>(`/research/market/analyses/by-key/${encodeURIComponent(key)}?${new URLSearchParams({scanRecordId}).toString()}`),
+  listSavedMarketSignals:()=>request<MarketSavedSignal[]>("/research/market/signals/saved"),
   adoptMarketSignal:(candidateId:string)=>request<CardSummary>(`/research/market/signals/${candidateId}/adopt`,{method:"POST",body:"{}"}),
   getBookAnalysisPlan:(purpose:BookAnalysisPurpose,preset:BookAnalysisPreset)=>request<BookAnalysisPlan>(`/research/book-analysis/plan?purpose=${purpose}&preset=${preset}`),
-  startBookAnalysis:(input:{documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number})=>request<{recordId:string;versionId:string;version:number}>("/research/book-analyses",{method:"POST",body:JSON.stringify(input)}),
-  retryBookAnalysis:(id:string)=>request<{recordId:string;versionId:string;version:number}>(`/research/book-analyses/${id}/retry`,{method:"POST",body:"{}"}),
+  startBookAnalysis:(input:{documentVersionId:string;purpose:BookAnalysisPurpose;preset:BookAnalysisPreset;rangeMode:"full"|"range";startOffset?:number;endOffset?:number;focus:string;budgetTokens:number;requestKey?:string})=>request<{recordId:string;versionId:string;version:number}>("/research/book-analyses",{method:"POST",body:JSON.stringify(input)}),
+  retryBookAnalysis:(id:string,input:{requestKey?:string;expectedVersionId?:string}={})=>request<{recordId:string;versionId:string;version:number}>(`/research/book-analyses/${id}/retry`,{method:"POST",body:JSON.stringify(input)}),
+  getBookAnalysisByKey:(requestKey:string)=>request<ResearchRecordDetail|null>(`/research/book-analyses/by-key/${encodeURIComponent(requestKey)}`),
   applyResearchCandidates:(id:string,decisions:Array<{candidateId:string;action:"create_card"|"merge_card"|"save_resource"|"reference_only"|"ignore";targetSpaceId?:string;targetCardId?:string;expectedRevision?:number}>)=>request<Array<{candidateId:string;action:string;cardId:string|null}>>(`/research/book-analyses/${id}/candidates/apply`,{method:"POST",body:JSON.stringify({decisions})}),
   updateResearchCandidate:(recordId:string,candidateId:string,input:{title:string;values:Record<string,unknown>;expectedRevision:number;actor?:string;note?:string})=>request<ResearchCandidate>(`/research/book-analyses/${recordId}/candidates/${candidateId}`,{method:"PUT",body:JSON.stringify(input)}),
   listReferencePacks:()=>request<ResearchReferencePack[]>("/research/reference-packs"),
@@ -692,7 +806,7 @@ export const newDesignApi = {
   saveChapterCandidate:(id:string,input:{content:string;operationKind:Extract<ChapterWritingOperation,"manual_draft"|"copy">;baseVersionId?:string|null;expectedRevision:number;idempotencyKey:string;createdBy?:string})=>request<ChapterDocumentDetail>(`/chapter-documents/${id}/candidates`,{method:"POST",body:JSON.stringify(input)}),
   listChapterWritingRequests:(id:string)=>request<ChapterWritingRequest[]>(`/chapter-documents/${id}/writing-requests`),
   getChapterWritingRequest:(id:string)=>request<ChapterWritingRequest>(`/chapter-writing-requests/${id}`),
-  createChapterWritingRequest:(id:string,input:{operationKind:Exclude<ChapterWritingOperation,"manual_draft"|"copy">;baseBodyVersionId?:string|null;selectionStart?:number|null;selectionEnd?:number|null;instruction?:string;expectedRevision:number;idempotencyKey:string;createdBy?:string;knowledgeSources?:import('../common/productionDirector').ChapterKnowledgeSelection[]})=>request<ChapterWritingRequest>(`/chapter-documents/${id}/writing-requests`,{method:"POST",body:JSON.stringify(input)}),
+  createChapterWritingRequest:(id:string,input:{operationKind:Exclude<ChapterWritingOperation,"manual_draft"|"copy">;baseBodyVersionId?:string|null;selectionStart?:number|null;selectionEnd?:number|null;instruction?:string;expectedRevision:number;idempotencyKey:string;createdBy?:string;knowledgeSources?:import('../common/productionDirector').ChapterKnowledgeSelection[];excludedMaterialIds?:string[];sourcePreviewHash?:string})=>request<ChapterWritingRequest>(`/chapter-documents/${id}/writing-requests`,{method:"POST",body:JSON.stringify(input)}),
   prepareChapterAdoption:(id:string,input:{bodyVersionId:string;expectedRevision:number;idempotencyKey:string;createdBy?:string})=>request<ChapterAdoptionPreparation>(`/chapter-documents/${id}/adoption-preparations`,{method:"POST",body:JSON.stringify(input)}),
   getChapterAdoptionPreparation:(id:string)=>request<ChapterAdoptionPreparation>(`/chapter-adoption-preparations/${id}`),
   startChapterAdoptionSession:(preparationId:string,input:{expectedRevision:number;idempotencyKey:string;actor?:string})=>request<ChapterSettlementWorkspace>(`/chapter-adoption-preparations/${preparationId}/sessions`,{method:"POST",body:JSON.stringify(input)}),
@@ -705,6 +819,7 @@ export const newDesignApi = {
   decideChapterSettlementEditingItems:(sessionId:string,input:SettlementEditingDecisionsInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-decisions`,{method:"POST",body:JSON.stringify(input)}),
   commitChapterSettlementEditing:(sessionId:string,input:SettlementEditingCommitInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-settle`,{method:"POST",body:JSON.stringify(input)}),
   establishChapterSettlementEditingInitial:(sessionId:string,input:SettlementEditingInitialInput)=>request<SettlementEditingReceipt>(`/chapter-adoption-sessions/${sessionId}/editing-initial-state`,{method:"POST",body:JSON.stringify(input)}),
+  readChapterSettlementAiOriginalReceipt:(sessionId:string,input:ChapterSettlementAiInput)=>request<ChapterSettlementAiReceipt|null>(`/chapter-adoption-sessions/${sessionId}/editing/ai-extraction-receipt`,{method:"POST",body:JSON.stringify(input)}),
   getChapterSettlementAiStatus:(sessionId:string)=>request<ChapterSettlementAiStatus>(`/chapter-adoption-sessions/${sessionId}/editing/ai-status`),
   createChapterSettlementAiExtraction:(sessionId:string,input:ChapterSettlementAiInput)=>request<ChapterSettlementAiReceipt>(`/chapter-adoption-sessions/${sessionId}/editing/ai-extractions`,{method:"POST",body:JSON.stringify(input)}),
   getChapterSettlementAiByKey:(sessionId:string,key:string)=>request<ChapterSettlementAiReceipt|null>(`/chapter-adoption-sessions/${sessionId}/editing/ai-extractions/by-key/${encodeURIComponent(key)}`),
@@ -743,7 +858,7 @@ export const newDesignApi = {
   saveStateTypeCapability:(spaceId:string,input:{typeKey:string;settlementCapability:StateTypeCapability["settlementCapability"];stateMode:StateTypeCapability["stateMode"];defaultFieldPolicy:SettlementPolicy;expectedRevision?:number;fieldPolicies:StateTypeCapability["fieldPolicies"]})=>request<StateTypeCapability>(`/spaces/${spaceId}/state-capabilities/types`,{method:"PUT",body:JSON.stringify(input)}),
   saveStateRelationCapability:(spaceId:string,input:{relationKey:string;settlementCapability:StateRelationCapability["settlementCapability"];stateMode:StateRelationCapability["stateMode"];expectedRevision?:number;dimensions:StateRelationCapability["dimensions"]})=>request<StateRelationCapability>(`/spaces/${spaceId}/state-capabilities/relations`,{method:"PUT",body:JSON.stringify(input)}),
   listInitialStates:(bookId:string)=>request<EntityInitialState[]>(`/books/${bookId}/initial-states`),
-  saveInitialState:(bookId:string,input:{subjectKind:StateSubjectKind;subjectId:string;stateKey:string;value:unknown;sourceFactId?:string|null;expectedRevision?:number;actor?:string;note?:string})=>request<EntityInitialState>(`/books/${bookId}/initial-states`,{method:"POST",body:JSON.stringify(input)}),
+  saveInitialState:(bookId:string,input:{requestKey?:string;subjectKind:StateSubjectKind;subjectId:string;stateKey:string;value:unknown;sourceFactId?:string|null;expectedRevision?:number;actor?:string;note?:string})=>request<EntityInitialState>(`/books/${bookId}/initial-states`,{method:"POST",body:JSON.stringify(input)}),
   getInitialState:(id:string)=>request<EntityInitialState>(`/initial-states/${id}`),
   listStateChangeProposals:(chapterDocumentId:string)=>request<StateChangeProposal[]>(`/chapter-documents/${chapterDocumentId}/state-change-proposals`),
   proposeStateChange:(bookId:string,input:{chapterDocumentId:string;bodyVersionId:string;textAnchorId?:string|null;causeEventCardId?:string|null;subjectKind:StateSubjectKind;subjectId:string;stateKey:string;beforeValue:unknown;afterValue:unknown;delta?:unknown;reason:string;effectiveStoryOrder?:number|null;source:StateChangeProposal["source"]})=>request<StateChangeProposal>(`/books/${bookId}/state-change-proposals`,{method:"POST",body:JSON.stringify(input)}),
@@ -971,6 +1086,7 @@ export const newDesignApi = {
   submitPublicationExport:(manifestId:string,input:{expectedSourceHash:string;requestedBy:string;idempotencyKey:string})=>request<PublicationExportRecord>(`/publication-exports/manifests/${manifestId}/submit`,{method:"POST",body:JSON.stringify(input)}),
   listPublicationExports:(bookId:string)=>request<PublicationExportRecord[]>(`/books/${bookId}/publication-exports`),
   getPublicationExport:(requestId:string)=>request<PublicationExportRecord>(`/publication-exports/requests/${requestId}`),
+  readPublicationExportReceipt:(manifestId:string,input:{expectedSourceHash:string;requestedBy:string;idempotencyKey:string})=>request<PublicationExportRecord|null>(`/publication-exports/manifests/${manifestId}/receipt?${new URLSearchParams(input)}`),
   getPublicationExportDownloadUrl:(artifactId:string)=>`${API_ROOT}/publication-exports/artifacts/${encodeURIComponent(artifactId)}/download`,
   listReleaseGates:()=>request<ReleaseGateItem[]>("/release-gates"),
   recordReleaseGateAssessment:(gateKey:string,input:{outcome:ReleaseGateAssessment["outcome"];evidence:string;evidenceRef?:string;assessedBy:string})=>request<ReleaseGateAssessment>(`/release-gates/${encodeURIComponent(gateKey)}/assessments`,{method:"POST",body:JSON.stringify(input)}),

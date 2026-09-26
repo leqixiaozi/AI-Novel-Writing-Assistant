@@ -242,7 +242,15 @@ test("mobile AppLayout uses the site shell for phone entry routes", () => {
   assert.match(appLayout, /useIsMobileViewport/);
   assert.match(appLayout, /MobileSiteShell/);
   assert.match(appLayout, /useMobileSiteLayout/);
-  assert.match(appLayout, /useMobileNovelWorkspaceLayout/);
+  assert.match(appLayout, /useMobileWorkspaceLayout/);
+});
+
+test("mobile new-design book workspace switches between book and project navigation", () => {
+  assert.match(appLayout, /data-new-design-nav-mode=\{isNewDesignBookWorkspace \? workspaceNavMode : undefined\}/);
+  assert.match(appLayout, /aria-label="项目导航"/);
+  assert.match(appLayout, /hidden=\{workspaceNavMode !== "project"\}/);
+  assert.match(appLayout, /aria-expanded=\{workspaceNavMode === "project"\}/);
+  assert.match(appLayout, /NEW_DESIGN_PRIMARY_NAV/);
 });
 
 test("every routed page has a route-specific mobile CSS landing point", () => {

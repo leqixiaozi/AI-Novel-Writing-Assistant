@@ -1,9 +1,11 @@
 const test=require("node:test"),assert=require("node:assert/strict"),{randomUUID}=require("node:crypto"),express=require("express");
-const runtime=require("../dist/server/database/runtime"),store=require("../dist/server/database/store"),templates=require("../dist/server/database/templateStore"),composition=require("../dist/server/database/compositionStore"),research=require("../dist/server/database/researchStore");
-const {createNewDesignRouter}=require("../dist/server/http/router");
-test("research adoption API enforces dictionary ranges atomically and freezes exact source versions",{skip:process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME!=="1",timeout:60000},async t=>{
- const pool=await runtime.getNewDesignPool();let server,book,recordId;
- t.after(async()=>{if(server)await new Promise(resolve=>server.close(resolve));if(book)await pool.query("UPDATE new_design.books SET status='archived' WHERE id=$1",[book.id]);if(recordId)await pool.query("UPDATE new_design.research_records SET status='archived' WHERE id=$1",[recordId]);await pool.end();});
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+test("research adoption API enforces dictionary ranges atomically and freezes exact source versions",{timeout:120000},async t=>{
+ if(!process.env.ND_REFERENCE_TEST_BUILD){t.skip('Requires the final isolated work build.');return;}
+ const {pool,database}=await isolatedDatabase(t);t.diagnostic(`Isolated database retained: ${database}`);
+ const store=compiled('server/database/store'),templates=compiled('server/database/templateStore'),composition=compiled('server/database/compositionStore'),research=compiled('server/database/researchStore');
+ const {createNewDesignRouter}=compiled('server/http/router');let server,book,recordId;
+ t.after(async()=>{if(server)await new Promise(resolve=>server.close(resolve));});
  const token=randomUUID().slice(0,12),template=(await pool.query("SELECT id FROM new_design.template_group_versions ORDER BY created_at LIMIT 1")).rows[0];
  book=await templates.createBook({key:`research_verify_${token}`,name:`研究采用验收-${token}`,description:"独立验证用书，非作者作品",templateVersionId:template.id});
  const root=randomUUID(),allowed=randomUUID(),outside=randomUUID(),archived=randomUUID();

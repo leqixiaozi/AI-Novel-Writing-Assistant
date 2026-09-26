@@ -1,3 +1,4 @@
+import {settlementRecordCtes,updateSettlementRecords} from '../../database/chapterSettlement/recordStorage';
 import { randomUUID } from "node:crypto";
 import type { ChapterSettlementAiReceipt } from "../../../common/chapterSettlementAi";
 import type { AiRuntimeRecovery } from "../../../common/aiRuntime";
@@ -23,7 +24,8 @@ export async function finishSettlementAiLedger(claim:SettlementAiClaim,failure:A
     }
     if(!failure&&row.status!=="succeeded")throw new NewDesignError("变化候选入库尚未确认，不能标记运行成功。",409);
     if(failure&&row.generated_output)throw new NewDesignError("模型结果已保存，请恢复候选导入，不能把已生成结果标记为模型失败。",409);
-    if(failure)await client.query("UPDATE new_design.chapter_proposal_extraction_requests SET status='failed',failure=$2::jsonb,generated_execution=$3::jsonb,error_summary=$4,updated_at=now() WHERE id=$1",[claim.requestId,JSON.stringify(failure),trace?JSON.stringify(trace):null,failure.summary.slice(0,2000)]);
+    if(failure)await updateSettlementRecords(client,"chapter_proposal_extraction_request",`WITH ${settlementRecordCtes.chapter_proposal_extraction_requests}
+SELECT chapter_proposal_extraction_requests.*,('failed')::text AS status,($2::jsonb)::jsonb AS failure,($3::jsonb)::jsonb AS generated_execution,($4)::text AS error_summary,(now())::timestamptz AS updated_at FROM chapter_proposal_extraction_requests WHERE id=$1`,[claim.requestId,JSON.stringify(failure),trace?JSON.stringify(trace):null,failure.summary.slice(0,2000)]);
     await client.query("UPDATE new_design.ai_task_attempts SET status=$2,result_kind=$3,result_stable_id=$4,result_version_id=$5,result_hash=$6,error_category=$7,retry_eligibility=$8,error_summary=$9,ended_at=now() WHERE id=$1",[claim.attemptId,status,failure?null:SOURCE_KIND,failure?null:claim.requestId,failure?null:claim.promptRecipeVersionId,failure?null:stableHash(row.generated_output),failure?errorCategory:null,failure?"none":null,failure?.summary??""]);
     const step=(await client.query("UPDATE new_design.ai_task_steps SET status=$2,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,revision=revision+1,updated_at=now(),completed_at=now() WHERE id=$1 AND status='running' AND current_attempt_id=$3 RETURNING revision",[claim.stepId,status,claim.attemptId])).rows[0];
     const task=(await client.query("UPDATE new_design.ai_tasks SET status=$2,revision=revision+1,updated_at=now(),completed_at=now() WHERE id=$1 AND status='running' RETURNING revision",[claim.taskId,status])).rows[0];

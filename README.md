@@ -1,5 +1,9 @@
-# AI 小说创作工作台 / AI Novel Production Engine
-一个面向长篇小说创作的 AI Native 开源项目。
+# AI 小说创作工作台 / Biz Novel Studio
+一个帮助新手从灵感走到完整长篇的 AI Native 开源小说创作工作台；英文名由 **AI Novel Production Engine** 更新为 **Biz Novel Studio**。
+
+Open-source AI novel writing assistant and long-form production studio.
+
+> 中文名仍为 **AI 小说创作工作台**；`AI Novel Writing Assistant` 仓库地址和既有下载入口保持不变。
 
 当前开发主线：
 `Creative Hub + 自动导演开书 + 本书世界上下文 + 整本生产主链 + 写法引擎`
@@ -19,7 +23,7 @@
 
 ## ✨ 项目简介
 
-这是一个**面向长篇小说完成度的 AI 生产系统**，不是普通的"你写一句、AI 补一句"聊天壳子。
+**AI 小说创作工作台 / Biz Novel Studio** 是一个**面向长篇小说完成度的 AI 生产系统**。
 
 它的核心做法是：
 
@@ -151,28 +155,40 @@
 - 角色、世界观、写法、知识库和质量控制一起托住单章生成，让每一章都尽量还在同一本书里。
 - 每写完一章，系统都会把新状态回灌回去，继续影响后续章节、卷级节奏和必要时的重规划。
 
+## 自动导演交互架构图
+
+[![自动导演：从想法到完整小说](./docs/architecture/diagram.webp)](https://explosivecoderflome.github.io/AI-Novel-Writing-Assistant/architecture/auto-director-idea-to-novel.detailed.workflow.html)
+
+- [打开交互架构图](https://explosivecoderflome.github.io/AI-Novel-Writing-Assistant/architecture/auto-director-idea-to-novel.detailed.workflow.html)，查看从想法、全书规划、写法与反 AI 契约到逐章生产和写后同步的完整链路。
+- 图表使用 [Archify](https://github.com/tt-a1i/archify) 生成；仓库内保留[图表源数据](./docs/architecture/auto-director-idea-to-novel.detailed.workflow.json)与[自包含 HTML](./docs/architecture/auto-director-idea-to-novel.detailed.workflow.html)。
+
 ## 最新更新
 
-### 2026-09-17
-
-#### 新增
-
-- 故事设定集中维护人物、世界、地点与势力、道具等资料；故事规划可按卷章查看人物、事件、时间、关系、线索与道具，并沿原资料继续编辑。
-- 新设计提供世界一致性检查、人物模拟、创作提炼、图片准备、专业图形及导演跟进入口；生成内容须明确确认采用。
+### 2026-09-23
 
 #### 优化
 
 - 知识参考可选择精确段落，保留来源版本及字位范围；切换创作位置时提供保存、放弃或取消，未知保存结果保留原请求。
 - 开发部署通过独立环境文件配置数据库端口、访问范围和宿主机数据目录；启动与备份共用配置并核对数据位置。
 - 书籍与创作资源导航统一展示当前位置，开发启动及备份恢复说明补充数据保留与核对步骤。
+- 新版创作首页按旧版顺序聚焦当前作品、下一步和创作状态；创作向导展示推荐理由、五步进度、当前作品及可选增强，并保留新版作品的实际进度。
+- 新版系统设置的配置入口分组统一采用蓝色外框，组内链接的悬停和键盘焦点更清晰。
+- 新版左侧菜单分组可点击展开或收起，刷新及切换页面后保留本次会话的选择；折叠时仍标出当前所在页面。
+- 新版创作中枢的诊断输入、上下文绑定和操作按钮统一使用主题控件样式；新版按钮默认样式与页面生成规范同步，避免出现浏览器原生灰色按钮。
+- 新版标题工坊等页面的局部标签与页面导航使用一致的选中样式，切换内容时更容易辨认当前位置。
+- 新版运行记录的列表与详情改为完整边框布局，窄屏下分隔线随上下排列调整，更容易区分查看区域。
+- 新版模型设置的任务列表与编辑区统一使用面板边框，当前任务增加选中标识，浏览和切换路线更清晰。
+- 新版可按所选的 OpenAI 或 Anthropic 兼容协议连接模型，两者的回复和结束状态统一处理；同名模型不自动切换协议。
+- 新版开书遇到模型回复格式异常时，可在原运行批次中保留私有诊断证据，便于定位问题；不自动重试或采用失败内容，不改变已配置模型。
 
 #### 修复
 
-- 修复导演总控台与运行记录无法读取的问题，保留原任务状态和来源链接。
-- 新旧菜单共用本机 5273 入口，兼容 localhost 的两种回环地址，避免页面因连接地址不同而无法访问。
-- 旧服务对比启动跳过初始化及后台任务恢复，便于使用现有资料进入共同工作台。
+- 修复部分开书草稿使用文本方向编号时，书架和创作首页无法读取作品的问题；已有作品和草稿可正常显示。
+- MiniMax 开书改用明确的资料结果通道，并限制各阶段只生成本阶段内容；不完整或超出长度限制的回复会明确停止，保留已有草稿。
+- 开书可核验并恢复已有完整回复，无须重复生成；兼容模型直接返回的合法资料结果，并明确每个资料位置只能生成一项，减少重复候选。
+- 新版使用旧模板开书时，兼容未填写父级的字典根节点，避免 AI 准备在发送请求前被拦住；保留原模板和开书草稿，无需修改数据库。
 
-完整更新历史见 [发布记录](docs/releases/release-notes.md)。
+完整更新历史见[版本更新说明](docs/releases/release-notes.md)。新版各批交付与未完成项见[新设计交付记录](new-design/docs/releases.md)和[逐页进度](new-design/docs/legacy-page-replication-progress.md)。
 
 ## 功能预览
 ### 功能概览中的95%以上编写都是AI完成
@@ -591,9 +607,11 @@ shared/   前后端共享类型与协议
 images/   README 与产品预览截图
 scripts/  启动和辅助脚本
 docs/     设计文档、阶段检查点、模块计划与历史归档
+new-design/  独立的新版页面、服务、数据库迁移和专题文档
+doc/     新版项目文档工作台：产品、架构与开发规范
 ```
 
-更细的文档分区说明可以看 [docs/README.md](./docs/README.md)。
+开发新版先看[项目文档工作台](./doc/README.md)及[新版专题索引](./new-design/docs/README.md)；旧版与全仓资料的分区说明见[docs/README.md](./docs/README.md)。上表技术栈描述 `client/`、`server/` 旧版，新版底层以[新版架构总览](./doc/20架构/overview.md)为准。
 
 ### 当前系统关注点
 

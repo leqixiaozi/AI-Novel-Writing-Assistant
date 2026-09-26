@@ -1,4 +1,6 @@
 import type { BookAnalysisPlan, BookAnalysisResult, BookCreationMethod, BookDirectionCandidate, FieldDefinition, InitialCardDraft, MarketAnalysisResult, MarketRankingItem, PlanningLevel } from "../../common/contracts";
+import type {CreativeHubBinding,CreativeHubDiagnostic,CreativeHubState} from '../../common/creativeHub';
+import type {WorldGenerationCandidateContent,WorldGenerationPromptInput} from '../../common/worldGeneration';
 
 export interface AiSchemaType {
   key: string;
@@ -32,10 +34,20 @@ export interface FormAssistInput {
 export interface MarketAnalysisInput {items:MarketRankingItem[];focus:string;budgetTokens:number;}
 export interface AiResearchRunResult<T> {output:T;promptSnapshot:Record<string,unknown>;modelSnapshot:Record<string,unknown>;usedTokens:number;}
 export interface BookAnalysisInput {title:string;text:string;focus:string;plan:BookAnalysisPlan;schemaTypes:AiSchemaType[];budgetTokens:number;}
-export interface PlanningCandidateInput {bookName:string;bookDescription:string;target:{level:PlanningLevel;title:string;currentContent:Record<string,unknown>|null;parentContent:Record<string,unknown>|null};materials:Array<{cardId:string;typeKey:string;typeName:string;title:string;values:Record<string,unknown>}>;adoptedPlans:Array<{level:PlanningLevel;title:string;content:Record<string,unknown>}>;instruction:string;}
-export interface PlanningCandidateOutput {title:string;goal:string;storyTime:string;mustHappen:string[];mustPreserve:string[];forbiddenBoundaries:string[];expectedChanges:string[];characterArc:string;notes:string;sourceCardIds:string[];}
+export interface PlanningCandidateInput {bookName:string;bookDescription:string;target:{level:PlanningLevel;title:string;currentContent:Record<string,unknown>|null;parentContent:Record<string,unknown>|null};materials:Array<{cardId:string;typeKey:string;typeName:string;title:string;values:Record<string,unknown>}>;adoptedPlans:Array<{level:PlanningLevel;title:string;content:Record<string,unknown>}>;instruction:string;worldUsage?:import('../../common/worldUsage').WorldUsageCreativeScope[];}
+export interface PlanningCandidateOutput {title:string;goal:string;storyTime:string;mustHappen:string[];mustPreserve:string[];forbiddenBoundaries:string[];expectedChanges:string[];characterArc:string;notes:string;sourceCardIds:string[];stageFields?:Record<string,unknown>;}
 
 export interface NewDesignAiGateway {
+  generateDramaCandidate?(input:import('../../common/drama').DramaGenerationPrompt):Promise<AiResearchRunResult<{operation:'strategy'|'character'|'episode'|'script';content:Record<string,unknown>}>>;
+  generateComicCandidate?(input:import('../../common/comicSourceBundle').ComicSourceExtractionPrompt|import('../../common/comicEpisodes').ComicEpisodeOutlinePrompt|import('../../common/comicPanels').ComicPanelScriptPrompt):Promise<AiResearchRunResult<{operation:'source_extract';content:import('../../common/comicSourceBundle').ComicSourceBundleContent}|{operation:'episode_outline';content:import('../../common/comicEpisodes').ComicEpisodeContent}|{operation:'panel_script';panels:Array<Omit<import('../../common/comicPanels').ComicPanel,'id'>>}>>;
+  diagnoseCreativeHub?(input:{question:string;binding:CreativeHubBinding;state:CreativeHubState}):Promise<AiResearchRunResult<CreativeHubDiagnostic>>;
+  generateWorldCandidate?(input:WorldGenerationPromptInput):Promise<AiResearchRunResult<WorldGenerationCandidateContent>>;
+  suggestWorldUsage?(input:{sources:import('../../common/worldUsage').WorldUsageSources;instruction:string}):Promise<AiResearchRunResult<import('../../common/worldUsage').WorldUsageSelection>>;
+  generateCharacterRecentBodyExperiences?(input:{snapshot:import('../../common/characterExperiences/recentBodies').RecentBodyExperienceSnapshot;instruction:string}):Promise<AiResearchRunResult<import('../../common/characterExperiences/recentBodies').RecentBodyExperienceOutput>>;
+  generateCharacterResourceFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
+  generateCharacterResourceHistoryFocus?(input:import("../../common/characterResources/focus").ResourceFocusPromptInput):Promise<AiResearchRunResult<import("../../common/characterResources/focus").ResourceFocusOutput>>;
+  generateCharacterExperiences?(input:import("../../common/characterExperiences").ExperienceSnapshot):Promise<AiResearchRunResult<import("../../common/characterExperiences").ExperienceOutput>>;
+  generateStoryWorkspaceBatch?(input:import("../../common/storyWorkspace").StoryBatchPromptInput):Promise<AiResearchRunResult<import("../../common/storyWorkspace").StoryBatchOutput>>;
   generateDirections(input: DirectionGenerationInput): Promise<BookDirectionCandidate[]>;
   generateInitialContent(input: InitialContentGenerationInput): Promise<InitialCardDraft[]>;
   assistForm(input: FormAssistInput): Promise<Record<string, unknown>>;

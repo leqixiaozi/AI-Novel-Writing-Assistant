@@ -1,0 +1,85 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {randomUUID}=require('node:crypto');
+const {isolatedDatabase,compiled}=require('./support/isolatedDatabase.cjs');
+
+test('archiving a public world hides new imports while preserving fixed versions and reversible history',async t=>{
+ const {pool}=await isolatedDatabase(t,[
+  {id:'084_world_packages',fileName:'084_world_packages.sql'},
+  {id:'108_world_package_archive',fileName:'108_world_package_archive.sql'},
+ ]);
+ const worlds=compiled('server/database/worldPackages');
+ const store=compiled('server/database/store');
+ const {PUBLIC_WORLD_SPACE_ID}=compiled('common/worldPackages');
+ const type=(await store.listCardTypes()).find(item=>item.key==='world_rule');
+ assert.ok(type);
+ const source=await store.createCard({cardTypeId:type.id,spaceId:PUBLIC_WORLD_SPACE_ID,title:'可归档的世界',values:{era:'测试时代',world_summary:'测试世界'}});
+ const sourceVersion=(await store.listCardVersions(source.id))[0];
+ await pool.query("UPDATE new_design.world_package_capability SET operational=true WHERE contract='public_world_package_v1'");
+ const input={requestKey:randomUUID(),rootCardId:source.id,rootVersionId:sourceVersion.id,cards:[{cardId:source.id,versionId:sourceVersion.id,section:'profile'}],relationVersionIds:[]};
+ const preview=await worlds.previewWorldPackage(input);
+ const published=(await worlds.publishWorldPackage({...input,previewHash:preview.previewHash})).package;
+ assert.equal((await worlds.getWorldPackageCatalog()).items[0].id,published.id);
+ const templates=compiled('server/database/templateStore');
+ let template=await templates.saveTemplate({key:`archive_${randomUUID().replaceAll('-','')}`,name:'归档隔离模板',description:'',draftConfig:{},requestKey:randomUUID()});
+ template=await templates.publishTemplate(template.id,template.revision,randomUUID());
+ const book=await templates.createBook({key:`archive_${randomUUID().replaceAll('-','')}`,name:'归档目标书',description:'',templateVersionId:template.currentVersionId});
+ const target=(await store.listCardTypes(book.spaceId)).find(item=>item.key==='world_rule');
+ assert.ok(target);
+ const installation={requestKey:randomUUID(),packageId:published.id,cards:[{sourceCardId:source.id,requestKey:randomUUID(),targetTypeId:target.id,title:'独立世界',mapping:Object.entries(source.values).map(([sourceKey,value])=>({sourceKey,targetKey:sourceKey,value})),additionalValues:{}}],relations:[],syncEnabled:true};
+ const installPreview=await worlds.previewWorldInstallation(book.id,installation);
+ assert.equal(installPreview.package.id,published.id);
+ const installed=await worlds.installWorldPackage(book.id,{input:installation,previewHash:installPreview.previewHash});
+ const importedBefore=await store.getCard(installed.cards[0].targetCardId);
+
+ const archive={action:'archive',requestKey:randomUUID(),expectedRevision:0};
+ const archived=await worlds.changeWorldPackageAvailability(source.id,archive);
+ assert.equal(archived.status,'archived');
+ assert.equal(archived.revision,1);
+ assert.deepEqual((await worlds.getWorldPackageCatalog()).items,[]);
+ const management=await worlds.getWorldPackageCatalog(true);
+ assert.equal(management.items[0].id,published.id);
+ assert.equal(management.states[source.id].status,'archived');
+ assert.equal((await worlds.readPublishedWorldPackage(published.id)).id,published.id);
+ assert.deepEqual(await store.getCard(installed.cards[0].targetCardId),importedBefore);
+ assert.equal((await worlds.readWorldInstallationOriginal(book.id,{input:installation,previewHash:installPreview.previewHash})).installationId,installed.installationId);
+ assert.ok((await worlds.getBookWorldSyncWorkspace(book.id,installed.cards[0].targetCardId)).workspace);
+ await assert.rejects(worlds.previewWorldInstallation(book.id,installation),error=>error.status===409);
+ const nextInput={...input,requestKey:randomUUID()};
+ const nextPreview=await worlds.previewWorldPackage(nextInput);
+ await assert.rejects(worlds.publishWorldPackage({...nextInput,previewHash:nextPreview.previewHash}),error=>error.status===409);
+ assert.equal((await worlds.changeWorldPackageAvailability(source.id,archive)).repeated,true);
+ await assert.rejects(worlds.changeWorldPackageAvailability(source.id,{...archive,action:'restore'}),error=>error.status===409);
+ await assert.rejects(worlds.changeWorldPackageAvailability(source.id,{action:'restore',requestKey:randomUUID(),expectedRevision:0}),error=>error.status===409);
+
+ const restored=await worlds.changeWorldPackageAvailability(source.id,{action:'restore',requestKey:randomUUID(),expectedRevision:1});
+ assert.equal(restored.status,'active');
+ assert.equal(restored.revision,2);
+ assert.equal((await worlds.getWorldPackageCatalog()).items[0].id,published.id);
+ assert.equal((await worlds.previewWorldInstallation(book.id,installation)).package.id,published.id);
+ assert.equal((await pool.query('SELECT count(*)::integer count FROM new_design.world_package_versions WHERE root_card_id=$1',[source.id])).rows[0].count,1);
+ const express=require('express'),app=express();
+ app.use(express.json());app.use('/api/new-design',compiled('server/http/router').createNewDesignRouter());
+ const http=app.listen(0,'127.0.0.1');await new Promise(resolve=>http.once('listening',resolve));
+ t.after(()=>new Promise(resolve=>http.close(resolve)));
+ const base=`http://127.0.0.1:${http.address().port}/api/new-design`;
+ const httpAction={action:'archive',requestKey:randomUUID(),expectedRevision:2};
+ const send=(path,body)=>fetch(base+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+ const archiveResponse=await send(`/world-packages/catalog/${source.id}/availability`,httpAction);
+ assert.equal(archiveResponse.status,201);
+ assert.equal((await archiveResponse.json()).data.status,'archived');
+ const originalResponse=await send(`/world-packages/catalog/${source.id}/original-receipt`,httpAction);
+ assert.equal(originalResponse.status,200);
+ assert.equal((await originalResponse.json()).data.repeated,true);
+ assert.deepEqual((await(await fetch(base+'/world-packages/catalog')).json()).data.items,[]);
+ const archivedCatalog=(await(await fetch(base+'/world-packages/catalog?includeArchived=true')).json()).data;
+ assert.equal(archivedCatalog.items[0].id,published.id);
+ assert.equal(archivedCatalog.states[source.id].status,'archived');
+ await assert.rejects(pool.query('DELETE FROM new_design.world_package_catalog_actions WHERE root_card_id=$1',[source.id]),error=>error.code==='23514');
+ await pool.query('ALTER TABLE new_design.world_package_catalog_actions DISABLE TRIGGER world_package_catalog_action_guard');
+ assert.equal((await worlds.getWorldPackageCatalog(true)).archiveAvailable,false);
+ assert.deepEqual((await worlds.getWorldPackageCatalog()).items,[]);
+ await assert.rejects(worlds.previewWorldInstallation(book.id,installation),error=>error.status===503||error.status===409);
+ await assert.rejects(worlds.changeWorldPackageAvailability(source.id,{action:'restore',requestKey:randomUUID(),expectedRevision:3}),error=>error.status===503);
+ await pool.query('ALTER TABLE new_design.world_package_catalog_actions ENABLE TRIGGER world_package_catalog_action_guard');
+});

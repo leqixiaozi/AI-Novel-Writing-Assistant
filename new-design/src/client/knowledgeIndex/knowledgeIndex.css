@@ -8,3 +8,6 @@
 .nd-knowledge-index-hit{padding:16px;margin-block:12px;background:var(--nd-soft);border-radius:8px}.nd-knowledge-index-hit p{white-space:pre-wrap}
 .nd-knowledge-index input[type=checkbox]{width:auto;min-height:0;flex:0 0 auto}
 @media(max-width:900px){.nd-knowledge-index-grid{grid-template-columns:1fr}.nd-knowledge-index{padding:14px}.nd-knowledge-index-request{grid-template-columns:1fr}}
+
+.nd-knowledge-index[data-view="settings"] .nd-knowledge-index-grid,.nd-knowledge-index[data-view="index"] .nd-knowledge-index-grid{grid-template-columns:minmax(0,1fr)}
+.nd-knowledge-index section[hidden]{display:none}

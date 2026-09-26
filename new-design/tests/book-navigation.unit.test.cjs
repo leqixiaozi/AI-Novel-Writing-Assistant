@@ -1,90 +1,95 @@
 const {test}=require('node:test');
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
-const read=file=>fs.readFileSync(path.join(__dirname,'../',file),'utf8');
-const exportsObject={};
-new Function('exports',ts.transpileModule(read('src/client/navigation.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(exportsObject);
-const {BOOK_NAV_GROUPS,BOOK_TASK_NAV,bookNavigationGroup}=exportsObject;
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const ts=require('typescript');
+const React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server');
 
-test('setting and planning entries keep one visible source per task while legacy specialized deep links remain compatible',()=>{
- assert.deepEqual(BOOK_NAV_GROUPS.map(group=>group.label),['创作概览','创作方向','② 故事设定','③ 故事规划','完本与导出']);
- const keys=BOOK_NAV_GROUPS.flatMap(group=>group.sections.flatMap(section=>section.items));
- assert.equal(new Set(keys).size,keys.length);
- assert.deepEqual([...keys].sort(),BOOK_TASK_NAV.filter(item=>!['settings','world','characters','materials'].includes(item.key)).map(item=>item.key).sort());
- for(const key of keys)assert.ok(bookNavigationGroup(key));
- assert.equal(bookNavigationGroup('settings'),undefined);
+const bookId='41000000-0000-4000-8000-000000000002';
+const compile=file=>ts.transpileModule(fs.readFileSync(path.join(__dirname,'../',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+const workflow={};
+new Function('exports',compile('src/client/bookNavigation/workflow.ts'))(workflow);
+
+function render(active,pathname,search=''){
+ const module={};
+ const load=name=>{
+  if(name==='react'||name==='react/jsx-runtime')return require(name);
+  if(name==='./workflow')return workflow;
+  if(name==='./progress')return {workflowProgress:()=>[]};
+  if(name==='../api')return {newDesignApi:{}};
+  if(name==='./BookRouteShell')return {default:()=>null};
+  if(name.endsWith('.css'))return {};
+  throw new Error(`Unexpected dependency: ${name}`);
+ };
+ new Function('require','exports','location','sessionStorage',compile('src/client/bookNavigation/index.tsx'))(load,module,{pathname,search},{getItem:()=>null});
+ return renderToStaticMarkup(React.createElement(module.default,{book:{id:bookId,name:'测试书'},active}));
+}
+
+function currentLinks(html){return [...html.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*aria-current="page"[^>]*>/g)].map(match=>match[1]);}
+
+test('live book sidebar presents eight workflow steps and auxiliary routes',()=>{
+ const html=render('overview',`/new-design/books/${bookId}/overview`);
+ assert.equal((html.match(/class="nd-production-step-number"/g)??[]).length,8);
+ for(const route of ['overview','composition','planning','director','views/chapters','history','completion','fields'])assert.match(html,new RegExp(`href="/new-design/books/${bookId}/${route}"`));
+ assert.deepEqual(currentLinks(html),[`/new-design/books/${bookId}/overview`]);
 });
 
-test('chapter tools and material tools belong to their source task group',()=>{
- for(const key of ['composition','writing','views','professional-views','director'])assert.equal(bookNavigationGroup(key).key,'production');
- for(const key of ['story-setting','knowledge','character-dialogue','visual-assets'])assert.equal(bookNavigationGroup(key).key,'setting');
- assert.equal(bookNavigationGroup('planning').key,'production');assert.equal(bookNavigationGroup('direction').key,'direction');
- for(const key of ['world','characters','materials'])assert.ok(BOOK_TASK_NAV.some(item=>item.key===key));
+test('workflow step and auxiliary tool never claim the same current page',()=>{
+ const cases=[
+  ['planning','planning?stage=structured','planning?stage=structured'],
+  ['composition','composition','planning?stage=structured'],
+  ['views','views/quality','views/quality'],
+  ['views','views/chapters','views/chapters'],
+  ['director','director','director'],
+  ['history','history','history'],
+  ['completion','completion','completion'],
+  ['settings','fields','fields'],
+ ];
+ for(const [active,route,selected] of cases){
+  const [page,query]=route.split('?');
+  const html=render(active,`/new-design/books/${bookId}/${page}`,query?`?${query}`:'');
+  assert.deepEqual(currentLinks(html),[`/new-design/books/${bookId}/${selected}`],`${active}: ${route}`);
+ }
 });
 
-test('shell keeps editing children mounted, original settings path, and keyed book navigation',()=>{
- const shell=read('src/client/BookShell.tsx');
- assert.match(shell,/BookNavigation key=\{book.id\}/);
- assert.match(shell,/href=\{`\$\{root\}\/fields`\}/);
- assert.match(shell,/\{children\}/);
- assert.doesNotMatch(shell,/BOOK_TASK_NAV\.map/);
+test('auxiliary routes are tucked away during eight-step creation and expanded when selected',()=>{
+ const step=render('direction',`/new-design/books/${bookId}/setting`);
+ assert.match(step,/<details class="nd-production-tools"/);
+ assert.doesNotMatch(step,/<details class="nd-production-tools" open=""/);
+ const tool=render('history',`/new-design/books/${bookId}/history`);
+ assert.match(tool,/<details class="nd-production-tools" open=""/);
 });
 
-test('sidebar directly shows shared tree and collapse keeps source content mounted',()=>{
- const navigation=read('src/client/bookNavigation/index.tsx'),tree=read('src/client/tree/TreeNavigation.tsx'),shell=read('src/client/BookShell.tsx'),catalog=read('src/client/bookNavigation/catalog.ts');
- assert.match(navigation,/TreeNavigation/);
- assert.match(catalog,/href:`\/new-design\/books\/\$\{bookId\}\/\$\{item.path\}`/);
- assert.match(navigation,/hidden=\{collapsed\}/);
- assert.match(navigation,/aria-expanded=\{!collapsed\}/);
- assert.match(navigation,/sessionStorage.setItem\(preferenceKey,String\(next\)\)/);
- assert.match(navigation,/new-design:book-navigation:\$\{bookId\}:collapsed/);
- assert.match(navigation,/aria-controls=\{bodyId\}/);
- assert.match(shell,/className="nd-book-layout"/);
- assert.match(shell,/className="nd-book-content">\{children\}/);
- assert.doesNotMatch(navigation,/openGroup|nd-book-navigation-panel|closeOutside/);
- assert.doesNotMatch(navigation,/newDesignApi|location\.assign|history\.replaceState/);
- assert.match(tree,/<a className="nd-nav-tree-label" href=/);
+test('project navigation wins the collapsed book grid in both hosts',()=>{
+ const workbench=fs.readFileSync(path.join(__dirname,'../src/client/bookNavigation/workbench.css'),'utf8');
+ const standalone=fs.readFileSync(path.join(__dirname,'../src/client/standalone/theme.css'),'utf8');
+ assert.match(workbench,/\[data-new-design-nav-mode="project"\] \.nd-book-shell \.nd-book-layout:has\(>\.nd-book-navigation\.is-collapsed\)\{grid-template-columns:minmax\(0,1fr\)\}/);
+ assert.match(standalone,/\.is-project-navigation \.nd-book-shell \.nd-book-layout:has\(>\.nd-book-navigation\.is-collapsed\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+ assert.match(standalone,/\.nd-independent-layout\.is-book-workspace\.is-project-navigation \.nd-independent-sidebar \{ display: block; \}/);
+ assert.match(standalone,/\.nd-independent-layout\.is-book-workspace \.nd-independent-menu \{ display: none; \}/);
 });
 
-test('function tree preserves original routes and reduces single-page groups to direct links',()=>{
- const builder={};
- new Function('require','exports',ts.transpileModule(read('src/client/bookNavigation/catalog.ts'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText)(name=>{if(name==='../navigation')return exportsObject;throw Error(`Unexpected dependency ${name}`);},builder);
- const bookId='41000000-0000-4000-8000-000000000002',nodes=builder.buildBookFunctionTree(bookId);
- assert.equal(nodes.length,5);
- assert.equal(nodes[0].id,'page:overview');assert.equal(nodes[0].href,`/new-design/books/${bookId}/overview`);assert.equal(nodes[0].children,undefined);
- assert.equal(nodes[1].id,'page:direction');assert.equal(nodes[2].id,'group:setting');assert.equal(nodes[3].id,'group:production');
- assert.equal(nodes[4].id,'page:completion');assert.equal(nodes[4].children,undefined);
- const collect=items=>items.flatMap(item=>[item,...collect(item.children??[])]);
- const leaves=collect(nodes).filter(item=>item.id.startsWith('page:'));
- for(const item of BOOK_TASK_NAV.filter(item=>!['settings','world','characters','materials'].includes(item.key)))assert.equal(leaves.find(node=>node.id===`page:${item.key}`).href,`/new-design/books/${bookId}/${item.path}`);
- assert.equal(leaves.length,BOOK_TASK_NAV.length-4);
- assert.equal(collect(nodes).some(node=>node.href?.startsWith('/new-design/resources')),false);
+test('writing opens compact at 1280 unless this session chose a rail state',()=>{
+ const chapter=`/new-design/books/${bookId}/chapters/chapter/write`;
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1280,null),true);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1440,null),false);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1280,'false'),false);
+ assert.equal(workflow.defaultBookNavigationCollapsed(chapter,1440,'true'),true);
+ assert.equal(workflow.defaultBookNavigationCollapsed(`/new-design/books/${bookId}/planning`,1280,null),false);
 });
 
-test('sidebar shrink releases layout width without floating overlays or editor unmounts',()=>{
- const css=read('src/client/bookNavigation/navigation.css'),navigation=read('src/client/bookNavigation/index.tsx');
- assert.match(css,/\.nd-book-navigation\.is-collapsed\{width:44px;padding:0\}/);
- assert.match(css,/grid-template-columns:auto minmax\(0,1fr\)/);
- assert.match(css,/@container\(min-width:800px\)/);
- assert.match(css,/\.nd-book-navigation-body\[hidden\]\{display:none\}/);
- assert.doesNotMatch(css,/position:absolute|box-shadow|z-index|nd-book-module-tabs|nd-book-tools/);
- assert.doesNotMatch(navigation,/collapsed&&.*TreeNavigation|!collapsed&&.*TreeNavigation/);
- assert.match(read('src/client/bookComposition/composition.css'),/@container nd-book-content \(min-width:900px\)/);
+test('intermediate writing widths show exactly the selected panel',()=>{
+ const css=fs.readFileSync(path.join(__dirname,'../src/client/new-design.css'),'utf8');
+ assert.match(css,/@container \(max-width: 979px\)[\s\S]*?\.nd-writing-layout > \* \{ display: none; \}/);
+ assert.match(css,/\.nd-writing-layout\.panel-editor > \.nd-writing-editor/);
+ assert.match(css,/@container \(min-width: 980px\)[\s\S]*?\.nd-writing-layout \{ grid-template-columns:/);
 });
 
-test('collapse only hides navigation and preserves the editor subtree and branch instances',()=>{
- const shell=read('src/client/BookShell.tsx'),navigation=read('src/client/bookNavigation/index.tsx');
- assert.doesNotMatch(shell,/collapsed|key=\{active\}/);
- assert.doesNotMatch(navigation,/setItem.*(?:draft|request)|newDesignApi|location\.|history\./);
- assert.match(navigation,/useMemo\(\(\)=>buildBookFunctionTree\(bookId\),\[bookId\]\)/);
- assert.match(navigation,/catch\{\/\* Navigation remains usable/);
-});
-
-test('composition directory shares the tree without replacing selection or body persistence',()=>{
- const composition=read('src/client/bookComposition/BookCompositionPage.tsx');
- assert.match(composition,/TreeNavigation,flatNavigation/);
- assert.match(composition,/parentId:object.parentObjectId/);
- assert.match(composition,/onSelect:\(\)=>select\(object\)/);
- assert.match(composition,/if\(!preserve\(\)\|\|object.bookId!==bookId/);
- assert.match(composition,/ChapterWritingPage key=\{bookId\}/);
- assert.doesNotMatch(composition,/role="treeitem"|const renderNodes=/);
+test('desktop writing keeps AI actions beside the body and references',()=>{
+ const page=fs.readFileSync(path.join(__dirname,'../src/client/chapterWriting/ChapterWritingPage.tsx'),'utf8');
+ const context=page.lastIndexOf('<aside className="nd-writing-context">');
+ const ai=page.lastIndexOf('<section className="nd-ai-writing-tools">');
+ const candidates=page.lastIndexOf('<section className="nd-writing-candidates">');
+ assert.ok(context>=0&&context<ai&&ai<candidates);
 });

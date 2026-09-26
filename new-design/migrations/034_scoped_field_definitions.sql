@@ -152,11 +152,16 @@ BEGIN
 
     FOR option_item IN SELECT value FROM jsonb_array_elements(COALESCE(item->'options','[]'::jsonb)) LOOP
       option_id:=CASE WHEN COALESCE(option_item->>'id','') ~* '^[0-9a-f-]{36}$' THEN (option_item->>'id')::uuid ELSE scoped_field_uuid(definition_id::text||':option:'||(option_item->>'value')) END;
-      INSERT INTO field_option_definitions(id,field_definition_id,option_key,status)
-      VALUES(option_id,definition_id,option_item->>'value','active') ON CONFLICT(id) DO UPDATE SET status='active',revision=field_option_definitions.revision+1,updated_at=now();
+      UPDATE field_option_definitions SET status='active',revision=revision+1,updated_at=now() WHERE id=option_id;
+      IF NOT FOUND THEN
+        INSERT INTO field_option_definitions(id,field_definition_id,option_key,status)
+        VALUES(option_id,definition_id,option_item->>'value','active');
+      END IF;
       option_version_id:=scoped_field_uuid(option_id::text||':version:'||version_row.id::text);
-      INSERT INTO field_option_versions(id,option_definition_id,version,label,created_by)
-      VALUES(option_version_id,option_id,version_row.version,option_item->>'label','system:type-version') ON CONFLICT DO NOTHING;
+      IF NOT EXISTS(SELECT 1 FROM field_option_versions WHERE id=option_version_id) THEN
+        INSERT INTO field_option_versions(id,option_definition_id,version,label,created_by)
+        VALUES(option_version_id,option_id,version_row.version,option_item->>'label','system:type-version');
+      END IF;
       UPDATE field_option_definitions SET current_version_id=option_version_id WHERE id=option_id;
     END LOOP;
   END LOOP;

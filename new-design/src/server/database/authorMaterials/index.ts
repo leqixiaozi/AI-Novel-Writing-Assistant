@@ -1,7 +1,8 @@
+import type {PoolClient} from "pg";
 import {z} from "zod";
 import type {AuthorMaterialWriteInput,AuthorMaterialWriteReceipt} from "../../../common/authorMaterials";
 import {getNewDesignPool} from "../runtime";
-import {createCard,updateCard} from "../store";
+import {createCard,createCardInTransaction,updateCard,updateCardInTransaction} from "../store";
 import {formHash} from "../formAssist";
 import {assertFound,NewDesignError} from "../../domain/errors";
 import {AuthorMaterialWriteError} from "./ledger";
@@ -16,3 +17,17 @@ async function write(bookId:string,cardId:string|null,input:AuthorMaterialWriteI
 export const createAuthorMaterial=(bookId:string,input:AuthorMaterialWriteInput)=>write(bookId,null,input);
 export const updateAuthorMaterial=(bookId:string,cardId:string,input:AuthorMaterialWriteInput)=>write(bookId,cardId,input);
 export async function readAuthorMaterialWriteReceipt(bookId:string,requestKey:string):Promise<AuthorMaterialWriteReceipt|null>{const pool=await getNewDesignPool(),client=await pool.connect();try{await client.query("BEGIN");const validatedBook=uuid.parse(bookId),validatedKey=uuid.parse(requestKey);await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[`author-material:${validatedBook}:${validatedKey}`]);const book=assertFound((await client.query("SELECT space_id FROM new_design.books WHERE id=$1",[validatedBook])).rows[0],"书籍来源不存在。");const row=(await client.query("SELECT version.author_write_receipt FROM new_design.card_versions version JOIN new_design.cards card ON card.id=version.card_id WHERE version.author_book_id=$1 AND version.author_request_key=$2 AND card.space_id=$3",[validatedBook,validatedKey,book.space_id])).rows[0];const receipt=row?row.author_write_receipt as AuthorMaterialWriteReceipt:null;await client.query("COMMIT");return receipt;}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+
+/** Standard author saving without owning the enclosing atomic batch commit. */
+export async function updateAuthorMaterialInTransaction(client:PoolClient,bookId:string,cardId:string,input:AuthorMaterialWriteInput):Promise<AuthorMaterialWriteReceipt>{
+ const parsed=authorMaterialWriteSchema.parse(input);if(!parsed.revision)throw new NewDesignError("资料修订未读取。",422);
+ const authorWrite={bookId,requestKey:parsed.requestKey,inputHash:formHash({bookId,cardId,operation:"update",input:parsed}),operation:"update" as const,cardTypeId:parsed.cardTypeId};
+ const saved=await updateCardInTransaction(client,cardId,{...parsed,revision:parsed.revision,authorWrite});return assertFound(saved.authorReceipt,"原保存回执未准备完成。");
+}
+
+/** Creates a new independent card through the same normal author writer. */
+export async function createAuthorMaterialInTransaction(client:PoolClient,bookId:string,input:AuthorMaterialWriteInput):Promise<AuthorMaterialWriteReceipt>{
+ const parsed=authorMaterialWriteSchema.parse(input);if(parsed.localValues&&Object.keys(parsed.localValues).length)throw new NewDesignError("新建资料不能携带原资料的独立补充信息。",422);
+ const book=assertFound((await client.query("SELECT space_id FROM new_design.books WHERE id=$1 AND status='active'",[bookId])).rows[0],"本书不存在或已归档。"),authorWrite={bookId,requestKey:parsed.requestKey,inputHash:formHash({bookId,cardId:null,operation:"create",input:parsed}),operation:"create" as const,cardTypeId:parsed.cardTypeId};
+ const saved=await createCardInTransaction(client,{...parsed,spaceId:String(book.space_id),authorWrite});return assertFound(saved.authorReceipt,"原新建资料回执未准备完成。");
+}

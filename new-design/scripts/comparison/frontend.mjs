@@ -10,7 +10,7 @@ const frontend = await createServer({
   base: legacy ? "/" : "/new-design/",
   server: {
     host: "127.0.0.1", port: legacy ? 5275 : 5274, strictPort: true, open: false,
-    hmr: { clientPort: 5273, path: legacy ? "__legacy_hmr" : "__new_hmr" },
+    hmr: { host: "127.0.0.1", clientPort: legacy ? 5275 : 5274, path: legacy ? "__legacy_hmr" : "__new_hmr" },
     watch: { ignored: ["**/.data/**"] },
   },
 });

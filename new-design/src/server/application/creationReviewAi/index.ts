@@ -27,7 +27,8 @@ export async function runCreationPreparationStage(sessionId:string,input:Creatio
  try{
   const prepared=preparePrompt(claim.plan.taskType,claim.plan.input);
   if(prepared.assetId!==claim.plan.assetId||prepared.version!==claim.plan.assetVersion||stableHash(prepared.outputSchema)!==stableHash(claim.plan.outputSchema)||stableHash(prepared.messages)!==stableHash(claim.plan.messages))throw new AiExecutionError("核对受控开书规格","本次受控提示规格已改变，模型请求尚未发送；请保留原请求并重新核对来源。",409);
-  const result=await executeManagedPrompt<CreationPreparationOutput>(claim.plan.taskType,prepared,{...dependencies,environment:undefined,routeResolver:async()=>claim.plan.route,snapshotWriter:async()=>claim.plan.modelSnapshot});
+  // Failure evidence stays in this batch's private execution record, not the public recovery receipt.
+  const result=await executeManagedPrompt<CreationPreparationOutput>(claim.plan.taskType,prepared,{...dependencies,retainFailedResponse:true,environment:undefined,routeResolver:async()=>claim.plan.route,snapshotWriter:async()=>claim.plan.modelSnapshot});
   output=result.output;modelSnapshot=result.modelSnapshot;usedTokens=result.usedTokens;
  }catch(error){
   const trace=error instanceof AiExecutionError?error.executionSnapshot??null:null,attempts=Array.isArray(trace?.attempts)?trace!.attempts as Array<{requestSent?:boolean;responseReceived?:boolean}>:[],lastSent=[...attempts].reverse().find(attempt=>attempt.requestSent),requestState=lastSent?.responseReceived?"completed":lastSent?"sent_unknown":"not_sent";

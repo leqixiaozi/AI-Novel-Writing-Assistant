@@ -1,3 +1,4 @@
+import {qualityIssueRows,qualityIssueVersionRows,worldConsistencyRequestRows} from '../../database/worldConsistency/records';
 import {z} from "zod";
 import type {WorldConsistencyInput,WorldConsistencyWorkspace} from "../../../common/worldConsistency";
 import {getWorldConsistencyPool as getNewDesignPool} from "../../database/worldConsistency";
@@ -12,9 +13,9 @@ import type {WorldConsistencyOutput} from "../../../common/worldConsistency";
 export {worldConsistencyInputSchema,WorldConsistencyError,getWorldConsistencyRepairDraft,getWorldRepairSavedReceipt,getWorldRepairNormalSaveReceipt,recordWorldRepairSaved} from "../../database/worldConsistency";
 export async function getWorldConsistencyWorkspace(bookId:string):Promise<WorldConsistencyWorkspace>{
  z.string().uuid().parse(bookId);const client=await(await getNewDesignPool()).connect();try{
-  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const catalog=await domain.readWorldConsistencyCatalog(client,bookId),ids=(await client.query("SELECT id FROM new_design.world_consistency_requests WHERE book_id=$1 ORDER BY created_at DESC LIMIT 100",[bookId])).rows,requests=[];
+  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");const catalog=await domain.readWorldConsistencyCatalog(client,bookId),ids=(await client.query(`SELECT id FROM ${worldConsistencyRequestRows} domain_record WHERE book_id=$1 ORDER BY created_at DESC LIMIT 100`,[bookId])).rows,requests=[];
   for(const row of ids)requests.push(domain.worldReceipt(assertFound(await domain.readWorldRequest(client,bookId,String(row.id)),"原检查回执不存在。")));
-  const issueIds=(await client.query("SELECT issue.id FROM new_design.quality_issues issue JOIN new_design.quality_issue_versions version ON version.id=issue.current_version_id WHERE issue.book_id=$1 AND version.category_key='world_consistency' ORDER BY issue.created_at DESC LIMIT 100",[bookId])).rows,issues=[];
+  const issueIds=(await client.query(`SELECT issue.id FROM ${qualityIssueRows} issue JOIN ${qualityIssueVersionRows} version ON version.id=issue.current_version_id WHERE issue.book_id=$1 AND version.category_key='world_consistency' ORDER BY issue.created_at DESC LIMIT 100`,[bookId])).rows,issues=[];
   for(const row of issueIds)issues.push(await getQualityIssueInTransaction(client,String(row.id)));await client.query("COMMIT");return{catalog,requests,issues};
  }catch(error){await client.query("ROLLBACK").catch(()=>undefined);throw error;}finally{client.release();}
 }

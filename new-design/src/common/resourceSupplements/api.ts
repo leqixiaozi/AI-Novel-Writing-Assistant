@@ -1,0 +1,27 @@
+import type {ResourceBackfillScope} from '../characterResources';
+import type {StableResourceSupplementBasis,ResourceSupplementPreview,ResourceSupplementPreviewInput,ResourceSupplementStartInput,ResourceSupplementStartReceipt,ResourceSupplementSettlementImpact} from './index';
+import type {ResourceSupplementCorrectionPreviewInput,ResourceSupplementCorrectionPreview,ResourceSupplementCorrectionStartInput,ResourceSupplementCorrectionStartReceipt,ResourceSupplementFrozenSource} from './correction';
+import type {ResourceSupplementImpactReviewInput,ResourceSupplementImpactReviewReceipt} from './review';
+import type {ResourceSupplementCommitInput,ResourceSupplementCommitReceipt} from './commit';
+import type {ResourceSupplementCorrectionCommitReceipt} from './correctionCommit';
+export interface ResourceSupplementIssue {issueId:string;chapterDocumentId:string;bodyVersionId:string;title:string;stateKey:string;sourceRoute:string;}
+export interface ResourceSupplementIssueSource {issue:Record<string,unknown>;resourceScope:ResourceBackfillScope;sourceRoute:string;}
+export interface ResourceSupplementApi {
+ getResourceSupplementChapterBasis(book:string,document:string):Promise<StableResourceSupplementBasis>;
+ listResourceSupplementIssues(book:string,character:string):Promise<ResourceSupplementIssue[]>;
+ getResourceSupplementIssueSource(book:string,issue:string):Promise<ResourceSupplementIssueSource>;
+ getResourceSupplementSource(book:string,session:string):Promise<ResourceSupplementFrozenSource>;
+ previewResourceSupplement(book:string,input:ResourceSupplementPreviewInput):Promise<ResourceSupplementPreview>;
+ startResourceSupplement(book:string,input:ResourceSupplementStartInput):Promise<ResourceSupplementStartReceipt>;
+ readResourceSupplementStartOriginal(book:string,input:ResourceSupplementStartInput):Promise<ResourceSupplementStartReceipt|null>;
+ previewResourceSupplementCorrection(book:string,input:ResourceSupplementCorrectionPreviewInput):Promise<ResourceSupplementCorrectionPreview>;
+ startResourceSupplementCorrection(book:string,input:ResourceSupplementCorrectionStartInput):Promise<ResourceSupplementCorrectionStartReceipt>;
+ readResourceSupplementCorrectionStartOriginal(book:string,input:ResourceSupplementCorrectionStartInput):Promise<ResourceSupplementCorrectionStartReceipt|null>;
+ previewResourceSupplementImpact(book:string,session:string):Promise<ResourceSupplementSettlementImpact>;
+ confirmResourceSupplementImpact(book:string,session:string,input:ResourceSupplementImpactReviewInput):Promise<ResourceSupplementImpactReviewReceipt>;
+ readResourceSupplementImpactOriginal(book:string,session:string,input:ResourceSupplementImpactReviewInput):Promise<ResourceSupplementImpactReviewReceipt|null>;
+ commitResourceSupplement(book:string,session:string,input:ResourceSupplementCommitInput):Promise<ResourceSupplementCommitReceipt>;
+ readResourceSupplementCommitOriginal(book:string,session:string,input:ResourceSupplementCommitInput):Promise<ResourceSupplementCommitReceipt|null>;
+ commitResourceSupplementCorrection(book:string,session:string,input:ResourceSupplementCommitInput):Promise<ResourceSupplementCorrectionCommitReceipt>;
+ readResourceSupplementCorrectionCommitOriginal(book:string,session:string,input:ResourceSupplementCommitInput):Promise<ResourceSupplementCorrectionCommitReceipt|null>;
+}

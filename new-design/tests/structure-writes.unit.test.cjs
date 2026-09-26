@@ -1,7 +1,8 @@
+const {compiled}=require('./support/isolatedDatabase.cjs');
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
-const {normalizeFormLocalField}=require('../dist/common/formLocalFieldNormalization');
-const runtime=require('../dist/server/database/runtime');
-const {executeStructureWrite,readStructureWriteReceipt,structureWriteHash,strictFormInputSchema,parseStructureWriteInput}=require('../dist/server/database/structureWrites');
+const {normalizeFormLocalField}=compiled('common/formLocalFieldNormalization');
+const runtime=compiled('server/database/runtime');
+const {executeStructureWrite,readStructureWriteReceipt,structureWriteHash,strictFormInputSchema,parseStructureWriteInput}=compiled('server/database/structureWrites');
 const key='00000000-0000-4000-8000-000000000101';
 const summary={id:'00000000-0000-4000-8000-000000000102',key:'template_fixture',name:'测试模板',description:'隔离假客户端',status:'draft',revision:1,currentVersion:null,currentVersionId:null,draftConfig:{},createdAt:'2026-09-17T00:00:00Z',updatedAt:'2026-09-17T00:00:00Z'};
 async function scoped(query,action){const previous=runtime.getNewDesignPool,client={query,release(){}};runtime.getNewDesignPool=async()=>({connect:async()=>client});try{return await action();}finally{runtime.getNewDesignPool=previous;}}

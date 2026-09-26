@@ -33,6 +33,7 @@ desktop/build/
 desktop/runtime-migration-smoke/
 server/prisma-diff-migrations-to-schema.sql
 new-design/.data/
+new-design/data/
 new-design/.logs/
 
 # AI tool artifacts
@@ -42,3 +43,6 @@ new-design/.logs/
 .codex-backups/
 .codex-runtime/
 .cursor/
+
+# Generated public copies of self-contained architecture artifacts
+site/public/architecture/

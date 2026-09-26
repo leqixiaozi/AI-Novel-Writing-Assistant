@@ -1,9 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const source=file=>fs.readFileSync(path.join(__dirname,'../src',file),'utf8');
-test('knowledge index original reads mount before mutating research recovery',()=>{
+test('knowledge index original reads are mounted without starting research recovery',()=>{
  const router=source('server/http/router.ts');
  assert.ok(router.indexOf('router.use(knowledgeIndexRouter())')>=0);
- assert.ok(router.indexOf('router.use(knowledgeIndexRouter())')<router.indexOf('void ensureResearchRecovery()'));
+ assert.doesNotMatch(router,/ensureResearchRecovery\(/);
  const http=source('server/http/knowledgeIndex/index.ts');
  assert.match(http,/if\(req\.method==="GET"\)delete recovery\.mutationOutcome/);
  assert.match(http,/const validated=error instanceof KnowledgeInputError/);

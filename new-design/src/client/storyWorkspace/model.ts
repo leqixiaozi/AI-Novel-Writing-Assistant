@@ -6,6 +6,10 @@ export type SettingTab = typeof SETTING_TABS[number]['key'];
 export type PlanningTab = typeof PLANNING_TABS[number]['key'];
 const worldKeys = ['world_setting','world_overview','world_rule','time_rule','power_system','race','culture','religion'];
 export function settingTabForType(key:string):SettingTab { return key==='character'?'characters':worldKeys.includes(key)?'world':['location','faction','organization'].includes(key)?'places':key==='prop'?'props':'other'; }
+export function defaultSettingSelection(query:URLSearchParams,cards:ReadonlyArray<Pick<BookViewCard,'id'>>,creating:boolean,tab:SettingTab):string {
+ if(query.has('selected'))return query.get('selected')??'';
+ return creating||!['world','characters'].includes(tab)?'':cards[0]?.id??'';
+}
 export function plansInScope(objects:PlanningObject[], scope:string):PlanningObject[] {
  if(scope==='book')return objects.filter(item=>item.status==='active');
  const root=objects.find(item=>item.id===scope&&item.status==='active');if(!root)return [];
@@ -21,5 +25,5 @@ export function cardsForDimension(cards:BookViewCard[], tab:PlanningTab):BookVie
 }
 export function settingHref(bookId:string,card:Pick<BookViewCard,'id'|'typeKey'>,returnTo?:string):string {const query=new URLSearchParams({tab:settingTabForType(card.typeKey),selected:card.id});if(returnTo)query.set('returnTo',returnTo);return `/new-design/books/${bookId}/story-setting?${query}`;}
 export function safePlanningReturn(bookId:string,raw:string|null):string|null {if(!raw)return null;try{const url=new URL(raw,'http://workspace.local');return url.origin==='http://workspace.local'&&url.pathname===`/new-design/books/${bookId}/planning`?url.pathname+url.search+url.hash:null;}catch{return null;}}
-export function hasAmbiguousNavigation(query:URLSearchParams):boolean {return ['tab','scope','selected','plan','type','new','detail','relation','returnTo'].some(key=>query.getAll(key).length>1);}
+export function hasAmbiguousNavigation(query:URLSearchParams):boolean {return ['tab','scope','selected','plan','type','new','detail','relation','returnTo','batch','batchMode','experienceBatch','recentExperienceBatch'].some(key=>query.getAll(key).length>1);}
 export function writingHref(bookId:string,chapterCardId?:string|null):string {return chapterCardId?`/new-design/books/${bookId}/chapters/${encodeURIComponent(chapterCardId)}/write`:`/new-design/books/${bookId}/writing`;}

@@ -65,13 +65,27 @@ test("managed model routes share existing facts with atomic publication and isol
     try {
       const credential = await routes.createManagedCredential({ name: "验证专用凭据", provider: "openai-compatible", environmentVariable: envName }, context);
       assert.equal(credential.available, true); assert.equal(Object.hasOwn(credential, "secretLocator"), false); assert.equal(JSON.stringify(credential).includes(process.env[envName]), false);
-      assert.equal(await routes.getManagedCredentialEnvironment(credential.id, "openai-compatible", context), envName);
+      assert.equal(await routes.getManagedCredentialEnvironment(credential.id, "openai-compatible", context), process.env[envName]);
       const repeated = await routes.createManagedCredential({ name: "验证专用凭据", provider: "openai-compatible", environmentVariable: envName }, context); assert.equal(repeated.id, credential.id);
       await assert.rejects(routes.createManagedCredential({ name: "验证专用凭据", provider: "ollama", environmentVariable: envName }, context), /已绑定其他凭据/);
       await assert.rejects(routes.createManagedCredential({ name: "越界引用", provider: "ollama", environmentVariable: "OPENAI_API_KEY" }, context));
       const oldId = randomUUID(); await client.query(`INSERT INTO ${schema}.model_credential_refs(id,credential_key,provider,secret_locator) VALUES($1,'旧专用外引用','openai-compatible','env://OPENAI_API_KEY')`, [oldId]);
       const catalog = await routes.getModelRouteCenterCatalog(context); assert.equal(catalog.credentials.find(item => item.id === oldId).available, false); assert.equal(JSON.stringify(catalog).includes("env://"), false); assert.equal(JSON.stringify(catalog).includes(process.env[envName]), false);
     } finally { delete process.env[envName]; }
+  });
+  await t.test("database credentials are encrypted, redacted and usable after the source environment disappears", async () => {
+    const secret = 'fixture-secret-for-database-only';
+    const credential = await routes.saveManagedCredentialSecret({ name: '数据库专用凭据', provider: 'anthropic-compatible', apiKey: secret, credentialId: null }, context);
+    assert.equal(credential.available, true);
+    assert.equal(await routes.getManagedCredentialSecret(credential.id, 'anthropic-compatible', context), secret);
+    const raw = (await client.query(`SELECT secret_locator,secret_envelope FROM ${schema}.model_credential_refs WHERE id=$1`, [credential.id])).rows[0];
+    assert.equal(raw.secret_locator, 'secret://database');
+    assert.equal(Buffer.isBuffer(raw.secret_envelope), true);
+    assert.equal(raw.secret_envelope.includes(Buffer.from(secret)), false);
+    const catalog = await routes.getModelRouteCenterCatalog(context);
+    assert.equal(JSON.stringify(catalog).includes(secret), false);
+    await assert.rejects(routes.getManagedCredentialSecret(credential.id, 'openai-compatible', context));
+    await assert.rejects(routes.saveManagedCredentialSecret({ name: '数据库专用凭据', provider: 'anthropic-compatible', apiKey: 'other-secret', credentialId: null }, context), /已存在/);
   });
   await t.test("unsupported legacy parameters require explicit replacement and retain exact old content", async () => {
     const id = randomUUID(), versionId = randomUUID();

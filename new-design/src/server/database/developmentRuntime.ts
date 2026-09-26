@@ -1,12 +1,14 @@
+import {requireTablesOnlyInstallation} from './tablesOnly';
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { Pool } from "pg";
-import type { PrivateRuntimeDiagnosticCheck, PrivateRuntimeDiagnostics } from "../../common/contracts";
+import type { PrivateRuntimeDiagnosticCheck, PrivateRuntimeDiagnostics, PrivateRuntimeStatus } from "../../common/contracts";
 import { migrations } from "./migrations";
 import { resolveDockerTarget, matchesDockerStorage, assertNewDataDirectory } from "../../../scripts/development/docker-target.cjs";
 import { readDevelopmentConfig, dockerEnvironment, type DevelopmentRuntimeConfig } from "../../../scripts/development/environment.cjs";
+import { deriveModelCredentialKey } from "./credentialCrypto";
 
 export interface DevelopmentDatabaseRuntime {
   pool: Pool;
@@ -26,6 +28,18 @@ const DEVELOPMENT_ROOT = path.resolve(__dirname, "../../..");
 const ENV_FILE = path.join(DEVELOPMENT_ROOT, ".env");
 let activeRuntime: DevelopmentDatabaseRuntime | null = null;
 let startingRuntime: Promise<DevelopmentDatabaseRuntime> | null = null;
+let developmentWorkerRuntime: PrivateRuntimeStatus["workerRuntime"] = "not_started";
+let loadedBackgroundHandlers: string[] = [];
+
+export function setDevelopmentWorkerRuntime(status: PrivateRuntimeStatus["workerRuntime"], handlers: string[] = []): void {
+  developmentWorkerRuntime = status;
+  loadedBackgroundHandlers = handlers;
+}
+
+export function getUnloadedBackgroundHandlers(activeHandlers: string[], loadedHandlers: string[]): string[] {
+  const loaded = new Set(loadedHandlers);
+  return [...new Set(activeHandlers.filter((handler) => !loaded.has(handler)))].sort();
+}
 
 export function isDevelopmentDatabaseRuntimeEnabled(): boolean {
   return process.env.AI_NOVEL_NEW_DESIGN_DEV_RUNTIME === "1";
@@ -48,6 +62,11 @@ function runCommand(executable: string, args: string[], environment?: NodeJS.Pro
 
 async function readRuntimeConfig(): Promise<DevelopmentRuntimeConfig> {
   return readDevelopmentConfig(DEVELOPMENT_ROOT);
+}
+
+export async function getDevelopmentDatabaseCredentialKey(): Promise<Buffer> {
+  const config = await readRuntimeConfig();
+  return deriveModelCredentialKey(config.password, config.database);
 }
 
 function canConnect(port: number): Promise<boolean> {
@@ -113,38 +132,13 @@ async function waitForDatabase(config: DevelopmentRuntimeConfig): Promise<Pool> 
 }
 
 async function ensureExtensions(pool: Pool): Promise<{ age: string; vector: string; pgTrgm: string }> {
-  await pool.query("CREATE EXTENSION IF NOT EXISTS age");
   await pool.query("LOAD 'age'");
-  await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
-  await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
   const result = await pool.query<{ extname: string; extversion: string }>("SELECT extname,extversion FROM pg_extension WHERE extname=ANY($1::text[])", [["age", "vector", "pg_trgm"]]);
   const versions = new Map(result.rows.map((row) => [row.extname, row.extversion]));
   if (!versions.get("age") || !versions.get("vector") || !versions.get("pg_trgm")) throw new Error("开发数据库没有完整加载 AGE、pgvector 和 pg_trgm。");
   return { age: versions.get("age")!, vector: versions.get("vector")!, pgTrgm: versions.get("pg_trgm")! };
 }
 
-async function applyMigrations(pool: Pool): Promise<number> {
-  await pool.query("CREATE SCHEMA IF NOT EXISTS new_design");
-  await pool.query("CREATE TABLE IF NOT EXISTS new_design.schema_migrations(id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
-  for (const migration of migrations) {
-    const found = await pool.query("SELECT 1 FROM new_design.schema_migrations WHERE id=$1", [migration.id]);
-    if (found.rowCount) continue;
-    const sql = await fs.readFile(path.resolve(__dirname, "../../../migrations", migration.fileName), "utf8");
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(sql);
-      await client.query("INSERT INTO new_design.schema_migrations(id) VALUES($1) ON CONFLICT(id) DO NOTHING", [migration.id]);
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-  return Number((await pool.query("SELECT count(*) value FROM new_design.schema_migrations")).rows[0]?.value ?? 0);
-}
 
 async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDatabaseRuntime> {
   if (process.env.NEW_DESIGN_DATABASE_URL?.trim()) throw new Error("开发态不接受系统 PostgreSQL 连接串；只使用项目定义的 AGE + pgvector 数据库容器。");
@@ -152,8 +146,8 @@ async function initializeDevelopmentDatabaseRuntime(): Promise<DevelopmentDataba
   await startCompose(config);
   const pool = await waitForDatabase(config);
   try {
+    const migrationCount = await requireTablesOnlyInstallation(pool);
     const extensions = await ensureExtensions(pool);
-    const migrationCount = await applyMigrations(pool);
     const version = await pool.query<{ server_version: string }>("SHOW server_version");
     activeRuntime = { pool, postgresVersion: version.rows[0]?.server_version ?? "unknown", ageVersion: extensions.age, vectorVersion: extensions.vector, pgTrgmVersion: extensions.pgTrgm, port: config.port, migrationCount, storageType: resolveDockerTarget(config).mountType };
     return activeRuntime;
@@ -176,6 +170,8 @@ export async function startDevelopmentDatabaseRuntime(): Promise<DevelopmentData
 export async function stopDevelopmentDatabaseRuntime(): Promise<void> {
   const runtime = activeRuntime;
   activeRuntime = null;
+  developmentWorkerRuntime = "stopped";
+  loadedBackgroundHandlers = [];
   if (runtime) await runtime.pool.end();
 }
 
@@ -185,19 +181,24 @@ function check(key: string, status: PrivateRuntimeDiagnosticCheck["status"], sum
 
 export async function getDevelopmentRuntimeDiagnostics(): Promise<PrivateRuntimeDiagnostics> {
   const runtime = activeRuntime ?? await startDevelopmentDatabaseRuntime();
-  const [queue, backup] = await Promise.all([
+  const [queue, backup, consumers, queuedByHandler] = await Promise.all([
     runtime.pool.query("SELECT count(*) FILTER(WHERE status IN ('queued','leased','running','retry_scheduled','cancel_requested')) active, count(*) FILTER(WHERE status='dead_letter') dead FROM new_design.background_jobs"),
     runtime.pool.query("SELECT max(completed_at) latest FROM new_design.transfer_operations WHERE operation_kind='full_backup' AND status IN ('ready','archived')"),
+    runtime.pool.query("SELECT DISTINCT handler_key FROM new_design.outbox_consumers WHERE status='active'"),
+    runtime.pool.query("SELECT handler_key,count(*) value FROM new_design.background_jobs WHERE status IN ('queued','retry_scheduled') GROUP BY handler_key"),
   ]);
   const queueRow = queue.rows[0];
+  const unloaded = getUnloadedBackgroundHandlers(consumers.rows.map((row) => String(row.handler_key)), loadedBackgroundHandlers);
+  const waitingWithoutHandler = queuedByHandler.rows.reduce((count, row) => count + (unloaded.includes(String(row.handler_key)) ? Number(row.value) : 0), 0);
+  const queueHealthy = developmentWorkerRuntime === "ready" && unloaded.length === 0 && Number(queueRow?.dead ?? 0) === 0;
   return {
-    status: { phase: "ready", packageAvailable: true, packageIntegrity: "unknown", runtimeId: "development-age-pgvector", manifestSha256: null, installationId: null, dataGeneration: runtime.storageType === "bind" ? "docker-bind" : "docker-volume", databaseReady: true, host: "127.0.0.1", port: runtime.port, versions: { application: "development", node: process.version, postgresql: runtime.postgresVersion, age: runtime.ageVersion, pgvector: runtime.vectorVersion, pgTrgm: runtime.pgTrgmVersion }, migrationsExpected: migrations.length, migrationsApplied: runtime.migrationCount, workerRuntime: "not_started", lastCleanShutdown: null, lastErrorCode: "", lastErrorSummary: "", logLocator: "logs/postgres.log", updatedAt: new Date().toISOString() },
+    status: { phase: queueHealthy ? "ready" : "degraded", packageAvailable: true, packageIntegrity: "unknown", runtimeId: "development-age-pgvector", manifestSha256: null, installationId: null, dataGeneration: runtime.storageType === "bind" ? "docker-bind" : "docker-volume", databaseReady: true, host: "127.0.0.1", port: runtime.port, versions: { application: "development", node: process.version, postgresql: runtime.postgresVersion, age: runtime.ageVersion, pgvector: runtime.vectorVersion, pgTrgm: runtime.pgTrgmVersion }, migrationsExpected: migrations.length, migrationsApplied: runtime.migrationCount, workerRuntime: developmentWorkerRuntime, lastCleanShutdown: null, lastErrorCode: "", lastErrorSummary: "", logLocator: "logs/postgres.log", updatedAt: new Date().toISOString() },
     checks: [
       check("runtime.package", "warning", "开发环境使用项目 Dockerfile 构建的 PostgreSQL，不执行发布运行包 manifest 校验。", "正式打包前再装配并校验私有运行包。"),
       check("runtime.directories", "passed", runtime.storageType === "bind" ? "开发数据保存在配置的宿主机目录中。" : "开发数据保存在 Docker 命名卷中。", "跨机器同步请使用数据导出或 pg_dump，不复制运行中的数据库文件。"),
       check("runtime.extensions", "passed", `AGE ${runtime.ageVersion}，pgvector ${runtime.vectorVersion}，pg_trgm ${runtime.pgTrgmVersion}。`, ""),
-      check("runtime.migrations", runtime.migrationCount === migrations.length ? "passed" : "failed", `已登记 ${runtime.migrationCount}/${migrations.length} 个迁移。`, "迁移不完整时查看容器日志。"),
-      check("runtime.queue", Number(queueRow?.dead ?? 0) > 0 ? "warning" : "passed", `活动作业 ${Number(queueRow?.active ?? 0)}，死信 ${Number(queueRow?.dead ?? 0)}。`, "在运行维护中处理积压与死信。"),
+      check("runtime.migrations", runtime.migrationCount === migrations.length ? "passed" : "failed", `已登记默认迁移 ${runtime.migrationCount}/${migrations.length} 项；手动迁移另行登记。`, "迁移不完整时查看容器日志。"),
+      check("runtime.queue", queueHealthy ? "passed" : "warning", `后台执行器 ${developmentWorkerRuntime}；活动作业 ${Number(queueRow?.active ?? 0)}，其中 ${waitingWithoutHandler} 个等待未接通处理器；未接通 ${unloaded.length} 类，死信 ${Number(queueRow?.dead ?? 0)}。`, unloaded.length ? `未接通：${unloaded.join("、")}。接通处理器前不要重试或重新派发这些任务。` : developmentWorkerRuntime === "ready" ? "在运行维护中处理积压与死信。" : "核对独立服务的后台执行器启动状态，再处理原作业。"),
       check("runtime.backup", backup.rows[0]?.latest ? "passed" : "warning", backup.rows[0]?.latest ? `最近完整备份：${new Date(String(backup.rows[0].latest)).toISOString()}` : "尚无可验证完整备份。", "跨机器开发前先完成数据导出或完整备份。"),
     ],
     checkedAt: new Date().toISOString(),

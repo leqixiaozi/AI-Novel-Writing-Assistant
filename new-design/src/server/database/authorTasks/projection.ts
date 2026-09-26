@@ -7,7 +7,7 @@ const STATUS_GROUPS:Record<AuthorTaskStatus,string[]>={
  review:["review","waiting_direction","waiting_approval","paused","reviewing","adopted_pending_proposals","pending_review","partially_confirmed"],
  completed:["succeeded","completed","applied","adopted","stable"],ended:["cancelled","discarded","released","archived"],
 };
-const AI_KINDS=["ai_task","creation_batch","planning_run","production_director","writing_request","settlement_extraction"];
+const AI_KINDS=["story_batch","ai_task","creation_batch","planning_run","production_director","writing_request","settlement_extraction"];
 const quoted=(values:string[])=>values.map(value=>`'${value}'`).join(",");
 /** SQL and presentation consume the same fixed state groups; these are not AI routing rules. */
 const DIRECTOR_STATUS_SQL=`WHEN kind='production_director' THEN CASE WHEN status='cancelled' THEN 'ended' WHEN status='failed' AND COALESCE((meta->>'endedUnknownCount')::integer,0)>0 THEN 'unknown' WHEN status='failed' THEN 'attention' WHEN status IN ('running','waiting_recovery') AND COALESCE((meta->>'unknownRequestCount')::integer,0)>0 THEN 'unknown' WHEN status='waiting_recovery' OR status='running' AND meta->>'leaseExpired'='true' THEN CASE WHEN COALESCE((meta->>'replyPendingCount')::integer,0)>0 OR COALESCE((meta->>'ledgerPendingCount')::integer,0)>0 OR COALESCE((meta->>'boundaryPendingCount')::integer,0)>0 THEN 'review' ELSE 'unknown' END WHEN status='ready' THEN 'pending' WHEN status='paused' THEN 'review' WHEN status='completed' THEN 'completed' WHEN status='running' THEN 'running' ELSE 'unknown' END`;

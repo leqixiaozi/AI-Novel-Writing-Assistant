@@ -5,6 +5,7 @@ export {
   getChapterBodySwitchImpactContract,
   getChapterSettlementWorkspace,
   getNextChapterStableContext,
+  getNextChapterStableContextInTransaction,
   ingestChapterProposalExtractionResult,
   settleChapterAdoptionSession,
   updateChapterSettlementItem,
@@ -19,5 +20,9 @@ export {
   createChapterSettlementEditingAiItems,
 } from "./editingCommands";
 export {withSettlementDatabasePool} from "./transaction";
-export {SettlementEditingError} from "./editingPolicy";
+export {SettlementEditingError,displaySettlementValue} from "./editingPolicy";
 export * from "./relationConfiguration";
+export { readFrozenSupplementSource,assertResourceSupplementCandidateContract } from "./supplementRead";
+export {readResourceSupplementSettlementChangesInTransaction} from "./supplementRead/settlementPreview";
+export {writeResourceSupplementMergedSettlementInTransaction} from './supplementWrite';
+export type {ResourceSupplementMergedWrite} from './supplementWrite';

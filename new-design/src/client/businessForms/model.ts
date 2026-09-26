@@ -1,3 +1,4 @@
+import {selectPublishedBusinessForm} from "../../common/referenceParity";
 import type { CardGroupFormSummary, CardGroupFormVersion, CardSummary, CardTypeSummary, FieldDefinition } from "../../common/contracts";
 
 export type BusinessFormScope = "overview" | "all" | "characters" | "world" | "events" | "chapters" | "clues" | "resources";
@@ -72,6 +73,8 @@ export interface FormResolution {
   sourceLabel: string;
   formId: string | null;
   formVersion: number | null;
+  formVersionId:string|null;
+  needsSelection:boolean;
   typeVersion: number;
   fields: FieldDefinition[];
 }
@@ -93,16 +96,13 @@ function presentFields(type: CardTypeSummary, fields: FieldDefinition[]): FieldD
   });
 }
 
-export function resolveBusinessForm(type: CardTypeSummary, fields: FieldDefinition[], forms: CardGroupFormSummary[], versionsByForm: Map<string, CardGroupFormVersion[]>): FormResolution {
-  const installed = forms.find((form) => {
-    const published = versionsByForm.get(form.id)?.find((version) => version.id === form.currentVersionId);
-    return form.status === "published" && published?.definition.primaryTypeKey === type.key;
-  });
+export function resolveBusinessForm(type: CardTypeSummary, fields: FieldDefinition[], forms: CardGroupFormSummary[], versionsByForm: Map<string, CardGroupFormVersion[]>,activeVersionId?:string): FormResolution {
+  const {form:installed,version:installedVersion,needsSelection}=selectPublishedBusinessForm(type.key,forms,versionsByForm,activeVersionId);
   const hasSchemaLayout = fields.some((field) => field.group.trim());
   const hasMatureDefault = Boolean(GROUP_ORDER[type.key]);
   const source: FormResolution["source"] = installed ? "installed_form" : hasSchemaLayout ? "type_schema" : hasMatureDefault ? "system_default" : "generic";
   const sourceLabel = installed
-    ? `${installed.name} v${installed.currentVersion}`
+    ? `${installed.name} v${installedVersion!.version}`
     : source === "type_schema" ? `内容规格 v${type.currentVersion}`
       : source === "system_default" ? "系统默认布局" : "通用安全布局";
   return {
@@ -110,7 +110,9 @@ export function resolveBusinessForm(type: CardTypeSummary, fields: FieldDefiniti
     source,
     sourceLabel,
     formId: installed?.id ?? null,
-    formVersion: installed?.currentVersion ?? null,
+    formVersion: installedVersion?.version ?? null,
+    formVersionId:installedVersion?.id??null,
+    needsSelection,
     typeVersion: type.currentVersion ?? 0,
     fields: presentFields(type, fields),
   };
