@@ -20,8 +20,6 @@
 .nd-resource-browser-detail { display: grid; gap: 1rem; padding: 1rem; background: var(--nd-paper); border-radius: var(--radius); }
 .nd-resource-browser-detail h2,.nd-resource-browser-detail p { margin: 0; }
 .nd-resource-browser-detail > p { color: var(--nd-muted); line-height: 1.6; }
-.nd-resource-browser-actions,.nd-resource-browser-recovery { display: flex; flex-wrap: wrap; align-items: end; gap: .7rem; }
-.nd-resource-browser-recovery details { flex-basis: 100%; }
 .nd-resource-browser-category-items { list-style: none; padding: 0; margin: 0; }
 .nd-resource-browser-category-items button { display: flex; justify-content: space-between; gap: .5rem; min-height: 44px; width: 100%; padding: .6rem; color: var(--nd-ink); background: transparent; border: 0; text-align: left; cursor: pointer; }
 .nd-resource-browser button:focus-visible { outline: 2px solid var(--nd-accent); outline-offset: 2px; }

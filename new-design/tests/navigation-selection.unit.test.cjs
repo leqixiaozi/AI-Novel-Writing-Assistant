@@ -14,7 +14,8 @@ test('new-design menu chooses only the most specific visible entry',()=>{
  assert.equal(newDesignCurrentMenuHref('/new-design/books/example/planning'),'/new-design/books');
  assert.equal(newDesignCurrentMenuHref('/new-design/resources/characters'),'/new-design/resources');
  assert.equal(newDesignCurrentMenuHref('/new-design/resources/titles'),'/new-design/resources/titles');
- assert.equal(newDesignCurrentMenuHref('/new-design/resources/professional'),'/new-design/resources/professional');
+ assert.equal(newDesignCurrentMenuHref('/new-design/resources/professional'),'/new-design/resources');
+ assert.equal(navigation.NEW_DESIGN_NAV_GROUPS.find(group=>group.key==='resources').items.some(item=>item.key==='professional'),false);
  assert.equal(newDesignCurrentMenuHref('/new-design/structure/models'),'/new-design/structure/models');
  assert.equal(newDesignCurrentMenuHref('/novels'),undefined);
 });

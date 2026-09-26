@@ -18,7 +18,6 @@ export const NEW_DESIGN_PRIMARY_NAV = [
   { key: "drama", label: "短剧工作台 Beta", href: "/new-design/drama" },
   { key: "resources", label: "创作资源", href: "/new-design/resources" },
   { key: "titles", label: "开书前标题", href: "/new-design/resources/titles" },
-  { key: "professional", label: "资源工作台", href: "/new-design/resources/professional" },
   { key: "research", label: "研究与分析", href: "/new-design/research" },
   { key: "knowledge", label: "知识与参考", href: "/new-design/knowledge" },
   { key: "records", label: "运行记录", href: "/new-design/operations/records" },
@@ -42,7 +41,7 @@ export const NEW_DESIGN_ADVANCED_NAV = [
 export const NEW_DESIGN_NAV_GROUPS = [
   {key:"create",label:"开始与创作",items:NEW_DESIGN_PRIMARY_NAV.filter(item=>["home","guide","creative-hub","books"].includes(item.key))},
   {key:"derivatives",label:"衍生工作台",items:NEW_DESIGN_PRIMARY_NAV.filter(item=>["comic","drama"].includes(item.key))},
-  {key:"resources",label:"资源与研究",items:NEW_DESIGN_PRIMARY_NAV.filter(item=>["resources","titles","professional","research","knowledge"].includes(item.key))},
+  {key:"resources",label:"资源与研究",items:NEW_DESIGN_PRIMARY_NAV.filter(item=>["resources","titles","research","knowledge"].includes(item.key))},
   {key:"runtime",label:"运行与设置",items:[...NEW_DESIGN_PRIMARY_NAV.filter(item=>["records","director-control"].includes(item.key)),...NEW_DESIGN_ADVANCED_NAV]},
 ] as const;
 

@@ -11,7 +11,7 @@ const capabilityGroups = [
   ] },
   { title: "知识与质量", description: "维护知识索引与质量规则，供创作流程按明确来源使用。", links: [
     { label: "知识与参考", detail: "上传、解析、索引并绑定知识来源。", href: "/new-design/knowledge" },
-    { label: "反 AI 与质量规则", detail: "维护可复用的质量检查与表达约束。", href: "/new-design/resources/strategies?type=quality_rule" },
+    { label: "反 AI 与质量规则", detail: "维护可复用的质量检查与表达约束。", href: "/new-design/resources/professional?type=quality_rule" },
   ] },
   { title: "运行维护", description: "检查数据库、任务、备份和本地运行状态。", links: [
     { label: "运行维护", detail: "查看运行环境状态和需要人工处理的维护信息。", href: "/new-design/structure/maintenance" },

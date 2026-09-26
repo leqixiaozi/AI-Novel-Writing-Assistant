@@ -13,6 +13,8 @@ test('strategy catalog reaches the original resource without a page jump',()=>{
  const input=empty();input.strategies=[card];const nodes=api.buildResourceCatalog(input);
  const node=nodes.find(item=>item.id==='strategies').children.find(item=>item.id==='strategy:genre_strategy').children[0];
  assert.equal(node.name,card.title);assert.equal(node.selection.card,card);assert.equal(node.selection.editable,true);
+ assert.equal(node.selection.href,'/new-design/resources/professional?resource=original-id');
+ assert.equal(api.findResourceSelection(nodes,'strategy:genre_strategy').href,'/new-design/resources/professional?type=genre_strategy');
  assert.equal(api.findResourceSelection(nodes,'card:original-id').card.id,'original-id');
 });
 test('search retains ancestor path and does not change original selection identity',()=>{
@@ -49,9 +51,10 @@ test('resource organization uses the real strategy space and does not merge book
  assert.equal(api.findResourceSelection(scoped,'dictionary:private'),null);
  assert.equal(api.findResourceSelection(scoped,'tag:private'),null);
 });
-test('resource editor uses exact version fields and retains explicit recovery guards',()=>{
+test('resource preview keeps exact version fields and sends writes to the professional workbench',()=>{
  const source=fs.readFileSync(path.join(__dirname,'../src/client/resourceBrowser/ResourceCardDetail.tsx'),'utf8');
  assert.match(source,/item\.id===card\.typeVersionId/);assert.doesNotMatch(source,/draftFields/);
- assert.match(source,/setUncertain\(true\)/);assert.match(source,/onGuard\(busy\|\|dirty\|\|uncertain\)/);
- assert.match(source,/读取服务器内容/);assert.match(source,/保留填写，按核对后的修订继续/);
+ assert.match(source,/preview/);
+ assert.doesNotMatch(source,/api\.updateCard|api\.installStrategyResource/);
+ assert.match(source,/selection\.href/);
 });
