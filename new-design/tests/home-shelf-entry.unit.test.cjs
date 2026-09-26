@@ -21,7 +21,7 @@ function load(relative){
 }
 const panels=load('client/home/panels.tsx'),support=load('client/home/HomeSupportingPanels.tsx'),presentation=load('common/home/presentation.ts'),workflow=load('client/bookNavigation/workflow.ts'),{BookCard}=load('client/bookshelf/index.tsx');
 function book(overrides={}){return {id:'41000000-0000-4000-8000-000000000002',name:'Fixture',description:'',createdAt:'2026-09-16T00:00:00Z',updatedAt:'2026-09-17T00:00:00Z',characterCount:1,worldCount:1,writtenChapterCount:1,stableChapterCount:0,adoptedChapterPlanCount:3,writableChapterPlanCount:1,runningTasks:0,queuedTasks:0,waitingTasks:0,pendingFacts:0,pendingChanges:0,latestTask:null,latestDirector:null,lastChapterCardId:null,revision:1,candidateCount:0,wordCount:20,cover:null,...overrides};}
-const render=props=>renderToStaticMarkup(React.createElement(BookCard,{book:book(props),layout:'workbench',locked:false,onArchive:noop,onOpen:noop,onDownload:noop,downloading:false,onChanged:noop}));
+const render=props=>renderToStaticMarkup(React.createElement(BookCard,{book:book(props),featured:false,locked:false,onArchive:noop,onOpen:noop,onDownload:noop,downloading:false,onChanged:noop}));
 test('first-book entry renders actionable short and manual creation links with the actual parameters',()=>{
  const html=renderToStaticMarkup(React.createElement(panels.HomeHero,{book:null,draft:null}));
  assert.match(html,/href="\/new-design\/books\/new\?method=idea&amp;mode=automatic&amp;form=short_story"/);
@@ -44,4 +44,14 @@ test('live director exposes the inspect action while rendering every shared work
  const nav=html.match(/<nav class="nd-shelf-steps"[^>]*>(.*?)<\/nav>/)[1];
  assert.equal((nav.match(/<a /g)||[]).length,8);
  for(const step of workflow.BOOK_WORKFLOW_STEPS)assert.ok(nav.includes('/'+step.path.replaceAll('&','&amp;')));
+});
+test('merged book card keeps a cover, one continuation action and secondary workbench tools in a closed disclosure',()=>{
+ const html=render({name:'合并作品'});
+ assert.match(html,/aria-label="预览《合并作品》已保存稿"/);
+ assert.match(html,/class="nd-button nd-button-primary nd-shelf-continue"/);
+ assert.match(html,/<details class="nd-shelf-more"><summary>更多操作与项目详情<\/summary>/);
+ assert.match(html,/<nav class="nd-shelf-steps"/);
+ assert.match(html,/AI 驾驶舱/);
+ assert.match(html,/<details class="nd-shelf-runtime"><summary>运行记录与后台状态<\/summary>/);
+ assert.doesNotMatch(html,/class="nd-shelf-book is-workbench"/);
 });
