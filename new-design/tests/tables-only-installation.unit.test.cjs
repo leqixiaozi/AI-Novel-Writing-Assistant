@@ -11,7 +11,7 @@ function load(relative,mocks={}){
  return exports;
 }
 const installation=load('database/tablesOnly.ts');
-const baseline='132_card_kernel_tables_only',upgrade='133_card_kernel_tables_only_upgrade';
+const baseline='132_card_kernel_tables_only',upgrade='133_card_kernel_tables_only_upgrade',assembly='134_card_template_assembly';
 const errors=load('domain/errors.ts');
 const workflow=load('database/cardWorkflow/index.ts',{
  'node:crypto':require('node:crypto'),'../../domain/errors':errors,
@@ -26,8 +26,9 @@ function installationFixture({migrations=[upgrade],found={ledger:true,capability
   if(calls.length===1)return {rows:found?[found]:[]};
   assert.equal(calls.length,2);assert.deepEqual(args,[baseline,upgrade]);
   assert.match(sql,/WHERE id IN \(\$1,\$2\)/);
+  assert.match(sql,/WHERE id='134_card_template_assembly'/);
   assert.match(sql,/capability_key='card_kernel_v2' AND installed AND operational AND details->>'storage'='tables_only'/);
-  return {rows:missingResult?[]:[{installed:migrations.some(id=>args.includes(id)),ready:true,application_tables:'79',projection_tables:'4',views:'0',compatibility_schema:false,...overrides}]};
+  return {rows:missingResult?[]:[{installed:migrations.some(id=>args.includes(id)),assembly_installed:migrations.includes(assembly),ready:true,application_tables:'79',projection_tables:'4',views:'0',compatibility_schema:false,...overrides}]};
  }};
  return {pool,calls,migrations};
 }
@@ -39,6 +40,12 @@ test('tables-only readiness accepts either the true empty baseline or the retain
   assert.equal(await installation.requireTablesOnlyInstallation(fixture.pool),1);
   assert.deepEqual(fixture.migrations,[migration]);readonly(fixture.calls);
  }
+});
+
+test('a completed card assembly migration accepts the added table and counts both default migrations',async()=>{
+ const fixture=installationFixture({migrations:[baseline,assembly],overrides:{application_tables:'80',assembly_installed:true}});
+ assert.equal(await installation.requireTablesOnlyInstallation(fixture.pool),2);
+ readonly(fixture.calls);
 });
 
 test('131 alone and missing migration or capability catalogs fail closed with incremental-upgrade guidance',async()=>{
